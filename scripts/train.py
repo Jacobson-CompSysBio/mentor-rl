@@ -2,6 +2,7 @@
 import os, sys, glob, time
 import argparse
 import numpy as np
+import tqdm.auto as tqdm
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -59,6 +60,10 @@ log_path = '../logs/log.txt'
 with open(log_path, 'w') as f:
     f.write('epoch,train_loss,val_loss\n')
 
+# pbar
+train_pbar = tqdm.tqdm(range(len(train_loader)), desc='Train')
+val_pbar = tqdm.tqdm(range(len(val_loader)), desc='Val')
+
 # loop through epochs
 for epoch in range(num_epochs):
     # instantiate loss tracking
@@ -66,7 +71,8 @@ for epoch in range(num_epochs):
     val_loss = 0.0
 
     # backprop
-    for batch in train_loader:
+    model.train()
+    for batch in tqdm(train_loader):
         # load batches + send to device
         x, y = batch
         x, y = x.to(device), y.to(device)
@@ -78,16 +84,20 @@ for epoch in range(num_epochs):
         L.backward()
         train_loss += L.item()
         optimizer.step()
+        train_pbar.update(1)
     # average loss for epoch
     avg_train_loss = train_loss / len(train_loader)
 
     # validation
-    for batch in val_loader:
-        x, y = batch
-        x, y = x.to(device), y.to(device)
-        y_pred = model(x)
-        L = loss(y_pred, y)
-        val_loss += L.item()
+    model.eval()
+    with torch.no_grad():
+        for batch in tqdm(val_loader):
+            x, y = batch
+            x, y = x.to(device), y.to(device)
+            y_pred = model(x)
+            L = loss(y_pred, y)
+            val_loss += L.item()
+            val_pbar.update(1)
     avg_val_loss = val_loss / len(val_loader)
 
     # update best loss
@@ -106,3 +116,7 @@ for epoch in range(num_epochs):
     # print model inference
     if num_epochs % 5 == 0:
         print(model.inference(x))
+    
+    # clear output, reset pbar
+    train_pbar.reset()
+    val_pbar.reset()
