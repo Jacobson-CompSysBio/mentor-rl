@@ -17,6 +17,7 @@ from utils.dataset import CustomDataset
 from utils.model import CustomModel
 from utils.loss import CustomLoss
 
+
 ## CONFIG
 device = GetLowestGPU() # only need for DGX
 train_split = 0.8
@@ -52,7 +53,7 @@ model = model.to(device)
 
 # optimizer and loss
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
-loss = CustomLoss() # skeleton code for loss rn
+loss_fn = CustomLoss() # skeleton code for loss rn
 best_loss = np.inf()
 best_loss_epoch = 0
 save_path = '../checkpoints/'
@@ -80,7 +81,7 @@ for epoch in range(num_epochs):
         # zero grad, forward, backward, step
         optimizer.zero_grad()
         y_pred = model(x)
-        L = loss(y_pred, y)
+        L = loss_fn(y_pred, y)
         L.backward()
         train_loss += L.item()
         optimizer.step()
@@ -95,7 +96,7 @@ for epoch in range(num_epochs):
             x, y = batch
             x, y = x.to(device), y.to(device)
             y_pred = model(x)
-            L = loss(y_pred, y)
+            L = loss_fn(y_pred, y)
             val_loss += L.item()
             val_pbar.update(1)
     avg_val_loss = val_loss / len(val_loader)
