@@ -113,33 +113,31 @@ def build_prompt(messages):
     """
     return "\n".join([msg["content"].strip() for msg in messages])
 
-def prepare_dataset(example):
-    """
-    prepare a gsm8k observation for training with string prompts
+def prepare_dataset(split="train"):
+   """
+   Load and prepare the GSM8K dataset for training with string prompts.
 
-    Args:
-        dataset (DatasetDict): a dataset containing examples with "question" and "text" keys
-    
-    Returns:
-        list: a list of formatted examples, each containing a prompt string and an answer
-    """
+   Args:
+       split (str): The dataset split to load ("train" or "test"). Defaults to "train".
 
-    # load data
+   Returns:
+       list: A list of formatted examples, each containing a prompt string and answer.
+   """
 
-    # loop through examples, format, add to new dataset
-    prompt_str = build_prompt([
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": example["question"]}
-    ])
-    formatted_example = {
-        "prompt": prompt_str,
-        "answer": extract_answer_from_dataset(example["answer"])
-    }
-    return formatted_example
-
-# build gsm8k dataset and preprocess
-gsm8k = load_dataset("openai/gsm8k", "main")["train"]
-data = gsm8k.map(prepare_dataset).remove_columns(["question"])
+   data = load_dataset('openai/gsm8k', 'main')[split]
+   formatted_data = []
+   for example in data:
+       # Convert list of messages to a single string prompt.
+       prompt_str = build_prompt([
+           {"role": "system", "content": SYSTEM_PROMPT},
+           {"role": "user", "content": example["question"]}
+       ])
+       formatted_example = {
+           "prompt": prompt_str,  # Now a string rather than a list.
+           "answer": extract_answer_from_dataset(example["answer"])
+       }
+       formatted_data.append(formatted_example)
+   return formatted_data
 
 # ---------------
 ## EVAL FUNCTIONS
@@ -846,4 +844,3 @@ print("\nSaving fine-tuned model...")
 model.save_pretrained("../checkpoints/grpo-test")
 tokenizer.save_pretrained("../checkpoints/grpo-test")
 print("Model saved.")
-
