@@ -1,0 +1,1 @@
+To generate test data run: python -m scripts.node_pair_data_generator
