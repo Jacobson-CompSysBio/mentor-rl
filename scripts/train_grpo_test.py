@@ -8,6 +8,7 @@ import numpy as np
 import wandb
 from dotenv import load_dotenv
 from DGXutils import GetLowestGPU
+from tqdm.auto import tqdm
 
 # PyTorch and related libraries for deep learning
 import torch
@@ -61,6 +62,9 @@ load_dotenv()
 os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
 os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
+
+# set visible devices to gpus 0-3
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 
 # -----------------------------------------
 ## FORMATTING + ANSWER EXTRACTION FUNCTIONS
@@ -128,39 +132,29 @@ def extract_answer_from_dataset(text):
 # -----------------------
 ## DATASET PREP FUNCTIONS
 # -----------------------
-def prepare_dataset(split="train"):
-   """
-   Load and prepare the GSM8K dataset for training with string prompts.
+def prepare_dataset(example):
+    """
+    prepare a gsm8k observation for training with string prompts
 
-   Args:
-       split (str): The dataset split to load ("train" or "test"). Defaults to "train".
+    Args:
+        dataset (DatasetDict): a dataset containing examples with "question" and "text" keys
+    
+    Returns:
+        list: a list of formatted examples, each containing a prompt string and an answer
+    """
 
-   Returns:
-       list: A list of formatted examples, each containing a prompt string and answer.
+    # load data
 
-   Explanation:
-       1. Loads the GSM8K dataset from the Hugging Face datasets hub.
-       2. For each example in the dataset:
-          - Creates a list of messages with system prompt and the question.
-          - Converts this list into a single string prompt using build_prompt().
-          - Extracts the answer from the dataset example.
-          - Creates a formatted example dictionary with prompt and answer.
-       3. Returns the list of formatted examples ready for model training or evaluation.
-   """
-   data = load_dataset('openai/gsm8k', 'main')[split]
-   formatted_data = []
-   for example in data:
-       # Convert list of messages to a single string prompt.
-       prompt_str = build_prompt([
-           {"role": "system", "content": SYSTEM_PROMPT},
-           {"role": "user", "content": example["question"]}
-       ])
-       formatted_example = {
-           "prompt": prompt_str,  # Now a string rather than a list.
-           "answer": extract_answer_from_dataset(example["answer"])
-       }
-       formatted_data.append(formatted_example)
-   return formatted_data
+    # loop through examples, format, add to new dataset
+    prompt_str = build_prompt([
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": example["question"]}
+    ])
+    formatted_example = {
+        "prompt": prompt_str,
+        "answer": extract_answer_from_dataset(example["answer"])
+    }
+    return formatted_example
 
 def build_prompt(messages):
    """
@@ -814,10 +808,13 @@ model_name = "meta-llama/Llama-3.1-8B-Instruct"
 output_dir = "math_solver_model"
 
 print("Downloading model...")
+num_gpus = 4 # hard set number of gpus to 4
+print(f"Detected {num_gpus} GPUs")
+device_ids = list(range(num_gpus)) if num_gpus > 1 else None
 model = AutoModelForCausalLM.from_pretrained(
     model_name,
     torch_dtype=torch.bfloat16,
-    device_map="auto"
+    device_map="auto",
 )
 print("Model downloaded")
 
@@ -826,11 +823,11 @@ tokenizer.pad_token = tokenizer.eos_token
 model.config.pad_token_id = tokenizer.eos_token_id
 model.config.eos_token_id = tokenizer.eos_token_id
 
-num_gpus = 4 # hard set number of gpus to 4
-print(f"Detected {num_gpus} GPUs")
-device_ids = list(range(num_gpus)) if num_gpus > 1 else None
 
-all_data = prepare_dataset("train")
+
+gsm8k = load_dataset("openai/gsm8k", "main")["train"]
+data = gsm8k.map(prepare_dataset).remove_columns(["question"])
+all_data = list(data)
 random.shuffle(all_data)
 size_of_eval_data = 1 # just make sure this trains for now
 eval_data = all_data[:size_of_eval_data]
@@ -847,9 +844,9 @@ print("\nStarting RL fine-tuning using GRPO...")
 training_config = {
     'num_iterations': 1,
     'num_steps': 500,
-    'batch_size': 3, # 3 for 4 gpus
+    'batch_size': 1, # 3 for 4 gpus
     'num_generations': 4, # reduce if you have GPUs with less VRAM
-    'max_completion_length': 400, # reduce if you have GPUs with less VRAM
+    'max_completion_length': 200, # reduce if you have GPUs with less VRAM
     'beta': 0.04,
     'learning_rate': 5e-6,
     'mu': 1,
@@ -857,7 +854,7 @@ training_config = {
 }
 
 # Initialize Weights & Biases
-wandb.init(project=os.environ["WANDB_PROJECT"], reinit=True)
+wandb.init(project=os.environ["WANDB_PROJECT"], entity=os.environ["WANDB_ENTITY"], reinit=True)
 print("Weights & Biases initialized.")
 
 model = train_with_grpo(

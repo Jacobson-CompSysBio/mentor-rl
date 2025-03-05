@@ -20,7 +20,7 @@ from torch.utils.data import Dataset, DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import LoraConfig, get_peft_model
 from datasets import load_dataset
-from accelerate import Accelerator
+from accelerate import Accelerator, DeepSpeedPlugin
 from deepspeed.runtime.zero.stage3 import GatheredParameters
 
 def set_random_seed(seed: int = 42):
@@ -54,6 +54,16 @@ os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+# ds config
+ds_config = {
+    "zero_optimization": {
+        "stage": 3,
+        "offload_optimizer": {"device": "cpu"},
+        "offload_param": {"device": "cpu"}
+    },
+    "fp16": {"enabled": True}  # or fp16 if supported; note both fp16 and bfloat16 use 16 bits
+}
 
 # -----------------------------------------
 ## FORMATTING + ANSWER EXTRACTION FUNCTIONS
@@ -778,7 +788,7 @@ def optimize_model_memory(model):
 
 if __name__ == "__main__":
     # Main execution
-    accelerator = Accelerator()
+    accelerator = Accelerator(deepspeed_plugin=DeepSpeedPlugin(ds_config))
     device = accelerator.device
 
     model_name = "meta-llama/Llama-3.1-8B-Instruct"
@@ -787,7 +797,8 @@ if __name__ == "__main__":
     accelerator.print("Downloading model...")
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        torch_dtype=torch.bfloat16
+        torch_dtype=torch.bfloat16,
+        low_cpu_mem_usage=True
     )
     accelerator.print("Model downloaded")
 
