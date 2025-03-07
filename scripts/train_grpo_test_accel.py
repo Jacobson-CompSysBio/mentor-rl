@@ -55,16 +55,6 @@ os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-# ds config
-ds_config = {
-    "zero_optimization": {
-        "stage": 3,
-        "offload_optimizer": {"device": "cpu"},
-        "offload_param": {"device": "cpu"}
-    },
-    "fp16": {"enabled": True}  # or fp16 if supported; note both fp16 and bfloat16 use 16 bits
-}
-
 # -----------------------------------------
 ## FORMATTING + ANSWER EXTRACTION FUNCTIONS
 # -----------------------------------------
@@ -206,37 +196,24 @@ def extract_single_number(text):
    numbers = re.findall(r'-?\d*\.?\d+', text)
    return float(numbers[0]) if len(numbers) == 1 else None
 
-def evaluate_model(model, tokenizer, eval_examples, device):
-   """
-   Evaluates the model on a set of examples and prints detailed results.
+def evaluate_model(model, tokenizer, eval_examples, device, accelerator):
+    unwrapped_model = accelerator.unwrap_model(model)
+    unwrapped_model.eval()
+    correct = 0
+    total = len(eval_examples)
+    print("\n" + "="*50)
+    print("EVALUATION ON", total, "EXAMPLES")
+    print("="*50)
 
-   Args:
-       model: The language model to evaluate.
-       tokenizer: The tokenizer for encoding inputs and decoding outputs.
-       eval_examples (list): List of evaluation examples, each containing "prompt" and "answer".
-       device: The device (CPU or GPU) to run evaluation on.
-
-   Returns:
-       float: The accuracy percentage (correct predictions / total examples * 100).
-   """
-   device = next(model.parameters()).device
-   model.eval()
-   correct = 0
-   total = len(eval_examples)
-   print("\n" + "="*50)
-   print("EVALUATION ON", total, "EXAMPLES")
-   print("="*50)
-
-   for example in eval_examples:
-       # Get the prompt and expected answer
-       full_prompt = example["prompt"]
-       expected = example["answer"]
-
-       # Tokenize and generate response
-       inputs = tokenizer.encode(full_prompt, return_tensors="pt").to(device)
-       with torch.no_grad():
-           with GatheredParameters(list(model.parameters()), enabled=True):
-            outputs = model.generate(
+    for example in eval_examples:
+        full_prompt = example["prompt"]
+        expected = example["answer"]
+        inputs = tokenizer.encode(full_prompt, return_tensors="pt").to(device)
+        with torch.no_grad():
+            unwrapped_model = accelerator.unwrap_model(model)
+            embed_param = [unwrapped_model.get_input_embeddings().weight]
+            with GatheredParameters(embed_param, enabled=True):
+                outputs = unwrapped_model.generate(
                     inputs,
                     max_new_tokens=512,
                     temperature=0.7,
@@ -246,58 +223,48 @@ def evaluate_model(model, tokenizer, eval_examples, device):
                     forced_eos_token_id=tokenizer.eos_token_id,
                     early_stopping=False,
                 )
-       response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-       try:
-           # Extract answer and check correctness
-           predicted = extract_answer_from_model_output(response)
+        try:
+            predicted = extract_answer_from_model_output(response)
 
-           # Try different matching methods
-           if predicted == expected:  # Exact match
-               is_correct = True
-           else:
-               # Try single number matching
-               pred_num = extract_single_number(str(predicted))
-               exp_num = extract_single_number(str(expected))
-               if pred_num is not None and exp_num is not None and pred_num == exp_num:
-                   is_correct = True
-               else:
-                   # Try last number matching
-                   pred_num = extract_last_number(str(predicted))
-                   exp_num = extract_last_number(str(expected))
-                   is_correct = (pred_num is not None and exp_num is not None and
-                               pred_num == exp_num)
+            if predicted == expected:
+                is_correct = True
+            else:
+                pred_num = extract_single_number(str(predicted))
+                exp_num = extract_single_number(str(expected))
+                if pred_num is not None and exp_num is not None and pred_num == exp_num:
+                    is_correct = True
+                else:
+                    pred_num = extract_last_number(str(predicted))
+                    exp_num = extract_last_number(str(expected))
+                    is_correct = (pred_num is not None and exp_num is not None and pred_num == exp_num)
 
-           # Update counter for correct answers
-           if is_correct:
-               correct += 1
+            if is_correct:
+                correct += 1
 
-           # Print evaluation details
-           print("\nPrompt:")
-           print(full_prompt)
-           print("\nExpected Answer:")
-           print(expected)
-           print("\nExtracted Answer:")
-           print(predicted)
-           print("\nFull Generated Response:")
-           print(response)
-           print("\nCorrect:", "✓" if is_correct else "✗")
-           print("-"*50)
+            print("\nPrompt:")
+            print(full_prompt)
+            print("\nExpected Answer:")
+            print(expected)
+            print("\nExtracted Answer:")
+            print(predicted)
+            print("\nFull Generated Response:")
+            print(response)
+            print("\nCorrect:", "✓" if is_correct else "✗")
+            print("-"*50)
 
-       except Exception as e:
-           print("\nFailed to parse model output for prompt:")
-           print(full_prompt)
-           print("Error:", e)
-           print("-"*50)
+        except Exception as e:
+            print("\nFailed to parse model output for prompt:")
+            print(full_prompt)
+            print("Error:", e)
+            print("-"*50)
 
-   # Calculate and print final accuracy
-   accuracy = (correct / total) * 100
-   print(f"\nAccuracy: {accuracy:.2f}% ({correct}/{total})")
-   print("="*50)
-
-   # Return model to training mode
-   model.train()
-   return accuracy
+    accuracy = (correct / total) * 100
+    print(f"\nAccuracy: {accuracy:.2f}% ({correct}/{total})")
+    print("="*50)
+    unwrapped_model.train()
+    return accuracy
 
 # -----------------
 ## REWARD FUNCTIONS
@@ -477,27 +444,7 @@ def create_completion_mask(completion_ids, eos_token_id):
     sequence_indices = torch.arange(is_eos.size(1), device=completion_ids.device).expand(is_eos.size(0), -1)
     return (sequence_indices <= eos_idx.unsqueeze(1)).int()
 
-def generate_completions(model, tokenizer, prompts, num_generations=4, max_completion_length=32):
-    """
-    Generates multiple completions for each prompt.
-
-    Args:
-        model: The language model.
-        tokenizer: The tokenizer for encoding and decoding text.
-        prompts (list): List of text prompts.
-        num_generations (int): Number of completions to generate per prompt.
-        max_completion_length (int): Maximum number of tokens to generate.
-
-    Returns:
-        tuple: Containing prompt IDs, prompt mask, completion IDs, and completion mask.
-
-    Explanation:
-        1. Encodes the prompts and moves them to the appropriate device.
-        2. Repeats each prompt num_generations times to generate multiple completions.
-        3. Generates completions using the model with specified parameters.
-        4. Extracts the completion IDs (excluding the prompt tokens).
-        5. Creates a mask for the completions using create_completion_mask.
-    """
+def generate_completions(model, tokenizer, prompts, accelerator, num_generations=4, max_completion_length=32):
     device = next(model.parameters()).device
     inputs = tokenizer(prompts, return_tensors="pt", padding=True, padding_side="left")
     prompt_ids = inputs["input_ids"].to(device)
@@ -506,8 +453,11 @@ def generate_completions(model, tokenizer, prompts, num_generations=4, max_compl
     prompt_length = prompt_ids.size(1)
     prompt_ids = prompt_ids.repeat_interleave(num_generations, dim=0)
     prompt_mask = prompt_mask.repeat_interleave(num_generations, dim=0)
-    with GatheredParameters(list(model.parameters()), enabled=True):
-        outputs = model.generate(
+
+    unwrapped_model = accelerator.unwrap_model(model)
+    embed_param = [unwrapped_model.get_input_embeddings().weight]
+    with GatheredParameters(embed_param, enabled=True):
+        outputs = unwrapped_model.generate(
             prompt_ids,
             attention_mask=prompt_mask,
             max_new_tokens=max_completion_length,
@@ -522,36 +472,14 @@ def generate_completions(model, tokenizer, prompts, num_generations=4, max_compl
     completion_mask = create_completion_mask(completion_ids, tokenizer.eos_token_id)
     return prompt_ids, prompt_mask, completion_ids, completion_mask
 
-def generate_rollout_data(model, ref_model, tokenizer, batch_samples, num_generations, max_completion_length):
-    """
-    Generates data for GRPO rollouts including completions and log probabilities.
-
-    Args:
-        model: The policy model being trained.
-        ref_model: The reference model for KL divergence calculation.
-        tokenizer: The tokenizer for encoding and decoding text.
-        batch_samples (list): Batch of training samples.
-        num_generations (int): Number of completions to generate per sample.
-        max_completion_length (int): Maximum completion length.
-
-    Returns:
-        dict: Dictionary containing all data needed for GRPO updates.
-
-    Explanation:
-        1. Extracts prompts and expected answers from the batch samples.
-        2. Generates completions using the current policy model.
-        3. Combines prompt and completion tokens.
-        4. Computes log probabilities from both the policy model and reference model.
-        5. Formats completions for reward calculation.
-        6. Repeats prompts and answers to match the number of generated completions.
-        7. Returns all data needed for GRPO loss calculation.
-    """
+def generate_rollout_data(model, ref_model, tokenizer, batch_samples, accelerator, num_generations, max_completion_length):
     device = next(model.parameters()).device
-    prompts = [sample["prompt"] if isinstance(sample, dict) else sample[0] for sample in batch_samples]
-    answers = [sample["answer"] if isinstance(sample, dict) else sample[1] for sample in batch_samples]
+    prompts = [sample["prompt"] for sample in batch_samples]
+    answers = [sample["answer"] for sample in batch_samples]
     with torch.no_grad():
+        # Pass accelerator to generate_completions so that the generated outputs are gathered properly.
         prompt_ids, prompt_mask, completion_ids, completion_mask = generate_completions(
-            model, tokenizer, prompts, num_generations, max_completion_length
+            model, tokenizer, prompts, accelerator, num_generations, max_completion_length
         )
         input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
@@ -715,6 +643,7 @@ def train_with_grpo(accelerator,
                     ref_model,
                     tokenizer,
                     batch_samples,
+                    accelerator,        # Pass accelerator here
                     num_generations,
                     max_completion_length
                 )
@@ -788,7 +717,7 @@ def optimize_model_memory(model):
 
 if __name__ == "__main__":
     # Main execution
-    accelerator = Accelerator(deepspeed_plugin=DeepSpeedPlugin(ds_config))
+    accelerator = Accelerator()
     device = accelerator.device
 
     model_name = "meta-llama/Llama-3.1-8B-Instruct"
@@ -798,7 +727,6 @@ if __name__ == "__main__":
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         torch_dtype=torch.bfloat16,
-        low_cpu_mem_usage=True
     )
     accelerator.print("Model downloaded")
 
@@ -846,7 +774,7 @@ if __name__ == "__main__":
     # initial eval
     if accelerator.is_main_process:
         accelerator.print("\nInitial model evaluation before finetuning:")
-        pre_grpo_accuracy = evaluate_model(model, tokenizer, eval_data, device)
+        pre_grpo_accuracy = evaluate_model(model, tokenizer, eval_data, device, accelerator)
         accelerator.print(f"Pre-GRPO Accuracy: {pre_grpo_accuracy:.2f}%")
 
     model = optimize_model_memory(model)
@@ -872,7 +800,7 @@ if __name__ == "__main__":
     
     if accelerator.is_main_process:
         accelerator.print("\nFinal model evaluation after GRPO RL fine-tuning:")
-        post_grpo_accuracy = evaluate_model(model, tokenizer, eval_data, device)
+        post_grpo_accuracy = evaluate_model(model, tokenizer, eval_data, device, accelerator)
         accelerator.print(f"Post-GRPO Accuracy: {post_grpo_accuracy:.2f}%")
 
     accelerator.print("\nSaving GRPO fine-tuned model...")
