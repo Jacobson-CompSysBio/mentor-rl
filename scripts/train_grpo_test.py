@@ -29,20 +29,8 @@ def set_random_seed(seed: int = 42):
 
     Returns:
         None
-
-    Explanation:
-        1. Sets seed for Python's built-in random module for basic random operations.
-        2. Sets seed for NumPy, ensuring consistent random number generation in array operations.
-        3. Sets seed for PyTorch CPU operations.
-        4. If CUDA is available, sets seed for all GPU devices.
-        5. Configures cuDNN to ensure deterministic behavior:
-           - Sets deterministic flag to True, ensuring reproducible results.
-           - Disables benchmarking to prevent algorithm selection based on hardware.
-
-    Note:
-        Setting deterministic behavior may impact performance but ensures consistent results
-        across multiple runs, which is crucial for debugging and research.
     """
+
     # Set the seed for Python's built-in random module
     random.seed(seed)
     # Set the seed for NumPy
@@ -51,9 +39,6 @@ def set_random_seed(seed: int = 42):
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-    # Ensure deterministic behavior in cuDNN (may impact performance)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
 
 # Call the function to set random seed for reproducibility
 set_random_seed(42)
@@ -64,16 +49,16 @@ os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 
 # set visible devices to gpus 0-3
-# os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"
 
 # -----------------------------------------
 ## FORMATTING + ANSWER EXTRACTION FUNCTIONS
 # -----------------------------------------
 SYSTEM_PROMPT = """
 Respond in the following format:
-<reasoning>
+<think>
 ...
-</reasoning>
+</think>
 <answer>
 ...
 </answer>
@@ -148,7 +133,7 @@ def prepare_dataset(example):
     # loop through examples, format, add to new dataset
     prompt_str = build_prompt([
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": example["question"]}
+        {"role": "user", "content": example[""] + " " + example["question"]}
     ])
     formatted_example = {
         "prompt": prompt_str,
@@ -805,7 +790,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(f"Using primary device: {device}")
 
 model_name = "meta-llama/Llama-3.1-8B-Instruct"
-output_dir = "math_solver_model"
+output_dir = "edge_pred_model"
 
 print("Downloading model...")
 num_gpus = 4 # hard set number of gpus to 4
@@ -822,8 +807,6 @@ tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side="left")
 tokenizer.pad_token = tokenizer.eos_token
 model.config.pad_token_id = tokenizer.eos_token_id
 model.config.eos_token_id = tokenizer.eos_token_id
-
-
 
 gsm8k = load_dataset("openai/gsm8k", "main")["train"]
 data = gsm8k.map(prepare_dataset).remove_columns(["question"])

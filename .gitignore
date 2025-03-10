@@ -1,3 +1,4 @@
 .env
 **/scripts/wandb/
 **/scripts/grpo_finetuned_model/
+**/data/test/
