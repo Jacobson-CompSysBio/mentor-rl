@@ -29,3 +29,19 @@ class BasicEdgePredDataset(Dataset):
       'answer': text['label'],
       'desc': text['desc'],
     }
+
+# ---------------
+## GRPO MODS
+# ---------------
+class TransformedDataset(Dataset):
+    def __init__(self, raw_dataset, transform):
+        # Convert raw dataset to a list if it isn’t already
+        self.raw_dataset = list(raw_dataset)
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.raw_dataset)
+
+    def __getitem__(self, idx):
+        sample = self.raw_dataset[idx]
+        return self.transform(sample)
