@@ -18,7 +18,12 @@ from torch.utils.data import Dataset, DataLoader, Subset
 from DGXutils import GetLowestGPU
 
 # Hugging Face libraries for transformer models
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    BitsAndBytesConfig
+)
+
 
 sys.path.append('../')
 
@@ -101,7 +106,7 @@ ANSWER_PATTERN = re.compile(r"<answer>(.*?)</answer>")
 def extract_answer(text: str) -> str:
     matches = ANSWER_PATTERN.findall(text)
     if matches:
-        return matches[-1].lower()
+        return matches[-1].strip().lower()
     else:
         return ""
 
@@ -467,18 +472,29 @@ if __name__ == "__main__":
     model_name = "meta-llama/Llama-3.1-8B-Instruct"
     output_dir = "math_solver_model"
 
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,                 # <--- Tells bitsandbytes to load the model in 4-bit
+        bnb_4bit_quant_type="nf4",         # Or "fp4", depending on your needs
+        bnb_4bit_compute_dtype=torch.bfloat16  # Compute in bfloat16
+        )
+
     print("Downloading model...")
     # REMOVED DATA PARALLEL: We no longer collect device_ids to pass to DataParallel
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        torch_dtype=torch.bfloat16,
+        quantization_config=bnb_config,
         device_map="auto",
     )
     print("Model downloaded")
 
     tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side="left")
-    tokenizer.pad_token = tokenizer.eos_token
-    model.config.pad_token_id = tokenizer.eos_token_id
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    model.config.pad_token_id = tokenizer.pad_token_id
+    model.config.use_cache = False         # <--- Must disable use_cache for gradient checkpointing
+    model.gradient_checkpointing_enable()  # <--- Turn on gradient checkpointing
+    model.train()
     model.config.eos_token_id = tokenizer.eos_token_id
 
     transformed_dataset = TransformedDataset(BasicEdgePredDataset("../data/test"), prepare_dataset)
