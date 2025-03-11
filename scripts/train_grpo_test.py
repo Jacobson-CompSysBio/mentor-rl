@@ -805,13 +805,11 @@ model = AutoModelForCausalLM.from_pretrained(
 print("Model downloaded")
 # Configure LoRA / QLoRA
 lora_config = LoraConfig(
-    r=8,                         # rank of the LoRA decomposition
+    r=8,                         
     lora_alpha=32,
     lora_dropout=0.05,
     bias="none",
     task_type=TaskType.CAUSAL_LM,
-    # For LLaMA-based models, typical target modules: ["q_proj", "v_proj"]
-    # You can also add "k_proj", "o_proj" if desired
     target_modules=["q_proj", "v_proj"]
 )
 print("Wrapping model with QLoRA adapters...")

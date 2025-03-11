@@ -1,4 +1,5 @@
 .env
-**/scripts/wandb/
+**/logs/
 **/scripts/grpo_finetuned_model/
 **/data/test/
+**/checkpoints/

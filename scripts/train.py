@@ -23,6 +23,7 @@ from transformers import (
     AutoTokenizer,
     BitsAndBytesConfig
 )
+from peft import LoraConfig, get_peft_model, TaskType
 
 
 sys.path.append('../')
@@ -75,6 +76,12 @@ os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 
 # set visible devices to gpus 0-3
 os.environ["CUDA_VISIBLE_DEVICES"] = "4,5"
+
+model_name = "meta-llama/Llama-3.1-8B-Instruct"
+output_dir = "edgelist_model"
+log_dir = "../logs/"
+checkpoint_dir = "../checkpoints/"
+
 
 training_config = {
     'num_iterations': 1,
@@ -469,9 +476,6 @@ if __name__ == "__main__":
     device = GetLowestGPU()
     print(f"Using primary device: {device}")
 
-    model_name = "meta-llama/Llama-3.1-8B-Instruct"
-    output_dir = "math_solver_model"
-
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,                 # <--- Tells bitsandbytes to load the model in 4-bit
         bnb_4bit_quant_type="nf4",         # Or "fp4", depending on your needs
@@ -485,6 +489,17 @@ if __name__ == "__main__":
         quantization_config=bnb_config,
         device_map="auto",
     )
+    # Configure LoRA / QLoRA
+    lora_config = LoraConfig(
+        r=8,                         
+        lora_alpha=32,
+        lora_dropout=0.05,
+        bias="none",
+        task_type=TaskType.CAUSAL_LM,
+        target_modules=["q_proj", "v_proj"]
+    )
+    print("Wrapping model with QLoRA adapters...")
+    model = get_peft_model(model, lora_config)
     print("Model downloaded")
 
     tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side="left")
@@ -515,7 +530,10 @@ if __name__ == "__main__":
     model = optimize_model_memory(model)
 
     print("\nStarting RL fine-tuning using GRPO...")
-    wandb.init(project=os.environ["WANDB_PROJECT"], entity=os.environ["WANDB_ENTITY"], reinit=True)
+    wandb.init(project=os.environ["WANDB_PROJECT"], 
+               dir = log_dir + "grpo",
+               entity=os.environ["WANDB_ENTITY"], 
+               reinit=True)
     print("Weights & Biases initialized.")
 
     model = train_with_grpo(
@@ -534,5 +552,5 @@ if __name__ == "__main__":
     print(f"Post-GRPO Accuracy: {post_grpo_accuracy:.2f}%")
 
     print("\nSaving GRPO fine-tuned model...")
-    model.save_pretrained("grpo_finetuned_model")
-    tokenizer.save_pretrained("grpo_finetuned_model")
+    model.save_pretrained(checkpoint_dir + "edgelist_grpo_model")
+    tokenizer.save_pretrained(checkpoint_dir + "edgelist_grpo_model")
