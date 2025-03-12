@@ -32,28 +32,6 @@ sys.path.append('../')
 from utils.dataset import BasicEdgePredDataset, TransformedDataset
 
 def set_random_seed(seed: int = 42):
-    """
-    Set the random seed for reproducibility across Python, NumPy, and PyTorch.
-
-    Args:
-        seed (int): The seed value to use for random number generation.
-
-    Returns:
-        None
-
-    Explanation:
-        1. Sets seed for Python's built-in random module for basic random operations.
-        2. Sets seed for NumPy, ensuring consistent random number generation in array operations.
-        3. Sets seed for PyTorch CPU operations.
-        4. If CUDA is available, sets seed for all GPU devices.
-        5. Configures cuDNN to ensure deterministic behavior:
-           - Sets deterministic flag to True, ensuring reproducible results.
-           - Disables benchmarking to prevent algorithm selection based on hardware.
-
-    Note:
-        Setting deterministic behavior may impact performance but ensures consistent results
-        across multiple runs, which is crucial for debugging and research.
-    """
     # Set the seed for Python's built-in random module
     random.seed(seed)
     # Set the seed for NumPy
@@ -75,7 +53,7 @@ os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 
 # set visible devices to gpus 0-3
-os.environ["CUDA_VISIBLE_DEVICES"] = "4,5"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"
 
 model_name = "meta-llama/Llama-3.1-8B-Instruct"
 output_dir = "edgelist_model"
@@ -84,10 +62,10 @@ checkpoint_dir = "../checkpoints/"
 
 
 training_config = {
-    'num_iterations': 1,
+    'num_iterations': 10,
     'num_steps': 500,
     'batch_size': 1, # 3 for 4 gpus
-    'num_generations': 4, # reduce if you have GPUs with less VRAM
+    'num_generations': 12, # reduce if you have GPUs with less VRAM
     'max_completion_length': 200, # reduce if you have GPUs with less VRAM
     'beta': 0.04,
     'learning_rate': 5e-6,
@@ -99,23 +77,25 @@ training_config = {
 ## FORMATTING + ANSWER EXTRACTION FUNCTIONS
 # -----------------------------------------
 SYSTEM_PROMPT = """
-Respond in the following format:
-<think>
-...
-</think>
-<answer>
-...
-</answer>
+Respond in exactly one Q&A pair. Answer with 'yes' or 'no' only. Do not include any extra text or additional Q&A pairs. Stop immediately after your answer. Format your response as follows:
+<think>REASONING HERE</think><answer>ANSWER HERE</answer>
 """
 FORMAT_PATTERN = re.compile(r"^<think>.*?</think><answer>.*?</answer>$", re.DOTALL | re.VERBOSE)
 ANSWER_PATTERN = re.compile(r"<answer>(.*?)</answer>")
 
-def extract_answer(text: str) -> str:
-    matches = ANSWER_PATTERN.findall(text)
-    if matches:
-        return matches[-1].strip().lower()
-    else:
+def extract_answer(text):
+    parts = text.split("<answer>")
+    if len(parts) < 2:
         return ""
+    last_part = parts[-1]
+    if "</answer>" not in last_part:
+        return ""
+    answer = last_part.split("</answer>")[0].strip().lower()
+    return "" if answer == "..." or not answer else answer
+
+# def extract_answer(text):
+#     match = ANSWER_PATTERN.search(text)
+#     return match.group(2).strip().lower() if match else ""
 
 # -----------------------
 # DATASET PREP FUNCTIONS
@@ -127,7 +107,7 @@ def prepare_dataset(example):
     ])
     formatted_example = {
         "prompt": prompt_str,
-        "answer": example["answer"]
+        "answer": example["answer"].strip().lower()
     }
     return formatted_example
 
@@ -159,8 +139,7 @@ def evaluate_model(model, tokenizer, eval_examples, device):
                 num_return_sequences=1,
                 pad_token_id=tokenizer.pad_token_id,
                 eos_token_id=tokenizer.eos_token_id,
-                forced_eos_token_id=tokenizer.eos_token_id,
-                early_stopping=False,
+                forced_eos_token_id=tokenizer.eos_token_id  # Force EOS at the end
             )
         response = tokenizer.decode(outputs[0], skip_special_tokens=True)
 
@@ -202,8 +181,17 @@ def correctness_reward(prompts, completions, answer, **kwargs):
     extracted = [extract_answer(r) for r in responses]
     rewards = []
     for r, a in zip(extracted, answer):
-        if r == a:
+        # If no answer was extracted, default to an empty string.
+        r_str = r if r is not None else ""
+        a_str = a if a is not None else ""
+        r_str = r_str.strip().lower()
+        a_str = a_str.strip().lower()
+        # exact match
+        if r_str == a_str:
             rewards.append(2.0)
+        # if the answer is a substring of the response
+        elif a_str in r_str:
+            rewards.append(1.5)
         else:
             rewards.append(0.0)
     return rewards
@@ -257,10 +245,9 @@ def create_completion_mask(completion_ids, eos_token_id):
     return (sequence_indices <= eos_idx.unsqueeze(1)).int()
 
 def generate_completions(model, tokenizer, prompts, num_generations=4, max_completion_length=32):
-    device = GetLowestGPU()
     inputs = tokenizer(prompts, return_tensors="pt", padding=True, padding_side="left")
-    prompt_ids = inputs["input_ids"].to(device)
-    prompt_mask = inputs["attention_mask"].to(device)
+    prompt_ids = inputs["input_ids"]
+    prompt_mask = inputs["attention_mask"]
     prompt_length = prompt_ids.size(1)
 
     # Repeat each prompt num_generations times
@@ -275,16 +262,15 @@ def generate_completions(model, tokenizer, prompts, num_generations=4, max_compl
         temperature=1.0,
         pad_token_id=tokenizer.pad_token_id,
         eos_token_id=tokenizer.eos_token_id,
-        early_stopping=False
+        early_stopping=False,
     )
     completion_ids = outputs[:, prompt_length:]
     completion_mask = create_completion_mask(completion_ids, tokenizer.eos_token_id)
     return prompt_ids, prompt_mask, completion_ids, completion_mask
 
 def generate_rollout_data(model, ref_model, tokenizer, batch_samples, num_generations, max_completion_length):
-    device = GetLowestGPU()
-    prompts = [sample["prompt"] if isinstance(sample, dict) else sample[0] for sample in batch_samples]
-    answers = [sample["answer"] if isinstance(sample, dict) else sample[1] for sample in batch_samples]
+    prompts = batch_samples["prompt"] if isinstance(batch_samples, dict) else [sample["prompt"] for sample in batch_samples]
+    answers = batch_samples["answer"] if isinstance(batch_samples, dict) else [sample["answer"] for sample in batch_samples]
 
     with torch.no_grad():
         prompt_ids, prompt_mask, completion_ids, completion_mask = generate_completions(
@@ -371,56 +357,29 @@ def train_with_grpo(
     reward_function=None
 ):
     """
-    This function is your original working code (train_with_grpo_static)
-    with an added outer loop for iterative GRPO updates per the pseudocode.
-
-    Args:
-        model: The language model to train.
-        tokenizer: The tokenizer for encoding and decoding text.
-        train_data (list): Training dataset.
-        num_iterations (int): Number of outer iterations (reference model updates).
-        num_steps (int): Number of batch updates per iteration.
-        batch_size (int): Number of prompts per batch.
-        num_generations (int): Number of completions per prompt.
-        max_completion_length (int): Maximum token length for completions.
-        beta (float): KL penalty coefficient.
-        learning_rate (float): Learning rate for optimizer.
-        mu (int): Number of policy updates per batch.
-        epsilon (float): PPO clipping parameter.
-        reward_function: Function that calculates rewards for completions.
-
-    Explanation:
-        1. For each outer iteration:
-           - Creates a reference model as a deep copy of the current policy model.
-           - Reinitializes the optimizer for the policy model.
-           - For each training step:
-             a. Samples a batch of examples from the training data.
-             b. Generates rollout data including completions and log probabilities.
-             c. For mu iterations:
-                i. Computes the GRPO loss.
-                ii. Updates the policy model using gradient descent.
+    Quick PPO/GRPO approach (no separate old_model copy):
+      - Generate rollouts once per batch, storing old log probs.
+      - Perform multiple gradient updates, overwriting the console log each time.
     """
 
-    # REMOVED DATA PARALLEL: No need to wrap model in nn.DataParallel anymore.
-
-    # Outer loop
     for iteration in range(num_iterations):
         print(f"\nIteration {iteration+1}/{num_iterations}")
 
-        # Create a reference model (deep copy) and set it to eval mode.
+        # If you still want a reference model for KL, copy it here:
         ref_model = copy.deepcopy(model)
         ref_model.eval()
         for param in ref_model.parameters():
             param.requires_grad = False
         print("Reference model created.")
 
-        # Reinitialize the optimizer for this iteration.
         optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
         model.train()
 
-        # Inner loop
-        for step in range(num_steps):
-            batch_samples = next(iter(train_data))
+        for step, batch_samples in enumerate(train_data):
+            if step >= num_steps:
+                break
+
+            # 1) Generate rollouts ONCE per batch, storing old_log_probs in memory.
             with torch.no_grad():
                 rollout_data = generate_rollout_data(
                     model,
@@ -430,6 +389,8 @@ def train_with_grpo(
                     num_generations,
                     max_completion_length
                 )
+
+            # 2) Do multiple PPO/GRPO gradient updates
             for grpo_iter in range(mu):
                 loss, avg_reward = grpo_loss(
                     model,
@@ -444,6 +405,8 @@ def train_with_grpo(
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.1)
                 optimizer.step()
+
+                # Log to W&B if needed
                 wandb.log({
                     "loss": loss.item(),
                     "average_reward": avg_reward,
@@ -451,8 +414,22 @@ def train_with_grpo(
                     "step": step + 1,
                     "grpo_iter": grpo_iter + 1
                 })
-                print(f"Iteration {iteration+1}/{num_iterations}, Step {step+1}/{num_steps}, "
-                      f"GRPO iter {grpo_iter+1}/{mu}, loss: {loss.item():.4f}")
+
+                # ———————————————
+                # Overwrite the console line:
+                print(
+                    f"\rIteration {iteration+1}/{num_iterations}, "
+                    f"Step {step+1}/{num_steps}, "
+                    f"GRPO iter {grpo_iter+1}/{mu}, "
+                    f"loss: {loss.item():.4f}, "
+                    f"reward: {avg_reward:.4f}",
+                    end="",
+                    flush=True
+                )
+            # After finishing the mu inner loop, print a final newline so the
+            # next batch's updates start on a fresh line:
+            print()
+
     return model
 
 def optimize_model_memory(model):
@@ -477,16 +454,16 @@ if __name__ == "__main__":
     print(f"Using primary device: {device}")
 
     bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,                 # <--- Tells bitsandbytes to load the model in 4-bit
-        bnb_4bit_quant_type="nf4",         # Or "fp4", depending on your needs
-        bnb_4bit_compute_dtype=torch.bfloat16  # Compute in bfloat16
+        load_in_4bit=True,                 # <--- tells bitsandbytes to load the model in 4-bit
+        bnb_4bit_quant_type="nf4",         # can also be "fp4"
+        bnb_4bit_compute_dtype=torch.bfloat16  # compute in bfloat16
         )
 
     print("Downloading model...")
-    # REMOVED DATA PARALLEL: We no longer collect device_ids to pass to DataParallel
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         quantization_config=bnb_config,
+        # torch_dtype=torch.bfloat16,
         device_map="auto",
     )
     # Configure LoRA / QLoRA
