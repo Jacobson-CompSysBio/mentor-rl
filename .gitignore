@@ -1,4 +1,5 @@
 .env
+train.slurm
 **/logs/
 **/scripts/grpo_finetuned_model/
 **/data/test/
