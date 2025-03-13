@@ -52,9 +52,6 @@ os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
 os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 
-# set visible devices to gpus 0-3
-# os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"
-
 model_name = "meta-llama/Llama-3.1-8B-Instruct"
 output_dir = "edgelist_model"
 log_dir = "../logs/"
