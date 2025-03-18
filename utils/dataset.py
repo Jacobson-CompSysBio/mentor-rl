@@ -7,7 +7,7 @@ from torch.utils.data import Dataset
 # ---------------
 class BasicEdgePredDataset(Dataset):
   """
-  Dataset for edge prediction with no
+  Dataset for edge prediction with no .pt graph
   """
 
   def __init__(self, path: str):
@@ -27,8 +27,18 @@ class BasicEdgePredDataset(Dataset):
       'id': index,
       'question': text['question'],
       'answer': text['label'],
-      'desc': text['desc'],
+      'desc': self.get_edgelist_text(text['desc']),
     }
+  
+  def get_edgelist_text(self, desc):
+     """
+     Given a graph description, return the edgelist text, with edges separated by commas.
+     """
+     prefix = 'Consider the graph with the following edges: '
+     desc = desc.replace('[', '').replace(']', '').replace('\'', '')
+     desc = prefix + desc
+
+     return desc
 
 # ---------------
 ## GRPO MODS

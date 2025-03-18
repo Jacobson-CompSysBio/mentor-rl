@@ -55,14 +55,13 @@ os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 # set visible devices to gpus 0-3
 # os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"
 
-model_name = "meta-llama/Llama-3.1-8B-Instruct"
+model_name = "meta-llama/Llama-3.1-70B-Instruct"
 output_dir = "edgelist_model"
 log_dir = "../logs/"
 checkpoint_dir = "../checkpoints/"
 
-
 training_config = {
-    'num_iterations': 10,
+    'num_iterations': 20,
     'num_steps': 500,
     'batch_size': 1, # 3 for 4 gpus
     'num_generations': 12, # reduce if you have GPUs with less VRAM
@@ -77,8 +76,9 @@ training_config = {
 ## FORMATTING + ANSWER EXTRACTION FUNCTIONS
 # -----------------------------------------
 SYSTEM_PROMPT = """
-Respond in exactly one Q&A pair. Answer with 'yes' or 'no' only. Do not include any extra text or additional Q&A pairs. Stop immediately after your answer. Format your response as follows:
-<think>REASONING HERE</think><answer>ANSWER HERE</answer>
+A conversation between User and Assistant. The user asks a question, and the Assistant solves it, answering "yes" or "no".
+The assistant first thinks about the reasoning process in the mind and then provides the user with the answer.
+The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively.
 """
 FORMAT_PATTERN = re.compile(r"^<think>.*?</think><answer>.*?</answer>$", re.DOTALL | re.VERBOSE)
 ANSWER_PATTERN = re.compile(r"<answer>(.*?)</answer>")
@@ -92,10 +92,6 @@ def extract_answer(text):
         return ""
     answer = last_part.split("</answer>")[0].strip().lower()
     return "" if answer == "..." or not answer else answer
-
-# def extract_answer(text):
-#     match = ANSWER_PATTERN.search(text)
-#     return match.group(2).strip().lower() if match else ""
 
 # -----------------------
 # DATASET PREP FUNCTIONS
@@ -201,18 +197,41 @@ def format_reward(completions, **kwargs):
     rewards = []
     for response in responses:
         score = 0.0
-        if FORMAT_PATTERN.match(response):
-            score += 1.0
+        
+        # Count occurrences of each tag
+        think_open_count = response.count("<think>")
+        think_close_count = response.count("</think>")
+        answer_open_count = response.count("<answer>")
+        answer_close_count = response.count("</answer>")
+        
+        # Check for extra text after the closing answer tag
+        trailing_text = ""
+        if "</answer>" in response:
+            trailing_text = response.split("</answer>")[-1].strip()
+        
+        # Reward full points if exactly one set is present and no extra text exists
+        if (think_open_count == 1 and think_close_count == 1 and 
+            answer_open_count == 1 and answer_close_count == 1 and
+            trailing_text == "" and response.strip().endswith("</answer>")):
+            score += 1.5
         else:
-            if "<think>" in response: 
+            # Apply partial rewards/penalties based on deviations
+            # Reward for having at least one pair
+            if think_open_count == 1 and think_close_count == 1:
                 score += 0.2
-            if "</think>" in response: 
+            else:
+                score -= 0.1 * (abs(think_open_count - 1) + abs(think_close_count - 1))
+            
+            if answer_open_count == 1 and answer_close_count == 1:
                 score += 0.2
-            if "<answer>" in response: 
-                score += 0.2
-            if "</answer>" in response: 
-                score += 0.2
+            else:
+                score -= 0.1 * (abs(answer_open_count - 1) + abs(answer_close_count - 1))
+            
+            # Penalize extra text after </answer>
+            if trailing_text:
+                score -= 0.5
         rewards.append(score)
+
     return rewards
 
 def combined_reward(prompts, completions, answer):
@@ -490,7 +509,7 @@ if __name__ == "__main__":
     model.config.eos_token_id = tokenizer.eos_token_id
 
     transformed_dataset = TransformedDataset(BasicEdgePredDataset("../data/test"), prepare_dataset)
-    eval_size = 1
+    eval_size = 20
     eval_idxs = list(range(eval_size))
     train_idxs = list(range(eval_size, len(transformed_dataset)))
 
@@ -527,6 +546,7 @@ if __name__ == "__main__":
     print("\nFinal model evaluation after GRPO RL fine-tuning:")
     post_grpo_accuracy = evaluate_model(model, tokenizer, eval_loader, device)
     print(f"Post-GRPO Accuracy: {post_grpo_accuracy:.2f}%")
+    print(f"Accuracy improvement: {post_grpo_accuracy - pre_grpo_accuracy:.2f}")
 
     print("\nSaving GRPO fine-tuned model...")
     model.save_pretrained(checkpoint_dir + "edgelist_grpo_model")
