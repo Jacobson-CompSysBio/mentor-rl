@@ -1,4 +1,5 @@
 # Import necessary libraries
+
 # Basic Python libraries for various operations
 import random
 import copy
@@ -52,16 +53,13 @@ os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
 os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 
-# set visible devices to gpus 0-3
-# os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"
-
 model_name = "meta-llama/Llama-3.1-70B-Instruct"
 output_dir = "edgelist_model"
 log_dir = "../logs/"
 checkpoint_dir = "../checkpoints/"
 
 training_config = {
-    'num_iterations': 20,
+    'num_iterations': 10,
     'num_steps': 500,
     'batch_size': 1, # 3 for 4 gpus
     'num_generations': 12, # reduce if you have GPUs with less VRAM
