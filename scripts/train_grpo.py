@@ -8,7 +8,6 @@ import os, sys, glob
 import numpy as np
 import wandb
 from dotenv import load_dotenv
-from tqdm.auto import tqdm
 
 # PyTorch and related libraries for deep learning
 import torch
@@ -16,7 +15,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset, DataLoader, Subset
-from DGXutils import GetLowestGPU
 
 # Hugging Face libraries for transformer models
 from transformers import (
