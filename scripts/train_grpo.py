@@ -2,6 +2,7 @@
 
 # Basic Python libraries for various operations
 import random
+from pathlib import Path
 import copy
 import re
 import os, sys, glob
@@ -20,12 +21,11 @@ from torch.utils.data import Dataset, DataLoader, Subset
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
-    BitsAndBytesConfig
 )
 from peft import LoraConfig, get_peft_model, TaskType
 
-
-sys.path.append('../')
+# append root `mentor-rl` folder to dir
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 # custom
 from utils.dataset import BasicEdgePredDataset, TransformedDataset
@@ -39,17 +39,16 @@ def set_random_seed(seed: int = 42):
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-    # Ensure deterministic behavior in cuDNN (may impact performance)
-    # torch.backends.cudnn.deterministic = True
-    # torch.backends.cudnn.benchmark = False
 
 # Call the function to set random seed for reproducibility
 set_random_seed(42)
+
 
 load_dotenv()
 os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
 os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
+os.environ["HUGGINGFACE_TOKEN"] = os.getenv("HUGGINGFACE_TOKEN")
 
 model_name = "meta-llama/Llama-3.1-70B-Instruct"
 output_dir = "edgelist_model"
@@ -465,22 +464,17 @@ def optimize_model_memory(model):
 # MAIN
 # -----
 if __name__ == "__main__":
-    device = GetLowestGPU()
+    device = torch.device("cuda" if torch.cuda.is_available else "cpu")
     print(f"Using primary device: {device}")
-
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,                 # <--- tells bitsandbytes to load the model in 4-bit
-        bnb_4bit_quant_type="nf4",         # can also be "fp4"
-        bnb_4bit_compute_dtype=torch.bfloat16  # compute in bfloat16
-        )
 
     print("Downloading model...")
     model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        quantization_config=bnb_config,
-        # torch_dtype=torch.bfloat16,
+        model_name, 
+        torch_dtype=torch.bfloat16,
         device_map="auto",
+        use_auth_token=True
     )
+    
     # Configure LoRA / QLoRA
     lora_config = LoraConfig(
         r=8,                         
@@ -494,7 +488,7 @@ if __name__ == "__main__":
     model = get_peft_model(model, lora_config)
     print("Model downloaded")
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side="left")
+    tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side="left", use_auth_token=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
