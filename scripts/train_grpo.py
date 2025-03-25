@@ -48,7 +48,7 @@ load_dotenv()
 os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
 os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
-os.environ["HUGGINGFACE_TOKEN"] = os.getenv("HUGGINGFACE_TOKEN")
+token = os.getenv("HUGGINGFACE_TOKEN")
 
 model_name = "meta-llama/Llama-3.1-70B-Instruct"
 output_dir = "edgelist_model"
@@ -472,7 +472,7 @@ if __name__ == "__main__":
         model_name, 
         torch_dtype=torch.bfloat16,
         device_map="auto",
-        use_auth_token=True
+        token=token
     )
     
     # Configure LoRA / QLoRA
@@ -488,7 +488,7 @@ if __name__ == "__main__":
     model = get_peft_model(model, lora_config)
     print("Model downloaded")
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side="left", use_auth_token=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side="left", token=token)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
