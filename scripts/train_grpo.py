@@ -50,7 +50,7 @@ os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 token = os.getenv("HUGGINGFACE_TOKEN")
 
-model_name = "meta-llama/Llama-3.1-70B-Instruct"
+model_name = "/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/Llama-3.3-70B-Instruct"
 output_dir = "edgelist_model"
 log_dir = "../logs/"
 checkpoint_dir = "../checkpoints/"
@@ -339,7 +339,6 @@ def grpo_loss(model, ref_model, rollout_data, tokenizer, reward_function, beta=0
     num_generations = rollout_data["num_generations"]
     rewards = rewards.view(batch_size, num_generations)
     avg_reward = rewards.mean().item()
-    print("Average Reward:", avg_reward)
 
     mean_rewards = rewards.mean(dim=1).repeat_interleave(num_generations)
     std_rewards = rewards.std(dim=1).repeat_interleave(num_generations)
@@ -472,7 +471,8 @@ if __name__ == "__main__":
         model_name, 
         torch_dtype=torch.bfloat16,
         device_map="auto",
-        token=token
+        token=token,
+        use_safetensors=True
     )
     
     # Configure LoRA / QLoRA
@@ -499,7 +499,7 @@ if __name__ == "__main__":
     model.config.eos_token_id = tokenizer.eos_token_id
 
     transformed_dataset = TransformedDataset(BasicEdgePredDataset("../data/test"), prepare_dataset)
-    eval_size = 20
+    eval_size = 10
     eval_idxs = list(range(eval_size))
     train_idxs = list(range(eval_size, len(transformed_dataset)))
 
