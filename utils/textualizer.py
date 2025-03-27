@@ -8,10 +8,10 @@ def textualize_edges(mp: Multiplex, layer_name: bool = True, header: bool = True
       text += layer['layer_name'] + '\n'
 
     if header:
-      text += 'src\tweight\ttgt\n'
+      text += 'src\ttgt\n'
 
-    for e in layer['graph'].edges(data=True):
-      text += f"{e[0]}\t{e[2]['weight']}\t{e[1]}\n"
+    for e in layer['graph'].edges():
+      text += f"{e[0]}\t{e[1]}\n"
   
   return text
 
