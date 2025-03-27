@@ -50,7 +50,8 @@ os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 token = os.getenv("HUGGINGFACE_TOKEN")
 
-model_name = "/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/Llama-3.3-70B-Instruct"
+MODEL_DIR = '/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/'
+MODEL_NAME = 'Llama-3.3-70B-Instruct'
 output_dir = "edgelist_model"
 log_dir = "../logs/"
 checkpoint_dir = "../checkpoints/"
@@ -468,7 +469,7 @@ if __name__ == "__main__":
 
     print("Downloading model...")
     model = AutoModelForCausalLM.from_pretrained(
-        model_name, 
+        MODEL_DIR + MODEL_NAME, 
         torch_dtype=torch.bfloat16,
         device_map="auto",
         token=token,
@@ -488,7 +489,7 @@ if __name__ == "__main__":
     model = get_peft_model(model, lora_config)
     print("Model downloaded")
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side="left", token=token)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR + MODEL_NAME, padding_side="left", token=token)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -539,5 +540,5 @@ if __name__ == "__main__":
     print(f"Accuracy improvement: {post_grpo_accuracy - pre_grpo_accuracy:.2f}")
 
     print("\nSaving GRPO fine-tuned model...")
-    model.save_pretrained(checkpoint_dir + "edgelist_grpo_model")
-    tokenizer.save_pretrained(checkpoint_dir + "edgelist_grpo_model")
+    model.save_pretrained(MODEL_DIR + "GRPO-EdgePred-Vanilla")
+    tokenizer.save_pretrained(MODEL_DIR + "GRPO-EdgePred-Vanilla")
