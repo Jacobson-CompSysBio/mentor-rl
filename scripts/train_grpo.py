@@ -52,6 +52,8 @@ token = os.getenv("HUGGINGFACE_TOKEN")
 
 MODEL_DIR = '/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/'
 MODEL_NAME = 'Llama-3.3-70B-Instruct'
+DATA_DIR = '../data/test/edge_test.tsv'
+
 output_dir = "edgelist_model"
 log_dir = "../logs/"
 checkpoint_dir = "../checkpoints/"
@@ -92,10 +94,32 @@ def extract_answer(text):
 # -----------------------
 # DATASET PREP FUNCTIONS
 # -----------------------
+def format_edgelist(filepath):
+
+    # make a blank string 
+    formatted_edgelist = "<-> represents an undirected edge between two nodes. This is the graph: "
+    
+    # open file, and add each line with formatting to the edgelist
+    with open(filepath, 'r') as f:
+        
+        # ignore headers in loop
+        for line in f[2:]:
+
+            # strip whitespace
+            text = line.strip()
+            
+            # split text on space
+            split_text = text.split(' ')
+            
+            # add to current string
+            formatted_edgelist += f'node {split_text[0]} <-> node {split_text[1]}'
+
+    return formatted_edgelist
+
 def prepare_dataset(example):
     prompt_str = build_prompt([
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": example["desc"] + " " + example["question"]}
+        {"role": "user", "content": format_edgelist(example["desc"]) + " " + example["question"].replace('[').replace(']')}
     ])
     formatted_example = {
         "prompt": prompt_str,
@@ -499,7 +523,7 @@ if __name__ == "__main__":
     model.train()
     model.config.eos_token_id = tokenizer.eos_token_id
 
-    transformed_dataset = TransformedDataset(BasicEdgePredDataset("../data/test"), prepare_dataset)
+    transformed_dataset = TransformedDataset(BasicEdgePredDataset(DATA_DIR), prepare_dataset)
     eval_size = 10
     eval_idxs = list(range(eval_size))
     train_idxs = list(range(eval_size, len(transformed_dataset)))

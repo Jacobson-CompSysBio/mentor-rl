@@ -14,7 +14,7 @@ class BasicEdgePredDataset(Dataset):
     super().__init__()
 
     self.path = path
-    self.text = pd.read_csv(f'{self.path}/train_dev.tsv', sep='\t')
+    self.text = pd.read_csv(f'{self.path}', sep='\t')
 
   def __len__(self):
     """Return the len of the dataset."""
