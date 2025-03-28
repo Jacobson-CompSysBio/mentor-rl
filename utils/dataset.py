@@ -27,16 +27,15 @@ class BasicEdgePredDataset(Dataset):
       'id': index,
       'question': text['question'],
       'answer': text['label'],
-      'desc': self.get_edgelist_text(text['desc']),
+      'desc': text['desc'],
     }
   
   def get_edgelist_text(self, desc):
      """
      Given a graph description, return the edgelist text, with edges separated by commas.
      """
-     prefix = 'Consider the graph with the following edges: '
+
      desc = desc.replace('[', '').replace(']', '').replace('\'', '')
-     desc = prefix + desc
 
      return desc
 
