@@ -62,11 +62,11 @@ log_dir = "../logs/"
 checkpoint_dir = "../checkpoints/"
 
 training_config = {
-    'num_iterations': 10,
-    'num_steps': 500,
+    'num_iterations': 1,
+    'num_steps': 250,
     'batch_size': 1, # 3 for 4 gpus
     'num_generations': 4, # reduce if you have GPUs with less VRAM
-    'max_completion_length': 200, # reduce if you have GPUs with less VRAM
+    'max_completion_length': 512, # reduce if you have GPUs with less VRAM
     'beta': 0.04,
     'learning_rate': 5e-6,
     'mu': 1,
@@ -530,7 +530,7 @@ def main():
         model.config.eos_token_id = tokenizer.eos_token_id
 
         transformed_dataset = TransformedDataset(BasicEdgePredDataset(DATA_DIR), prepare_dataset)
-        eval_size = .2 * len(transformed_dataset) 
+        eval_size = 10 
         eval_idxs = list(range(eval_size))
         train_idxs = list(range(eval_size, len(transformed_dataset)))
 
