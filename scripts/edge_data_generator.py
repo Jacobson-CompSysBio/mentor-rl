@@ -124,7 +124,19 @@ def edge_data(multiplex_file: str,
 
 
 if __name__ == '__main__':
-  multiplex_file = '../bio_tissue_networks.flist'
-  output_file = 'edge_tests.tsv'
+  output_file = '../data/test/n50_edge_tests.tsv'
 
+  multiplex_file = '../data/graph_n50_0.flist'
+  edge_data(multiplex_file, output_file)
+
+  multiplex_file = '../data/graph_n50_1.flist'
+  edge_data(multiplex_file, output_file)
+
+  multiplex_file = '../data/graph_n50_2.flist'
+  edge_data(multiplex_file, output_file)
+
+  multiplex_file = '../data/graph_n50_3.flist'
+  edge_data(multiplex_file, output_file)
+
+  multiplex_file = '../data/graph_n50_4.flist'
   edge_data(multiplex_file, output_file)
