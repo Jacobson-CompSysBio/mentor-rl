@@ -106,9 +106,11 @@ def main():
                 split_text = line.strip().split()
                 if len(split_text) >= 2:
                     node1, node2 = split_text[:2]
-                    edges.append(f'node {node1} <-> node {node2}')
+                    edges.append(f'(node {node1}, connected to, node {node2})')
 
-        formatted_edgelist = "<-> represents an undirected edge between two nodes. This is the graph: " + ', '.join(edges)
+        formatted_edgelist = "You are given a graph in the form of triplets," \
+        "e.g. (node 1, connected to, node 2). Answer the question related to the graph." \
+        "This is the graph: " + ', '.join(edges)
         return formatted_edgelist
 
     def prepare_dataset(example):
@@ -117,6 +119,7 @@ def main():
         desc = format_edgelist(example["desc"])
         answer = example["answer"]
         question = example["question"]
+        question = question.replace("graph_n50_", "")
         for x in ['[', ']', '\'']:
             answer = answer.replace(x, '')
             question = question.replace(x, '')
