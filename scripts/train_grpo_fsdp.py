@@ -15,7 +15,7 @@ from pathlib import Path
 from torch.utils.data import DataLoader, Subset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-import wandb  # Assumes wandb is installed
+import wandb
 
 # For mixed precision
 from torch.cuda.amp import autocast
@@ -46,7 +46,7 @@ os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY", "default_entity")
 token = os.getenv("HUGGINGFACE_TOKEN", "")
 
 MODEL_DIR = '/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/'
-MODEL_NAME = 'Llama-3.3-70B-Instruct'
+MODEL_NAME = "Llama-4-Scout-17B-16E-Instruct'
 DATA_DIR = '../data/test/edge_tests.tsv'
 
 output_dir = "edgelist_model"
@@ -66,9 +66,19 @@ training_config = {
 }
 
 def main():
+    # explicit fsdp config
+    fsdp_plugin = FullyShardedDataParallelPlugin(
+            sharding_strategy="FULL_SHARD", # weights, opt, grad
+            cpu_offload=False,
+            auto_wrap_policy=None,
+            backward_prefetch="backward_post", # backward prefetch type
+            state_dict_type="full"
+        )
+
     # Initialize Accelerate with FSDP enabled
     accelerator = Accelerator(
-        fsdp_plugin=FullyShardedDataParallelPlugin()
+        fsdp_plugin=fsdp_plugin,
+        mixed_precision="bf16"
     )
 
     # Use accelerator.print instead of raw print
@@ -460,7 +470,10 @@ def main():
             model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
         model.gradient_checkpointing_enable()
         return model
-
+    
+    # amd precision setting
+    torch.set_float32_matmul_precision("medium")
+    
     device = accelerator.device
     print_main(f"Using primary device: {device}")
 
@@ -469,8 +482,9 @@ def main():
     model = AutoModelForCausalLM.from_pretrained(
         os.path.join(MODEL_DIR, MODEL_NAME),
         torch_dtype=torch.bfloat16,
-        use_auth_token=token,       # <--- use_auth_token instead of token=
-        use_safetensors=True
+        token=token,
+        use_safetensors=True,
+        device_map=None
     )
     
     # Configure LoRA / QLoRA
@@ -510,8 +524,20 @@ def main():
     eval_dataset = Subset(transformed_dataset, eval_idxs)
     train_dataset = Subset(transformed_dataset, train_idxs)
 
-    train_loader = DataLoader(train_dataset, batch_size=training_config["batch_size"], shuffle=True, num_workers=4)
-    eval_loader = DataLoader(eval_dataset, batch_size=1, shuffle=False, num_workers=2)
+    train_loader = DataLoader(
+            train_dataset, 
+            batch_size=training_config["batch_size"], 
+            shuffle=True, 
+            num_workers=4,
+            pin_memory=True,
+            persistent_workers=True)
+
+    eval_loader = DataLoader(eval_dataset, 
+                             batch_size=1, 
+                             shuffle=False, 
+                             num_workers=2,
+                             pin_memory=True,
+                             persistent_workers=True)
 
     print_main("\nInitial model evaluation before finetuning:")
     pre_grpo_accuracy = evaluate_model(model, tokenizer, eval_dataset, device)
