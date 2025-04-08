@@ -24,6 +24,8 @@ from torch.utils.data import Dataset, DataLoader, Subset
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
+    AutoProcessor,
+    Llama4ForConditionalGeneration
 )
 from peft import LoraConfig, get_peft_model, TaskType
 
@@ -54,7 +56,7 @@ os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 token = os.getenv("HUGGINGFACE_TOKEN")
 
 MODEL_DIR = '/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/'
-MODEL_NAME = 'Llama-3.3-70B-Instruct'
+MODEL_NAME = 'Llama-4-Scout-17B-16E-Instruct' 
 DATA_DIR = '../data/test/edge_tests.tsv'
 
 output_dir = "edgelist_model"
@@ -501,9 +503,10 @@ def main():
         print(f"Using primary device: {device}")
 
         print("Downloading model...")
-        model = AutoModelForCausalLM.from_pretrained(
+        model = Llama4ForConditionalGeneration.from_pretrained(
             MODEL_DIR + MODEL_NAME, 
             torch_dtype=torch.bfloat16,
+            attn_implementation="flex_attention",
             device_map="auto",
             token=token,
             use_safetensors=True
@@ -523,9 +526,9 @@ def main():
         print("Model downloaded")
 
         tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR + MODEL_NAME, padding_side="left", token=token)
+        
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
-
         model.config.pad_token_id = tokenizer.pad_token_id
         model.config.use_cache = False         # <--- Must disable use_cache for gradient checkpointing
         model.gradient_checkpointing_enable()  # <--- Turn on gradient checkpointing

@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 from torch.utils.data import DataLoader, Subset
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, init_empty_weights, AutoConfig, load_checkpoint_and_dispatch
 
 import wandb
 
@@ -46,7 +46,7 @@ os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY", "default_entity")
 token = os.getenv("HUGGINGFACE_TOKEN", "")
 
 MODEL_DIR = '/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/'
-MODEL_NAME = "Llama-4-Scout-17B-16E-Instruct'
+MODEL_NAME = 'Llama-4-Scout-17B-16E-Instruct' 
 DATA_DIR = '../data/test/edge_tests.tsv'
 
 output_dir = "edgelist_model"
@@ -69,10 +69,9 @@ def main():
     # explicit fsdp config
     fsdp_plugin = FullyShardedDataParallelPlugin(
             sharding_strategy="FULL_SHARD", # weights, opt, grad
-            cpu_offload=False,
+            cpu_offload=True,
             auto_wrap_policy=None,
-            backward_prefetch="backward_post", # backward prefetch type
-            state_dict_type="full"
+            backward_prefetch="backward_post", # backward prefetch type   
         )
 
     # Initialize Accelerate with FSDP enabled
@@ -380,6 +379,7 @@ def main():
         model,
         tokenizer,
         train_loader,
+        optimizer,
         num_iterations=1,
         num_steps=500,
         batch_size=4,
@@ -392,10 +392,6 @@ def main():
         reward_function=None
     ):
         logging_interval = 5
-
-        # Prepare model & optimizer just once outside the loop
-        optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-        model, optimizer, train_loader = accelerator.prepare(model, optimizer, train_loader)
 
         for iteration in range(num_iterations):
             print_main(f"\nIteration {iteration+1}/{num_iterations}")
@@ -478,15 +474,19 @@ def main():
     print_main(f"Using primary device: {device}")
 
     print_main("Loading model...")
-    # Remove device_map='auto' so FSDP can fully shard
-    model = AutoModelForCausalLM.from_pretrained(
-        os.path.join(MODEL_DIR, MODEL_NAME),
-        torch_dtype=torch.bfloat16,
-        token=token,
-        use_safetensors=True,
-        device_map=None
-    )
-    
+
+    # load with empty weights first
+    config = AutoConfig.from_pretrained(os.path.join(MODEL_DIR + MODEL_NAME))    
+    with init_empty_weights:
+        model = AutoModelForCausalLM.from_config(config)
+    model = load_checkpoint_and_dispatch(
+            model,
+            checkpoint=os.path.join(MODEL_DIR + MODEL_NAME),
+            device_map="cpu",
+            low_cpu_mem_usage=True,
+            trust_remote_code=True,
+        )
+
     # Configure LoRA / QLoRA
     from peft import LoraConfig, get_peft_model, TaskType
     lora_config = LoraConfig(
@@ -539,6 +539,10 @@ def main():
                              pin_memory=True,
                              persistent_workers=True)
 
+    # make opt and prepare with accelerate
+    optimizer = torch.optim.AdamW(model.parameters(), lr=training_config['learning_rate'])
+    model, optimizer, train_loader = accelerator.prepare(model, optimizer, train_loader)
+
     print_main("\nInitial model evaluation before finetuning:")
     pre_grpo_accuracy = evaluate_model(model, tokenizer, eval_dataset, device)
     print_main(f"Pre-GRPO Accuracy: {pre_grpo_accuracy:.2f}%")
@@ -558,6 +562,7 @@ def main():
         model=model,
         tokenizer=tokenizer,
         train_loader=train_loader,
+        optimizer=optimizer,
         reward_function=combined_reward,
         **training_config
     )
