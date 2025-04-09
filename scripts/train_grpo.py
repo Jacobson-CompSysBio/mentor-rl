@@ -159,7 +159,7 @@ def main():
 
             tokenized = tokenizer(full_prompt, return_tensors="pt").to(device)
             inputs = tokenized.input_ids.to(device)
-            with torch.no_grad(), torch._dynamo.disable():
+            with torch.no_grad():
                 outputs = model.generate(
                     inputs,
                     max_new_tokens=512,
@@ -430,7 +430,7 @@ def main():
                     break
 
                 # 1) Generate rollouts ONCE per batch, storing old_log_probs in memory.
-                with torch.no_grad(), torch._dynamo.disable():
+                with torch.no_grad():
                     rollout_data = generate_rollout_data(
                         model,
                         ref_model,
@@ -510,7 +510,6 @@ def main():
                 device_map="auto",
                 torch_dtype=torch.bfloat16,
                 ) 
-        # model.config.max_position_embeddings = 7012
 
         # Configure LoRA / QLoRA
         lora_config = LoraConfig(
