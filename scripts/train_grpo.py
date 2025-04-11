@@ -66,10 +66,10 @@ checkpoint_dir = "../checkpoints/"
 
 training_config = {
     'num_iterations': 1,
-    'num_steps': 250,
+    'num_steps': 100,
     'batch_size': 1, # 3 for 4 gpus
-    'num_generations': 4, # reduce if you have GPUs with less VRAM
-    'max_completion_length': 512, # reduce if you have GPUs with less VRAM
+    'num_generations': 2, # reduce if you have GPUs with less VRAM
+    'max_completion_length': 64, # reduce if you have GPUs with less VRAM
     'beta': 0.04,
     'learning_rate': 5e-6,
     'mu': 1,
@@ -296,27 +296,78 @@ def main():
         return (sequence_indices <= eos_idx.unsqueeze(1)).int()
 
     def generate_completions(model, tokenizer, prompts, num_generations=4, max_completion_length=32):
+        # Tokenize each prompt using the tokenizer and pad to the longest sequence
         inputs = tokenizer(prompts, return_tensors="pt", padding=True, padding_side="left")
-        prompt_ids = inputs["input_ids"]
-        prompt_mask = inputs["attention_mask"]
+        prompt_ids = inputs["input_ids"].to(model.device)
+        prompt_mask = inputs["attention_mask"].to(model.device)
         prompt_length = prompt_ids.size(1)
-
+        
+        # Debug print: log the shape and a snippet of prompt_ids
+        print(f"[DEBUG] prompt_ids shape: {prompt_ids.shape}")
+        print(f"[DEBUG] prompt_mask shape: {prompt_mask.shape}")
+        
         # Repeat each prompt num_generations times
         prompt_ids = prompt_ids.repeat_interleave(num_generations, dim=0)
         prompt_mask = prompt_mask.repeat_interleave(num_generations, dim=0)
+        
+        print(f"[DEBUG] Repeated prompt_ids shape: {prompt_ids.shape}")
+        
+        # --- Temporarily enable caching for generation to avoid RoPE issues ---
+        original_use_cache = model.config.use_cache
+        gradient_checkpointing_enabled = getattr(model, "is_gradient_checkpointing", False)
+        model.config.use_cache = True
+        if gradient_checkpointing_enabled:
+            print("[DEBUG] Disabling gradient checkpointing for generation")
+            model.gradient_checkpointing_disable()
+        print(f"[DEBUG] model.config.use_cache set to True for generation")
+        
+        try:
+            outputs = model.generate(
+                prompt_ids,
+                attention_mask=prompt_mask,
+                max_new_tokens=max_completion_length,
+                do_sample=True,
+                temperature=1.0,
+                pad_token_id=tokenizer.pad_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+                early_stopping=False,
+            )
+        except Exception as e:
+            print("[ERROR] Exception occurred during model.generate call:")
+            print(e)
+            # Restore original cache setting even if generation fails.
+            model.config.use_cache = original_use_cache
+            raise
 
-        outputs = model.generate(
-            prompt_ids,
-            attention_mask=prompt_mask,
-            max_new_tokens=max_completion_length,
-            do_sample=True,
-            temperature=1.0,
-            pad_token_id=tokenizer.pad_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-            early_stopping=False,
-        )
+        # Restore the original configuration after generation
+        model.config.use_cache = original_use_cache
+        if gradient_checkpointing_enabled:
+            print("[DEBUG] Re-enabling gradient checkpointing after generation")
+            model.gradient_checkpointing_enable()
+        print(f"[DEBUG] model.config.use_cache restored to {original_use_cache}")
+
+        # Check for non-empty outputs and the expected dimensions.
+        if outputs is None:
+            raise ValueError("[ERROR] model.generate returned None.")
+
+        if outputs.ndim != 2:
+            raise ValueError(f"[ERROR] Unexpected outputs shape: {outputs.shape}. Expected 2D tensor.")
+
+        print(f"[DEBUG] outputs shape from generate(): {outputs.shape}")
+
+        # Assume that the new tokens are the ones after the original prompt length.
         completion_ids = outputs[:, prompt_length:]
+        
+        # Check that the completion_ids have nonzero length
+        if completion_ids.size(1) == 0:
+            raise ValueError("[ERROR] No completion tokens generated (completion_ids has zero length).")
+
+        # Generate completion mask based on eos_token_id.
         completion_mask = create_completion_mask(completion_ids, tokenizer.eos_token_id)
+        
+        print(f"[DEBUG] completion_ids shape: {completion_ids.shape}")
+        print(f"[DEBUG] completion_mask shape: {completion_mask.shape}")
+
         return prompt_ids, prompt_mask, completion_ids, completion_mask
 
     def generate_rollout_data(model, ref_model, tokenizer, batch_samples, num_generations, max_completion_length):
@@ -482,20 +533,6 @@ def main():
 
         return model
 
-    def optimize_model_memory(model):
-        model.train()
-        model.config.use_cache = False
-
-        if hasattr(model, "enable_input_require_grads"):
-            model.enable_input_require_grads()
-        else:
-            def make_inputs_require_grad(module, input, output):
-                output.requires_grad_(True)
-            model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
-
-        model.gradient_checkpointing_enable()
-        return model
-
     # -----
     # MAIN
     # -----
@@ -506,10 +543,12 @@ def main():
         print("Downloading model...")
         model = Llama4ForConditionalGeneration.from_pretrained(
                 MODEL_DIR + MODEL_NAME,
-                attn_implementation="flex_attention",
+                #attn_implementation="flex_attention",
                 device_map="auto",
                 torch_dtype=torch.bfloat16,
+                token=token
                 ) 
+        print("Model downloaded")
 
         # Configure LoRA / QLoRA
         lora_config = LoraConfig(
@@ -548,8 +587,6 @@ def main():
         print("\nInitial model evaluation before finetuning:")
         pre_grpo_accuracy = evaluate_model(model, tokenizer, eval_loader, device)
         print(f"Pre-GRPO Accuracy: {pre_grpo_accuracy:.2f}%")
-
-        model = optimize_model_memory(model)
 
         print("\nStarting RL fine-tuning using GRPO...")
         wandb.init(project=os.environ["WANDB_PROJECT"], 
