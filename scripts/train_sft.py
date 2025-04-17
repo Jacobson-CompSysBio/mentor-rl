@@ -7,7 +7,8 @@ import numpy as np
 from transformers import (pipeline,
                           AutoTokenizer,
                           AutoModelForCausalLM,
-                          DataCollatorWithPadding,
+                          DataCollatorForSeq2Seq,
+                          DataCollatorForLanguageModeling,
                           Llama4ForConditionalGeneration,
                           get_scheduler)
 from datasets import load_dataset
@@ -36,7 +37,7 @@ train_config = {
         "model": MODEL_NAME,
         "dataset": "ensembl",
         "peft": True,
-        "batch_size": 4,
+        "batch_size": 1,
         "num_epochs": 2,
         "max_lr": 1e-4,
         }
@@ -46,7 +47,7 @@ def main():
     # load dataset (we actually don't want to split this data since we want to ingest all ensembls)
     raw_dataset = load_dataset('json', data_dir=DATA_DIR, data_files="qa_pairs.json")
     dataset = raw_dataset['train'].train_test_split(test_size=0.1)
-    print(f"Datset Loaded")
+    print("Data loaded.")
 
     # load tokenizer and model
     print(f"Loading model: {train_config['model']}")
@@ -75,18 +76,18 @@ def main():
     def format_chat(row):
         row_json_inp = [{"role": "user", "content": row["question"]}]
         row_json_out = [{"role": "assistant", "content": row["answer"]}]
-        row["input"] = tokenizer.apply_chat_template(row_json_inp, tokenize=False)
-        row["target"] = tokenizer.apply_chat_template(row_json_out, tokenize=False)
+        row["prompt"] = tokenizer.apply_chat_template(row_json_inp, tokenize=False)
+        row["response"] = tokenizer.apply_chat_template(row_json_out, tokenize=False)
         return row
 
     # tokenize data
-    def preprocess_data(examples):
+    def preprocess_data(example):
         # concat to get full text
         full_text = example["prompt"] + example["response"]
         # tokenize
         tokenized = tokenizer(full_text,
                               truncation=True,
-                              max_length=512,
+                              max_length=256,
                               add_special_tokens=False
                               )
         # loss masking
@@ -103,14 +104,17 @@ def main():
         return tokenized
     
     # format dataset
+    print("Preprocessing data..")
     formatted_dataset = dataset.map(format_chat,
                                     remove_columns=dataset['train'].column_names)
     tokenized_dataset = formatted_dataset.map(preprocess_data,
                                               remove_columns=["prompt", "response"])
 
+    print("Dataset processed.")
+
     ## MODELING
     # create dataloaders
-    data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, return_tensors="pt")
     train_dataloader = DataLoader(tokenized_dataset['train'],
                                   collate_fn=data_collator,
                                   batch_size=train_config['batch_size']
@@ -138,8 +142,8 @@ def main():
                entity=os.environ["WANDB_ENTITY"],
                reinit=True,
                config = train_config)
+    
     print("Training...")
-
     iter_num = 0
     # train loop
     for epoch in range(num_epochs):
