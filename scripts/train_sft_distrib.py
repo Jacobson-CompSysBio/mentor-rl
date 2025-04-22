@@ -5,21 +5,26 @@ import wandb
 import traceback
 import numpy as np
 from transformers import (pipeline,
+                          AutoConfig,
                           AutoTokenizer,
                           AutoModelForCausalLM,
                           DataCollatorForSeq2Seq,
                           DataCollatorForLanguageModeling,
                           Llama4ForConditionalGeneration,
-                          get_scheduler)
+                          get_scheduler
+                          )
 from datasets import load_dataset
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from pathlib import Path
 from dotenv import load_dotenv
 from peft import LoraConfig, get_peft_model, TaskType
-from accelerate import Accelerator
-from accelerate.plugins import FullyShardedDataParallelPlugin
-
+from accelerate import (Accelerator,
+                        FullyShardedDataParallelPlugin, 
+                        init_empty_weights, 
+                        infer_auto_device_map, 
+                        load_checkpoint_and_dispatch,
+                        )
 
 # set proper root path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -34,7 +39,6 @@ MODEL_NAME = 'Llama-4-Scout-17B-16E-Instruct'
 SAVE_NAME = 'Llama4-Scout-EnsemblSFT' 
 DATA_DIR = '/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/data/'
 
-accelerator.print(f"Getting training config...")
 # set up train config
 train_config = {
         "model": MODEL_NAME,
@@ -48,10 +52,13 @@ train_config = {
 
 def main():
     # init accelerator for distributed training
+    fsdp_plugin = FullyShardedDataParallelPlugin(
+            
+            )
     accelerator=Accelerator(
-            gradient_accumulation_steps=training_config["grad_accum_steps"],
+            gradient_accumulation_steps=train_config["grad_accum_steps"],
             mixed_precision="bf16",
-            fsdp_plugin=FullyShardedDataParallelPlugin(),
+            fsdp_plugin=fsdp_plugin,
             )
     device = accelerator.device
     is_main = accelerator.is_main_process
@@ -66,24 +73,38 @@ def main():
 
     # load tokenizer and model
     accelerator.print(f"Loading model: {train_config['model']}")
-    tokenizer = AutoTokenizer.from_pretrained(os.path.join(MODEL_DIR + MODEL_NAME), token=token)
-    model = Llama4ForConditionalGeneration.from_pretrained(os.path.join(MODEL_DIR + MODEL_NAME),
-                                                           torch_dtype=torch.bfloat16)
-    print(f"Model loaded.")
-
+    tokenizer = AutoTokenizer.from_pretrained(os.path.join(MODEL_DIR, MODEL_NAME), token=token)
+    with init_empty_weights():
+        base_model = Llama4ForConditionalGeneration.from_pretrained(
+                os.path.join(MODEL_DIR, MODEL_NAME),
+                torch_dtype=torch.bfloat16,
+                low_cpu_mem_usage=True
+                )
+    # infer auto device map
+    device_map = infer_auto_device_map(base_model)
+    base_model = load_checkpoint_and_dispatch(base_model,
+                                              checkpoint=os.path.join(MODEL_DIR, MODEL_NAME),
+                                              device_map="auto",
+                                              dtype=torch.bfloat16,
+                                              offload_folder="../offload",
+                                              )
+    
     # apply peft (optional)
     if train_config["peft"]:
-        accelerator.print("Initializing with LoRA...")
+        accelerator.print("Applying PEFT (LoRA) to base model...")
         lora_config = LoraConfig(
-                r=8,
-                lora_alpha=32,
-                lora_dropout=0.05,
-                bias="none",
-                task_type=TaskType.CAUSAL_LM,
-                target_modules=["q_proj", "v_proj"]
-                )
-        model = get_peft_model(model, lora_config)
-        accelerator.print("LoRA applied.")
+            r=8,
+            lora_alpha=32,
+            lora_dropout=0.05,
+            bias="none",
+            task_type=TaskType.CAUSAL_LM,
+            target_modules=["q_proj", "v_proj"]
+        )
+        model = get_peft_model(base_model, lora_config)
+        accelerator.print("PEFT applied.")
+    else:
+        model = base_model
+    print(f"Model loaded.")
 
     ## PREPROCESSING
     # convert to chat format
@@ -131,11 +152,11 @@ def main():
     data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, return_tensors="pt")
     train_dataloader = DataLoader(tokenized_dataset['train'],
                                   collate_fn=data_collator,
-                                  batch_size=train_config['batch_size']
+                                  batch_size=train_config['micro_batch_size']
                                   )
     val_dataloader = DataLoader(tokenized_dataset['test'],
                                 collate_fn=data_collator,
-                                batch_size=train_config['batch_size']
+                                batch_size=train_config['micro_batch_size']
                                 )
 
     # init optimizers
@@ -174,9 +195,9 @@ def main():
         accum_loss = 0.0
         micro_batches = 0
         for batch in train_dataloader:
-            with accelerator.accumulate(model)
+            with accelerator.accumulate(model):
                 # map to cuda
-                batch = {k: v.to(model.device) for k, v in batch.items()}
+                batch = {k: v.to(accelerator.device) for k, v in batch.items()}
                 
                 # fwd
                 outputs = model(**batch)
@@ -206,7 +227,7 @@ def main():
         val_count = 0
         for batch in val_dataloader:
             # map to cuda
-            batch = {k: v.to(model.device) for k, v in batch.items()}
+            batch = {k: v.to(accelerator.device) for k, v in batch.items()}
             
             # fwd
             with torch.no_grad():
@@ -216,7 +237,7 @@ def main():
             loss = outputs.loss.item()
             val_loss_total += loss
             val_count += 1
-        avg_val_loss = 
+        avg_val_loss = val_loss_total / len(val_dataloader) 
         
         # Log one averaged validation loss per epoch
         wandb.log({
