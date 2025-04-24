@@ -25,6 +25,9 @@ from accelerate import (Accelerator,
                         infer_auto_device_map, 
                         load_checkpoint_and_dispatch,
                         )
+from torch.distributed.fsdp.fully_sharded_data_parallel import ShardingStrategy
+from torch.distributed.fsdp import CPUOffload
+from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 
 # set proper root path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -47,18 +50,20 @@ train_config = {
         "micro_batch_size": 1,
         "num_epochs": 2,
         "max_lr": 1e-4,
-        "grad_accum_steps": 32,
+        "grad_accum_steps": 1,
         }
 
 def main():
     # init accelerator for distributed training
     fsdp_plugin = FullyShardedDataParallelPlugin(
-            
+            sharding_strategy=ShardingStrategy.FULL_SHARD,
+            cpu_offload=CPUOffload(offload_params=True),
+            auto_wrap_policy=transformer_auto_wrap_policy,
             )
     accelerator=Accelerator(
             gradient_accumulation_steps=train_config["grad_accum_steps"],
             mixed_precision="bf16",
-            fsdp_plugin=fsdp_plugin,
+            # fsdp_plugin=fsdp_plugin,
             )
     device = accelerator.device
     is_main = accelerator.is_main_process
@@ -74,21 +79,13 @@ def main():
     # load tokenizer and model
     accelerator.print(f"Loading model: {train_config['model']}")
     tokenizer = AutoTokenizer.from_pretrained(os.path.join(MODEL_DIR, MODEL_NAME), token=token)
-    with init_empty_weights():
-        base_model = Llama4ForConditionalGeneration.from_pretrained(
-                os.path.join(MODEL_DIR, MODEL_NAME),
-                torch_dtype=torch.bfloat16,
-                low_cpu_mem_usage=True
-                )
-    # infer auto device map
-    device_map = infer_auto_device_map(base_model)
-    base_model = load_checkpoint_and_dispatch(base_model,
-                                              checkpoint=os.path.join(MODEL_DIR, MODEL_NAME),
-                                              device_map="auto",
-                                              dtype=torch.bfloat16,
-                                              offload_folder="../offload",
-                                              )
-    
+    base_model = Llama4ForConditionalGeneration.from_pretrained(
+            os.path.join(MODEL_DIR, MODEL_NAME),
+            torch_dtype=torch.bfloat16,
+            low_cpu_mem_usage=True,
+            device_map="cpu",
+            )
+
     # apply peft (optional)
     if train_config["peft"]:
         accelerator.print("Applying PEFT (LoRA) to base model...")
@@ -197,7 +194,7 @@ def main():
         for batch in train_dataloader:
             with accelerator.accumulate(model):
                 # map to cuda
-                batch = {k: v.to(accelerator.device) for k, v in batch.items()}
+                # batch = {k: v.to(accelerator.device) for k, v in batch.items()}
                 
                 # fwd
                 outputs = model(**batch)
@@ -227,7 +224,7 @@ def main():
         val_count = 0
         for batch in val_dataloader:
             # map to cuda
-            batch = {k: v.to(accelerator.device) for k, v in batch.items()}
+            # batch = {k: v.to(accelerator.device) for k, v in batch.items()}
             
             # fwd
             with torch.no_grad():
