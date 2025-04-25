@@ -65,19 +65,35 @@ def main():
             mixed_precision="bf16",
             # fsdp_plugin=fsdp_plugin,
             )
-    device = accelerator.device
+    
+    # debug
+    local_rank = os.environ.get("LOCAL_RANK", "unset")
+    global_rank = os.environ.get("GLOBAL_RANK", "unset")
+    world_size = os.environ.get("WORLD_SIZE", "unset")
+    
+    accelerator.print(
+            f"[debug] process_index = {accelerator.state.process_index}\n"
+            f"[debug] is_main = {accelerator.is_main_process}\n"
+            f"[debug] world_size = {accelerator.state.num_processes} (env WORLD_SIZE={world_size})\n"
+            f"[debug] local_rank = {local_rank}\n"
+            f"[debug] global_rank = {global_rank}"
+            )
+    
     is_main = accelerator.is_main_process
     if is_main:
         accelerator.print(f"Accelerator distributed type: {accelerator.state.distributed_type}")
+        accelerator.print(f"Loading dataset") 
 
-    accelerator.print(f"Loading dataset")
-    # load dataset (we actually don't want to split this data since we want to ingest all ensembls)
+    # load dataset 
     raw_dataset = load_dataset('json', data_dir=DATA_DIR, data_files="qa_pairs.json")
     dataset = raw_dataset['train'].train_test_split(test_size=0.1)
-    accelerator.print("Data loaded.")
+    if is_main:
+        accelerator.print("Data loaded.")
+    
 
     # load tokenizer and model
-    accelerator.print(f"Loading model: {train_config['model']}")
+    if is_main:
+        accelerator.print(f"Loading model: {train_config['model']}")
     tokenizer = AutoTokenizer.from_pretrained(os.path.join(MODEL_DIR, MODEL_NAME), token=token)
     base_model = Llama4ForConditionalGeneration.from_pretrained(
             os.path.join(MODEL_DIR, MODEL_NAME),
@@ -88,7 +104,8 @@ def main():
 
     # apply peft (optional)
     if train_config["peft"]:
-        accelerator.print("Applying PEFT (LoRA) to base model...")
+        if is_main:
+            accelerator.print("Applying PEFT (LoRA) to base model...")
         lora_config = LoraConfig(
             r=8,
             lora_alpha=32,
@@ -98,10 +115,17 @@ def main():
             target_modules=["q_proj", "v_proj"]
         )
         model = get_peft_model(base_model, lora_config)
-        accelerator.print("PEFT applied.")
+        if is_main:
+            accelerator.print("PEFT applied.")
     else:
         model = base_model
-    print(f"Model loaded.")
+    if is_main:
+        accelerator.print(f"Model loaded.")
+    
+    # enable gradient checkpointing
+    if hasattr(model, "gradient_checkpointing_enable"):
+        model.gradient_checkpointing_enable()
+    model.config.use_cache = False
 
     ## PREPROCESSING
     # convert to chat format
@@ -136,13 +160,15 @@ def main():
         return tokenized
     
     # format dataset
-    accelerator.print("Preprocessing data..")
+    if is_main:
+        accelerator.print("Preprocessing data..")
     formatted_dataset = dataset.map(format_chat,
                                     remove_columns=dataset['train'].column_names)
     tokenized_dataset = formatted_dataset.map(preprocess_data,
                                               remove_columns=["prompt", "response"])
-
-    accelerator.print("Dataset processed.")
+    
+    if is_main:
+        accelerator.print("Dataset processed.")
 
     ## MODELING
     # create dataloaders
@@ -174,14 +200,15 @@ def main():
     )
     
     if is_main:
-        print("Initializing wandb...")
+        accelerator.print("Initializing wandb...")
         # init wandb
         wandb.init(project="mentor-sft",
                    entity=os.environ["WANDB_ENTITY"],
                    reinit=True,
                    config = train_config)
     
-    accelerator.print("Training...")
+    if is_main:
+        accelerator.print("Training...")
     global_step = 0
     # train loop
     for epoch in range(num_epochs):
@@ -193,11 +220,6 @@ def main():
         micro_batches = 0
         for batch in train_dataloader:
             with accelerator.accumulate(model):
-                # map to cuda
-                # batch = {k: v.to(accelerator.device) for k, v in batch.items()}
-                
-                # fwd
-                outputs = model(**batch)
                 loss = outputs.loss
                 accum_loss += loss.item()
                 micro_batches += 1
@@ -207,8 +229,6 @@ def main():
             
             # track + step opt
             if accelerator.sync_gradients():
-                # step
-                optimizer.step()
                 lr_scheduler.step()
                 optimizer.zero_grad()
 
@@ -223,8 +243,6 @@ def main():
         val_loss_total = 0.0
         val_count = 0
         for batch in val_dataloader:
-            # map to cuda
-            # batch = {k: v.to(accelerator.device) for k, v in batch.items()}
             
             # fwd
             with torch.no_grad():
@@ -241,13 +259,16 @@ def main():
             "val_loss": avg_val_loss,
             "epoch": epoch + 1
             })
-        accelerator.print(f"Epoch {epoch+1}: train_loss = {avg_loss:.4f}, val_loss = {avg_val_loss:.4f}")
+        if is_main:
+            accelerator.print(f"Epoch {epoch+1}: train_loss = {avg_loss:.4f}, val_loss = {avg_val_loss:.4f}")
 
-    ## CHECKPOINTING
-    accelerator.print("Training complete! Saving...")
+    if is_main:
+        print("Training complete! Saving...")
     unwrapped_model = accelerator.unwrap_model(model)
     unwrapped_model.save_pretrained(os.path.join(MODEL_DIR + SAVE_NAME))
     tokenizer.save_pretrained(os.path.join(MODEL_DIR + SAVE_NAME))
+    if is_main:
+        print("Model saved. Script complete")
 
 if __name__ == "__main__":
     try:
