@@ -1,7 +1,10 @@
 .env
+**/data
 **/logs/
 **/scripts/grpo_finetuned_model/
 **/data/test/
 **/checkpoints/
 train.slurm
 smith_test.slurm
+pytorch-rocm.tar.bz2
+scout.tar.bz2
