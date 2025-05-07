@@ -1,5 +1,6 @@
 .env
-**/data
+**/slurm/
+**/data/
 **/logs/
 **/scripts/grpo_finetuned_model/
 **/data/test/
