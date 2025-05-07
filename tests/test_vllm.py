@@ -3,7 +3,7 @@ from openai import OpenAI
 import os
 
 api_key = "EMPTY"
-base_url = "http://localhost:8000/v1" 
+base_url = "http://frontier00674:8000/v1" 
 
 # instantiate client
 client = OpenAI(base_url=base_url,
@@ -15,7 +15,7 @@ def chat_with_server(prompt):
     """
     try:
         completion = client.chat.completions.create(
-            model="Llama-4-Scout-17B-16E-Instruct",
+            model="/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/Llama-4-Scout-17B-16E-Instruct/",
             messages=[{"role": "user", "content": prompt}]
         )
         return completion.choices[0].message.content

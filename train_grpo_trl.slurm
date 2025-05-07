@@ -15,6 +15,7 @@
 #SBATCH --tasks-per-node=1
 ##SBATCH -d afterany:3342165
 
+
 . env.sh
 
 export OMP_NUM_THREADS=8
@@ -36,6 +37,26 @@ export WANDB_RESUME=allow # for >24hr training
 . sbcast_model.sh model_cache
 export HF_HOME=/mnt/bb/$USER/model_cache
 
-MODEL=
+MODEL=/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/Llama-4-Scout-17B-16E-Instruct/
 
+CMD=$(tr -d "\n" << EOF
+accelerate launch
+    --use_fsdp 
+    --mixed_precision=no
+    --fsdp_auto_wrap_policy=TRANSFORMER_BASED_WRAP
+    --fsdp_sharding_strategy=FULL_SHARD
+    --fsdp_state_dict_type=SHARDED_STATE_DICT
+    --fsdp_activation_checkpointing=true
+    --num_machines=${SLURM_NNODES}
+    --num_processes=$((${SLURM_NNODES}*7))
+    --machine_rank=\${SLURM_NODEID}
+    --main_process_ip=${JOB_MASTER_ADDR}
+    --main_process_port=29500
+    --gpu_ids=0,1,2,3,4,5,6
+    --dynamo_backend=no
+train_grpo_trl.py &
+VLLM_PORT=29601 ROCR_VISIBLE_DEVICES=7 trl vllm-serve --model ${MODEL} --host=127.0.0.1 --port=8001 --timeout_keep_alive=1200 1> /dev/null &
+wait
+EOF)
 
+srun -c $CMD 

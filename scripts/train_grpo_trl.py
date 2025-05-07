@@ -26,7 +26,8 @@ from transformers import (
     AutoTokenizer,
     AutoProcessor,
     Llama4ForConditionalGeneration,
-    Llama4ForCausalLM
+    Llama4ForCausalLM,
+    HfArgumentParser
 )
 from peft import LoraConfig, get_peft_model, TaskType
 from trl import GRPOConfig, GRPOTrainer
@@ -35,7 +36,7 @@ from trl import GRPOConfig, GRPOTrainer
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 # custom
-from utils.dataset import BasicEdgePredDataset, TransformedDataset
+from utils.dataset import BasicEdgePredDataset, TransformedDataset, PromptDataset
 
 def set_random_seed(seed: int = 42):
     # Set the seed for Python's built-in random module
@@ -51,32 +52,18 @@ def set_random_seed(seed: int = 42):
 set_random_seed(42)
 
 load_dotenv()
-os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
-os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
-os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
-token = os.getenv("HUGGINGFACE_TOKEN")
+# os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
+# os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
+# os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
+# token = os.getenv("HUGGINGFACE_TOKEN")
 
 MODEL_DIR = '/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/'
 MODEL_NAME = 'Llama-4-Scout-17B-16E-Instruct' 
-DATA_DIR = '../data/test/edge_tests.tsv'
+DATA_DIR = 'data/test/edge_tests.tsv'
 
 output_dir = "edgelist_model"
 log_dir = "../logs/"
 checkpoint_dir = "../checkpoints/"
-
-training_config = {
-    'num_iterations': 1,
-    'num_steps': 100,
-    'micro_batch_size': 1, # 3 for 4 gpus
-    'num_generations': 2, # reduce if you have GPUs with less VRAM
-    'max_completion_length': 64, # reduce if you have GPUs with less VRAM
-    'max_prompt_length': 1024, 
-    'beta': 0.04,
-    'learning_rate': 5e-6,
-    'mu': 1,
-    'epsilon': 0.1,
-    'accum_steps': 1,
-}
 
 def main():
     # -----------------------------------------
@@ -174,49 +161,44 @@ def main():
         completion_contents = [completion[0]["content"] for completion in completions]
         matches = [re.match(pattern, content) for content in completion_contents]
         return [1.0 if match else 0.0 for match in matches]
-
-    def combined_reward(prompts, completions, answer):
-        correctness_scores = correctness_reward(prompts=prompts, completions=completions, answer=answer)
-        format_scores = format_reward(completions=completions)
-        combined_rewards = []
-        for c_score, f_score in zip(correctness_scores, format_scores):
-            combined_rewards.append(c_score + f_score)
-        return combined_rewards
     
     # -----
     ## GRPO
     # -----
     
     # load dataset from path
-    dataset = # can we optimize data loading?
+    dataset = TransformedDataset(BasicEdgePredDataset(DATA_DIR), prepare_dataset)
     
-    # format dataset for reasoning and remove all cols except "question" and "answer"
-    formatted_dataset = dataset.map(prepare_dataset)
-    formatted_dataset = formatted_dataset.remove_columns([])
-
+        parser = HfArgumentParser([GRPOConfig, GameArguments])
+    parser.set_defaults(
+        bf16=False,
+        model_init_kwargs={'torch_dtype': torch.bfloat16},
+        fsdp='hybrid_shard', # this needs to be active, and also the fsdp command line option
+        fsdp_config={'cpu_ram_efficient_loading': True,
+                     'sync_module_states': True,
+                     },
+        learning_rate=1e-5,
+        lr_scheduler_type='constant_with_warmup',
+        remove_unused_columns=False,
+        num_train_epochs=1,
+        num_generations=4,
+        logging_steps=10,
+        save_strategy="steps",
+        save_steps=10,
+        max_completion_length=512,
+        max_prompt_length=4096,
+        per_device_train_batch_size=1,
+        use_vllm=True,
+        vllm_server_host='127.0.0.1',
+        output_dir=output_dir,
+    )
+    training_args= parser.parse_args_into_dataclasses()
     
-
-    
-    training_args = GRPOConfig(output_dir="../checkpoints/llama4-scout-grpo/",
-                               logging_steps=10,
-                               per_device_train_batch_size=training_config["micro_batch_size"],
-                               num_train_epochs=training_config["num_iterations"],
-                               learning_rate=training_config["learning_rate"],
-                               max_completion_length=training_config["max_completion_length"],
-                               num_generations=training_config["num_generations"],
-                               max_prompt_length=training_config["max_prompt_length"]
-                               remove_unused_columns=False,
-                               gradient_accumulation_steps=training_config["accum_steps"],
-                               report_to=["wandb"],
-                               bf16=True  
-                               )
     trainer = GRPOTrainer(
             model=os.path.join(MODEL_NAME + MODEL_DIR), # do we load model first or within the trainer?
-            reward_funcs=combined_reward,
+            reward_funcs=[correctness_reward, format_reward],
             args=training_args,
             train_dataset=dataset,
-            use_vllm=True,
-            vllm_mode="server",
             )
     trainer.train()
     

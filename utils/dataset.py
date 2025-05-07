@@ -39,13 +39,24 @@ class BasicEdgePredDataset(Dataset):
 
      return desc
 
+class PromptDataset(Dataset):
+
+   def __init__(self, data):
+       self.data = data
+
+   def __len__(self):
+       return len(self.data)
+
+   def __getitem__(self, idx):
+        return self.data[idx]
+
 # ---------------
 ## GRPO MODS
 # ---------------
 class TransformedDataset(Dataset):
     def __init__(self, raw_dataset, transform):
         # Convert raw dataset to a list if it isn’t already
-        self.raw_dataset = list(raw_dataset)
+        self.raw_dataset = raw_dataset
         self.transform = transform
 
     def __len__(self):
