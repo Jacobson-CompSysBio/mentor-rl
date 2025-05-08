@@ -169,7 +169,7 @@ def main():
     # load dataset from path
     dataset = TransformedDataset(BasicEdgePredDataset(DATA_DIR), prepare_dataset)
     
-    parser = HfArgumentParser([GRPOConfig, GameArguments])
+    parser = HfArgumentParser([GRPOConfig])
     parser.set_defaults(
         bf16=False,
         model_init_kwargs={'torch_dtype': torch.bfloat16},
