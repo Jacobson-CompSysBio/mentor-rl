@@ -59,7 +59,7 @@ load_dotenv()
 
 MODEL_DIR = '/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/'
 MODEL_NAME = 'Llama-4-Scout-17B-16E-Instruct' 
-DATA_DIR = 'data/test/edge_tests.tsv'
+DATA_DIR = '/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/mentor-rl/data/test/edge_tests.tsv'
 
 output_dir = "edgelist_model"
 log_dir = "../logs/"
@@ -169,7 +169,7 @@ def main():
     # load dataset from path
     dataset = TransformedDataset(BasicEdgePredDataset(DATA_DIR), prepare_dataset)
     
-        parser = HfArgumentParser([GRPOConfig, GameArguments])
+    parser = HfArgumentParser([GRPOConfig, GameArguments])
     parser.set_defaults(
         bf16=False,
         model_init_kwargs={'torch_dtype': torch.bfloat16},
@@ -193,7 +193,6 @@ def main():
         output_dir=output_dir,
     )
     training_args= parser.parse_args_into_dataclasses()
-    
     trainer = GRPOTrainer(
             model=os.path.join(MODEL_NAME + MODEL_DIR), # do we load model first or within the trainer?
             reward_funcs=[correctness_reward, format_reward],

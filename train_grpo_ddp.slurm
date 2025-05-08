@@ -3,7 +3,7 @@
 #SBATCH -N 3
 #SBATCH -A SYB114
 #SBATCH -p batch
-#SBATCH --reservation=hackathon3
+##SBATCH --reservation=hackathon4
 ##SBATCH --gpu-bind=closest
 #SBATCH --cpus-per-task=64 # max amount of cpus per task / change to 56 if we remove -S 0 flag
 #SBATCH -S 0 # turn of "low noise mode"
