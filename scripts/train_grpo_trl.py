@@ -172,7 +172,6 @@ def main():
     parser = HfArgumentParser([GRPOConfig])
     parser.set_defaults(
         bf16=False,
-        model_init_kwargs={'torch_dtype': torch.bfloat16},
         fsdp='hybrid_shard', # this needs to be active, and also the fsdp command line option
         fsdp_config={'cpu_ram_efficient_loading': True,
                      'sync_module_states': True,
@@ -189,12 +188,18 @@ def main():
         max_prompt_length=4096,
         per_device_train_batch_size=1,
         use_vllm=True,
-        vllm_server_host='127.0.0.1',
         output_dir=output_dir,
     )
-    training_args= parser.parse_args_into_dataclasses()
+    training_args, = parser.parse_args_into_dataclasses()
+
+    #load model
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL_DIR + MODEL_NAME,
+        torch_dtype=torch.bfloat16,
+        )
+
     trainer = GRPOTrainer(
-            model=os.path.join(MODEL_NAME + MODEL_DIR), # do we load model first or within the trainer?
+            model=model, 
             reward_funcs=[correctness_reward, format_reward],
             args=training_args,
             train_dataset=dataset,
