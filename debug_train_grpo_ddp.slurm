@@ -3,8 +3,8 @@
 #SBATCH -N 4
 #SBATCH -A SYB114
 #SBATCH -p batch
-#SBATCH --reservation=hackathon4
-##SBATCH -q debug
+#SBATCH -q debug
+#SBATCH --gres=gpu:8
 ##SBATCH --gpu-bind=closest
 #SBATCH --cpus-per-task=64 # max amount of cpus per task / change to 56 if we remove -S 0 flag
 #SBATCH -S 0 # turn of "low noise mode"
@@ -63,14 +63,10 @@ WORKER_NODES=$(printf -v joined '%s,' "${NODELIST[@]:SPLIT+1}"; echo "${joined%,
 export PORT=6379
 RAY_HEAD_CMD="
 export HIP_VISIBLE_DEVICES=\${ROCR_VISIBLE_DEVICES} ;
-#echo "[DEBUG]" \$ROCR_VISIBLE_DEVICES ;
 unset ROCR_VISIBLE_DEVICES ;
-#export VLLM_DP_MASTER_IP=\${HEAD_NODE_IP}
 export VLLM_HOST_IP=\$(hostname | sed 's/^\([^\.]*\)/\1-hsn0/') ;
-#echo "[DEBUG]" \$HIP_VISIBLE_DEVICES ;
 ray start --head --node-ip-address=\${VLLM_HOST_IP} --port=${PORT} --num-cpus=64 --num-gpus=8 --block &
-#echo HERE \${VLLM_HOST_IP}
-trl vllm-serve --model=$MODEL --data-parallel-size=$((NUM_NODES-SPLIT-1)) --tensor-parallel-size 8 --max-model-len 32768 &
+trl vllm-serve --model=$MODEL --data-parallel-size=$((NUM_NODES-SPLIT)) --tensor-parallel-size 8 --max-model-len 32768 &
 wait
 "
 
@@ -79,12 +75,6 @@ srun -w $HEAD_NODE --exclusive -n 1 --nodes=1 --ntasks-per-node=1 --gpus-per-tas
 srun -w $WORKER_NODES --exclusive --nodes=$((NUM_NODES-SPLIT-1)) --ntasks-per-node=1 bash -c \
 "
 export VLLM_HOST_IP=\$(hostname | sed 's/^\([^\.]*\)/\1-hsn0/') ;
-#export VLLM_DP_MASTER_IP=${HEAD_NODE_IP}
-#export HIP_VISIBLE_DEVICES=\${ROCR_VISIBLE_DEVICES} ;
-#echo "[DEBUG]" \$ROCR_VISIBLE_DEVICES ;
-#unset ROCR_VISIBLE_DEVICES ;
-#echo "[DEBUG2]" \$HIP_VISIBLE_DEVICES ;
-#echo HERE \${VLLM_HOST_IP} ;
 ray start --node-ip-address=\${VLLM_HOST_IP} --address=${HEAD_NODE_IP}:${PORT} --num-cpus=64 --num-gpus=8 --block
 " &
 
@@ -96,6 +86,7 @@ export NCCL_DEBUG=info ;
 export HIP_VISIBLE_DEVICES=\${ROCR_VISIBLE_DEVICES} ; 
 unset ROCR_VISIBLE_DEVICES ;
 accelerate launch
+    --multi_gpu
     --use_fsdp 
     --mixed_precision=no
     --fsdp_auto_wrap_policy=TRANSFORMER_BASED_WRAP
@@ -109,7 +100,7 @@ accelerate launch
     --main_process_port=29500
     --gpu_ids=0,1,2,3,4,5,6,7
     --dynamo_backend=no 
-    scripts/train_grpo_trl.py --vllm_server_host=${HEAD_NODE_IP} --vllm-server-timeout=1200 &
+    scripts/train_grpo_trl.py --server_ip=${HEAD_NODE_IP} &
 wait
 EOF
 )
