@@ -23,17 +23,17 @@ TRAIN_NODES="${NODELIST[@]:0:4}"
 VLLM_NODE="${NODELIST[4]}"
 
 # run training on first 4 nodes
-srun --nodes=4 --ntasks4 --nodelist="${NODELIST[@]:0:4}" accelerate launch \
+srun --nodes=4 --ntasks4 --nodelist=${TRAIN_NODES} accelerate launch \
 	--config_file fsdp_config.yaml \
 	--num_processes 32 \
 	--num_machines 4 \
-	--main_process_ip ${NODELIST[0]} \
+	--main_process_ip ${TRAIN_NODES[0]} \
 	--machine_rank $SLURM_PROCID \
 	--rdzv_backend c10d \
 	tests/70B_multinode_grpo.py \
 	--server_ip $VLLM_NODE &
 
 # run vllm server on 5th node
-srun --nodes=1 --ntasks=1 --nodelist="${NODELIST[4]}" trl vllm-serve --model=$MODEL --tensor_parallel_size 8 &
+srun --nodes=1 --ntasks=1 --nodelist=${VLLM_NODE} trl vllm-serve --model=$MODEL --tensor_parallel_size 8 &
 
 wait
