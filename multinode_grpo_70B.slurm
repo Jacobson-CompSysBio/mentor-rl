@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -A SYB114
 #SBATCH -J 70B-multinode-grpo
-#SBATCH -N 5 # 5 nodes
+#SBATCH -N 3
 #SBATCH -t 24:00:00
 #SBATCH -p extended
 #SBATCH -C nvme
@@ -33,11 +33,16 @@ MODEL=/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/Llama3-3.3-7
 NODELIST=($(scontrol show hostnames $SLURM_JOB_NODELIST))
 
 # assign first 4 nodes for training, 5th node for vllm
-TRAIN_NODES="${NODELIST[@]:0:4}"
-VLLM_NODE="${NODELIST[4]}"
+NUM_TRAIN=(($SLURM_NNODES - 1))
+TRAIN_NODES="${NODELIST[@]:0:$NUM_TRAIN}"
+VLLM_NODE="${NODELIST[$SLURM_NNODES]}"
+
+echo "$NUM_TRAIN"
+echo "$TRAIN_NODES"
+echo "$VLLM_NODE"
 
 # run training on first 4 nodes
-srun --nodes=4 --ntasks=4 --nodelist=${TRAIN_NODES} accelerate launch \
+srun --nodes=${NUM_TRAIN} --ntasks=${NUM_TRAIN} --nodelist=${TRAIN_NODES} accelerate launch \
 	--config_file fsdp_config.yaml \
 	--num_processes 32 \
 	--num_machines 4 \
