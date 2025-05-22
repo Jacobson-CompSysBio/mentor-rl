@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -A SYB114
 #SBATCH -J 70B-multinode-grpo
-#SBATCH -N 3
+#SBATCH -N 5
 #SBATCH -t 24:00:00
 #SBATCH -p extended
 #SBATCH -C nvme
@@ -33,26 +33,24 @@ MODEL=/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/Llama3-3.3-7
 NODELIST=($(scontrol show hostnames $SLURM_JOB_NODELIST))
 
 # assign first N nodes for training, N+1 node for vllm
-NUM_TRAIN=$(( SLURM_NNODES - 1 ))
-TRAIN_NODES="${NODELIST[@]:0:$NUM_TRAIN}"
-VLLM_NODE="${NODELIST[$NUM_TRAIN]}"
+TRAIN_NODES="${NODELIST[@]:0:4}"
+VLLM_NODE="${NODELIST[4]}"
 
-echo "$NUM_TRAIN"
 echo "$TRAIN_NODES"
 echo "$VLLM_NODE"
 
 # run training on first N nodes
-srun --nodes=${TRAIN_NODES} --ntasks=${NUM_TRAIN} --nodelist="${TRAIN_NODES}" accelerate launch \
+srun --nodes=4 --ntasks=4 --nodelist="${NODELIST[@]:0:4}" accelerate launch \
 	--config_file fsdp_config.yaml \
-	--num_processes $(( NUM_TRAIN * 8 )) \
-	--num_machines $NUM_TRAIN \
-	--main_process_ip ${TRAIN_NODES[0]} \
+	--num_processes 32 \
+	--num_machines 4 \
+	--main_process_ip ${NODELIST[0]} \
 	--machine_rank $SLURM_PROCID \
 	--rdzv_backend c10d \
 	tests/70B_multinode_grpo.py \
 	--server_ip $VLLM_NODE &
 
 # run vllm server on N+1 node
-srun --nodes=1 --ntasks=1 --nodelist="${VLLM_NODE}" trl vllm-serve --model $MODEL --tensor_parallel_size 8 &
+srun --nodes=1 --ntasks=1 --nodelist="${NODELIST[4]}" trl vllm-serve --model "$MODEL" --tensor_parallel_size 8 &
 
 wait
