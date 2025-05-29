@@ -10,7 +10,10 @@
 #SBATCH -e logs/%j.err
 
 # exit on errors
-set -x -e
+set -e
+
+# env file
+. env.sh
 
 # activate modules
 module load PrgEnv-gnu/8.6.0
@@ -37,7 +40,7 @@ MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
 MASTER_PORT=6000
 
 # run training on first N nodes
-accelerate launch --config_file "../fsdp_config.yaml" --num_processes 8 train_sft_hf.py
+# accelerate launch --config_file "fsdp_config.yaml" --num_processes 8 train_sft_hf.py
 
 # create launcher var 
 export LAUNCHER="accelerate launch \
@@ -50,10 +53,10 @@ export LAUNCHER="accelerate launch \
 	"
 
 # create program var
-export PROG="scripts\train_sft_hf.py"
+export PROG="--training_script scripts/train_sft_hf.py"
 
 # combine launcher + program to make the command
-export CMD="$LAUNCHER $PROGRAM"
+export CMD="$LAUNCHER $PROG"
 
 # srun call
 srun --jobid $SLURM_JOBID bash -c "$CMD"
