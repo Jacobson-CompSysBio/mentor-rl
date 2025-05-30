@@ -48,12 +48,12 @@ export LAUNCHER="accelerate launch \
 	--main_process_ip $MASTER_ADDR \
 	--main_process_port $MASTER_PORT \
 	--machine_rank \$SLURM_PROCID \
-	--num_process $NUM_PROCESS \
+	--num_processes $NUM_PROCESS \
 	--num_machines $NNODES \
 	"
 
 # create program var
-export PROG="--training_script scripts/train_sft_hf.py"
+export PROG="scripts/train_sft_hf.py"
 
 # combine launcher + program to make the command
 export CMD="$LAUNCHER $PROG"
