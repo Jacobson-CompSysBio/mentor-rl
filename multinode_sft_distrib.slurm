@@ -48,7 +48,7 @@ export LAUNCHER="accelerate launch \
 	--main_process_ip $MASTER_ADDR \
 	--main_process_port $MASTER_PORT \
 	--machine_rank \$SLURM_PROCID \
-	--num_processes $NUM_PROCESS \
+	--num_processes $NUM_PROCESSES \
 	--num_machines $NNODES \
 	"
 

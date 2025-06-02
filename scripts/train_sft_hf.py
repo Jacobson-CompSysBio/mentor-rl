@@ -17,6 +17,10 @@ DATA_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/data/"
 USE_PEFT = True
 ################
 
+os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
+os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
+os.environ["WANDB_PROJECT"] = "mentor-sft"
+os.environ["WANDB_LOG_MODEL"] = "checkpoint"
 
 def main():
     lora_config = LoraConfig(
@@ -47,7 +51,7 @@ def main():
         fsdp=["full_shard", "offload", "auto_wrap"],
         report_to="wandb",
         run_name="mentor-sft",
-        max_steps=1 # FOR DEBUG
+        logging_steps=1
     )
     trainer = SFTTrainer(
         model,
