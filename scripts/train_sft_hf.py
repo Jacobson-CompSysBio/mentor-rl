@@ -1,13 +1,16 @@
 import os
 import sys
 import traceback
-
+import logging
+from dotenv import load_dotenv
 from accelerate import PartialState
 from datasets import load_dataset
 from peft import LoraConfig, TaskType
 import torch
 from transformers import Llama4ForConditionalGeneration
 from trl import SFTConfig, SFTTrainer
+
+logging.set_verbosity_debug()
 
 MODEL_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/"
 MODEL_NAME = "Llama-4-Scout-17B-16E-Instruct"
@@ -17,12 +20,25 @@ DATA_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/data/"
 USE_PEFT = True
 ################
 
+load_dotenv()
 os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 os.environ["WANDB_PROJECT"] = "mentor-sft"
-os.environ["WANDB_LOG_MODEL"] = "checkpoint"
+
+wandb_require = wandb.api.Api()
+print(">>> wandb api successful?", isinstance(wandb_require, wandb.Api))
 
 def main():
+    
+
+    wandb.init(
+            project=os.getenv("WANDB_PROJECT"),
+            entity=os.getenv("WANDB_ENTITY"),
+            name="mentor-sft",
+            config={"learning_rate": 1e-4, "epochs": 2}
+            )
+        
+    print("loading model...")
     lora_config = LoraConfig(
             r=8,
             lora_alpha=32,
@@ -31,14 +47,14 @@ def main():
             task_type=TaskType.CAUSAL_LM,
             target_modules=["q_proj", "v_proj"]
     )
-    device = PartialState().process_index
     model = Llama4ForConditionalGeneration.from_pretrained(
             os.path.join(MODEL_DIR, MODEL_NAME),
             torch_dtype=torch.bfloat16,
             low_cpu_mem_usage=True,
-            device_map={"": device},
-            # flash attention?
+            device_map="auto"            # flash attention?
     )
+
+    print("model loaded. loading dataset...")
     dataset = load_data_formatted("qa_pairs.json")
     train_config = SFTConfig(
         output_dir=MODEL_DIR,
@@ -51,8 +67,9 @@ def main():
         fsdp=["full_shard", "offload", "auto_wrap"],
         report_to="wandb",
         run_name="mentor-sft",
-        logging_steps=1
     )
+
+    print("dataset loaded. training model...")
     trainer = SFTTrainer(
         model,
         train_dataset=dataset,
@@ -60,7 +77,7 @@ def main():
         peft_config=lora_config if USE_PEFT else None
     )
     trainer.train()
-
+    print("training complete.")
 
 def format_dataset(row):
     # TRL wants each row in the format:
