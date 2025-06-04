@@ -63,15 +63,15 @@ def main():
             target_modules=["q_proj", "v_proj"]
     )
     # device_string = PartialState().process_index
-    model = Llama4ForConditionalGeneration.from_pretrained(
-            os.path.join(MODEL_DIR, MODEL_NAME),
-            torch_dtype=torch.bfloat16,
-            device_map="cpu",
-            # {'':device_string}
-    )
+    # model = Llama4ForConditionalGeneration.from_pretrained(
+    #         os.path.join(MODEL_DIR, MODEL_NAME),
+    #         torch_dtype=torch.bfloat16,
+    #         device_map="cpu",
+    #         # {'':device_string}
+    # )
 
     # set max position embeddings to avoid OOM
-    model.config.max_position_embeddings=4096
+    # model.config.max_position_embeddings=4096
 
     print("model loaded.")
     train_config = SFTConfig(
@@ -82,13 +82,14 @@ def main():
         warmup_steps=1000,
         fsdp=["full_shard", "offload", "auto_wrap"],
         report_to="wandb",
+        logging_strategy="steps",
         logging_steps=10,
         remove_unused_columns=True
     )
 
     print("training model...")
     trainer = SFTTrainer(
-        model,
+        model=os.path.join(MODEL_DIR, MODEL_NAME),
         train_dataset=dataset["train"],
         args=train_config,
         peft_config=lora_config if USE_PEFT else None
