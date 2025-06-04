@@ -1,23 +1,21 @@
 import os
 import sys
 import traceback
-import logging
+import wandb
 from dotenv import load_dotenv
 from accelerate import PartialState
 from datasets import load_dataset
 from peft import LoraConfig, TaskType
 import torch
-from transformers import Llama4ForConditionalGeneration
+from transformers import Llama4ForConditionalGeneration, TrainingArguments
 from trl import SFTConfig, SFTTrainer
-
-logging.set_verbosity_debug()
 
 MODEL_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/"
 MODEL_NAME = "Llama-4-Scout-17B-16E-Instruct"
 DATA_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/data/"
 
 # train config #
-USE_PEFT = True
+USE_PEFT = False
 ################
 
 load_dotenv()
@@ -25,19 +23,36 @@ os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 os.environ["WANDB_PROJECT"] = "mentor-sft"
 
-wandb_require = wandb.api.Api()
-print(">>> wandb api successful?", isinstance(wandb_require, wandb.Api))
+def format_dataset(row):
+    # TRL wants each row in the format:
+    # { messages: [ {role:r, content:c}, {role:r, content:c} ] }
+    row_q = {"role": "user", "content": row["question"]}
+    row_a = {"role": "assistant", "content": row["answer"]}
+    row['messages'] = [row_q, row_a]
+    return row
+
+def load_data_formatted(file: str):
+    raw = load_dataset("json", data_dir=DATA_DIR, data_files=file)
+    split = raw["train"].train_test_split(test_size=0.1)
+    formatted = split.map(format_dataset, remove_columns=split['train'].column_names)
+    return formatted
 
 def main():
-    
 
-    wandb.init(
-            project=os.getenv("WANDB_PROJECT"),
-            entity=os.getenv("WANDB_ENTITY"),
-            name="mentor-sft",
-            config={"learning_rate": 1e-4, "epochs": 2}
-            )
-        
+    # load dataset
+    print("loading dataset...")
+    dataset = load_dataset("json", data_dir=DATA_DIR, data_files="qa_pairs.json")
+    dataset = dataset.map(format_dataset, remove_columns=['question', 'answer'])
+    print("dataset loaded. initializing wandb...")
+
+    # init wandb on main 
+    state = PartialState()
+    is_main = state.process_index == 0
+    if is_main:
+        wandb.init(project="mentor-sft",
+                   entity=os.getenv("WANDB_ENTITY")
+                   )
+
     print("loading model...")
     lora_config = LoraConfig(
             r=8,
@@ -47,53 +62,39 @@ def main():
             task_type=TaskType.CAUSAL_LM,
             target_modules=["q_proj", "v_proj"]
     )
+    # device_string = PartialState().process_index
     model = Llama4ForConditionalGeneration.from_pretrained(
             os.path.join(MODEL_DIR, MODEL_NAME),
             torch_dtype=torch.bfloat16,
-            low_cpu_mem_usage=True,
-            device_map="auto"            # flash attention?
+            device_map="cpu",
+            # {'':device_string}
     )
 
-    print("model loaded. loading dataset...")
-    dataset = load_data_formatted("qa_pairs.json")
+    # set max position embeddings to avoid OOM
+    model.config.max_position_embeddings=4096
+
+    print("model loaded.")
     train_config = SFTConfig(
         output_dir=MODEL_DIR,
         learning_rate=1e-4,
         num_train_epochs=2,
         max_length=512,
         warmup_steps=1000,
-        gradient_checkpointing=True,
-        gradient_checkpointing_kwargs={"use_reentrant": False},
         fsdp=["full_shard", "offload", "auto_wrap"],
         report_to="wandb",
-        run_name="mentor-sft",
+        logging_steps=10,
+        remove_unused_columns=True
     )
 
-    print("dataset loaded. training model...")
+    print("training model...")
     trainer = SFTTrainer(
         model,
-        train_dataset=dataset,
+        train_dataset=dataset["train"],
         args=train_config,
         peft_config=lora_config if USE_PEFT else None
     )
     trainer.train()
     print("training complete.")
-
-def format_dataset(row):
-    # TRL wants each row in the format:
-    # { messages: [ {role:r, content:c}, {role:r, content:c} ] }
-    row_q = {"role": "user", "content": row["question"]}
-    row_a = {"role": "assistant", "content": row["answer"]}
-    row_formatted = {"messages": [row_q, row_a]}
-    return row_formatted
-
-
-def load_data_formatted(file: str):
-    raw = load_dataset("json", data_dir=DATA_DIR, data_files=file)
-    split = raw["train"].train_test_split(test_size=0.1)
-    formatted = split.map(format_dataset, remove_columns=split['train'].column_names)
-    return formatted
-
 
 if __name__ == "__main__":
     try:

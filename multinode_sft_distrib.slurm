@@ -1,13 +1,18 @@
 #!/bin/bash
 #SBATCH -A SYB114
-#SBATCH -J 70B-multinode-grpo
+#SBATCH -J mentor-sft
 #SBATCH -N 1 
 #SBATCH -t 24:00:00
 #SBATCH -p extended
 #SBATCH -C nvme
 #SBATCH --gres=gpu:8
-#SBATCH -o logs/%j.out
-#SBATCH -e logs/%j.err
+#SBATCH -o logs/%x.out # Out Path
+#SBATCH -e logs/%x.err # Err Path
+#SBATCH --open-mode=truncate # Overwrite .out/.err
+#SBATCH --mail-type=BEGIN
+#SBATCH --mail-type=FAIL
+#SBATCH --mail-type=END
+#SBATCH --mail-user=krusepi@ornl.gov
 
 # exit on errors
 set -e
@@ -20,10 +25,13 @@ module load PrgEnv-gnu/8.6.0
 module load rocm/6.3.1
 module load craype-accel-amd-gfx90a
 
-# activate env
+# activate environment and set the cache home to nvme 
 source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm/
+export HF_HOME=/mnt/bb/$USER/model_cache
+export HF_DATASETS_CACHE=/lustre/orion/syb111/proj-shared/Personal/krusepi/models/data/
 
 # no buffering when printing output
+export HF_HUB_OFFLINE=1
 export PYTHONUNBUFFERED=1
 
 # force crash on nccl issues like hanging broadcast

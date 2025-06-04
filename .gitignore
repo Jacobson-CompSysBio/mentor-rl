@@ -5,6 +5,7 @@
 **/scripts/grpo_finetuned_model/
 **/data/test/
 **/checkpoints/
+**/wandb/
 train.slurm
 smith_test.slurm
 pytorch-rocm.tar.bz2
