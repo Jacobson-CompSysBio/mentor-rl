@@ -9,13 +9,14 @@ from peft import LoraConfig, TaskType
 import torch
 from transformers import Llama4ForConditionalGeneration, TrainingArguments
 from trl import SFTConfig, SFTTrainer
+from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 
 MODEL_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/"
 MODEL_NAME = "Llama-4-Scout-17B-16E-Instruct"
 DATA_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/data/"
 
 # train config #
-USE_PEFT = False
+USE_PEFT = True 
 ################
 
 load_dotenv()
@@ -38,22 +39,25 @@ def load_data_formatted(file: str):
     return formatted
 
 def main():
-
-    # load dataset
-    print("loading dataset...")
-    dataset = load_dataset("json", data_dir=DATA_DIR, data_files="qa_pairs.json")
-    dataset = dataset.map(format_dataset, remove_columns=['question', 'answer'])
-    print("dataset loaded. initializing wandb...")
-
-    # init wandb on main 
+    # get main process 
     state = PartialState()
     is_main = state.process_index == 0
+
+    # load dataset
+    if is_main:
+        print("loading dataset...")
+    dataset = load_dataset("json", data_dir=DATA_DIR, data_files="qa_pairs.json")
+    dataset = dataset.map(format_dataset, remove_columns=['question', 'answer'])
+    if is_main:
+        print("dataset loaded. initializing wandb...")
+
+    # init wandb on main 
     if is_main:
         wandb.init(project="mentor-sft",
                    entity=os.getenv("WANDB_ENTITY")
                    )
-
-    print("loading model...")
+    if is_main:
+        print("loading model...")
     lora_config = LoraConfig(
             r=8,
             lora_alpha=32,
@@ -63,39 +67,49 @@ def main():
             target_modules=["q_proj", "v_proj"]
     )
     # device_string = PartialState().process_index
-    # model = Llama4ForConditionalGeneration.from_pretrained(
-    #         os.path.join(MODEL_DIR, MODEL_NAME),
-    #         torch_dtype=torch.bfloat16,
-    #         device_map="cpu",
-    #         # {'':device_string}
-    # )
-
-    # set max position embeddings to avoid OOM
-    # model.config.max_position_embeddings=4096
-
-    print("model loaded.")
-    train_config = SFTConfig(
-        output_dir=MODEL_DIR,
-        learning_rate=1e-4,
-        num_train_epochs=2,
-        max_length=512,
-        warmup_steps=1000,
-        fsdp=["full_shard", "offload", "auto_wrap"],
-        report_to="wandb",
-        logging_strategy="steps",
-        logging_steps=10,
-        remove_unused_columns=True
+    model = Llama4ForConditionalGeneration.from_pretrained(
+            os.path.join(MODEL_DIR, MODEL_NAME),
+            torch_dtype=torch.bfloat16,
     )
 
-    print("training model...")
+    # set max position embeddings to avoid OOM
+    model.config.max_position_embeddings=1024
+
+    if is_main:
+        print("model loaded.")
+
+    train_config = SFTConfig(
+        fsdp_config={'cpu_ram_efficient_loading': True,
+                     'sync_module_states': True,
+                     'sharding_strategy': FULL_SHARD,
+                     'offload_params': True,
+                     'mixed_precision': "bf16",
+                     'activation_checkpointing': True,
+                     'min_num_params': 1e9,
+                     'backward_prefetch': 'backward_pre',
+                     'limit_all_gathers': True
+                     },
+        report_to="wandb",
+        num_train_epochs=1,
+        per_device_train_batch_size=1,
+        max_seq_length=1024,
+        logging_strategy="steps",
+        logging_steps=10,
+        remove_unused_columns=True,
+        fsdp=fsdp_config
+    )
+
+    if is_main:
+        print("training model...")
     trainer = SFTTrainer(
-        model=os.path.join(MODEL_DIR, MODEL_NAME),
+        model,
         train_dataset=dataset["train"],
         args=train_config,
         peft_config=lora_config if USE_PEFT else None
     )
     trainer.train()
-    print("training complete.")
+    if is_main:
+        print("training complete.")
 
 if __name__ == "__main__":
     try:

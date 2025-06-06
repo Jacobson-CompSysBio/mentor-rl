@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -A SYB114
 #SBATCH -J mentor-sft
-#SBATCH -N 1 
+#SBATCH -N 2 
 #SBATCH -t 24:00:00
 #SBATCH -p extended
 #SBATCH -C nvme
@@ -52,12 +52,19 @@ MASTER_PORT=6000
 
 # create launcher var 
 export LAUNCHER="accelerate launch \
-	--config_file fsdp_config.yaml \
+	--config_file "fsdp_config.yaml" \
 	--main_process_ip $MASTER_ADDR \
 	--main_process_port $MASTER_PORT \
 	--machine_rank \$SLURM_PROCID \
 	--num_processes $NUM_PROCESSES \
 	--num_machines $NNODES \
+        --use_fsdp \
+        --mixed_precision no \
+        --fsdp_auto_wrap_policy TRANSFORMER_BASED_WRAP \
+        --fsdp_sharding_strategy FULL_SHARD \
+        --fsdp_state_dict_type SHARDED_STATE_DICT \
+        --fsdp_activation_checkpointing true \
+        --dynamo_backend no \
 	"
 
 # create program var
