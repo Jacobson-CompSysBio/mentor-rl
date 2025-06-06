@@ -81,7 +81,6 @@ def main():
     train_config = SFTConfig(
         fsdp_config={'cpu_ram_efficient_loading': True,
                      'sync_module_states': True,
-                     'sharding_strategy': FULL_SHARD,
                      'offload_params': True,
                      'mixed_precision': "bf16",
                      'activation_checkpointing': True,
