@@ -69,12 +69,11 @@ def main():
     # device_string = PartialState().process_index
     model = Llama4ForConditionalGeneration.from_pretrained(
             os.path.join(MODEL_DIR, MODEL_NAME),
+            low_cpu_mem_usage=True,
             torch_dtype=torch.bfloat16,
     )
-
     # set max position embeddings to avoid OOM
     model.config.max_position_embeddings=1024
-
     if is_main:
         print("model loaded.")
 
