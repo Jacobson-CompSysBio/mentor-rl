@@ -82,7 +82,6 @@ def main():
         fsdp_config={'cpu_ram_efficient_loading': True,
                      'sync_module_states': True,
                      'offload_params': True,
-                     'mixed_precision': "bf16",
                      'activation_checkpointing': True,
                      'min_num_params': 1e9,
                      'backward_prefetch': 'backward_pre',
@@ -95,7 +94,6 @@ def main():
         logging_strategy="steps",
         logging_steps=10,
         remove_unused_columns=True,
-        fsdp=fsdp_config
     )
 
     if is_main:
