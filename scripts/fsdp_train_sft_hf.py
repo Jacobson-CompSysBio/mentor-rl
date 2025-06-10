@@ -39,9 +39,23 @@ def load_data_formatted(file: str):
     return formatted
 
 def main():
-    # get main process 
-    state = PartialState()
+
     is_main = state.process_index == 0
+    state = PartialState()
+    checkpoint = os.path.join(MODEL_DIR, MODEL_NAME)
+
+    with init_empty_weights():
+        model = Llama4ForConditionalGeneration.from_pretrained(
+                checkpoint,
+                torch_dtype=torch.bfloat16,
+                )
+    model = load_checkpoint_and_dispatch(
+            model, checkpoint,
+            device_map={"": "cpu"},
+            no_split_module_classes=["LlamaDecoderLayer"]
+            )
+    if is_main:
+        print("model loaded.")
 
     # load dataset
     if is_main:
@@ -56,37 +70,22 @@ def main():
         wandb.init(project="mentor-sft",
                    entity=os.getenv("WANDB_ENTITY")
                    )
-    if is_main:
-        print("loading model...")
-    lora_config = LoraConfig(
-            r=8,
-            lora_alpha=32,
-            lora_dropout=0.05,
-            bias="none",
-            task_type=TaskType.CAUSAL_LM,
-            target_modules=["q_proj", "v_proj"]
-    )
-    # device_string = PartialState().process_index
-    model = Llama4ForConditionalGeneration.from_pretrained(
-            os.path.join(MODEL_DIR, MODEL_NAME),
-            device_map="auto",
-            low_cpu_mem_usage=True,
-            torch_dtype=torch.bfloat16,
-    )
     # set max position embeddings to avoid OOM
     model.config.max_position_embeddings=1024
-    if is_main:
-        print("model loaded.")
+    fsdp_cfg = dict(
+            sharding_strategy=ShardingStrategy.FULL_SHARD,
+            auto_wrap_policy=transformer_auto_wrap_policy,
+            offload_params=True,
+            cpu_ram_efficient_loading=True,
+            sync_module_states=False,
+            backward_prefetch="backward_pre",
+            limit_all_gathers=True,
+            use_orig_params=True
+            )
 
     train_config = SFTConfig(
-        fsdp_config={'cpu_ram_efficient_loading': True,
-                     'sync_module_states': True,
-                     'offload_params': True,
-                     'activation_checkpointing': True,
-                     'min_num_params': 1e9,
-                     'backward_prefetch': 'backward_pre',
-                     'limit_all_gathers': True
-                     },
+        fsdp=["full_shard","auto_wrap"],
+        fsdp_config=fsdp_cfg,
         bf16=True,
         report_to="wandb",
         num_train_epochs=1,
