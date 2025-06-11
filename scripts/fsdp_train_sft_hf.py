@@ -3,13 +3,15 @@ import sys
 import traceback
 import wandb
 from dotenv import load_dotenv
-from accelerate import PartialState
+from accelerate import PartialState, init_empty_weights, load_checkpoint_and_dispatch
+from accelerate.utils import DistributedType
 from datasets import load_dataset
 from peft import LoraConfig, TaskType
 import torch
 from transformers import Llama4ForConditionalGeneration, TrainingArguments
 from trl import SFTConfig, SFTTrainer
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+from torch.distributed.fsdp import ShardingStrategy
 
 MODEL_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/"
 MODEL_NAME = "Llama-4-Scout-17B-16E-Instruct"
@@ -39,11 +41,12 @@ def load_data_formatted(file: str):
     return formatted
 
 def main():
-
-    is_main = state.process_index == 0
+    # get main process state 
     state = PartialState()
+    is_main = state.process_index == 0
     checkpoint = os.path.join(MODEL_DIR, MODEL_NAME)
 
+    # init llama with empty weights and dispatch
     with init_empty_weights():
         model = Llama4ForConditionalGeneration.from_pretrained(
                 checkpoint,

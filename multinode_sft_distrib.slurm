@@ -2,8 +2,8 @@
 #SBATCH -A SYB114
 #SBATCH -J mentor-sft
 #SBATCH -N 2 
-#SBATCH -t 24:00:00
-#SBATCH -p extended
+#SBATCH -t 30:00
+#SBATCH -q debug
 #SBATCH -C nvme
 #SBATCH --gres=gpu:8
 #SBATCH -o logs/%x.out # Out Path
@@ -28,7 +28,7 @@ module load craype-accel-amd-gfx90a
 # activate environment and set the cache home to nvme 
 source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm/
 export HF_HOME=/mnt/bb/$USER/model_cache
-export HF_DATASETS_CACHE=/lustre/orion/syb111/proj-shared/Personal/krusepi/models/data/
+export HF_DATASETS_CACHE=/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/data/
 
 # no buffering when printing output
 export HF_HUB_OFFLINE=1
@@ -52,23 +52,16 @@ MASTER_PORT=6000
 
 # create launcher var 
 export LAUNCHER="accelerate launch \
-	--config_file "fsdp_config.yaml" \
 	--main_process_ip $MASTER_ADDR \
 	--main_process_port $MASTER_PORT \
 	--machine_rank \$SLURM_PROCID \
 	--num_processes $NUM_PROCESSES \
 	--num_machines $NNODES \
-        --use_fsdp \
-        --mixed_precision no \
-        --fsdp_auto_wrap_policy TRANSFORMER_BASED_WRAP \
-        --fsdp_sharding_strategy FULL_SHARD \
-        --fsdp_state_dict_type SHARDED_STATE_DICT \
-        --fsdp_activation_checkpointing true \
         --dynamo_backend no \
 	"
 
 # create program var
-export PROG="scripts/train_sft_hf.py"
+export PROG="scripts/fsdp_train_sft_hf.py"
 
 # combine launcher + program to make the command
 export CMD="$LAUNCHER $PROG"
