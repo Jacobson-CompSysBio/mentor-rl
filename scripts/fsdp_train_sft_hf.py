@@ -79,14 +79,15 @@ def main():
             sharding_strategy=ShardingStrategy.FULL_SHARD,
             auto_wrap_policy=transformer_auto_wrap_policy,
             offload_params=True,
+            use_orig_params=True,
             cpu_ram_efficient_loading=True,
-            sync_module_states=False,
+            sync_module_states=True,
             backward_prefetch="backward_pre",
             limit_all_gathers=True,
-            use_orig_params=True
             )
 
     train_config = SFTConfig(
+        no_cuda=True,
         fsdp=["full_shard","auto_wrap"],
         fsdp_config=fsdp_cfg,
         bf16=True,
@@ -105,7 +106,7 @@ def main():
         model,
         train_dataset=dataset["train"],
         args=train_config,
-        peft_config=lora_config if USE_PEFT else None
+        #peft_config=lora_config if USE_PEFT else None
     )
     trainer.train()
     if is_main:

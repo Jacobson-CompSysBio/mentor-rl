@@ -37,6 +37,7 @@ export PYTHONUNBUFFERED=1
 # force crash on nccl issues like hanging broadcast
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export CUDA_LAUNCH_BLOCKING=1
+export PYTORCH_HIP_ALLOC_CONF=expandable_segments:True
 
 # set gpu, node, process vars
 GPUS_PER_NODE=8
