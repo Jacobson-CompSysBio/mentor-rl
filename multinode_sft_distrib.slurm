@@ -17,55 +17,61 @@
 # exit on errors
 set -e
 
-# env file
-. env.sh
-
-# activate modules
-module load PrgEnv-gnu/8.6.0
-module load rocm/6.3.1
-module load craype-accel-amd-gfx90a
-
-# activate environment and set the cache home to nvme 
+# activate modules and software
+module load  PrgEnv-gnu/8.6.0  rocm/6.3.1  craype-accel-amd-gfx90a
+source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
 source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm/
+
+# caches and paths
 export HF_HOME=/mnt/bb/$USER/model_cache
 export HF_DATASETS_CACHE=/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/data/
-
-# no buffering when printing output
 export HF_HUB_OFFLINE=1
 export PYTHONUNBUFFERED=1
 
-# force crash on nccl issues like hanging broadcast
+# wandb settings
+export WANDB_SETTINGS="init_timeout=30"
+export WANDB_MODE=${WANDB_MODE:-online}
+export WANDB_DISABLE_SERVICE=true
+
+# nccl and rocm tuning
+export NCCL_SOCKET_IFNAME=hsn
+export NCCL_DEBUG=INFO
+export NCCL_BLOCKING_WAIT=1
+export NCCL_COLLNET_ENABLE=0
+export HSA_FORCE_FINE_GRAIN_PCIE=1
+export FI_MR_CACHE_ENABLE=0
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
-export CUDA_LAUNCH_BLOCKING=1
-export PYTORCH_HIP_ALLOC_CONF=expandable_segments:True
+export PYTORCH_ROCM_RESOURCES_OOM_FALLBACK=1
+
+# don't mask gpus
+unset HIP_VISIBLE_DEVICES
+unset CUDA_VISIBLE_DEVICES
 
 # set gpu, node, process vars
+export LOCAL_RANK=$SLURM_LOCALID
 GPUS_PER_NODE=8
 NNODES=$SLURM_NNODES
-NUM_PROCESSES=$(expr $NNODES \* $GPUS_PER_NODE)
+WORLD=$((GPUS_PER_NODE * NNODES))
 
 # get port/address
-MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
-MASTER_PORT=6000
-
-# run training on first N nodes
-# accelerate launch --config_file "fsdp_config.yaml" --num_processes 8 train_sft_hf.py
+export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -1)
+export MASTER_PORT=$(shuf -i 20000-40000 -n 1)
 
 # create launcher var 
-export LAUNCHER="accelerate launch \
+LAUNCHER="accelerate launch \
 	--main_process_ip $MASTER_ADDR \
 	--main_process_port $MASTER_PORT \
 	--machine_rank \$SLURM_PROCID \
-	--num_processes $NUM_PROCESSES \
+	--num_processes $GPUS_PER_NODE \
 	--num_machines $NNODES \
         --dynamo_backend no \
 	"
 
 # create program var
-export PROG="scripts/fsdp_train_sft_hf.py"
+PROG="scripts/fsdp_train_sft_hf.py"
 
 # combine launcher + program to make the command
 export CMD="$LAUNCHER $PROG"
 
 # srun call
-srun --jobid $SLURM_JOBID bash -c "$CMD"
+srun --export=ALL,HTTPS_PROXY,http_proxy, SSL_CERT_DIR --ntasks=$NNODES bash -c "$CMD"

@@ -6,10 +6,11 @@ from dotenv import load_dotenv
 from accelerate import PartialState, init_empty_weights, load_checkpoint_and_dispatch
 from accelerate.utils import DistributedType
 from datasets import load_dataset
-from peft import LoraConfig, TaskType
+from peft import LoraConfig, TaskType, get_peft_model
 import torch
 from transformers import Llama4ForConditionalGeneration, TrainingArguments
 from trl import SFTConfig, SFTTrainer
+import torch.distributed as dist
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from torch.distributed.fsdp import ShardingStrategy
 
@@ -43,6 +44,11 @@ def load_data_formatted(file: str):
 def main():
     # get main process state 
     state = PartialState()
+    rank = int(os.getenv("SLURM_PROCID", 0))
+    if rank == 0:
+        wandb.init(project="myproj")
+    else:
+        wandb.init(mode="disabled")
     is_main = state.process_index == 0
     checkpoint = os.path.join(MODEL_DIR, MODEL_NAME)
 
@@ -57,6 +63,24 @@ def main():
             device_map={"": "cpu"},
             no_split_module_classes=["LlamaDecoderLayer"]
             )
+
+    # peft loading
+    if USE_PEFT:
+        if is_main:
+            print("using PEFT...")
+        target = ["q_proj", "v_proj"]
+        lora_config = LoraConfig(
+                r=8,
+                lora_alpha=32,
+                lora_dropout=0.05,
+                bias="none",
+                target_modules=target,
+                task_type=TaskType.CAUSAL_LM,
+                )
+        model = get_peft_model(model, lora_config)
+        if is_main:
+            print("trainable params:", model.print_trainable_parameters())
+
     if is_main:
         print("model loaded.")
 
@@ -68,11 +92,6 @@ def main():
     if is_main:
         print("dataset loaded. initializing wandb...")
 
-    # init wandb on main 
-    if is_main:
-        wandb.init(project="mentor-sft",
-                   entity=os.getenv("WANDB_ENTITY")
-                   )
     # set max position embeddings to avoid OOM
     model.config.max_position_embeddings=1024
     fsdp_cfg = dict(
@@ -87,7 +106,7 @@ def main():
             )
 
     train_config = SFTConfig(
-        no_cuda=True,
+        use_cpu=True,
         fsdp=["full_shard","auto_wrap"],
         fsdp_config=fsdp_cfg,
         bf16=True,
