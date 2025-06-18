@@ -44,11 +44,6 @@ def load_data_formatted(file: str):
 def main():
     # get main process state 
     state = PartialState()
-    rank = int(os.getenv("SLURM_PROCID", 0))
-    if rank == 0:
-        wandb.init(project="myproj")
-    else:
-        wandb.init(mode="disabled")
     is_main = state.process_index == 0
     checkpoint = os.path.join(MODEL_DIR, MODEL_NAME)
 

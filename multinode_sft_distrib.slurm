@@ -3,75 +3,71 @@
 #SBATCH -J mentor-sft
 #SBATCH -N 2 
 #SBATCH -t 30:00
+#SBATCH -p extended
 #SBATCH -q debug
 #SBATCH -C nvme
 #SBATCH --gres=gpu:8
 #SBATCH -o logs/%x.out # Out Path
 #SBATCH -e logs/%x.err # Err Path
 #SBATCH --open-mode=truncate # Overwrite .out/.err
-#SBATCH --mail-type=BEGIN
-#SBATCH --mail-type=FAIL
-#SBATCH --mail-type=END
-#SBATCH --mail-user=krusepi@ornl.gov
 
 # exit on errors
 set -e
 
-# activate modules and software
-module load  PrgEnv-gnu/8.6.0  rocm/6.3.1  craype-accel-amd-gfx90a
+# env file
+. env.sh
+
+# activate modules
+module load PrgEnv-gnu/8.6.0
+module load rocm/6.3.1
+module load craype-accel-amd-gfx90a
+
+# activate environment and set the cache home to nvme 
 source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
 source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm/
-
-# caches and paths
 export HF_HOME=/mnt/bb/$USER/model_cache
-export HF_DATASETS_CACHE=/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/data/
+export HF_DATASETS_CACHE=/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/data/
+
+# no buffering when printing output
 export HF_HUB_OFFLINE=1
 export PYTHONUNBUFFERED=1
 
-# wandb settings
-export WANDB_SETTINGS="init_timeout=30"
-export WANDB_MODE=${WANDB_MODE:-online}
-export WANDB_DISABLE_SERVICE=true
-
-# nccl and rocm tuning
-export NCCL_SOCKET_IFNAME=hsn
+# force crash on nccl issues like hanging broadcast
 export NCCL_DEBUG=INFO
-export NCCL_BLOCKING_WAIT=1
-export NCCL_COLLNET_ENABLE=0
-export HSA_FORCE_FINE_GRAIN_PCIE=1
-export FI_MR_CACHE_ENABLE=0
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
-export PYTORCH_ROCM_RESOURCES_OOM_FALLBACK=1
-
-# don't mask gpus
-unset HIP_VISIBLE_DEVICES
-unset CUDA_VISIBLE_DEVICES
+export CUDA_LAUNCH_BLOCKING=1
 
 # set gpu, node, process vars
-export LOCAL_RANK=$SLURM_LOCALID
 GPUS_PER_NODE=8
 NNODES=$SLURM_NNODES
-WORLD=$((GPUS_PER_NODE * NNODES))
+NUM_PROCESSES=$(expr $NNODES \* $GPUS_PER_NODE)
 
 # get port/address
-export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -1)
-export MASTER_PORT=$(shuf -i 20000-40000 -n 1)
+MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
+MASTER_PORT=6000
 
 # create launcher var 
-LAUNCHER="accelerate launch \
+export LAUNCHER="accelerate launch \
+	--config_file "fsdp_config.yaml" \
 	--main_process_ip $MASTER_ADDR \
 	--main_process_port $MASTER_PORT \
 	--machine_rank \$SLURM_PROCID \
-	--num_processes $GPUS_PER_NODE \
+	--num_processes $NUM_PROCESSES \
 	--num_machines $NNODES \
+        --use_fsdp \
+        --mixed_precision no \
+        --fsdp_auto_wrap_policy TRANSFORMER_BASED_WRAP \
+        --fsdp_sharding_strategy FULL_SHARD \
+        --fsdp_state_dict_type SHARDED_STATE_DICT \
+        --fsdp_activation_checkpointing true \
         --dynamo_backend no \
 	"
 
 # create program var
-PROG="scripts/fsdp_train_sft_hf.py"
+export PROG="scripts/fsdp_train_sft_hf.py"
 
 # combine launcher + program to make the command
 export CMD="$LAUNCHER $PROG"
 
 # srun call
-srun --export=ALL,HTTPS_PROXY,http_proxy, SSL_CERT_DIR --ntasks=$NNODES bash -c "$CMD"
+srun --jobid $SLURM_JOBID bash -c "$CMD"
