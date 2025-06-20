@@ -12,7 +12,9 @@
 #SBATCH --open-mode=truncate # Overwrite .out/.err
 
 # exit on errors
-set -e
+set -eo pipefail
+
+####### ENVIRONMENT #######
 
 # env file
 . env.sh
@@ -25,8 +27,10 @@ module load craype-accel-amd-gfx90a
 # activate environment and set the cache home to nvme 
 source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
 source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm/
-export HF_HOME=/mnt/bb/$USER/model_cache
-export HF_DATASETS_CACHE=/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/data/
+
+export HF_HOME=/mnt/bb/$USER/hf_cache_$SLURM_JOB_ID
+export HF_DATASETS_CACHE=/mnt/bb/$USER/ds_cache_$SLURM_JOB_ID
+mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE"
 
 # no buffering when printing output
 export HF_HUB_OFFLINE=1
@@ -37,23 +41,22 @@ export NCCL_DEBUG=INFO
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export CUDA_LAUNCH_BLOCKING=1
 
-# set gpu, node, process vars
+####### DISTRIBUTED ########
 GPUS_PER_NODE=8
-NNODES=$SLURM_NNODES
-NUM_PROCESSES=$(expr $NNODES \* $GPUS_PER_NODE)
+WORLD_SIZE=$(( $SLURM_NNODES * $GPUS_PER_NODE))
 
 # get port/address
 MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
 MASTER_PORT=6000
 
-# create launcher var 
+####### LAUNCHING ########
 export LAUNCHER="accelerate launch \
-	--config_file "fsdp_config.yaml" \
+	--config_file fsdp_config.yaml \
 	--main_process_ip $MASTER_ADDR \
 	--main_process_port $MASTER_PORT \
 	--machine_rank \$SLURM_PROCID \
-	--num_processes $NUM_PROCESSES \
-	--num_machines $NNODES \
+	--num_processes $WORLD_SIZE \
+	--num_machines $SLURM_NNODES \
         --use_fsdp \
         --mixed_precision no \
         --fsdp_auto_wrap_policy TRANSFORMER_BASED_WRAP \
@@ -62,12 +65,8 @@ export LAUNCHER="accelerate launch \
         --fsdp_activation_checkpointing true \
         --dynamo_backend no \
 	"
-
-# create program var
-export PROG="scripts/fsdp_train_sft_hf.py"
-
-# combine launcher + program to make the command
+export PROG="scripts/train_sft_hf.py"
 export CMD="$LAUNCHER $PROG"
 
 # srun call
-srun --jobid $SLURM_JOBID bash -c "$CMD"
+srun --jobid $SLURM_JOBID --gpu-bind=single:1 bash -c "$CMD"
