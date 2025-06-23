@@ -17,7 +17,7 @@ MODEL_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/"
 MODEL_NAME = "Llama-4-Scout-17B-16E-Instruct"
 DATA_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/data/"
 RAW_JSON = "qa_pairs.json"
-CACHE_DIR = "/mnt/bb/{}/tokenized_ds".format(os.environ["USER"])
+CACHE_DIR = Path("/mnt/bb/{}/tokenized_ds".format(os.environ["USER"]))
 MAX_LEN = 1024
 USE_PEFT = True
 
@@ -29,57 +29,53 @@ is_main = state.is_main_process
 if not CACHE_DIR.exists():
     if state.is_local_main_process:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        build_and_save_datset(CACHE_DIR)
-    state.wait_for_everyone()  # ensure all ranks have created the cache dir
+        ##### data #####
+        raw = load_dataset("json",
+                            data_dir=DATA_DIR,
+                            data_files=RAW_JSON,
+                            )
 
-##### data #####
-if is_main and not os.path.exists(os.path.join(CACHE_DIR, "train")):
-    raw = load_dataset("json",
-                        data_dir=DATA_DIR,
-                        data_files=RAW_JSON,
-                        )
+        def format_dataset(row):
+            # TRL wants each row in the format:
+            # { messages: [ {role:r, content:c}, {role:r, content:c} ] }
+            row_q = {"role": "user", "content": row["question"]}
+            row_a = {"role": "assistant", "content": row["answer"]}
+            row['messages'] = [row_q, row_a]
+            return row
 
-    def format_dataset(row):
-        # TRL wants each row in the format:
-        # { messages: [ {role:r, content:c}, {role:r, content:c} ] }
-        row_q = {"role": "user", "content": row["question"]}
-        row_a = {"role": "assistant", "content": row["answer"]}
-        row['messages'] = [row_q, row_a]
-        return row
-
-    raw = raw["train"].train_test_split(test_size=0.1)
-    raw = raw.map(format_dataset,
-                  batched=False,
-                  remove_columns=["question", "answer"],
-                  num_proc=32,
-                  load_from_cache_file=False)
+        raw = raw["train"].train_test_split(test_size=0.1)
+        raw = raw.map(format_dataset,
+                      batched=False,
+                      remove_columns=["question", "answer"],
+                      num_proc=32,
+                      load_from_cache_file=False)
     
-    # save pre-tokenized dataset so every rank can memory-map it
-    tokenizer = AutoTokenizer.from_pretrained(
-        os.path.join(MODEL_DIR, MODEL_NAME),
-        use_fast=True,
-    )
-
-    def tokenize(row):
-        tokens = tokenizer.apply_chat_template(
-            row["messages"],
-            tokenize=True,
-            truncation=True,
-            max_length=MAX_LEN,
+        # save pre-tokenized dataset so every rank can memory-map it
+        tokenizer = AutoTokenizer.from_pretrained(
+            os.path.join(MODEL_DIR, MODEL_NAME),
+            use_fast=True,
         )
-        return {
-            "input_ids": tokens,
-            "attention_mask": [1] * len(tokens)
-        }
 
-    tokenized = raw.map(
-        tokenize,
-        remove_columns=["messages"],
-        num_proc=32,
-    )
-    tokenized.save_to_disk(CACHE_DIR)
+        def tokenize(row):
+            tokens = tokenizer.apply_chat_template(
+                row["messages"],
+                tokenize=True,
+                truncation=True,
+                max_length=MAX_LEN,
+            )
+            return {
+                "input_ids": tokens,
+                "attention_mask": [1] * len(tokens)
+            }
 
-state.wait_for_everyone() # sync up ranks
+        tokenized = raw.map(
+            tokenize,
+            remove_columns=["messages"],
+            num_proc=32,
+        )
+        tokenized.save_to_disk(CACHE_DIR)
+
+state.wait_for_everyone()  # ensure all ranks have created the cache dir
 dataset: DatasetDict = load_from_disk(CACHE_DIR, keep_in_memory=False)
 
 ##### model #####
@@ -119,7 +115,6 @@ train_cfg = SFTConfig(
         sync_module_states=True,
         offload_params=True,
         activation_checkpointing=True,
-        min_num_params=1e9,
         backward_prefetch="backward_pre",
         limit_all_gathers=True,
     ),
@@ -134,7 +129,6 @@ if is_main:
 
 trainer = SFTTrainer(
     model=model,
-    tokenizer=tokenizer,
     train_dataset=dataset["train"],
     args=train_cfg,
     peft_config=lora_cfg,
