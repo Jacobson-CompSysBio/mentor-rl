@@ -69,4 +69,4 @@ export PROG="scripts/train_sft_hf.py"
 export CMD="$LAUNCHER $PROG"
 
 # srun call
-srun --jobid $SLURM_JOBID --gpu-bind=single:1 bash -c "$CMD"
+srun --jobid $SLURM_JOBID bash -c "$CMD"

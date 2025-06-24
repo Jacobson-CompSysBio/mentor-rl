@@ -1,4 +1,5 @@
 import os
+import argparse
 import sys
 import traceback
 import wandb
@@ -6,11 +7,30 @@ from pathlib import Path
 from dotenv import load_dotenv
 from accelerate import PartialState
 from datasets import load_dataset, load_from_disk, DatasetDict
-from peft import LoraConfig, TaskType
+from peft import LoraConfig, TaskType, get_peft_model
 import torch
-from transformers import Llama4ForConditionalGeneration, TrainingArguments, AutoTokenizer
-from trl import SFTConfig, SFTTrainer
+from transformers import (
+    Llama4ForConditionalGeneration, 
+    TrainingArguments, 
+    AutoTokenizer,
+    AutoConfig,
+    AutoModelForCausalLM,
+    )
+from trl import (
+    SFTConfig,
+    SFTTrainer, 
+    ModelConfig,
+    clone_chat_template,
+    get_kbit_device_map,
+    get_quantization_config,
+    )
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+
+#### environment variables ####
+load_dotenv()
+os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
+os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
+os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
 
 ######### paths + hyperparameters ###########
 MODEL_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/"
@@ -120,12 +140,6 @@ train_cfg = SFTConfig(
     ),
     report_to="wandb"
 )
-
-if is_main:
-    wandb.init(
-        project="mentor-sft",
-        name=f"run-{MODEL_NAME}-lora-{USE_PEFT}-maxlen-{MAX_LEN}",
-    )
 
 trainer = SFTTrainer(
     model=model,
