@@ -234,7 +234,8 @@ trainer = SFTTrainer(
     args=train_cfg,
     peft_config=lora_cfg,
 )
-trainer.add_callback(MemTrace(every=1))
+if dist_state.is_main_process:
+    trainer.add_callback(MemTrace(every=1))
 
 try:
     if is_main:
