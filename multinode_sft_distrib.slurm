@@ -2,7 +2,7 @@
 #SBATCH -A SYB114
 #SBATCH -J mentor-sft
 #SBATCH -N 2 
-#SBATCH -t 30:00
+#SBATCH -t 2:00:00
 #SBATCH -p extended
 #SBATCH -q debug
 #SBATCH -C nvme
@@ -33,7 +33,6 @@ export HF_DATASETS_CACHE=/mnt/bb/$USER/ds_cache_$SLURM_JOB_ID
 mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE"
 
 # no buffering when printing output
-export HF_HUB_OFFLINE=1
 export PYTHONUNBUFFERED=1
 
 # force crash on nccl issues like hanging broadcast

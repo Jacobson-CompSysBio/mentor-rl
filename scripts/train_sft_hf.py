@@ -1,15 +1,19 @@
 import os
+import psutil
+import time
 import argparse
 import sys
 import traceback
 import wandb
 from pathlib import Path
+from torch.nn import Module
 from dotenv import load_dotenv
 from accelerate import PartialState
 from datasets import load_dataset, load_from_disk, DatasetDict
 from peft import LoraConfig, TaskType, get_peft_model
 import torch
 from transformers import (
+    TrainerCallback,
     Llama4ForConditionalGeneration, 
     TrainingArguments, 
     AutoTokenizer,
@@ -26,6 +30,12 @@ from trl import (
     )
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 
+#### time tracking ####
+script_start = time.perf_counter()
+def min_elapsed():
+    """Return elapsed time in minutes since the script started."""
+    return (time.perf_counter() - script_start) / 60.0
+
 #### environment variables ####
 load_dotenv()
 os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
@@ -38,17 +48,63 @@ MODEL_NAME = "Llama-4-Scout-17B-16E-Instruct"
 DATA_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/data/"
 RAW_JSON = "qa_pairs.json"
 CACHE_DIR = Path("/mnt/bb/{}/tokenized_ds".format(os.environ["USER"]))
-MAX_LEN = 1024
+MAX_LEN = 512
 USE_PEFT = True
 
 ##### rank processing #####
-state = PartialState()
-is_main = state.is_main_process
+dist_state = PartialState()
+is_main = dist_state.is_main_process
+
+#### memory tracking callbacks ####
+MB = 1024 ** 2
+t0 = time.perf_counter()
+
+def _stamp(phase):
+    if not dist_state.is_main_process:
+        return
+    gpu_alloc = torch.cuda.memory_allocated() / MB
+    gpu_reserved = torch.cuda.memory_reserved() / MB
+    cpu_rss = psutil.Process(os.getpid()).memory_info().rss / MB
+    elapsed = (time.perf_counter() - t0) / 60.0
+    print(f"[{elapsed:6.2f} min] {phase:<12} "
+          f"GPU alloc {gpu_alloc:7.0f} MiB | "
+          f"reserved {gpu_reserved:7.0f} | "
+          f"CPU {cpu_rss:7.0f} MiB", flush=True)
+
+def _mb(x):   # bytes → MiB
+    return x / (1024 ** 2)
+
+class MemTrace(TrainerCallback):
+    """Print CPU & GPU memory every n steps (rank-0 only)."""
+    def __init__(self, every=1):
+        self.every = every
+
+    def on_step_begin(self, args, state, control, **kw):
+        if state.global_step % self.every != 0:
+            return
+        if not dist_state.is_main_process:
+            return
+
+        gpu_alloc = torch.cuda.memory_allocated()
+        gpu_reserved = torch.cuda.memory_reserved()
+        cpu_rss = psutil.Process(os.getpid()).memory_info().rss
+        now = time.perf_counter() - script_start
+        print(
+            f"[{now/60:6.2f} min] "
+            f"step {state.global_step:>6} | "
+            f"GPU alloc { _mb(gpu_alloc):8.0f} MiB "
+            f"(reserved { _mb(gpu_reserved):8.0f}) | "
+            f"CPU RSS { _mb(cpu_rss):8.0f} MiB",
+            flush=True,
+        )
 
 ##### set up cache #####
 if not CACHE_DIR.exists():
-    if state.is_local_main_process:
+    if dist_state.is_local_main_process:
+        print(f"[{min_elapsed():.2f} min] Cache directory does not exist, creating: {CACHE_DIR}")
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+        print(f"[{min_elapsed():.2f} min] Loading raw dataset from {DATA_DIR}...")
         ##### data #####
         raw = load_dataset("json",
                             data_dir=DATA_DIR,
@@ -63,6 +119,7 @@ if not CACHE_DIR.exists():
             row['messages'] = [row_q, row_a]
             return row
 
+        print(f"[{min_elapsed():.2f} min] Formatting dataset...")
         raw = raw["train"].train_test_split(test_size=0.1)
         raw = raw.map(format_dataset,
                       batched=False,
@@ -88,6 +145,7 @@ if not CACHE_DIR.exists():
                 "attention_mask": [1] * len(tokens)
             }
 
+        print(f"[{min_elapsed():.2f} min] Tokenizing dataset...")
         tokenized = raw.map(
             tokenize,
             remove_columns=["messages"],
@@ -95,10 +153,13 @@ if not CACHE_DIR.exists():
         )
         tokenized.save_to_disk(CACHE_DIR)
 
-state.wait_for_everyone()  # ensure all ranks have created the cache dir
+dist_state.wait_for_everyone()  # ensure all ranks have created the cache dir
+print(f"[{min_elapsed():.2f} min] Cache directory ready: {CACHE_DIR}")
 dataset: DatasetDict = load_from_disk(CACHE_DIR, keep_in_memory=False)
 
 ##### model #####
+if is_main:
+    print(f"[{min_elapsed():.2f} min] Loading model: {MODEL_NAME} from {MODEL_DIR}")
 model = Llama4ForConditionalGeneration.from_pretrained(
     os.path.join(MODEL_DIR, MODEL_NAME),
     torch_dtype=torch.bfloat16,
@@ -120,6 +181,32 @@ lora_cfg = (
         target_modules=["q_proj", "v_proj"],
     ) if USE_PEFT
     else None)
+if is_main:
+    print(f"[{min_elapsed():.2f} min] LoRA config loaded.")
+
+#### establish hooks to track memory usage for debugging ####
+# pick the very first transformer block
+def first_transformer_block(root: Module) -> Module:
+    for m in root.modules():
+        # crude heuristic: has both self-attn *and* MLP submodules
+        if hasattr(m, "self_attn") and hasattr(m, "mlp"):
+            return m
+    raise RuntimeError("could not find a transformer block")
+
+first_block = first_transformer_block(model)
+
+def fwd_pre(module, *_, **__):
+    _stamp("fwd-PRE")
+
+def fwd_post(module, *_, **__):
+    _stamp("fwd-POST")
+
+def bwd_hook(*_):
+    _stamp("backward")
+
+first_block.register_forward_pre_hook(fwd_pre)
+first_block.register_forward_hook(fwd_post)
+first_block.register_full_backward_hook(lambda *a, **k: bwd_hook())
 
 ##### training #####
 train_cfg = SFTConfig(
@@ -128,7 +215,7 @@ train_cfg = SFTConfig(
     num_train_epochs=1,
     per_device_train_batch_size=1,
     max_seq_length=MAX_LEN,
-    logging_steps=10,
+    logging_steps=1,
     dataloader_num_workers=0,
     fsdp_config=dict(
         cpu_ram_efficient_loading=True,
@@ -138,20 +225,23 @@ train_cfg = SFTConfig(
         backward_prefetch="backward_pre",
         limit_all_gathers=True,
     ),
-    report_to="wandb"
+    report_to=["wandb"]
 )
-
 trainer = SFTTrainer(
     model=model,
     train_dataset=dataset["train"],
+    eval_dataset=dataset["test"],
     args=train_cfg,
     peft_config=lora_cfg,
 )
+trainer.add_callback(MemTrace(every=1))
 
 try:
+    if is_main:
+        print(f"[{min_elapsed():.2f} min] Starting training...")
     trainer.train()
     if is_main:
-        print("Training complete.")
+        print(f"[{min_elapsed():.2f} min] Training complete.")
 except Exception:
     traceback.print_exc(file=sys.stderr)
     sys.stderr.flush()
