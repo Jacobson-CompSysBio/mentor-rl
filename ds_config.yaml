@@ -1,0 +1,10 @@
+# deepspeed_zero3_acc.yaml
+compute_environment: SLURM
+distributed_type: DEEPSPEED
+num_machines: 2
+num_processes: 16
+mixed_precision: bf16
+
+deepspeed_config:
+  deepspeed_config_file: ds_zero3.json   # external file
+  zero3_init_flag: true                  # lets Transformers use DS init

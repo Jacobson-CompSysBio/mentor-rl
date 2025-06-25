@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -A SYB114
-#SBATCH -J mentor-sft
+#SBATCH -J mentor-sft-tp-fsdp
 #SBATCH -N 2 
 #SBATCH -t 2:00:00
 #SBATCH -p extended
@@ -50,21 +50,14 @@ MASTER_PORT=6000
 
 ####### LAUNCHING ########
 export LAUNCHER="accelerate launch \
-	--config_file tp_config.yaml \
+	--config_file acclerate_config.yaml \
 	--main_process_ip $MASTER_ADDR \
 	--main_process_port $MASTER_PORT \
 	--machine_rank \$SLURM_PROCID \
 	--num_processes $WORLD_SIZE \
 	--num_machines $SLURM_NNODES \
-        --use_fsdp \
-        --mixed_precision no \
-        --fsdp_auto_wrap_policy TRANSFORMER_BASED_WRAP \
-        --fsdp_sharding_strategy FULL_SHARD \
-        --fsdp_state_dict_type SHARDED_STATE_DICT \
-        --fsdp_activation_checkpointing true \
-        --dynamo_backend no \
 	"
-export PROG="scripts/train_sft_hf.py"
+export PROG="scripts/train_sft_fsdp_tp.py"
 export CMD="$LAUNCHER $PROG"
 
 # srun call

@@ -8,7 +8,11 @@ import wandb
 from pathlib import Path
 from torch.nn import Module
 from dotenv import load_dotenv
-from accelerate import PartialState
+from accelerate import (
+    PartialState,
+    FullyShardedDataParallelPlugin,
+    MegatronLMPlugin,
+)
 from datasets import load_dataset, load_from_disk, DatasetDict
 from peft import LoraConfig, TaskType, get_peft_model
 import torch
@@ -48,7 +52,7 @@ MODEL_NAME = "Llama-4-Scout-17B-16E-Instruct"
 DATA_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/data/"
 RAW_JSON = "qa_pairs.json"
 CACHE_DIR = Path("/mnt/bb/{}/tokenized_ds".format(os.environ["USER"]))
-MAX_LEN = 512
+MAX_LEN = 256
 USE_PEFT = True
 
 ##### rank processing #####
