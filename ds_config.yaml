@@ -1,10 +1,19 @@
-# deepspeed_zero3_acc.yaml
-compute_environment: SLURM
+compute_environment: LOCAL_MACHINE
+debug: true
+deepspeed_config:
+  deepspeed_config_file: ds_zero3.json
+  deepspeed_multinode_launcher: slurm
+  zero3_init_flag: true
 distributed_type: DEEPSPEED
+downcast_bf16: 'no'
+enable_cpu_affinity: false
+machine_rank: 0
+main_training_function: main
 num_machines: 2
 num_processes: 16
-mixed_precision: bf16
-
-deepspeed_config:
-  deepspeed_config_file: ds_zero3.json   # external file
-  zero3_init_flag: true                  # lets Transformers use DS init
+rdzv_backend: static
+same_network: true
+tpu_env: []
+tpu_use_cluster: false
+tpu_use_sudo: false
+use_cpu: false

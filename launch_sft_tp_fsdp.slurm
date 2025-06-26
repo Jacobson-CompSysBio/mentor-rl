@@ -50,14 +50,14 @@ MASTER_PORT=6000
 
 ####### LAUNCHING ########
 export LAUNCHER="accelerate launch \
-	--config_file acclerate_config.yaml \
+	--config_file accelerate_config.yaml \
 	--main_process_ip $MASTER_ADDR \
 	--main_process_port $MASTER_PORT \
 	--machine_rank \$SLURM_PROCID \
 	--num_processes $WORLD_SIZE \
 	--num_machines $SLURM_NNODES \
 	"
-export PROG="scripts/train_sft_fsdp_tp.py"
+export PROG="scripts/train_sft_tp_fsdp.py"
 export CMD="$LAUNCHER $PROG"
 
 # srun call

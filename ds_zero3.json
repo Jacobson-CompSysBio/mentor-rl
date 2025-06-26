@@ -1,26 +1,19 @@
-
 {
+  "train_micro_batch_size_per_gpu": "auto",
+  "gradient_accumulation_steps": "auto",
+  "gradient_clipping": "auto",
+
   "bf16": { "enabled": true },
 
-  "train_micro_batch_size_per_gpu": 1,
-  "gradient_accumulation_steps": 1,
-
   "zero_optimization": {
-    "stage": 3,                       
-    "overlap_comm": true,
-    "reduce_scatter": true,
+    "stage": 3,
     "contiguous_gradients": true,
-    "stage3_prefetch_bucket_size": 5e7,
-    "stage3_param_persistence_threshold": 1e6
+    "reduce_bucket_size": 500000000,
+    "stage3_max_live_parameters": 200000000,
+    "stage3_prefetch_bucket_size": 50000000,
+    "stage3_param_persistence_threshold": 50000000
   },
 
-  "optimizer": {
-    "type": "AdamW",
-    "params": {
-      "lr": 2e-5,
-      "betas": [0.9, 0.999],
-      "eps": 1e-8,
-      "weight_decay": 0.01
-        }
-  }
+  "steps_per_print": 50,
+  "wall_clock_breakdown": true
 }

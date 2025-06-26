@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -A SYB114
-#SBATCH -J mentor-sft
+#SBATCH -J mentor-sft-ds
 #SBATCH -N 2 
 #SBATCH -t 2:00:00
 #SBATCH -p extended
