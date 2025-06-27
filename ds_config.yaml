@@ -1,32 +1,23 @@
-compute_environment: LOCAL_MACHINE          
-distributed_type: DEEPSPEED
-mixed_precision: bf16                       
-num_machines: 2
-num_processes: 16                           
-main_training_function: main
-machine_rank: 0                             
-deepspeed_config:                           
-  zero_stage: 3
-  zero3_init_flag: true
+compute_environment: LOCAL_MACHINE
+deepspeed_config:
+  deepspeed_multinode_launcher: standard
   gradient_accumulation_steps: 1
   gradient_clipping: 1.0
-
-  offload_param_device: cpu
   offload_optimizer_device: cpu
-  offload_param_pin_memory: true          
-  offload_optimizer_pin_memory: true      
-
-  # new activation checkpointing:
-  activation_checkpointing:
-    partition_activations: true           
-    contiguous_memory_optimization: true  
-    cpu_checkpointing: false              
-
-  # (optional) tune bucket sizes so ZeRO shards/re-gathers more gradually:
-  zero3_prefetch_bucket_size: 500000000
-  zero3_param_persistence_threshold: 100000
+  offload_param_device: cpu
+  zero3_init_flag: true
+  zero3_save_16bit_model: true
+  zero_stage: 3
+distributed_type: DEEPSPEED
+downcast_bf16: 'no'
+dynamo_backend: 'NO'
+fsdp_config: {}
+machine_rank: 0
+main_training_function: main
+megatron_lm_config: {}
+mixed_precision: 'no'
+num_machines: 2
+num_processes: 16
+rdzv_backend: static
 same_network: true
-tpu_env: []
-tpu_use_cluster: false
-tpu_use_sudo: false
 use_cpu: false

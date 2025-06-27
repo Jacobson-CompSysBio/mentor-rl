@@ -40,28 +40,28 @@ export NCCL_DEBUG=INFO
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export CUDA_LAUNCH_BLOCKING=1
 
-# prevent deepspeed from making an env
+# deepsepeed
 export DS_REPORT_ENV=0
+export DS_BUILD_AIO=0          
 
 ####### DISTRIBUTED ########
-GPUS_PER_NODE=8
-WORLD_SIZE=$(( $SLURM_NNODES * $GPUS_PER_NODE))
-
-# get port/address
-MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
-MASTER_PORT=6000
+export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
+export MASTER_PORT=$(( RANDOM % (50000 - 30000 + 1 ) + 30000 ))
+export GPUS_PER_NODE=8
+export NNODES=$SLURM_NNODES
+export NUM_PROCESSES=$(expr $NNODES \* $GPUS_PER_NODE)
 
 ####### LAUNCHING ########
 export LAUNCHER="accelerate launch \
 	--config_file ds_config.yaml \
-	--main_process_ip $MASTER_ADDR \
-	--main_process_port $MASTER_PORT \
-	--machine_rank \$SLURM_PROCID \
-	--num_processes $WORLD_SIZE \
-	--num_machines $SLURM_NNODES \
+	--main_process_ip ${MASTER_ADDR} \
+	--main_process_port ${MASTER_PORT} \
+	--machine_rank $SLURM_NODEID \
+	--num_processes $NUM_PROCESSES \
+	--num_machines $NNODES \
 	"
 export PROG="scripts/train_sft_ds.py"
 export CMD="$LAUNCHER $PROG"
 
-# srun call
+#srun call
 srun --jobid $SLURM_JOBID bash -c "$CMD"
