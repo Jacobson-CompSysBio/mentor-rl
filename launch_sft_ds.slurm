@@ -40,6 +40,9 @@ export NCCL_DEBUG=INFO
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export CUDA_LAUNCH_BLOCKING=1
 
+# prevent deepspeed from making an env
+export DS_REPORT_ENV=0
+
 ####### DISTRIBUTED ########
 GPUS_PER_NODE=8
 WORLD_SIZE=$(( $SLURM_NNODES * $GPUS_PER_NODE))

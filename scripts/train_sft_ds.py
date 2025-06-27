@@ -8,7 +8,12 @@ import wandb
 from pathlib import Path
 from torch.nn import Module
 from dotenv import load_dotenv
-from accelerate import PartialState
+from accelerate import (
+    Accelerator,
+    PartialState,
+    init_empty_weights,
+    load_checkpoint_and_dispatch,
+)
 import deepspeed
 from deepspeed.runtime.utils import see_memory_usage
 from datasets import load_dataset, load_from_disk, DatasetDict
@@ -45,17 +50,18 @@ os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
 
 ######### paths + hyperparameters ###########
-MODEL_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/"
+MODEL_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/"
 MODEL_NAME = "Llama-4-Scout-17B-16E-Instruct"
-DATA_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/data/"
+DATA_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
 RAW_JSON = "qa_pairs.json"
 CACHE_DIR = Path("/mnt/bb/{}/tokenized_ds".format(os.environ["USER"]))
 MAX_LEN = 256
 USE_PEFT = True
 
 ##### rank processing #####
+accelerator = Accelerator()
 dist_state = PartialState()
-is_main = dist_state.is_main_process
+is_main = accelerator.is_main_process
 
 #### memory tracking callbacks ####
 MB = 1024 ** 2
@@ -162,11 +168,14 @@ dataset: DatasetDict = load_from_disk(CACHE_DIR, keep_in_memory=False)
 ##### model #####
 if is_main:
     print(f"[{min_elapsed():.2f} min] Loading model: {MODEL_NAME} from {MODEL_DIR}")
+
 model = Llama4ForConditionalGeneration.from_pretrained(
     os.path.join(MODEL_DIR, MODEL_NAME),
-    torch_dtype=torch.bfloat16,
     low_cpu_mem_usage=True,
+    torch_dtype=torch.bfloat16,
 )
+model.gradient_checkpointing_enable()
+
 model.config.max_position_embeddings = MAX_LEN
 tokenizer = AutoTokenizer.from_pretrained(
     os.path.join(MODEL_DIR, MODEL_NAME),
@@ -212,14 +221,15 @@ first_block.register_full_backward_hook(lambda *a, **k: bwd_hook())
 
 ##### training #####
 train_cfg = SFTConfig(
-    bf16=True,
     remove_unused_columns=False,
+    bf16=True,
+    gradient_checkpointing=True,
     num_train_epochs=1,
     per_device_train_batch_size=1,
     max_seq_length=MAX_LEN,
     logging_steps=1,
     dataloader_num_workers=0,
-    report_to=["wandb"]
+    report_to=["wandb"],
 )
 trainer = SFTTrainer(
     model=model,

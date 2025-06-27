@@ -1,17 +1,30 @@
-compute_environment: LOCAL_MACHINE
-debug: true
-deepspeed_config:
-  deepspeed_config_file: ds_zero3.json
-  deepspeed_multinode_launcher: slurm
-  zero3_init_flag: true
+compute_environment: LOCAL_MACHINE          
 distributed_type: DEEPSPEED
-downcast_bf16: 'no'
-enable_cpu_affinity: false
-machine_rank: 0
-main_training_function: main
+mixed_precision: bf16                       
 num_machines: 2
-num_processes: 16
-rdzv_backend: static
+num_processes: 16                           
+main_training_function: main
+machine_rank: 0                             
+deepspeed_config:                           
+  zero_stage: 3
+  zero3_init_flag: true
+  gradient_accumulation_steps: 1
+  gradient_clipping: 1.0
+
+  offload_param_device: cpu
+  offload_optimizer_device: cpu
+  offload_param_pin_memory: true          
+  offload_optimizer_pin_memory: true      
+
+  # new activation checkpointing:
+  activation_checkpointing:
+    partition_activations: true           
+    contiguous_memory_optimization: true  
+    cpu_checkpointing: false              
+
+  # (optional) tune bucket sizes so ZeRO shards/re-gathers more gradually:
+  zero3_prefetch_bucket_size: 500000000
+  zero3_param_persistence_threshold: 100000
 same_network: true
 tpu_env: []
 tpu_use_cluster: false
