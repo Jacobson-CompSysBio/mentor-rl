@@ -27,6 +27,7 @@ from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
     )
+from transformers.integrations import HfDeepSpeedConfig
 from trl import (
     SFTConfig,
     SFTTrainer, 
@@ -48,6 +49,7 @@ load_dotenv()
 os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
+ds_cfg = HfDeepSpeedConfig("ds_zero3.json")
 
 ######### paths + hyperparameters ###########
 MODEL_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/"
@@ -169,11 +171,15 @@ dataset: DatasetDict = load_from_disk(CACHE_DIR, keep_in_memory=False)
 if is_main:
     print(f"[{min_elapsed():.2f} min] Loading model: {MODEL_NAME} from {MODEL_DIR}")
 
-model = Llama4ForConditionalGeneration.from_pretrained(
-    os.path.join(MODEL_DIR, MODEL_NAME),
-    low_cpu_mem_usage=True,
-    torch_dtype=torch.bfloat16,
-)
+with deepspeed.zero.Init(
+        remote_device="cuda",
+        config_dict_or_path="ds_zero3.json",
+    ):
+    model = Llama4ForConditionalGeneration.from_pretrained(
+        os.path.join(MODEL_DIR, MODEL_NAME),
+        low_cpu_mem_usage=True,
+        torch_dtype=torch.bfloat16,
+    )
 model.gradient_checkpointing_enable()
 
 model.config.max_position_embeddings = MAX_LEN
@@ -222,8 +228,6 @@ first_block.register_full_backward_hook(lambda *a, **k: bwd_hook())
 ##### training #####
 train_cfg = SFTConfig(
     remove_unused_columns=False,
-    bf16=True,
-    gradient_checkpointing=True,
     num_train_epochs=1,
     per_device_train_batch_size=1,
     max_seq_length=MAX_LEN,

@@ -27,7 +27,14 @@ module load craype-accel-amd-gfx90a
 source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
 source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm/
 
+#### CACHE ####
+MODEL_DIR="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models"
+MODEL_NAME="Llama-4-Scout-17B-16E-Instruct"
+if [[ $SLURM_LOCALID -eq 0 ]]; then
+	rsync -a "$MODEL_DIR/$MODEL_NAME" "/mnt/bb/$USER/llama4"
+fi
 export HF_HOME=/mnt/bb/$USER/hf_cache_$SLURM_JOB_ID
+export MODEL_DIR="/mnt/bb/$USER"
 export HF_DATASETS_CACHE=/mnt/bb/$USER/ds_cache_$SLURM_JOB_ID
 mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE"
 
@@ -54,6 +61,7 @@ export NUM_PROCESSES=$(expr $NNODES \* $GPUS_PER_NODE)
 ####### LAUNCHING ########
 export LAUNCHER="accelerate launch \
 	--config_file ds_config.yaml \
+	--deepspeed_multinode_launcher standard \
 	--main_process_ip $MASTER_ADDR \
 	--main_process_port $MASTER_PORT \
 	--machine_rank \$SLURM_PROCID \
