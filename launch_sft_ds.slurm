@@ -15,7 +15,6 @@
 set -eo pipefail
 
 ####### ENVIRONMENT #######
-
 # env file
 . env.sh
 
@@ -37,6 +36,7 @@ export PYTHONUNBUFFERED=1
 
 # force crash on nccl issues like hanging broadcast
 export NCCL_DEBUG=INFO
+export NCCL_SOCKET_IFNAME=hsn0
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export CUDA_LAUNCH_BLOCKING=1
 
@@ -46,7 +46,7 @@ export DS_BUILD_AIO=0
 
 ####### DISTRIBUTED ########
 export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
-export MASTER_PORT=$(( RANDOM % (50000 - 30000 + 1 ) + 30000 ))
+export MASTER_PORT=29500
 export GPUS_PER_NODE=8
 export NNODES=$SLURM_NNODES
 export NUM_PROCESSES=$(expr $NNODES \* $GPUS_PER_NODE)
@@ -54,9 +54,9 @@ export NUM_PROCESSES=$(expr $NNODES \* $GPUS_PER_NODE)
 ####### LAUNCHING ########
 export LAUNCHER="accelerate launch \
 	--config_file ds_config.yaml \
-	--main_process_ip ${MASTER_ADDR} \
-	--main_process_port ${MASTER_PORT} \
-	--machine_rank $SLURM_NODEID \
+	--main_process_ip $MASTER_ADDR \
+	--main_process_port $MASTER_PORT \
+	--machine_rank \$SLURM_PROCID \
 	--num_processes $NUM_PROCESSES \
 	--num_machines $NNODES \
 	"
@@ -64,4 +64,4 @@ export PROG="scripts/train_sft_ds.py"
 export CMD="$LAUNCHER $PROG"
 
 #srun call
-srun --jobid $SLURM_JOBID bash -c "$CMD"
+srun bash -c "$CMD"
