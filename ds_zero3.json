@@ -6,10 +6,6 @@
   },
   "zero_optimization": {
     "stage": 3,
-    "offload_param": {
-      "device": "cpu",
-      "pin_memory": true
-    },
     "offload_optimizer": {
       "device": "cpu",
       "pin_memory": true
@@ -29,5 +25,21 @@
     "cpu_checkpointing": true,            
     "contiguous_memory_optimization": true,
     "number_checkpoints": 2
+  },
+  "steps_per_print": 20,            
+  "wall_clock_breakdown": true,
+  "flops_profiler": {
+    "enabled": true,
+    "profile_step": 5,            
+    "module_depth": -1,
+    "top_modules": 3,
+    "detailed": true,
+    "output_file": "ds_flops_rank${RANK}.txt"
+  },
+  "torch_profiler": {
+    "enabled": true,
+    "start_step": 6,              
+    "end_step": 8,                
+    "output_filename": "torch_trace_rank${RANK}.json"
   }
 }

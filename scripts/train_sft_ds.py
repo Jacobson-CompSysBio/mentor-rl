@@ -56,7 +56,7 @@ MODEL_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mod
 MODEL_NAME = "Llama-4-Scout-17B-16E-Instruct"
 DATA_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
 RAW_JSON = "qa_pairs.json"
-CACHE_DIR = Path("/mnt/bb/{}/tokenized_ds".format(os.environ["USER"]))
+CACHE_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/tokenized_ds" 
 MAX_LEN = 256
 USE_PEFT = True
 
@@ -109,71 +109,85 @@ class MemTrace(TrainerCallback):
         )
 
 ##### set up cache #####
-if not CACHE_DIR.exists():
-    if dist_state.is_local_main_process:
-        print(f"[{min_elapsed():.2f} min] Cache directory does not exist, creating: {CACHE_DIR}")
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+def tokenize(examples):
+    return tokenizer(examples["text"], padding="max_length", truncation=True)
 
-        print(f"[{min_elapsed():.2f} min] Loading raw dataset from {DATA_DIR}...")
-        ##### data #####
-        raw = load_dataset("json",
-                            data_dir=DATA_DIR,
-                            data_files=RAW_JSON,
-                            )
+def build_and_cache():
+    """load dataset and cache the tokens"""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"[{min_elapsed():.2f} min] Loading raw dataset from {DATA_DIR}...")
+    ##### data #####
+    raw = load_dataset("json",
+                        data_dir=DATA_DIR,
+                        data_files=RAW_JSON,
+                        )
+    def format_dataset(row):
+        # TRL wants each row in the format:
+        # { messages: [ {role:r, content:c}, {role:r, content:c} ] }
+        row_q = {"role": "user", "content": row["question"]}
+        row_a = {"role": "assistant", "content": row["answer"]}
+        row['messages'] = [row_q, row_a]
+        return row
+    print(f"[{min_elapsed():.2f} min] Formatting dataset...")
+    raw = raw["train"].train_test_split(test_size=0.1)
+    raw = raw.map(format_dataset,
+                  batched=False,
+                  remove_columns=["question", "answer"],
+                  num_proc=32,
+                  load_from_cache_file=False)
 
-        def format_dataset(row):
-            # TRL wants each row in the format:
-            # { messages: [ {role:r, content:c}, {role:r, content:c} ] }
-            row_q = {"role": "user", "content": row["question"]}
-            row_a = {"role": "assistant", "content": row["answer"]}
-            row['messages'] = [row_q, row_a]
-            return row
+    # save pre-tokenized dataset so every rank can memory-map it
+    tokenizer = AutoTokenizer.from_pretrained(
+        os.path.join(MODEL_DIR, MODEL_NAME),
+        use_fast=True,
+    )
 
-        print(f"[{min_elapsed():.2f} min] Formatting dataset...")
-        raw = raw["train"].train_test_split(test_size=0.1)
-        raw = raw.map(format_dataset,
-                      batched=False,
-                      remove_columns=["question", "answer"],
-                      num_proc=32,
-                      load_from_cache_file=False)
-    
-        # save pre-tokenized dataset so every rank can memory-map it
-        tokenizer = AutoTokenizer.from_pretrained(
-            os.path.join(MODEL_DIR, MODEL_NAME),
-            use_fast=True,
+    def tokenize(row):
+        tokens = tokenizer.apply_chat_template(
+            row["messages"],
+            tokenize=True,
+            truncation=True,
+            max_length=MAX_LEN,
         )
+        return {
+            "input_ids": tokens,
+            "attention_mask": [1] * len(tokens)
+        }
 
-        def tokenize(row):
-            tokens = tokenizer.apply_chat_template(
-                row["messages"],
-                tokenize=True,
-                truncation=True,
-                max_length=MAX_LEN,
-            )
-            return {
-                "input_ids": tokens,
-                "attention_mask": [1] * len(tokens)
-            }
+    print(f"[{min_elapsed():.2f} min] Tokenizing dataset...")
+    tokenized = raw.map(
+        tokenize,
+        remove_columns=["messages"],
+        num_proc=32,
+    )
+    tokenized.save_to_disk(CACHE_DIR)
 
-        print(f"[{min_elapsed():.2f} min] Tokenizing dataset...")
-        tokenized = raw.map(
-            tokenize,
-            remove_columns=["messages"],
-            num_proc=32,
-        )
-        tokenized.save_to_disk(CACHE_DIR)
+# rank 0 builds the cache if it doesn't exist
+if is_main and not CACHE_DIR.exists():
+    print(f"[{min_elapsed():.2f} min] Caching dataset at {CACHE_DIR}")
+    build_and_cache()
 
-dist_state.wait_for_everyone()  # ensure all ranks have created the cache dir
-print(f"[{min_elapsed():.2f} min] Cache directory ready: {CACHE_DIR}")
-dataset: DatasetDict = load_from_disk(CACHE_DIR, keep_in_memory=False)
+# sync ranks
+accelerator.wait_for_everyone()
+
+# load the same on-disk dataset on all ranks
+try:
+    dataset = load_from_disk(CACHE_DIR)
+    print(f"[{min_elapsed():.2f} min] [rank {dist_state.rank}] Dataset loaded from {CACHE_DIR}")
+except Exception:
+    if is_main:
+       print(f"[{min_elapsed():.2f} min] Error loading dataset from {CACHE_DIR}; rebuilding...")
+       build_and_cache()
+    accelerator.wait_for_everyone()
+    dataset = load_from_disk(CACHE_DIR)
 
 ##### model #####
 if is_main:
     print(f"[{min_elapsed():.2f} min] Loading model: {MODEL_NAME} from {MODEL_DIR}")
 
 with deepspeed.zero.Init(
-        remote_device="cuda",
-        config_dict_or_path="ds_zero3.json",
+    remote_device="cuda",
+    config_dict_or_path="ds_zero3.json",
     ):
     model = Llama4ForConditionalGeneration.from_pretrained(
         os.path.join(MODEL_DIR, MODEL_NAME),

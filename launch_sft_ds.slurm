@@ -28,13 +28,12 @@ source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.s
 source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm/
 
 #### CACHE ####
-MODEL_DIR="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models"
-MODEL_NAME="Llama-4-Scout-17B-16E-Instruct"
-if [[ $SLURM_LOCALID -eq 0 ]]; then
-	rsync -a "$MODEL_DIR/$MODEL_NAME" "/mnt/bb/$USER/llama4"
-fi
+#MODEL_DIR="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models"
+#MODEL_NAME="Llama-4-Scout-17B-16E-Instruct"
+#if [[ $SLURM_LOCALID -eq 0 ]]; then
+#	rsync -a "$MODEL_DIR/$MODEL_NAME" "/mnt/bb/$USER/llama4"
+#fi
 export HF_HOME=/mnt/bb/$USER/hf_cache_$SLURM_JOB_ID
-export MODEL_DIR="/mnt/bb/$USER"
 export HF_DATASETS_CACHE=/mnt/bb/$USER/ds_cache_$SLURM_JOB_ID
 mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE"
 
