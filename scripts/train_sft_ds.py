@@ -56,7 +56,8 @@ MODEL_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mod
 MODEL_NAME = "Llama-4-Scout-17B-16E-Instruct"
 DATA_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
 RAW_JSON = "qa_pairs.json"
-CACHE_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/tokenized_ds" 
+CACHE_DIR = Path("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/tokenized_ds")
+TOKEN_INFO = os.path.join(CACHE_DIR, "dataset_dict.json")
 MAX_LEN = 256
 USE_PEFT = True
 
@@ -166,20 +167,25 @@ def build_and_cache():
 if is_main and not CACHE_DIR.exists():
     print(f"[{min_elapsed():.2f} min] Caching dataset at {CACHE_DIR}")
     build_and_cache()
+    print(f"[{min_elapsed():.2f} min] Dataset cached at {CACHE_DIR}")
 
 # sync ranks
 accelerator.wait_for_everyone()
 
 # load the same on-disk dataset on all ranks
 try:
-    dataset = load_from_disk(CACHE_DIR)
+    train_ds = load_from_disk(f"{CACHE_DIR}/train")
+    test_ds = load_from_disk(f"{CACHE_DIR}/test")
+    dataset = DatasetDict({"train": train_ds, "test": test_ds})
     print(f"[{min_elapsed():.2f} min] [rank {dist_state.rank}] Dataset loaded from {CACHE_DIR}")
 except Exception:
     if is_main:
        print(f"[{min_elapsed():.2f} min] Error loading dataset from {CACHE_DIR}; rebuilding...")
        build_and_cache()
     accelerator.wait_for_everyone()
-    dataset = load_from_disk(CACHE_DIR)
+    train_ds = load_from_disk(f"{CACHE_DIR}/train")
+    test_ds = load_from_disk(f"{CACHE_DIR}/test")
+    dataset = DatasetDict({"train": train_ds, "test": test_ds})
 
 ##### model #####
 if is_main:
