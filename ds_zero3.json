@@ -1,6 +1,6 @@
 {
-  "train_micro_batch_size_per_gpu": 1,     
-  "gradient_accumulation_steps": 8,
+  "train_micro_batch_size_per_gpu": 1,
+  "gradient_accumulation_steps": 1,
   "bf16": {
     "enabled": true
   },
@@ -10,36 +10,16 @@
       "device": "cpu",
       "pin_memory": true
     },
-    "overlap_comm": true,
-    "contiguous_gradients": true,
-    "reduce_bucket_size": "auto",
-    "stage3_prefetch_bucket_size": "auto",
-    "stage3_param_persistence_threshold": "auto",
+    "stage3_param_persistence_threshold": 1e6,
+    "stage3_prefetch_bucket_size": 5e8,
     "sub_group_size": 1e9,
-    "stage3_max_live_parameters": 1e9,
-    "stage3_max_reuse_distance": 1e9,
-    "stage3_gather_16bit_weights_on_model_save": "auto"
+    "overlap_comm": true,
+    "reduce_bucket_size": 5e8
   },
   "activation_checkpointing": {
     "partition_activations": true,
-    "cpu_checkpointing": true,            
     "contiguous_memory_optimization": true,
     "number_checkpoints": 2
   },
-  "steps_per_print": 20,            
-  "wall_clock_breakdown": true,
-  "flops_profiler": {
-    "enabled": true,
-    "profile_step": 5,            
-    "module_depth": -1,
-    "top_modules": 3,
-    "detailed": true,
-    "output_file": "ds_flops_rank${RANK}.txt"
-  },
-  "torch_profiler": {
-    "enabled": true,
-    "start_step": 6,              
-    "end_step": 8,                
-    "output_filename": "torch_trace_rank${RANK}.json"
-  }
+  "wall_clock_breakdown": true
 }

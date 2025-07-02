@@ -1,4 +1,5 @@
 import os
+import json
 import psutil
 import time
 import argparse
@@ -13,6 +14,7 @@ from accelerate import (
     PartialState,
     init_empty_weights,
     load_checkpoint_and_dispatch,
+    infer_auto_device_map
 )
 import deepspeed
 from deepspeed.runtime.utils import see_memory_usage
@@ -52,8 +54,7 @@ os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
 ds_cfg = HfDeepSpeedConfig("ds_zero3.json")
 
 ######### paths + hyperparameters ###########
-MODEL_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/"
-MODEL_NAME = "Llama-4-Scout-17B-16E-Instruct"
+MODEL_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/Llama-4-Scout-17B-16E-Instruct"
 DATA_DIR = "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
 RAW_JSON = "qa_pairs.json"
 CACHE_DIR = Path("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/tokenized_ds")
@@ -69,18 +70,6 @@ is_main = accelerator.is_main_process
 #### memory tracking callbacks ####
 MB = 1024 ** 2
 t0 = time.perf_counter()
-
-def _stamp(phase):
-    if not dist_state.is_main_process:
-        return
-    gpu_alloc = torch.cuda.memory_allocated() / MB
-    gpu_reserved = torch.cuda.memory_reserved() / MB
-    cpu_rss = psutil.Process(os.getpid()).memory_info().rss / MB
-    elapsed = (time.perf_counter() - t0) / 60.0
-    print(f"[{elapsed:6.2f} min] {phase:<12} "
-          f"GPU alloc {gpu_alloc:7.0f} MiB | "
-          f"reserved {gpu_reserved:7.0f} | "
-          f"CPU {cpu_rss:7.0f} MiB", flush=True)
 
 def _mb(x):   # bytes → MiB
     return x / (1024 ** 2)
@@ -139,7 +128,7 @@ def build_and_cache():
 
     # save pre-tokenized dataset so every rank can memory-map it
     tokenizer = AutoTokenizer.from_pretrained(
-        os.path.join(MODEL_DIR, MODEL_NAME),
+        MODEL_DIR,
         use_fast=True,
     )
 
@@ -177,10 +166,10 @@ try:
     train_ds = load_from_disk(f"{CACHE_DIR}/train")
     test_ds = load_from_disk(f"{CACHE_DIR}/test")
     dataset = DatasetDict({"train": train_ds, "test": test_ds})
-    print(f"[{min_elapsed():.2f} min] [rank {dist_state.rank}] Dataset loaded from {CACHE_DIR}")
-except Exception:
+    print(f"[{min_elapsed():.2f} min] [rank {accelerator.process_index}] Dataset loaded from {CACHE_DIR}")
+except Exception as e:
     if is_main:
-       print(f"[{min_elapsed():.2f} min] Error loading dataset from {CACHE_DIR}; rebuilding...")
+       print(f"[{min_elapsed():.2f} min] Error loading dataset from {CACHE_DIR} ({e}); rebuilding...")
        build_and_cache()
     accelerator.wait_for_everyone()
     train_ds = load_from_disk(f"{CACHE_DIR}/train")
@@ -189,22 +178,18 @@ except Exception:
 
 ##### model #####
 if is_main:
-    print(f"[{min_elapsed():.2f} min] Loading model: {MODEL_NAME} from {MODEL_DIR}")
-
-with deepspeed.zero.Init(
-    remote_device="cuda",
-    config_dict_or_path="ds_zero3.json",
-    ):
-    model = Llama4ForConditionalGeneration.from_pretrained(
-        os.path.join(MODEL_DIR, MODEL_NAME),
-        low_cpu_mem_usage=True,
+    print(f"[{min_elapsed():.2f} min] Loading model: {MODEL_DIR}")
+with deepspeed.zero.Init(config_dict_or_path="ds_zero3.json",
+                         remote_device="cpu",
+                         dtype=torch.bfloat16):     
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL_DIR,
         torch_dtype=torch.bfloat16,
+        low_cpu_mem_usage=True,
     )
-model.gradient_checkpointing_enable()
 
-model.config.max_position_embeddings = MAX_LEN
 tokenizer = AutoTokenizer.from_pretrained(
-    os.path.join(MODEL_DIR, MODEL_NAME),
+    MODEL_DIR,
     use_fast=True
 )
 
@@ -221,40 +206,18 @@ lora_cfg = (
 if is_main:
     print(f"[{min_elapsed():.2f} min] LoRA config loaded.")
 
-#### establish hooks to track memory usage for debugging ####
-# pick the very first transformer block
-def first_transformer_block(root: Module) -> Module:
-    for m in root.modules():
-        # crude heuristic: has both self-attn *and* MLP submodules
-        if hasattr(m, "self_attn") and hasattr(m, "mlp"):
-            return m
-    raise RuntimeError("could not find a transformer block")
-
-first_block = first_transformer_block(model)
-
-def fwd_pre(module, *_, **__):
-    _stamp("fwd-PRE")
-
-def fwd_post(module, *_, **__):
-    _stamp("fwd-POST")
-
-def bwd_hook(*_):
-    _stamp("backward")
-
-first_block.register_forward_pre_hook(fwd_pre)
-first_block.register_forward_hook(fwd_post)
-first_block.register_full_backward_hook(lambda *a, **k: bwd_hook())
-
 ##### training #####
 train_cfg = SFTConfig(
+    deepspeed="ds_zero3.json",
     remove_unused_columns=False,
     num_train_epochs=1,
     per_device_train_batch_size=1,
     max_seq_length=MAX_LEN,
     logging_steps=1,
-    dataloader_num_workers=0,
     report_to=["wandb"],
 )
+if is_main:
+    print(f"[{min_elapsed():.2f} min] Initializing Trainer...")
 trainer = SFTTrainer(
     model=model,
     train_dataset=dataset["train"],
@@ -262,7 +225,7 @@ trainer = SFTTrainer(
     args=train_cfg,
     peft_config=lora_cfg,
 )
-if dist_state.is_main_process:
+if is_main:
     trainer.add_callback(MemTrace(every=1))
 
 try:

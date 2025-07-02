@@ -1,7 +1,8 @@
 #!/bin/bash
 #SBATCH -A SYB114
 #SBATCH -J mentor-sft-ds
-#SBATCH -N 2 
+#SBATCH -N 32 
+#SBATCH --ntasks-per-node=1
 #SBATCH -t 2:00:00
 #SBATCH -p extended
 #SBATCH -q debug
@@ -36,31 +37,33 @@ mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE"
 export PYTHONUNBUFFERED=1
 
 # force crash on nccl issues like hanging broadcast
-export NCCL_DEBUG=INFO
+#export NCCL_DEBUG=INFO
+#export NCCL_IB_DISABLE=1
 export NCCL_SOCKET_IFNAME=hsn0
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
-export CUDA_LAUNCH_BLOCKING=1
+# export CUDA_LAUNCH_BLOCKING=1
 
 # deepsepeed
 export DS_REPORT_ENV=0
 export DS_BUILD_AIO=0          
 
 ####### DISTRIBUTED ########
-export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
-export MASTER_PORT=29500
-export GPUS_PER_NODE=8
-export NNODES=$SLURM_NNODES
-export NUM_PROCESSES=$(expr $NNODES \* $GPUS_PER_NODE)
+GPUS_PER_NODE=8
+MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
+MASTER_PORT=6000
+NNODES=$SLURM_NNODES
+NODE_RANK=$SLURM_PROCID
+WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
 ####### LAUNCHING ########
 export LAUNCHER="accelerate launch \
 	--config_file ds_config.yaml \
 	--deepspeed_multinode_launcher standard \
+	--num_processes $WORLD_SIZE \
+	--num_machines $NNODES \
+	--machine_rank \$SLURM_PROCID \
 	--main_process_ip $MASTER_ADDR \
 	--main_process_port $MASTER_PORT \
-	--machine_rank \$SLURM_PROCID \
-	--num_processes $NUM_PROCESSES \
-	--num_machines $NNODES \
 	"
 export PROG="scripts/train_sft_ds.py"
 export CMD="$LAUNCHER $PROG"

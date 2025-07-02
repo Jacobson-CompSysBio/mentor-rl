@@ -1,4 +1,5 @@
 .env
+.deepspeed_env
 **/slurm/
 **/data
 **/logs/
