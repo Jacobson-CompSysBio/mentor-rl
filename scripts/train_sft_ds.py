@@ -179,14 +179,20 @@ except Exception as e:
 ##### model #####
 if is_main:
     print(f"[{min_elapsed():.2f} min] Loading model: {MODEL_DIR}")
-with deepspeed.zero.Init(config_dict_or_path="ds_zero3.json",
-                         remote_device="cpu",
-                         dtype=torch.bfloat16):     
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_DIR,
-        torch_dtype=torch.bfloat16,
-        low_cpu_mem_usage=True,
-    )
+
+def t(msg):
+    torch.cuda.synchronize()
+    print(f"[{min_elapsed():5.1f} min][rank {accelerator.process_index}] {msg}", flush=True)
+
+t("entering ds.zero.Init...")
+#with deepspeed.zero.Init(config_dict_or_path="ds_zero3.json",
+#                         dtype=torch.bfloat16):     
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL_DIR,
+    torch_dtype=torch.bfloat16,
+    low_cpu_mem_usage=True,
+)
+t("model loaded.")
 
 tokenizer = AutoTokenizer.from_pretrained(
     MODEL_DIR,
@@ -211,7 +217,8 @@ train_cfg = SFTConfig(
     deepspeed="ds_zero3.json",
     remove_unused_columns=False,
     num_train_epochs=1,
-    per_device_train_batch_size=1,
+    per_device_train_batch_size=8,
+    gradient_accumulation_steps=8,
     max_seq_length=MAX_LEN,
     logging_steps=1,
     report_to=["wandb"],

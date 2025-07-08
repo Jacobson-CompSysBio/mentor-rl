@@ -5,8 +5,8 @@ deepspeed_config:
 distributed_type: DEEPSPEED
 machine_rank: 0
 main_training_function: main
-num_machines: 32
-num_processes: 512 
+num_machines: 2
+num_processes: 16 
 rdzv_backend: static
 same_network: true
 tpu_env: []

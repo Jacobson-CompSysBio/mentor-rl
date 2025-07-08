@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -A SYB114
 #SBATCH -J mentor-sft-ds
-#SBATCH -N 32 
+#SBATCH -N 2
 #SBATCH --ntasks-per-node=1
 #SBATCH -t 2:00:00
 #SBATCH -p extended
@@ -37,8 +37,15 @@ mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE"
 export PYTHONUNBUFFERED=1
 
 # force crash on nccl issues like hanging broadcast
-#export NCCL_DEBUG=INFO
-#export NCCL_IB_DISABLE=1
+export HSA_FORCE_FINE_GRAIN_PCIE=1   # required for fast inter-GPU P2P DMA
+export RCCL_P2P_LEVEL=LOC            # keep P2P inside a GCD pair when >1 node
+export RCCL_NET_GDR_LEVEL=2          # allow GPUDirect on Slingshot
+export NCCL_P2P_DISABLE=0            # re-enable P2P if you disabled it earlier
+export NCCL_DEBUG=INFO               # short NCCL/RCCL traces
+export NCCL_DEBUG_SUBSYS=COLL        # only collectives
+export RCCL_DEBUG=INFO               # ROCm equivalent
+export RCCL_ENABLE_SHARP=0           # disables experimental SHArP if present
+export TORCH_DISTRIBUTED_DEBUG=DETAIL
 export NCCL_SOCKET_IFNAME=hsn0
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 # export CUDA_LAUNCH_BLOCKING=1
