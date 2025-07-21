@@ -1,7 +1,7 @@
 import flash_attn, torch, pathlib, importlib.metadata as m
-print("flash-attn", m.version("flash_attn"))
-print("GPU        :", torch.cuda.get_device_name(0))
+import pathlib, flash_attn
 
-# Make sure the compiled HIP extension is on disk
-so = pathlib.Path(flash_attn.__file__).with_suffix(".so")
-assert so.exists(), f"{so} missing"
+# look for any ROCm-style shared library
+so = next(pathlib.Path(flash_attn.__file__).parent.glob("_flash_attn*.so"), None)
+assert so is not None and so.exists(), "compiled ROCm extension missing"
+print("Found:", so)
