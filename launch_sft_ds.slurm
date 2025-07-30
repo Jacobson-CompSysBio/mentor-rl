@@ -2,7 +2,6 @@
 #SBATCH -A SYB114
 #SBATCH -J mentor-sft-ds
 #SBATCH -N 2
-#SBATCH --ntasks-per-node=1
 #SBATCH -t 2:00:00
 #SBATCH -p extended
 #SBATCH -q debug
@@ -55,14 +54,16 @@ export DS_REPORT_ENV=0
 export DS_BUILD_AIO=0          
 
 ####### DISTRIBUTED ########
+# recommended: use 8 tasks per node instead of 1
 GPUS_PER_NODE=8
-MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
+MASTER_ADDR=$(hostname -i)
 MASTER_PORT=6000
 NNODES=$SLURM_NNODES
 NODE_RANK=$SLURM_PROCID
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
 ####### LAUNCHING ########
+# how does deepspeed define machines? change parameters to figure this out
 export LAUNCHER="accelerate launch \
 	--config_file ds_config.yaml \
 	--deepspeed_multinode_launcher standard \
@@ -78,3 +79,8 @@ export CMD="$LAUNCHER $PROG"
 #srun call
 echo "Launching model..."
 srun bash -c "$CMD"
+
+# two nodes with 16 tasks --> will change the device_id point of view; might need to configure the device_ids in the .py
+# srun -N2 -n16 -c7 --gpus-per-task=1 --gpu-bind=closest \
+#     bash -c "$CMD" 
+# consider downgrading torch - might work better with FA2
