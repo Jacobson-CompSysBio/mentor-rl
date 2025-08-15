@@ -30,6 +30,7 @@ source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm/
 
 export HF_HOME=/mnt/bb/$USER/hf_cache_$SLURM_JOB_ID
 export HF_DATASETS_CACHE=/mnt/bb/$USER/ds_cache_$SLURM_JOB_ID
+rsync -a /path/to/file/ /dst/
 mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE"
 
 # no buffering when printing output
