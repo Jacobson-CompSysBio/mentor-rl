@@ -1,6 +1,7 @@
 ### SCRIPT FROM: https://cloud.google.com/ai-hypercomputer/docs/tutorials/fsdp-llama4 ###
-import os
+import os, sys
 import torch
+from pathlib import Path
 from datasets import load_dataset
 from peft import LoraConfig, PeftModel
 from transformers import (
@@ -17,6 +18,10 @@ from trl import SFTTrainer
 from dataclasses import dataclass, field
 from typing import Optional
 from dotenv import load_dotenv
+
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+from utils.utils import * 
 
 ### wandb logging ###
 load_dotenv()
@@ -62,6 +67,9 @@ def main():
     parser = HfArgumentParser((ScriptArguments, PeftArguments, SftTrainingArguments))
     script_args, peft_args, training_args = parser.parse_args_into_dataclasses()
 
+    # make run name
+    training_args.run_name = make_run_name(script_args, peft_args, training_args)
+
     training_args.optim = "adamw_torch_fused"
 
     # set up FSDP
@@ -72,7 +80,7 @@ def main():
         "fsdp_state_dict_type": "FULL_STATE_DICT",
         "fsdp_offload_params": False,
         "fsdp_forward_prefetch": False,
-        
+
         # grad checkpointing through fsdp
         "activation_checkpointing": True,
         "activation_checkpointing_reentrant": False,

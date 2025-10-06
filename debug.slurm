@@ -120,8 +120,8 @@ srun --cpu-bind=none --accel-bind=g --export=ALL bash -c '
       --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
       --seed=900913 \
       --bf16=True \
-      --num_train_epochs=1 \
-      --per_device_train_batch_size=2 \
+      --num_train_epochs=10 \
+      --per_device_train_batch_size=8 \
       --gradient_accumulation_steps=4 \
       --learning_rate=2e-5 \
       --logging_steps=1 \
