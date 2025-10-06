@@ -1,11 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=test-llama4-fsdp-multinode
 #SBATCH -A SYB114
-#SBATCH -N 4
-#SBATCH -t 01:30:00
-#SBATCH -p extended 
+#SBATCH -N 64 
+#SBATCH -t 02:00:00
+#SBATCH -p batch 
 #SBATCH -C nvme
-#SBATCH -q debug
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
 #SBATCH -o logs/%x-%j.out # Out Path

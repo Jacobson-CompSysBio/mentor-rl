@@ -72,6 +72,7 @@ def main():
         "fsdp_state_dict_type": "FULL_STATE_DICT",
         "fsdp_offload_params": False,
         "fsdp_forward_prefetch": False,
+        
         # grad checkpointing through fsdp
         "activation_checkpointing": True,
         "activation_checkpointing_reentrant": False,
