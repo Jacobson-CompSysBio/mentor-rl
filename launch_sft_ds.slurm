@@ -57,56 +57,27 @@ MASTER_PORT=6000
 GPUS_PER_NODE="${SLURM_GPUS_ON_NODE:-8}"   # fallback to 8 if not set
 
 ######## LAUNCH ########
-# Build accelerate command (DeepSpeed multi-node)
-LAUNCHER="accelerate launch \
-  --config_file ds_config.yaml \
-  --deepspeed_multinode_launcher standard \
-  --num_processes ${GPUS_PER_NODE} \
-  --num_machines ${SLURM_NNODES} \
-  --machine_rank \$SLURM_PROCID \
-  --main_process_ip ${MASTER_ADDR} \
-  --main_process_port ${MASTER_PORT}"
-
-PROG="scripts/train_sft_ds.py"
-CMD="${LAUNCHER} ${PROG}"
 
 echo "MASTER_ADDR=${MASTER_ADDR}  MASTER_PORT=${MASTER_PORT}"
 echo "GPUS_PER_NODE=${GPUS_PER_NODE}  NNODES=${SLURM_NNODES}"
 echo "Launching model..."
 
-# Exactly one accelerator launcher per node; it locally spawns $GPUS_PER_NODE ranks
-srun -N "${SLURM_NNODES}" -n "${SLURM_NNODES}" --ntasks-per-node=1 \
-     --gpu-bind=closest \
-     --export=ALL,MASTER_ADDR="${MASTER_ADDR}",MASTER_PORT="${MASTER_PORT}" \
-     bash -c "${CMD}"
+export LAUNCHER="accelerate launch \
+	--config_file ds_config.yaml \
+	--deepspeed_multinode_launcher standard \
+	--num_processes $WORLD_SIZE \
+	--num_machines $NNODES \
+	--machine_rank \$SLURM_PROCID \
+	--main_process_ip $MASTER_ADDR \
+	--main_process_port $MASTER_PORT \
+	"
+export PROG="scripts/train_sft_ds.py"
+export CMD="$LAUNCHER $PROG"
 
-####### LAUNCHING ########
-## how does deepspeed define machines? change parameters to figure this out
-#export LAUNCHER="accelerate launch \
-#	--config_file ds_config.yaml \
-#	--deepspeed_multinode_launcher standard \
-#	--num_processes $WORLD_SIZE \
-#	--num_machines $NNODES \
-#	--machine_rank \$SLURM_PROCID \
-#	--main_process_ip $MASTER_ADDR \
-#	--main_process_port $MASTER_PORT \
-#	"
-#export PROG="scripts/train_sft_ds.py"
-#export CMD="$LAUNCHER $PROG"
-#
-##srun call
-#echo "Launching model..."
-#srun bash -c "$CMD"
+#srun call
+echo "Launching model..."
+srun bash -c "$CMD"
 
 
-#srun -N ${NNODES} -n ${WORLD_SIZE} \
-#	--gpus-per-task=1 \
-#	--ntasks-per-node=${GPUS_PER_NODE} \
-#	--cpus-per-task=7 \
-#	--gpu-bind=closest --cpu-bind=cores \
-#	accelerate launch \
-#		--config_file ds_config.yaml \
-#		--num_processes 1 \
-#		--num_machines 1 \
-#		${PROG}
+
 

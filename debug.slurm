@@ -1,79 +1,148 @@
 #!/bin/bash
+#SBATCH --job-name=test-llama4-fsdp-multinode
 #SBATCH -A SYB114
-#SBATCH -J mentor-sft-ds
-#SBATCH -N 2
-#SBATCH -t 0:45:00
-#SBATCH -p batch
-#SBATCH -q debug
+#SBATCH -N 4
+#SBATCH -t 01:30:00
+#SBATCH -p extended 
 #SBATCH -C nvme
-#SBATCH --gres=gpu:8
-#SBATCH -o logs/%x.out # Out Path
-#SBATCH -e logs/%x.err # Err Path
+#SBATCH -q debug
+#SBATCH --ntasks-per-node=8
+#SBATCH --gpus-per-node=8
+#SBATCH -o logs/%x-%j.out # Out Path
+#SBATCH -e logs/%x-%j.err # Err Path
 #SBATCH --open-mode=truncate # Overwrite .out/.err
 
-# exit on errors
-set -eo pipefail
+set -e
+set -x
 
-####### ENVIRONMENT #######
-# env file
-. env.sh
-
-# activate modules
+# load modules
 module load PrgEnv-gnu/8.6.0
 module load rocm/6.3.1
 module load craype-accel-amd-gfx90a
+
+# load aws-ofi-rccl
 export LD_LIBRARY_PATH=/lustre/orion/syb111/proj-shared/Personal/krusepi/packages/aws-ofi-rccl/lib:$LD_LIBRARY_PATH
 
-# activate environment and set the cache home to nvme 
+# load conda, activate env
 source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
-source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm/
+source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
 
-#### CACHE ####
-export HF_HOME=/mnt/bb/$USER/hf_cache_$SLURM_JOB_ID
-export HF_DATASETS_CACHE=/mnt/bb/$USER/ds_cache_$SLURM_JOB_ID
+echo "--- Slurm Job Started ---"
+echo "Job ID: $SLURM_JOB_ID"
+echo "Node List: $SLURM_JOB_NODELIST"
+
+# --- Define Paths ---
+PACK_TARBALL="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/env.tar.gz"
+
+LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
+LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
+LOCAL_CACHE_DIR="${LOCAL_SSD_PATH}/hf_cache"
+LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/Llama-4-Scout-17B-16E-Instruct/"
+LOCAL_DATA_DIR="${LOCAL_SSD_PATH}/data/"
+
+VENV_PATH="/lustre/orion/syb111/world-shared/environments/pytorch-rocm"
+MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/Llama-4-Scout-17B-16E-Instruct/"
+DATA_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
+
+export HF_HOME="/mnt/bb/$USER/hf_cache_${SLURM_JOB_ID}"
+export HF_DATASETS_CACHE="/mnt/bb/$USER/ds_cache_${SLURM_JOB_ID}"
 mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE"
 
-# no buffering when printing output
-export PYTHONUNBUFFERED=1
+# --- STAGE 1: Stage Data to Local SSD on Each Node ---
+srun --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
+  echo '--- Staging on node: $(hostname) ---'
 
-# nccl setup
-export NCCL_NET=OFI
+  mkdir -p ${LOCAL_SSD_PATH} ${LOCAL_MODEL_DIR} ${LOCAL_CACHE_DIR} ${LOCAL_ENV_DIR} ${LOCAL_DATA_DIR}
+
+  echo 'Extracting packed conda env to NVMe...'
+  tar -xzf ${PACK_TARBALL} -C ${LOCAL_ENV_DIR}
+  ${LOCAL_ENV_DIR}/bin/conda-unpack
+
+  echo 'Checking Python/torch...'
+  ${LOCAL_ENV_DIR}/bin/python -c 'import sys; print(sys.executable)'
+  ${LOCAL_ENV_DIR}/bin/python -c 'import torch; print(torch.__version__)'
+
+  echo 'Copying model weights...'
+  rsync -a --info=progress2 ${MODEL_PATH} ${LOCAL_MODEL_DIR}
+
+  echo 'Copying dataset...'
+  rsync -a --info=progress2 ${DATA_PATH} ${LOCAL_DATA_DIR}
+
+  mkdir -p ${LOCAL_SSD_PATH}/hf_cache
+
+  echo '--- Staging on $(hostname) complete ---'
+"
+echo "--- Staging complete on all nodes ---"
+
+# --- STAGE 2: Run the Training Job ---
+echo "--- Launching Distributed Training with RCCL Plugin ---"
+nodes=( $( scontrol show hostnames "$SLURM_JOB_NODELIST" ) )
+head_node=${nodes[0]}
+head_node_ip=$(srun --nodes=1 --ntasks=1 -w "$head_node" hostname --ip-address)
+
+export MASTER_ADDR=$head_node_ip
+export MASTER_PORT=29500
+
+# rccl settings
 export FI_PROVIDER=cxi
-export NCCL_SOCKET_FAMILY=AF_INET
-export NCCL_SOCKET_IFNAME=hsn0
-export GLOO_SOCKET_IFNAME=hsn0
 export FI_MR_CACHE_MONITOR=kdreg2     # Required to avoid a deadlock.
 export FI_CXI_DEFAULT_CQ_SIZE=131072  # Ask the network stack to allocate additional space to process message completions.
 export FI_CXI_DEFAULT_TX_SIZE=2048    # Ask the network stack to allocate additional space to hold pending outgoing messages.
 export FI_CXI_RX_MATCH_MODE=hybrid    # Allow the network stack to transition to software mode if necessary.
+
 export NCCL_NET_GDR_LEVEL=3           # Typically improves performance, but remove this setting if you encounter a hang/crash.
 export NCCL_CROSS_NIC=1               # On large systems, this NCCL setting has been found to improve performance
-#export CUDA_LAUNCH_BLOCKING=1     
+export NCCL_SOCKET_IFNAME=hsn0        # NCCL/RCCL will use the high speed network to coordinate startup.
+export NCCL_OFI_USE_NICLIST=hsn0
 
-####### DISTRIBUTED ########
-# --- distributed env ---
-GPUS_PER_NODE=8
-NNODES=$SLURM_NNODES
-MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n1)
-MASTER_PORT=6000
-WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
-echo "MASTER_ADDR: $MASTER_ADDR"
-echo "MASTER_PORT: $MASTER_PORT"
-echo "NNODES: $NNODES"
-echo "GPUS_PER_NODE: $GPUS_PER_NODE"
-echo "WORLD_SIZE: $WORLD_SIZE"
+export NCCL_DEBUG=INFO # Un-comment to diagnose NCCL issues if needed
 
+# wandb
+export https_proxy=http://proxy.ccs.ornl.gov:3128
+export http_proxy=$https_proxy
+export WANDB_HTTP_TIMEOUT=90
 
-####### LAUNCHING ########
-MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/models/Llama-4-Scout-17B-16E-Instruct"
-DATA_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/llms/projects/llms/data/qa_pairs.json"
-PROMPT_FIELD="question"
-RESPONSE_FIELD="answer"
+srun --cpu-bind=none --accel-bind=g --export=ALL bash -c '
+  # Activate conda env on the local SSD
+  source "'${LOCAL_ENV_DIR}'"/bin/activate
 
-accelerate launch --config_file ds_config.yaml debug.py \
-    --model_path $MODEL_PATH \
-    --data_path $DATA_PATH \
-    --prompt_field $PROMPT_FIELD \
-    --response_field $RESPONSE_FIELD \
-    --bf16 \
-    --gradient_checkpointing \
+  # Point Hugging Face cache to the local SSD
+  export HF_HOME="'${LOCAL_CACHE_DIR}'"
+
+  export RANK=$SLURM_PROCID
+  export WORLD_SIZE=$SLURM_NTASKS
+  export LOCAL_RANK=$SLURM_LOCALID
+
+  # --- Launch the training ---
+  python \
+    "'${SLURM_SUBMIT_DIR}'"/scripts/debug.py \
+      --model_path="'${LOCAL_MODEL_DIR}'" \
+      --output_dir="'${LOCAL_SSD_PATH}'/outputs/" \
+      --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
+      --seed=900913 \
+      --bf16=True \
+      --num_train_epochs=1 \
+      --per_device_train_batch_size=2 \
+      --gradient_accumulation_steps=4 \
+      --learning_rate=2e-5 \
+      --logging_steps=1 \
+      --lora_r=16 \
+      --lora_alpha=32 \
+      --lora_dropout=0.05 \
+      --run_inference_after_training
+'
+
+# --- STAGE 3: Copy Final Results Back to Persistent Storage ---
+echo "--- Copying final results from local SSD to shared storage ---"
+PERSISTENT_OUTPUT_DIR="${HOME}/outputs/llama4_job_${SLURM_JOB_ID}"
+mkdir -p "$PERSISTENT_OUTPUT_DIR"
+
+# Only copy from the head node where trl has combined the results
+srun --nodes=1 --ntasks=1 -w "$head_node" \
+  rsync -a --info=progress2 "${LOCAL_SSD_PATH}/outputs/" "${PERSISTENT_OUTPUT_DIR}/"
+
+# --- STAGE 4: Cleanup ---
+echo "--- Cleaning up local SSD on all nodes ---"
+srun --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "rm -rf ${LOCAL_SSD_PATH}"
+
+echo "--- Slurm Job Finished ---"
