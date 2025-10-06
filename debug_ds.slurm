@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=test-llama4-fsdp-multinode
+#SBATCH --job-name=l4-ds-debug
 #SBATCH -A SYB114
 #SBATCH -N 4
 #SBATCH -t 02:00:00
@@ -39,10 +39,12 @@ LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
 LOCAL_CACHE_DIR="${LOCAL_SSD_PATH}/hf_cache"
 LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/Llama-4-Scout-17B-16E-Instruct/"
 LOCAL_DATA_DIR="${LOCAL_SSD_PATH}/data/"
+LOCAL_CONFIG_DIR="${LOCAL_SSD_PATH}/config/"
 
 VENV_PATH="/lustre/orion/syb111/world-shared/environments/pytorch-rocm"
 MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/Llama-4-Scout-17B-16E-Instruct/"
 DATA_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
+DS_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/ds_config.json"
 
 export HF_HOME="/mnt/bb/$USER/hf_cache_${SLURM_JOB_ID}"
 export HF_DATASETS_CACHE="/mnt/bb/$USER/ds_cache_${SLURM_JOB_ID}"
@@ -52,7 +54,7 @@ mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE"
 srun --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
   echo '--- Staging on node: $(hostname) ---'
 
-  mkdir -p ${LOCAL_SSD_PATH} ${LOCAL_MODEL_DIR} ${LOCAL_CACHE_DIR} ${LOCAL_ENV_DIR} ${LOCAL_DATA_DIR}
+  mkdir -p ${LOCAL_SSD_PATH} ${LOCAL_MODEL_DIR} ${LOCAL_CACHE_DIR} ${LOCAL_ENV_DIR} ${LOCAL_DATA_DIR} ${LOCAL_CONFIG_DIR}
 
   echo 'Extracting packed conda env to NVMe...'
   tar -xzf ${PACK_TARBALL} -C ${LOCAL_ENV_DIR}
@@ -67,6 +69,9 @@ srun --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
 
   echo 'Copying dataset...'
   rsync -a --info=progress2 ${DATA_PATH} ${LOCAL_DATA_DIR}
+
+  echo 'Copying DS config...'
+  rsync -a --info=progress2 ${DS_PATH} ${LOCAL_SSD_PATH}
 
   mkdir -p ${LOCAL_SSD_PATH}/hf_cache
 
@@ -108,6 +113,9 @@ srun --cpu-bind=none --accel-bind=g --export=ALL bash -c '
 
   # Point Hugging Face cache to the local SSD
   export HF_HOME="'${LOCAL_CACHE_DIR}'"
+
+  # deepspeed path
+  export DS_CONFIG_PATH="'${LOCAL_SSD_PATH}'/ds_config.json"
 
   export RANK=$SLURM_PROCID
   export WORLD_SIZE=$SLURM_NTASKS
