@@ -12,3 +12,4 @@ smith_test.slurm
 pytorch-rocm.tar.bz2
 scout.tar.bz2
 env.tar.gz
+*.pyc   

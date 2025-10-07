@@ -1,10 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=l4-ds-debug
 #SBATCH -A SYB114
-#SBATCH -N 4
-#SBATCH -t 02:00:00
+#SBATCH -N 2
+#SBATCH -t 01:30:00
 #SBATCH -p batch 
-#SBATCH -q debug
 #SBATCH -C nvme
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
@@ -129,7 +128,7 @@ srun --cpu-bind=none --accel-bind=g --export=ALL bash -c '
       --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
       --seed=900913 \
       --bf16=True \
-      --num_train_epochs=2 \
+      --num_train_epochs=1 \
       --per_device_train_batch_size=2 \
       --gradient_accumulation_steps=4 \
       --learning_rate=2e-5 \
