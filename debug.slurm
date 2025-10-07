@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=test-llama4-fsdp-multinode
 #SBATCH -A SYB114
-#SBATCH -N 4
+#SBATCH -N 4 
 #SBATCH -t 02:00:00
 #SBATCH -p batch 
-#SBATCH -q debug
+##SBATCH -q debug
 #SBATCH -C nvme
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
@@ -41,7 +41,7 @@ LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/Llama-4-Scout-17B-16E-Instruct/"
 LOCAL_DATA_DIR="${LOCAL_SSD_PATH}/data/"
 
 VENV_PATH="/lustre/orion/syb111/world-shared/environments/pytorch-rocm"
-MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/Llama-4-Scout-17B-16E-Instruct/"
+MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/Llama-4-Maverick-17B-128E-Instruct/"
 DATA_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
 
 export HF_HOME="/mnt/bb/$USER/hf_cache_${SLURM_JOB_ID}"

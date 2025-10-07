@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=l4-ds-debug
 #SBATCH -A SYB114
-#SBATCH -N 2
+#SBATCH -N 4 
 #SBATCH -t 01:30:00
 #SBATCH -p batch 
 #SBATCH -C nvme
@@ -36,7 +36,7 @@ PACK_TARBALL="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/me
 LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
 LOCAL_CACHE_DIR="${LOCAL_SSD_PATH}/hf_cache"
-LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/Llama-4-Scout-17B-16E-Instruct/"
+LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/Llama-4-Maverick-17B-128E-Instruct/"
 LOCAL_DATA_DIR="${LOCAL_SSD_PATH}/data/"
 LOCAL_CONFIG_DIR="${LOCAL_SSD_PATH}/config/"
 

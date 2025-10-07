@@ -29,6 +29,10 @@ os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
 
+nnodes = int(os.environ.get("SLURM_NNODES", 1))
+timeout = int(os.environ.get("SLURM_JOB_TIMEOUT", 0))
+slurm_args = argparse.Namespace(nnodes=nnodes, timeout=timeout)
+
 @dataclass
 class ScriptArguments:
     model_path: str = field(metadata={"help": "Hugging Face model ID from the Hub"})
@@ -68,7 +72,7 @@ def main():
     script_args, peft_args, training_args = parser.parse_args_into_dataclasses()
 
     # make run name
-    training_args.run_name = make_run_name(script_args, peft_args, training_args)
+    training_args.run_name = make_run_name(script_args, peft_args, training_args, slurm_args)
 
     training_args.optim = "adamw_torch_fused"
 
