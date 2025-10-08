@@ -1,5 +1,0 @@
-compute_environment: LOCAL_MACHINE
-distributed_type: MULTI_GPU
-mixed_precision: bf16
-same_network: true
-rdzv_backend: static
