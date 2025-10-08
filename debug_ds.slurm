@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=l4-ds-debug
 #SBATCH -A SYB114
-#SBATCH -N 4 
+#SBATCH -N 4
 #SBATCH -t 01:30:00
 #SBATCH -p batch 
 #SBATCH -C nvme
@@ -41,7 +41,7 @@ LOCAL_DATA_DIR="${LOCAL_SSD_PATH}/data/"
 LOCAL_CONFIG_DIR="${LOCAL_SSD_PATH}/config/"
 
 VENV_PATH="/lustre/orion/syb111/world-shared/environments/pytorch-rocm"
-MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/Llama-4-Scout-17B-16E-Instruct/"
+MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/Llama-4-Maverick-17B-128E-Instruct/"
 DATA_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
 DS_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/ds_config.json"
 
@@ -122,7 +122,7 @@ srun --cpu-bind=none --accel-bind=g --export=ALL bash -c '
 
   # --- Launch the training ---
   python \
-    "'${SLURM_SUBMIT_DIR}'"/scripts/debug.py \
+    "'${SLURM_SUBMIT_DIR}'"/scripts/debug_ds.py \
       --model_path="'${LOCAL_MODEL_DIR}'" \
       --output_dir="'${LOCAL_SSD_PATH}'/checkpoints/" \
       --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
