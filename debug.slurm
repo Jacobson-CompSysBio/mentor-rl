@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=maverick-debug
 #SBATCH -A SYB114
-#SBATCH -N 2
+#SBATCH -N 4
 #SBATCH -t 01:30:00
-#SBATCH -p extended 
+#SBATCH -p batch 
 #SBATCH -q debug
 #SBATCH -C nvme
 #SBATCH --ntasks-per-node=8

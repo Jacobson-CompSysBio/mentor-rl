@@ -82,8 +82,11 @@ def main():
         "fsdp_auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
         "fsdp_transformer_layer_cls_to_wrap": [Llama4TextDecoderLayer],
         "fsdp_state_dict_type": "FULL_STATE_DICT",
-        "fsdp_offload_params": False,
+        "use_orig_params": False,
+        "sync_module_states": False,
+        "limit_all_gathers": True,
         "fsdp_forward_prefetch": False,
+        "fsdp_backward_prefetch": "BACKWARD_PRE",
 
         # grad checkpointing through fsdp
         "activation_checkpointing": True,
@@ -94,10 +97,12 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_path)
     formatting_func = build_formatting_func(tokenizer)
 
-    # load model (attn is sdpa)
+    # load model     
     model = AutoModelForCausalLM.from_pretrained(
         script_args.model_path,
         torch_dtype=torch.bfloat16,
+        low_cpu_mem_usage=True,
+        use_cache=False,
     )
     model.use_cache = False  # needed for gradient checkpointing
     model.config.use_cache = False

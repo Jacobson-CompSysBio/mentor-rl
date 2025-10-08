@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=l4-ds-debug
+#SBATCH --job-name=ds-maverick
 #SBATCH -A SYB114
 #SBATCH -N 4
 #SBATCH -t 01:30:00
@@ -43,7 +43,7 @@ LOCAL_CONFIG_DIR="${LOCAL_SSD_PATH}/config/"
 VENV_PATH="/lustre/orion/syb111/world-shared/environments/pytorch-rocm"
 MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/Llama-4-Maverick-17B-128E-Instruct/"
 DATA_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
-DS_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/ds_config.json"
+DS_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/ds_zero3.json"
 
 export HF_HOME="/mnt/bb/$USER/hf_cache_${SLURM_JOB_ID}"
 export HF_DATASETS_CACHE="/mnt/bb/$USER/ds_cache_${SLURM_JOB_ID}"
