@@ -38,7 +38,7 @@ LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
 LOCAL_CACHE_DIR="${LOCAL_SSD_PATH}/hf_cache"
 LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/Llama-4-Maverick-17B-128E-Instruct/"
 LOCAL_DATA_DIR="${LOCAL_SSD_PATH}/data/"
-LOCAL_CONFIG_DIR="${LOCAL_SSD_PATH}/config/"
+LOCAL_CONFIG_DIR="${LOCAL_SSD_PATH}/config/ds_zero3.json"
 
 VENV_PATH="/lustre/orion/syb111/world-shared/environments/pytorch-rocm"
 MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/Llama-4-Maverick-17B-128E-Instruct/"
@@ -70,7 +70,7 @@ srun --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
   rsync -a --info=progress2 ${DATA_PATH} ${LOCAL_DATA_DIR}
 
   echo 'Copying DS config...'
-  rsync -a --info=progress2 ${DS_PATH} ${LOCAL_SSD_PATH}
+  rsync -a --info=progress2 ${DS_PATH} ${LOCAL_CONFIG_DIR}
 
   mkdir -p ${LOCAL_SSD_PATH}/hf_cache
 
@@ -113,9 +113,6 @@ srun --cpu-bind=none --accel-bind=g --export=ALL bash -c '
   # Point Hugging Face cache to the local SSD
   export HF_HOME="'${LOCAL_CACHE_DIR}'"
 
-  # deepspeed path
-  export DS_CONFIG_PATH="'${LOCAL_SSD_PATH}'/ds_config.json"
-
   export RANK=$SLURM_PROCID
   export WORLD_SIZE=$SLURM_NTASKS
   export LOCAL_RANK=$SLURM_LOCALID
@@ -126,6 +123,7 @@ srun --cpu-bind=none --accel-bind=g --export=ALL bash -c '
       --model_path="'${LOCAL_MODEL_DIR}'" \
       --output_dir="'${LOCAL_SSD_PATH}'/checkpoints/" \
       --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
+      --deepspeed="'${LOCAL_CONFIG_DIR}'" \
       --seed=900913 \
       --bf16=True \
       --num_train_epochs=1 \

@@ -73,11 +73,7 @@ def main():
 
     # make run name
     training_args.run_name = make_run_name(script_args, peft_args, training_args, slurm_args)
-
     training_args.optim = "adamw_torch_fused"
-
-    # set up DS
-    training_args.deepspeed = os.environ.get("DS_CONFIG_PATH")
     training_args.gradient_checkpointing = True
 
     # load tokenizer

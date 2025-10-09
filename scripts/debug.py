@@ -102,7 +102,6 @@ def main():
         script_args.model_path,
         torch_dtype=torch.bfloat16,
         low_cpu_mem_usage=True,
-        use_cache=False,
     )
     model.use_cache = False  # needed for gradient checkpointing
     model.config.use_cache = False
