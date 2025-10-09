@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=maverick-debug
 #SBATCH -A SYB114
-#SBATCH -N 4
+#SBATCH -N 32 
 #SBATCH -t 01:30:00
 #SBATCH -p batch 
 #SBATCH -q debug

@@ -38,12 +38,12 @@ LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
 LOCAL_CACHE_DIR="${LOCAL_SSD_PATH}/hf_cache"
 LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/Llama-4-Maverick-17B-128E-Instruct/"
 LOCAL_DATA_DIR="${LOCAL_SSD_PATH}/data/"
-LOCAL_CONFIG_DIR="${LOCAL_SSD_PATH}/config/ds_zero3.json"
+LOCAL_CONFIG_DIR="${LOCAL_SSD_PATH}/config/"
 
 VENV_PATH="/lustre/orion/syb111/world-shared/environments/pytorch-rocm"
 MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/Llama-4-Maverick-17B-128E-Instruct/"
 DATA_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
-DS_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/ds_zero3.json"
+DS_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/config/"
 
 export HF_HOME="/mnt/bb/$USER/hf_cache_${SLURM_JOB_ID}"
 export HF_DATASETS_CACHE="/mnt/bb/$USER/ds_cache_${SLURM_JOB_ID}"
@@ -123,7 +123,7 @@ srun --cpu-bind=none --accel-bind=g --export=ALL bash -c '
       --model_path="'${LOCAL_MODEL_DIR}'" \
       --output_dir="'${LOCAL_SSD_PATH}'/checkpoints/" \
       --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
-      --deepspeed="'${LOCAL_CONFIG_DIR}'" \
+      --deepspeed="'${LOCAL_CONFIG_DIR}'/ds_zero3.json" \
       --seed=900913 \
       --bf16=True \
       --num_train_epochs=1 \
