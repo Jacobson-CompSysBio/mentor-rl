@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=maverick-debug
 #SBATCH -A SYB114
-#SBATCH -N 32 
-#SBATCH -t 01:30:00
+#SBATCH -N 64 
+#SBATCH -t 02:00:00
 #SBATCH -p batch 
 #SBATCH -q debug
 #SBATCH -C nvme
@@ -96,6 +96,9 @@ export NCCL_SOCKET_IFNAME=hsn0        # NCCL/RCCL will use the high speed networ
 export NCCL_OFI_USE_NICLIST=hsn0
 
 export NCCL_DEBUG=INFO # Un-comment to diagnose NCCL issues if needed
+
+# fsdp setting
+export PYTORCH_HIP_ALLOC_CONF=expandable_segments:True
 
 # wandb
 export https_proxy=http://proxy.ccs.ornl.gov:3128

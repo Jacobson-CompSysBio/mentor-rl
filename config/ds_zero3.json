@@ -11,21 +11,7 @@
     "overlap_comm": true,
     "reduce_bucket_size": "auto",
     "stage3_prefetch_bucket_size": "auto",
-    "stage3_param_persistence_threshold": "auto",
-
-    "offload_param": {
-      "device": "nvme",
-      "nvme_path": "/mnt/bb/${USER}/job_${SLURM_JOB_ID}/ds_offload/param",
-      "buffer_count": 6,
-      "buffer_size": 100000000,
-      "pin_memory": true
-    },
-    "offload_optimizer": {
-      "device": "nvme",
-      "nvme_path": "/mnt/bb/${USER}/job_${SLURM_JOB_ID}/ds_offload/optim",
-      "buffer_count": 4,
-      "pin_memory": true
-    }
+    "stage3_param_persistence_threshold": "auto"
   },
 
   "optimizer": { "type": "AdamW", "params": { "lr": "auto", "weight_decay": "auto" } },

@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=ds-maverick
 #SBATCH -A SYB114
-#SBATCH -N 4
-#SBATCH -t 01:30:00
+#SBATCH -N 64 
+#SBATCH -t 02:00:00
 #SBATCH -p batch 
 #SBATCH -C nvme
 #SBATCH --ntasks-per-node=8
@@ -50,7 +50,12 @@ export HF_DATASETS_CACHE="/mnt/bb/$USER/ds_cache_${SLURM_JOB_ID}"
 mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE"
 
 # --- STAGE 1: Stage Data to Local SSD on Each Node ---
-srun --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
+# clean stale AMD SMI shared-memory mutexes on each node
+srun --ntasks-per-node=1 --ntasks=$SLURM_NNODES bash -c '
+  rm -f /dev/shm/rocm_smi_* /dev/shm/amdsmi_* 2>/dev/null || true
+'
+
+srun --kill-on-bad-exit=1 --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
   echo '--- Staging on node: $(hostname) ---'
 
   mkdir -p ${LOCAL_SSD_PATH} ${LOCAL_MODEL_DIR} ${LOCAL_CACHE_DIR} ${LOCAL_ENV_DIR} ${LOCAL_DATA_DIR} ${LOCAL_CONFIG_DIR}
@@ -106,7 +111,7 @@ export https_proxy=http://proxy.ccs.ornl.gov:3128
 export http_proxy=$https_proxy
 export WANDB_HTTP_TIMEOUT=90
 
-srun --cpu-bind=none --accel-bind=g --export=ALL bash -c '
+srun --kill-on-bad-exit=1 --cpu-bind=none --accel-bind=g --export=ALL bash -c '
   # Activate conda env on the local SSD
   source "'${LOCAL_ENV_DIR}'"/bin/activate
 

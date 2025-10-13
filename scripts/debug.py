@@ -82,15 +82,17 @@ def main():
         "fsdp_auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
         "fsdp_transformer_layer_cls_to_wrap": [Llama4TextDecoderLayer],
         "fsdp_state_dict_type": "FULL_STATE_DICT",
-        "use_orig_params": False,
-        "sync_module_states": False,
-        "limit_all_gathers": True,
-        "fsdp_forward_prefetch": False,
-        "fsdp_backward_prefetch": "BACKWARD_PRE",
+        "fsdp_offload_params": False,
+        "fsdp_forward_prefetch": True,
 
-        # grad checkpointing through fsdp
+        # Activation checkpointing
         "activation_checkpointing": True,
         "activation_checkpointing_reentrant": False,
+
+        # Memory helpers
+        "use_orig_params": True,       # avoids extra param copies
+        "limit_all_gathers": True,     # less peak traffic
+        "sync_module_states": True,    # rank0 loads then broadcasts shards
     }
 
     # load tokenizer
