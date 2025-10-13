@@ -79,20 +79,24 @@ def main():
     # set up FSDP
     training_args.fsdp = "full_shard"
     training_args.fsdp_config = {
+        # use size-based wrap to target only big blocks
+        #"fsdp_auto_wrap_policy": "SIZE_BASED_WRAP",
+        #"min_num_params": int(1e8),   # tune: 5e7–2e8 for 17B; ensures only decoder blocks wrap
+        # OR if you prefer transformer-based, pass the class name as string (per HF docs):
         "fsdp_auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
-        "fsdp_transformer_layer_cls_to_wrap": [Llama4TextDecoderLayer],
-        "fsdp_state_dict_type": "FULL_STATE_DICT",
+        "fsdp_transformer_layer_cls_to_wrap": ["Llama4TextDecoderLayer"],
+
+        "fsdp_state_dict_type": "SHARDED_STATE_DICT",
         "fsdp_offload_params": False,
         "fsdp_forward_prefetch": True,
+        "fsdp_backward_prefetch": "BACKWARD_PRE",
+        "sync_module_states": True,      # keep, but see note below
+        "use_orig_params": False,        # IMPORTANT: reduces peak during flatten
+        "limit_all_gathers": True,
 
-        # Activation checkpointing
+        # Activation checkpointing (via FSDP, not Trainer flag)
         "activation_checkpointing": True,
         "activation_checkpointing_reentrant": False,
-
-        # Memory helpers
-        "use_orig_params": True,       # avoids extra param copies
-        "limit_all_gathers": True,     # less peak traffic
-        "sync_module_states": True,    # rank0 loads then broadcasts shards
     }
 
     # load tokenizer
@@ -117,7 +121,7 @@ def main():
         lora_dropout=peft_args.lora_dropout,
         bias="none",
         task_type="CAUSAL_LM",
-        target_modules=["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
     )
     
     # get rank, world size for distributed

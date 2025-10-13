@@ -97,8 +97,7 @@ export NCCL_OFI_USE_NICLIST=hsn0
 
 export NCCL_DEBUG=INFO # Un-comment to diagnose NCCL issues if needed
 
-# fsdp setting
-export PYTORCH_HIP_ALLOC_CONF=expandable_segments:True
+
 
 # wandb
 export https_proxy=http://proxy.ccs.ornl.gov:3128
@@ -116,6 +115,9 @@ srun --cpu-bind=none --accel-bind=g --export=ALL bash -c '
   export WORLD_SIZE=$SLURM_NTASKS
   export LOCAL_RANK=$SLURM_LOCALID
 
+  # fsdp setting
+  export PYTORCH_HIP_ALLOC_CONF=expandable_segments:True
+
   # --- Launch the training ---
   python \
     "'${SLURM_SUBMIT_DIR}'"/scripts/debug.py \
@@ -125,7 +127,7 @@ srun --cpu-bind=none --accel-bind=g --export=ALL bash -c '
       --seed=900913 \
       --bf16=True \
       --num_train_epochs=2 \
-      --per_device_train_batch_size=2 \
+      --per_device_train_batch_size=1 \
       --gradient_accumulation_steps=4 \
       --learning_rate=2e-5 \
       --logging_steps=1 \
