@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=maverick-debug
+#SBATCH --job-name=oss-debug
 #SBATCH -A SYB114
-#SBATCH -N 64 
+#SBATCH -N 2 
 #SBATCH -t 02:00:00
 #SBATCH -p batch 
 #SBATCH -q debug
@@ -34,14 +34,16 @@ echo "Node List: $SLURM_JOB_NODELIST"
 # --- Define Paths ---
 PACK_TARBALL="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/env.tar.gz"
 
+MODEL_NAME="gpt-oss-120b"
+
 LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
 LOCAL_CACHE_DIR="${LOCAL_SSD_PATH}/hf_cache"
-LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/Llama-4-Scout-17B-16E-Instruct/"
+LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/${MODEL_NAME}/"
 LOCAL_DATA_DIR="${LOCAL_SSD_PATH}/data/"
 
 VENV_PATH="/lustre/orion/syb111/world-shared/environments/pytorch-rocm"
-MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/Llama-4-Maverick-17B-128E-Instruct/"
+MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/${MODEL_NAME}/"
 DATA_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
 
 export HF_HOME="/mnt/bb/$USER/hf_cache_${SLURM_JOB_ID}"
