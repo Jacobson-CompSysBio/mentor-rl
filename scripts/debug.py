@@ -1,5 +1,11 @@
 ### SCRIPT FROM: https://cloud.google.com/ai-hypercomputer/docs/tutorials/fsdp-llama4 ###
-import os, sys
+import os 
+
+# set HIP env vars before importing torch
+os.environ.setdefault("PYTORCH_HIP_ALLOC_CONF", "expandable_segments:True,max_split_size_mb:128")
+print("HIP alloc conf:", os.environ.get("PYTORCH_HIP_ALLOC_CONF"))  # sanity in logs
+
+import sys
 import torch
 from pathlib import Path
 from datasets import load_dataset
@@ -80,17 +86,17 @@ def main():
     training_args.fsdp = "full_shard"
     training_args.fsdp_config = {
         # use size-based wrap to target only big blocks
-        #"fsdp_auto_wrap_policy": "SIZE_BASED_WRAP",
-        #"min_num_params": int(1e8),   # tune: 5e7–2e8 for 17B; ensures only decoder blocks wrap
+        "fsdp_auto_wrap_policy": "SIZE_BASED_WRAP",
+        "min_num_params": int(1e8),   # tune: 5e7–2e8 for 17B; ensures only decoder blocks wrap
         # OR if you prefer transformer-based, pass the class name as string (per HF docs):
-        "fsdp_auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
-        "fsdp_transformer_layer_cls_to_wrap": ["Llama4TextDecoderLayer"],
+        #"fsdp_auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
+        #"fsdp_transformer_layer_cls_to_wrap": ["Llama4TextDecoderLayer"],
 
         "fsdp_state_dict_type": "SHARDED_STATE_DICT",
         "fsdp_offload_params": False,
-        "fsdp_forward_prefetch": True,
+        "fsdp_forward_prefetch": False,
         "fsdp_backward_prefetch": "BACKWARD_PRE",
-        "sync_module_states": True,      # keep, but see note below
+        "sync_module_states": False,      # keep, but see note below
         "use_orig_params": False,        # IMPORTANT: reduces peak during flatten
         "limit_all_gathers": True,
 
@@ -167,6 +173,6 @@ def main():
 
     trainer.train()
     trainer.save_model(training_args.output_dir)
-
+    
 if __name__ == "__main__":
     main()
