@@ -37,7 +37,7 @@ def print_context(file_name: str) -> None:
     fp.writelines(context)
 
 def main():
-  args = parse_textualize_network_args()
+  args = parse_rwr_context_args()
   file_name = os.path.join(args.output_dir, args.outpur_file)
   print_context(file_name)
 
