@@ -24,7 +24,7 @@ def parse_distance_qa_args():
   return parser.parse_args()
 
 # Read and validate distance matrix
-def read_distance_matrix(path: str) -> pd.DataFrame:
+def read_distance_matrix(file_name: str) -> pd.DataFrame:
   """
   Reads a TSV distance matrix with one header row and one index column.
   Validates that it is either:
@@ -32,7 +32,7 @@ def read_distance_matrix(path: str) -> pd.DataFrame:
     2. has non-NaN values only in the upper triangle, or
     3. has non-NaN values only in the lower triangle.
   """
-  df = pd.read_csv(path, sep='\t', index_col=0)
+  df = pd.read_csv(file_name, sep='\t', index_col=0)
 
   if df.shape[0] != df.shape[1]:
     raise ValueError("Distance matrix must be square")
@@ -58,14 +58,11 @@ def read_distance_matrix(path: str) -> pd.DataFrame:
 
   raise ValueError("Distance matrix must be symmetric, or upper/lower-triangular with NaNs elsewhere")
 
-
 # Create Q/A pairs
-def write_qa_pairs(df: pd.DataFrame, path: str, file_name: str) -> None:
-  os.makedirs(path, exist_ok=True)
+def write_qa_pairs(df: pd.DataFrame, dir: str, file_name: str) -> None:
+  os.makedirs(dir, exist_ok=True)
 
-  output_file = os.path.join(path, file_name)
-
-  print(f'Expected output file: {output_file}')
+  output_file = os.path.join(dir, file_name)
   
   with open(output_file, 'w') as fp:
     fp.write('question\tlabel\n')

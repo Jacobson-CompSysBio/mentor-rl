@@ -7,11 +7,11 @@ import json
 class Multiplex:
   """Class for multiplex"""
 
-  def __init__(self, flist: str = None):
+  def __init__(self, flist: str = ''):
     self.layers = []
     self._nodes = []
 
-    if flist is not None:
+    if flist:
       layer_info = pd.read_csv(flist, sep='\t', header=None)
 
       if layer_info.shape[1] < 2:
@@ -55,7 +55,7 @@ class Multiplex:
     return self._nodes
   
   def to_json(self,
-              path: str = None,
+              path: str = '',
               pretty: bool = False,
               default_intra_weight:float = 1.0,
               inter_type:str = "identity_full",
@@ -131,7 +131,7 @@ class Multiplex:
     }
 
     # Write JSON if a path is provided
-    if path is not None:
+    if path:
       dir_name = os.path.dirname(path)
       if dir_name and not os.path.exists(dir_name):
         os.makedirs(dir_name, exist_ok=True)
