@@ -1,0 +1,11 @@
+node1	node2	0.98
+node1	node3	0.97
+node1	node5	1.0
+node2	node3	0.58
+node2	node7	0.68
+node3	node4	0.9
+node3	node8	0.98
+node3	node9	0.97
+node5	node9	0.81
+node6	node9	0.82
+node8	node9	0.75
