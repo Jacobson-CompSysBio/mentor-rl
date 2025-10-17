@@ -1,10 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=ds-maverick
+#SBATCH --job-name=gpt-oss-20B-debug
 #SBATCH -A SYB114
 #SBATCH -N 2 
 #SBATCH -t 02:00:00
 #SBATCH -p batch 
 #SBATCH -C nvme
+#SBATCH -q debug
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
 #SBATCH -o logs/%x-%j.out # Out Path
@@ -13,6 +14,7 @@
 
 set -e
 set -x
+set -u
 
 # load modules
 module load PrgEnv-gnu/8.6.0
@@ -33,30 +35,31 @@ echo "Node List: $SLURM_JOB_NODELIST"
 # --- Define Paths ---
 PACK_TARBALL="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/env.tar.gz"
 
-MODEL_NAME="gpt-oss-20b"
+MODEL_NAME="Llama-4-Maverick-17B-128E-Instruct"
 
 LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
 LOCAL_CACHE_DIR="${LOCAL_SSD_PATH}/hf_cache"
 LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/${MODEL_NAME}/"
-LOCAL_DATA_DIR="${LOCAL_SSD_PATH}/data/"
+LOCAL_DATA_DIR="${LOCAL_SSD_PATH}/data"
+LOCAL_CONFIG_DIR="${LOCAL_SSD_PATH}/config"
 
 VENV_PATH="/lustre/orion/syb111/world-shared/environments/pytorch-rocm"
 MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/${MODEL_NAME}/"
 DATA_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
-
-export HF_HOME="/mnt/bb/$USER/hf_cache_${SLURM_JOB_ID}"
-export HF_DATASETS_CACHE="/mnt/bb/$USER/ds_cache_${SLURM_JOB_ID}"
-mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE"
+DS_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/config/"
 
 export HF_HOME="/mnt/bb/$USER/hf_cache_${SLURM_JOB_ID}"
 export HF_DATASETS_CACHE="/mnt/bb/$USER/ds_cache_${SLURM_JOB_ID}"
 mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE"
 
 # --- STAGE 1: Stage Data to Local SSD on Each Node ---
-# clean stale AMD SMI shared-memory mutexes on each node
-srun --ntasks-per-node=1 --ntasks=$SLURM_NNODES bash -c '
-  rm -f /dev/shm/rocm_smi_* /dev/shm/amdsmi_* 2>/dev/null || true
+srun --nodes="$SLURM_NNODES" --ntasks-per-node=1 --kill-on-bad-exit=0 bash -lc '
+  set +e
+  for pat in /dev/shm/rocm_smi_* /dev/shm/amdsmi_*; do
+    compgen -G "$pat" >/dev/null && rm -f $pat 2>/dev/null || true
+  done
+  exit 0
 '
 
 srun --kill-on-bad-exit=1 --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
@@ -108,7 +111,23 @@ export NCCL_CROSS_NIC=1               # On large systems, this NCCL setting has 
 export NCCL_SOCKET_IFNAME=hsn0        # NCCL/RCCL will use the high speed network to coordinate startup.
 export NCCL_OFI_USE_NICLIST=hsn0
 
+# debugging
 export NCCL_DEBUG=INFO # Un-comment to diagnose NCCL issues if needed
+export AMD_SERIALIZE_KERNEL=3
+
+# --- Per-rank, node-local caches to avoid Triton/Inductor races ---
+export LOCAL_CACHE_BASE="${LOCAL_SSD_PATH}/caches"
+mkdir -p "${LOCAL_CACHE_BASE}"
+
+# Unique per rank (WORLD_SIZE-wide) cache roots
+export TRITON_CACHE_DIR="${LOCAL_CACHE_BASE}/triton/${SLURM_PROCID}"
+export TORCHINDUCTOR_CACHE_DIR="${LOCAL_CACHE_BASE}/torchinductor/${SLURM_PROCID}"
+export XDG_CACHE_HOME="${LOCAL_CACHE_BASE}/xdg/${SLURM_PROCID}"
+export TMPDIR="${LOCAL_CACHE_BASE}/tmp/${SLURM_PROCID}"
+mkdir -p "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR" "$XDG_CACHE_HOME" "$TMPDIR"
+
+# Optional: keep HIP allocator log quiet (unrelated warning you saw)
+export PYTORCH_HIP_ALLOC_CONF="expandable_segments:False"
 
 # wandb
 export https_proxy=http://proxy.ccs.ornl.gov:3128

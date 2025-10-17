@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=oss-debug
+#SBATCH --job-name=maverick-fsdp-debug
 #SBATCH -A SYB114
-#SBATCH -N 2 
+#SBATCH -N 32 
 #SBATCH -t 02:00:00
 #SBATCH -p batch 
-#SBATCH -q debug
+##SBATCH -q debug
 #SBATCH -C nvme
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
@@ -34,7 +34,7 @@ echo "Node List: $SLURM_JOB_NODELIST"
 # --- Define Paths ---
 PACK_TARBALL="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/env.tar.gz"
 
-MODEL_NAME="gpt-oss-120b"
+MODEL_NAME="Llama-4-Maverick-17B-128E-Instruct"
 
 LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
@@ -76,6 +76,15 @@ srun --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
 "
 echo "--- Staging complete on all nodes ---"
 
+# ---STAGE 1.5: Clean stale AMD SMI shared-memory mutexes on each node ---
+srun --nodes="$SLURM_NNODES" --ntasks-per-node=1 --kill-on-bad-exit=0 bash -lc '
+  set +e
+  for pat in /dev/shm/rocm_smi_* /dev/shm/amdsmi_*; do
+    compgen -G "$pat" >/dev/null && rm -f $pat 2>/dev/null || true
+  done
+  exit 0
+'
+
 # --- STAGE 2: Run the Training Job ---
 echo "--- Launching Distributed Training with RCCL Plugin ---"
 nodes=( $( scontrol show hostnames "$SLURM_JOB_NODELIST" ) )
@@ -99,8 +108,6 @@ export NCCL_OFI_USE_NICLIST=hsn0
 
 export NCCL_DEBUG=INFO # Un-comment to diagnose NCCL issues if needed
 
-
-
 # wandb
 export https_proxy=http://proxy.ccs.ornl.gov:3128
 export http_proxy=$https_proxy
@@ -116,9 +123,6 @@ srun --cpu-bind=none --accel-bind=g --export=ALL bash -c '
   export RANK=$SLURM_PROCID
   export WORLD_SIZE=$SLURM_NTASKS
   export LOCAL_RANK=$SLURM_LOCALID
-
-  # fsdp setting
-  export PYTORCH_HIP_ALLOC_CONF=expandable_segments:True
 
   # --- Launch the training ---
   python \
