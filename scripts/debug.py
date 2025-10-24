@@ -15,6 +15,7 @@ from transformers import (
     AutoTokenizer,
     TrainingArguments,
     HfArgumentParser,
+    Mxfp4Config
 )
 
 from torch.distributed import get_rank, get_world_size
@@ -110,10 +111,12 @@ def main():
     formatting_func = build_formatting_func(tokenizer)
 
     # load model     
+    qcfg = Mxfp4Config(dequantize=True) # no quantization
     model = AutoModelForCausalLM.from_pretrained(
         script_args.model_path,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         low_cpu_mem_usage=True,
+        quantization_config=qcfg
     )
     model.use_cache = False  # needed for gradient checkpointing
     model.config.use_cache = False
