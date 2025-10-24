@@ -1,10 +1,9 @@
 #!/bin/bash
-#SBATCH --job-name=maverick-debug
+#SBATCH --job-name=scout
 #SBATCH -A SYB114
-#SBATCH -N 64 
+#SBATCH -N 4
 #SBATCH -t 02:00:00
-#SBATCH -p batch 
-#SBATCH -q debug
+#SBATCH -p batch
 #SBATCH -C nvme
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
@@ -41,7 +40,7 @@ LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/Llama-4-Scout-17B-16E-Instruct/"
 LOCAL_DATA_DIR="${LOCAL_SSD_PATH}/data/"
 
 VENV_PATH="/lustre/orion/syb111/world-shared/environments/pytorch-rocm"
-MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/Llama-4-Maverick-17B-128E-Instruct/"
+MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/dandyjt/hf/models/Llama-4-Scout-17B-16E-Instruct/"
 DATA_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
 
 export HF_HOME="/mnt/bb/$USER/hf_cache_${SLURM_JOB_ID}"
@@ -126,7 +125,7 @@ srun --cpu-bind=none --accel-bind=g --export=ALL bash -c '
       --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
       --seed=900913 \
       --bf16=True \
-      --num_train_epochs=2 \
+      --num_train_epochs=1 \
       --per_device_train_batch_size=1 \
       --gradient_accumulation_steps=4 \
       --learning_rate=2e-5 \

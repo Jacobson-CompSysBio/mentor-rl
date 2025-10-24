@@ -136,7 +136,7 @@ def main():
         lora_dropout=peft_args.lora_dropout,
         bias="none",
         task_type="CAUSAL_LM",
-        target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
+        target_modules=["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
     )
     
     # get rank, world size for distributed
@@ -184,25 +184,43 @@ def main():
         inference_set = dataset.select(range(20))
         format_infer = build_formatting_func(tokenizer, train=False)
         
+        print()
         print("Peforming initial inference...")
         outputs = infer(model, tokenizer, format_infer, inference_set)
-        for inp, out in zip(inference_set, outputs):
-            print(f"    Q: {inp['question']}")
-            print(f" True: {inp['answer']}")
-            print(f"Model: {out}")
-            print()
+        print(check_accuracy(outputs, list(inference_set["answer"])))
+        print()
+        # for inp, out in zip(inference_set, outputs):
+        #     print(f"    Q: {inp['question']}")
+        #     print(f" True: {inp['answer']}")
+        #     print(f"Model: {out}")
+        #     print()
 
     trainer.train()
     trainer.save_model(training_args.output_dir)
 
     if rank  == 0:
+        print()
         print("Performing post-training inference...")
+        del trainer
+        del model
+        torch.cuda.empty_cache()
+
+        model = AutoModelForCausalLM.from_pretrained(
+            script_args.model_path,
+            torch_dtype=torch.bfloat16,
+        )
+        model = PeftModel.from_pretrained(model, training_args.output_dir)
+        # model = model.merge_and_unload()
+        model.eval()
+
         outputs = infer(model, tokenizer, format_infer, inference_set)
-        for inp, out in zip(inference_set, outputs):
-            print(f"    Q: {inp['question']}")
-            print(f" True: {inp['answer']}")
-            print(f"Model: {out}")
-            print()
+        print(check_accuracy(outputs, list(inference_set["answer"])))
+        print()
+        # for inp, out in zip(inference_set, outputs):
+        #     print(f"    Q: {inp['question']}")
+        #     print(f" True: {inp['answer']}")
+        #     print(f"Model: {out}")
+        #     print()
 
 if __name__ == "__main__":
     main()
