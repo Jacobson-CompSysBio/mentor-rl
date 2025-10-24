@@ -1,5 +1,11 @@
 ### SCRIPT FROM: https://cloud.google.com/ai-hypercomputer/docs/tutorials/fsdp-llama4 ###
-import os, sys
+import os 
+
+# set HIP env vars before importing torch
+os.environ.setdefault("PYTORCH_HIP_ALLOC_CONF", "expandable_segments:True,max_split_size_mb:128")
+print("HIP alloc conf:", os.environ.get("PYTORCH_HIP_ALLOC_CONF"))  # sanity in logs
+
+import sys
 import torch
 from pathlib import Path
 from datasets import load_dataset
@@ -9,6 +15,7 @@ from transformers import (
     AutoTokenizer,
     TrainingArguments,
     HfArgumentParser,
+    Mxfp4Config
 )
 
 from torch.distributed import get_rank, get_world_size

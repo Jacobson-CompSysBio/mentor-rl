@@ -1,23 +1,31 @@
 #!/bin/bash
-#SBATCH --job-name=ds-maverick
+#SBATCH --job-name=ds-debug
 #SBATCH -A SYB114
-#SBATCH -N 64 
-#SBATCH -t 02:00:00
+#SBATCH -N 2 
+#SBATCH -t 00:10:00
 #SBATCH -p batch 
 #SBATCH -C nvme
+#SBATCH -q debug
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
 #SBATCH -o logs/%x-%j.out # Out Path
 #SBATCH -e logs/%x-%j.err # Err Path
 #SBATCH --open-mode=truncate # Overwrite .out/.err
 
-set -e
+set -euo pipefail
 set -x
 
 # load modules
 module load PrgEnv-gnu/8.6.0
 module load rocm/6.3.1
 module load craype-accel-amd-gfx90a
+module load gcc/12.2.0
+
+# export compilers
+export CC=cc
+export CXX=CC
+export CMAKE_C_COMPILER=cc
+export CMAKE_CXX_COMPILER=CC
 
 # load aws-ofi-rccl
 export LD_LIBRARY_PATH=/lustre/orion/syb111/proj-shared/Personal/krusepi/packages/aws-ofi-rccl/lib:$LD_LIBRARY_PATH
@@ -31,17 +39,17 @@ echo "Job ID: $SLURM_JOB_ID"
 echo "Node List: $SLURM_JOB_NODELIST"
 
 # --- Define Paths ---
-PACK_TARBALL="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/env.tar.gz"
+MODEL_NAME="gpt-oss-20b"
 
 LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
 LOCAL_CACHE_DIR="${LOCAL_SSD_PATH}/hf_cache"
-LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/Llama-4-Maverick-17B-128E-Instruct/"
-LOCAL_DATA_DIR="${LOCAL_SSD_PATH}/data/"
-LOCAL_CONFIG_DIR="${LOCAL_SSD_PATH}/config/"
+LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/${MODEL_NAME}/"
+LOCAL_DATA_DIR="${LOCAL_SSD_PATH}/data"
+LOCAL_CONFIG_DIR="${LOCAL_SSD_PATH}/config"
 
 VENV_PATH="/lustre/orion/syb111/world-shared/environments/pytorch-rocm"
-MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/Llama-4-Maverick-17B-128E-Instruct/"
+MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/${MODEL_NAME}"
 DATA_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
 DS_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/config/"
 
@@ -50,26 +58,15 @@ export HF_DATASETS_CACHE="/mnt/bb/$USER/ds_cache_${SLURM_JOB_ID}"
 mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE"
 
 # --- STAGE 1: Stage Data to Local SSD on Each Node ---
-# clean stale AMD SMI shared-memory mutexes on each node
-srun --ntasks-per-node=1 --ntasks=$SLURM_NNODES bash -c '
-  rm -f /dev/shm/rocm_smi_* /dev/shm/amdsmi_* 2>/dev/null || true
-'
-
 srun --kill-on-bad-exit=1 --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
   echo '--- Staging on node: $(hostname) ---'
 
-  mkdir -p ${LOCAL_SSD_PATH} ${LOCAL_MODEL_DIR} ${LOCAL_CACHE_DIR} ${LOCAL_ENV_DIR} ${LOCAL_DATA_DIR} ${LOCAL_CONFIG_DIR}
+  mkdir -p ${LOCAL_SSD_PATH} ${LOCAL_MODEL_DIR} ${LOCAL_ENV_DIR} ${LOCAL_DATA_DIR} ${LOCAL_CONFIG_DIR}
 
-  echo 'Extracting packed conda env to NVMe...'
-  tar -xzf ${PACK_TARBALL} -C ${LOCAL_ENV_DIR}
-  ${LOCAL_ENV_DIR}/bin/conda-unpack
-
-  echo 'Checking Python/torch...'
-  ${LOCAL_ENV_DIR}/bin/python -c 'import sys; print(sys.executable)'
-  ${LOCAL_ENV_DIR}/bin/python -c 'import torch; print(torch.__version__)'
+  echo 'Python check:'; which python; python -c 'import torch,sys; print(torch.__version__, sys.executable)'
 
   echo 'Copying model weights...'
-  rsync -a --info=progress2 ${MODEL_PATH} ${LOCAL_MODEL_DIR}
+  rsync -a --info=progress2 "${MODEL_PATH}/" "${LOCAL_MODEL_DIR}"
 
   echo 'Copying dataset...'
   rsync -a --info=progress2 ${DATA_PATH} ${LOCAL_DATA_DIR}
@@ -103,20 +100,28 @@ export NCCL_NET_GDR_LEVEL=3           # Typically improves performance, but remo
 export NCCL_CROSS_NIC=1               # On large systems, this NCCL setting has been found to improve performance
 export NCCL_SOCKET_IFNAME=hsn0        # NCCL/RCCL will use the high speed network to coordinate startup.
 export NCCL_OFI_USE_NICLIST=hsn0
+export GLOO_SOCKET_IFNAME=hsn0
 
+# for distributed
+export PYTORCH_ROCM_ARCH=gfx90a
+export ROCM_HOME=/opt/rocm-6.3.1
 export NCCL_DEBUG=INFO # Un-comment to diagnose NCCL issues if needed
+export HSA_XNACK=0
+export DS_ACCELERATOR=cuda
+
+# --- Per-rank, node-local caches to avoid Triton/Inductor races ---
+export LOCAL_CACHE_BASE="${LOCAL_SSD_PATH}/caches"
+mkdir -p "${LOCAL_CACHE_BASE}"
+
+# Optional: keep HIP allocator log quiet (unrelated warning you saw)
+export PYTORCH_HIP_ALLOC_CONF="expandable_segments:False"
 
 # wandb
 export https_proxy=http://proxy.ccs.ornl.gov:3128
 export http_proxy=$https_proxy
 export WANDB_HTTP_TIMEOUT=90
 
-srun --kill-on-bad-exit=1 --cpu-bind=none --accel-bind=g --export=ALL bash -c '
-  # Activate conda env on the local SSD
-  source "'${LOCAL_ENV_DIR}'"/bin/activate
-
-  # Point Hugging Face cache to the local SSD
-  export HF_HOME="'${LOCAL_CACHE_DIR}'"
+srun --cpu-bind=none --accel-bind=g bash -c '
 
   export RANK=$SLURM_PROCID
   export WORLD_SIZE=$SLURM_NTASKS
@@ -130,13 +135,13 @@ srun --kill-on-bad-exit=1 --cpu-bind=none --accel-bind=g --export=ALL bash -c '
       --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
       --deepspeed="'${LOCAL_CONFIG_DIR}'/ds_zero3.json" \
       --seed=900913 \
-      --bf16=True \
       --num_train_epochs=1 \
       --per_device_train_batch_size=2 \
       --gradient_accumulation_steps=4 \
       --learning_rate=2e-5 \
       --logging_steps=1 \
       --lora_r=16 \
+      --bf16 \
       --lora_alpha=32 \
       --lora_dropout=0.05 \
       --run_inference_after_training
