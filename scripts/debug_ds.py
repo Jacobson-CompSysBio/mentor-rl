@@ -10,7 +10,6 @@ from transformers import (
     AutoTokenizer,
     TrainingArguments,
     HfArgumentParser,
-    Mxfp4Config
 )
 
 from torch.distributed import get_rank, get_world_size
@@ -83,11 +82,10 @@ def main():
     formatting_func = build_formatting_func(tokenizer)
 
     # load model (attn is sdpa)
-    quant_cfg = Mxfp4Config(dequantize=True)
     model = AutoModelForCausalLM.from_pretrained(
         script_args.model_path,
         dtype=torch.bfloat16,
-        quantization_config=quant_cfg,
+        attn_implementation="eager"
     )
     model.gradient_checkpointing_enable()
     model.use_cache = False  # needed for gradient checkpointing

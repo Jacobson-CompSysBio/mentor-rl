@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=ds-debug
 #SBATCH -A SYB114
-#SBATCH -N 2 
-#SBATCH -t 00:10:00
+#SBATCH -N 4
+#SBATCH -t 00:20:00
 #SBATCH -p batch 
 #SBATCH -C nvme
 #SBATCH -q debug
@@ -39,7 +39,7 @@ echo "Job ID: $SLURM_JOB_ID"
 echo "Node List: $SLURM_JOB_NODELIST"
 
 # --- Define Paths ---
-MODEL_NAME="gpt-oss-20b"
+MODEL_NAME="gpt-oss-20b-bf16"
 
 LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
@@ -82,11 +82,7 @@ echo "--- Staging complete on all nodes ---"
 
 # --- STAGE 2: Run the Training Job ---
 echo "--- Launching Distributed Training with RCCL Plugin ---"
-nodes=( $( scontrol show hostnames "$SLURM_JOB_NODELIST" ) )
-head_node=${nodes[0]}
-head_node_ip=$(srun --nodes=1 --ntasks=1 -w "$head_node" hostname --ip-address)
-
-export MASTER_ADDR=$head_node_ip
+export MASTER_ADDR=$(hostname -i)
 export MASTER_PORT=29500
 
 # rccl settings
@@ -121,11 +117,14 @@ export https_proxy=http://proxy.ccs.ornl.gov:3128
 export http_proxy=$https_proxy
 export WANDB_HTTP_TIMEOUT=90
 
-srun --cpu-bind=none --accel-bind=g bash -c '
+srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
 
   export RANK=$SLURM_PROCID
   export WORLD_SIZE=$SLURM_NTASKS
   export LOCAL_RANK=$SLURM_LOCALID
+
+  export AMDSMI_GPU_METRICS_CACHE_MS=5000
+  if [ "${SLURM_LOCALID}" != "0" ]; then export WANDB_MODE=disabled; fi
 
   # --- Launch the training ---
   python \
@@ -136,12 +135,12 @@ srun --cpu-bind=none --accel-bind=g bash -c '
       --deepspeed="'${LOCAL_CONFIG_DIR}'/ds_zero3.json" \
       --seed=900913 \
       --num_train_epochs=1 \
-      --per_device_train_batch_size=2 \
+      --per_device_train_batch_size=1 \
       --gradient_accumulation_steps=4 \
       --learning_rate=2e-5 \
       --logging_steps=1 \
-      --lora_r=16 \
       --bf16 \
+      --lora_r=16 \
       --lora_alpha=32 \
       --lora_dropout=0.05 \
       --run_inference_after_training
