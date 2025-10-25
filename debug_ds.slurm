@@ -2,7 +2,7 @@
 #SBATCH --job-name=ds-debug
 #SBATCH -A SYB114
 #SBATCH -N 4
-#SBATCH -t 00:20:00
+#SBATCH -t 00:30:00
 #SBATCH -p batch 
 #SBATCH -C nvme
 #SBATCH -q debug
@@ -39,7 +39,7 @@ echo "Job ID: $SLURM_JOB_ID"
 echo "Node List: $SLURM_JOB_NODELIST"
 
 # --- Define Paths ---
-MODEL_NAME="gpt-oss-20b-bf16"
+MODEL_NAME="gpt-oss-120b-bf16"
 
 LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
