@@ -1,10 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=scout
 #SBATCH -A SYB114
-#SBATCH -N 4
+#SBATCH -N 2
 #SBATCH -t 02:00:00
-#SBATCH -p batch
+#SBATCH -p batch 
 #SBATCH -C nvme
+#SBATCH -q debug
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
 #SBATCH -o logs/%x-%j.out # Out Path
@@ -33,7 +34,7 @@ echo "Node List: $SLURM_JOB_NODELIST"
 # --- Define Paths ---
 PACK_TARBALL="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/env.tar.gz"
 
-MODEL_NAME="gpt-oss-20b"
+MODEL_NAME="gpt-oss-120b-bf16"
 
 LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
@@ -63,8 +64,8 @@ srun --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
   mkdir -p ${LOCAL_SSD_PATH} ${LOCAL_MODEL_DIR} ${LOCAL_ENV_DIR} ${LOCAL_DATA_DIR}
 
   echo 'Checking Python/torch...'
-  ${LOCAL_ENV_DIR}/bin/python -c 'import sys; print(sys.executable)'
-  ${LOCAL_ENV_DIR}/bin/python -c 'import torch; print(torch.__version__)'
+  python -c 'import sys; print(sys.executable)'
+  python -c 'import torch; print(torch.__version__)'
 
   echo 'Copying model weights...'
   rsync -a --info=progress2 "${MODEL_PATH}/" "${LOCAL_MODEL_DIR}"
@@ -109,7 +110,7 @@ export https_proxy=http://proxy.ccs.ornl.gov:3128
 export http_proxy=$https_proxy
 export WANDB_HTTP_TIMEOUT=90
 
-srun --cpu-bind=none --accel-bind=g --export=ALL bash -c '
+srun --cpu-bind=none --accel-bind=g --export=ALL --kill-on-bad-exit=1 bash -c '
   
   # distrib settings
   export RANK=$SLURM_PROCID

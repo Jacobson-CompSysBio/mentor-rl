@@ -15,7 +15,6 @@ from transformers import (
     AutoTokenizer,
     TrainingArguments,
     HfArgumentParser,
-    Mxfp4Config
 )
 
 from torch.distributed import get_rank, get_world_size
@@ -113,7 +112,6 @@ def main():
     training_args.fsdp = "full_shard"
     training_args.fsdp_config = {
         "fsdp_auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
-        "fsdp_transformer_layer_cls_to_wrap": [Llama4TextDecoderLayer],
         "fsdp_state_dict_type": "FULL_STATE_DICT",
         "fsdp_offload_params": False,
         "fsdp_forward_prefetch": False,
@@ -126,10 +124,11 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_path)
     formatting_func = build_formatting_func(tokenizer)
 
-    # load model (attn is sdpa)
+    # load model     
     model = AutoModelForCausalLM.from_pretrained(
         script_args.model_path,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
+        low_cpu_mem_usage=True,
     )
     model.use_cache = False  # needed for gradient checkpointing
     model.config.use_cache = False
