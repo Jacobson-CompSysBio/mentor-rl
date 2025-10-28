@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=ds-debug
+#SBATCH --job-name=grpo-ds-debug
 #SBATCH -A SYB114
-#SBATCH -N 8
+#SBATCH -N 4
 #SBATCH -t 01:00:00
 #SBATCH -p batch 
 #SBATCH -C nvme
@@ -128,7 +128,7 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
 
   # --- Launch the training ---
   python \
-    "'${SLURM_SUBMIT_DIR}'"/scripts/debug_ds.py \
+    "'${SLURM_SUBMIT_DIR}'"/scripts/train_grpo_ds.py \
       --model_path="'${LOCAL_MODEL_DIR}'" \
       --output_dir="'${LOCAL_SSD_PATH}'/checkpoints/" \
       --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
@@ -137,6 +137,8 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
       --num_train_epochs=1 \
       --per_device_train_batch_size=1 \
       --gradient_accumulation_steps=4 \
+      --num_generations=8 \
+      --max_completion_length=256 \
       --learning_rate=2e-5 \
       --logging_steps=1 \
       --bf16 \

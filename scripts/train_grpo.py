@@ -20,7 +20,7 @@ from transformers import (
 from torch.distributed import get_rank, get_world_size
 
 from transformers.models.llama4.modeling_llama4 import Llama4TextDecoderLayer
-from trl import SFTTrainer
+from trl import GRPOTrainer
 from dataclasses import dataclass, field
 from typing import Optional
 from dotenv import load_dotenv

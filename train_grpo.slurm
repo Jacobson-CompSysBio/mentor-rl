@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=fsdp-debug
+#SBATCH --job-name=grpo-fsdp-debug
 #SBATCH -A SYB114
 #SBATCH -N 8
 #SBATCH -t 02:00:00
@@ -119,7 +119,7 @@ srun --cpu-bind=none --accel-bind=g --export=ALL --kill-on-bad-exit=1 bash -c '
 
   # --- Launch the training ---
   python \
-    "'${SLURM_SUBMIT_DIR}'"/scripts/debug.py \
+    "'${SLURM_SUBMIT_DIR}'"/scripts/train_grpo.py \
       --model_path="'${LOCAL_MODEL_DIR}'" \
       --output_dir="'${LOCAL_SSD_PATH}'/outputs/" \
       --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \

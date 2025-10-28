@@ -69,13 +69,11 @@ def build_formatting_func(tokenizer):
 
 def main():
     # extract args from classes
-    parser = HfArgumentParser((ScriptArguments, PeftArguments, SftTrainingArguments))
-    script_args, peft_args, training_args = parser.parse_args_into_dataclasses()
+    parser = HfArgumentParser((ScriptArguments, PeftArguments, GRPOConfig))
+    script_args, peft_args, grpo_args = parser.parse_args_into_dataclasses()
 
     # make run name
-    training_args.run_name = make_run_name(script_args, peft_args, training_args, slurm_args)
-    training_args.optim = "adamw_torch_fused"
-    training_args.gradient_checkpointing = True
+    grpo_args.run_name = make_run_name(script_args, peft_args, grpo_args, slurm_args)
 
     # load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_path)
