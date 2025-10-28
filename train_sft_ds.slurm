@@ -1,11 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=ds-debug
 #SBATCH -A SYB114
-#SBATCH -N 8
-#SBATCH -t 01:00:00
+#SBATCH -N 2
+#SBATCH -t 02:00:00
 #SBATCH -p batch 
 #SBATCH -C nvme
-#SBATCH -q debug
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
 #SBATCH -o logs/%x-%j.out # Out Path
@@ -128,7 +127,7 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
 
   # --- Launch the training ---
   python \
-    "'${SLURM_SUBMIT_DIR}'"/scripts/debug_ds.py \
+    "'${SLURM_SUBMIT_DIR}'"/scripts/train_sft_ds.py \
       --model_path="'${LOCAL_MODEL_DIR}'" \
       --output_dir="'${LOCAL_SSD_PATH}'/checkpoints/" \
       --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
