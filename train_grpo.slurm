@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=grpo-fsdp-debug
 #SBATCH -A SYB114
-#SBATCH -N 8
-#SBATCH -t 02:00:00
+#SBATCH -N 2
+#SBATCH -t 00:20:00
 #SBATCH -p batch 
 #SBATCH -C nvme
 ##SBATCH -q debug
@@ -34,7 +34,7 @@ echo "Node List: $SLURM_JOB_NODELIST"
 # --- Define Paths ---
 PACK_TARBALL="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/env.tar.gz"
 
-MODEL_NAME="gpt-oss-20B-bf16"
+MODEL_NAME="gpt-oss-20b-bf16"
 
 LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
@@ -128,6 +128,8 @@ srun --cpu-bind=none --accel-bind=g --export=ALL --kill-on-bad-exit=1 bash -c '
       --num_train_epochs=1 \
       --per_device_train_batch_size=2 \
       --gradient_accumulation_steps=4 \
+      --num_generations=8 \
+      --max_completion_length=256 \
       --learning_rate=2e-5 \
       --logging_steps=1 \
       --lora_r=16 \

@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=grpo-ds-debug
 #SBATCH -A SYB114
-#SBATCH -N 4
-#SBATCH -t 01:00:00
+#SBATCH -N 1
+#SBATCH -t 00:15:00
 #SBATCH -p batch 
 #SBATCH -C nvme
 #SBATCH -q debug
@@ -19,13 +19,16 @@ set -x
 module load PrgEnv-gnu/8.6.0
 module load rocm/6.3.1
 module load craype-accel-amd-gfx90a
-module load gcc/12.2.0
 
 # export compilers
 export CC=cc
 export CXX=CC
 export CMAKE_C_COMPILER=cc
 export CMAKE_CXX_COMPILER=CC
+
+export TORCH_DISABLE_ADDR2LINE=1
+export PYTHONFAULTHANDLER=1
+export TORCH_SHOW_CPP_STACKTRACES=1
 
 # load aws-ofi-rccl
 export LD_LIBRARY_PATH=/lustre/orion/syb111/proj-shared/Personal/krusepi/packages/aws-ofi-rccl/lib:$LD_LIBRARY_PATH
@@ -39,7 +42,7 @@ echo "Job ID: $SLURM_JOB_ID"
 echo "Node List: $SLURM_JOB_NODELIST"
 
 # --- Define Paths ---
-MODEL_NAME="gpt-oss-bf16"
+MODEL_NAME="gpt-oss-20b-bf16"
 
 LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
@@ -82,7 +85,8 @@ echo "--- Staging complete on all nodes ---"
 
 # --- STAGE 2: Run the Training Job ---
 echo "--- Launching Distributed Training with RCCL Plugin ---"
-export MASTER_ADDR=$(hostname -i)
+head_node=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
+export MASTER_ADDR=$(getent hosts "$head_node" | awk '{print $1}')
 export MASTER_PORT=29500
 
 # rccl settings
@@ -103,14 +107,13 @@ export PYTORCH_ROCM_ARCH=gfx90a
 export ROCM_HOME=/opt/rocm-6.3.1
 export NCCL_DEBUG=INFO # Un-comment to diagnose NCCL issues if needed
 export HSA_XNACK=0
-export DS_ACCELERATOR=cuda
 
 # --- Per-rank, node-local caches to avoid Triton/Inductor races ---
 export LOCAL_CACHE_BASE="${LOCAL_SSD_PATH}/caches"
 mkdir -p "${LOCAL_CACHE_BASE}"
 
 # Optional: keep HIP allocator log quiet (unrelated warning you saw)
-export PYTORCH_HIP_ALLOC_CONF="expandable_segments:False"
+export PYTORCH_ALLOC_CONF="expandable_segments:False"
 
 # wandb
 export https_proxy=http://proxy.ccs.ornl.gov:3128

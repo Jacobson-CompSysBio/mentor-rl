@@ -31,7 +31,7 @@ from utils.utils import *
 
 ### wandb logging ###
 load_dotenv()
-os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
+os.environ["WANDB_PROJECT"] = "mentor-sft"
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
 

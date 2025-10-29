@@ -38,7 +38,7 @@ def make_grpo_run_name(script_args, peft_args, grpo_args, slurm_args):
         f"{grpo_args.num_generations}ngen-"
         f"{grpo_args.max_completion_length}mcl-"
         f"{grpo_args.loss_type}loss-"
-        f"{script_args.w_format}wf-{script_args.w_task}wt"
+        f"{grpo_args.w_format}wf-{grpo_args.w_task}wt"
     )
     
     return run_name

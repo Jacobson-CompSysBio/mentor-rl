@@ -10,14 +10,13 @@ from transformers import (
     AutoTokenizer,
     TrainingArguments,
     HfArgumentParser,
+    GenerationConfig
 )
-
-from torch.distributed import get_rank, get_world_size
-
+import torch.distributed as dist
 from transformers.models.llama4.modeling_llama4 import Llama4TextDecoderLayer
 from trl import GRPOTrainer, GRPOConfig
 from dataclasses import dataclass, field
-from typing import Optional, Union
+from typing import Optional, Union, List
 from dotenv import load_dotenv
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -26,7 +25,7 @@ from utils.rewards import format_reward, correctness_reward
 
 ### wandb logging ###
 load_dotenv()
-os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
+os.environ["WANDB_PROJECT"] = "mentor-rl"
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
 
@@ -34,26 +33,13 @@ nnodes = int(os.environ.get("SLURM_NNODES", 1))
 timeout = int(os.environ.get("SLURM_JOB_TIMEOUT", 0))
 slurm_args = argparse.Namespace(nnodes=nnodes, timeout=timeout)
 
+### Dataclasses for args
 @dataclass
 class ScriptArguments:
     model_path: str = field(metadata={"help": "Hugging Face model ID from the Hub"})
     dataset_path: str = field(default="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/qa_pairs.json", metadata={"help": "Local dataset path"})
     run_inference_after_training: bool = field(default=False, metadata={"help": "Run sample inference on rank 0 after training"})
     dataset_subset_size: Optional[int] = field(default=None, metadata={"help": "Number of samples to use from the dataset for training. If None, uses the full dataset."})
-
-    # grpo args
-    max_completion_length: int = field(default=256, metadata={"help": "Max. generated tokens"})
-    num_generations: int = field(default=8, metadata={"help": "GRPO group size per prompt"})
-
-    # grpo: formatting reward
-    max_think_chars: int = field(default=4000, metadata={"help": "Soft cap for <think> length"})
-
-    # grpo: weights
-    w_format: float = field(default=0.3, metadata={"help": "Weight for format reward"})
-    w_task: float = field(default=1.0, metadata={"help": "Weight for domain reward"})
-
-    # logging/output
-    output_dir: str = field(default="runs/grpo-format", metadata={"help": "Output dir"})
 
 @dataclass
 class PeftArguments:
@@ -72,10 +58,10 @@ class GrpoTrainingArguments:
 
     # Stability / logging
     seed: int = 900913
-    logging_steps: int = 10
+    logging_steps: int = 1
     save_steps: int = 500
     save_total_limit: int = 2
-    report_to: Union[str, List[str]] = "wandb"
+    report_to = ["wandb"]
 
     # GRPO specifics
     num_generations: int = 8
@@ -93,44 +79,52 @@ class GrpoTrainingArguments:
     warmup_steps: int = 0
     weight_decay: float = 0
 
+    # grpo: formatting reward
+    max_think_chars: int = field(default=4000, metadata={"help": "Soft cap for <think> length"})
 
-def apply_chat_prompt(tokenizer):
+    # grpo: weights
+    w_format: float = field(default=0.3, metadata={"help": "Weight for format reward"})
+    w_task: float = field(default=1.0, metadata={"help": "Weight for domain reward"})
+
+### distributed helper function
+def get_rank_world_size():
+    # Use env first (works before PG init)
+    rank = int(os.environ.get("RANK", "0"))
+    world = int(os.environ.get("WORLD_SIZE", "1"))
+    # If PG happens to be ready already, prefer that
+    if dist.is_available() and dist.is_initialized():
+        rank = dist.get_rank()
+        world = dist.get_world_size()
+    return rank, world
+
+### chat template for GRPO
+def build_prompt(question: str, tokenizer) -> str:
     SYSTEM_PROMPT = (
         "You are a helpful biological chatbot. You will be given a biological question; "
         "return the final result wrapped in <answer></answer> and enclose any reasoning in <think></think>."
     )
-    def _fmt(example):
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": example["question"]},
-        ]
-        # RL doesn't have answer included; instead, generation prompt is applies
-        return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    return _fmt
-
-
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": question},
+    ]
+    return tokenizer.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True
+    )
 
 def main():
     # extract args from classes
     parser = HfArgumentParser((ScriptArguments, PeftArguments, GrpoTrainingArguments))
     script_args, peft_args, grpo_args = parser.parse_args_into_dataclasses()
 
-    # make run name
-    training_args.run_name = make_run_name(script_args, peft_args, training_args, slurm_args)
-    training_args.optim = "adamw_torch_fused"
-    training_args.gradient_checkpointing = True
-
     # grpo args
     grpo_args.remove_unused_columns = False
-    grpo_args.num_generations = script_args.num_generations
-    grpo_args.max_completion_length = script_args.max_completion_length
     if not getattr(grpo_args, "loss_type", None):
         grpo_args.loss_type = "dapo" # good for loss stability 
-    grpo_args.reward_weights = [script_args.w_format, script_args.w_task]
 
     # load tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(script_args.model_path)
-    tokenizer.add_special_tokens({"additional_special_tokens": ["<think>", "</think>", "<answer>", "</answer>"]})
+    tokenizer = AutoTokenizer.from_pretrained(script_args.model_path, use_fast=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
 
     # load model (attn is sdpa)
     model = AutoModelForCausalLM.from_pretrained(
@@ -139,8 +133,10 @@ def main():
         attn_implementation="eager"
     )
     model.resize_token_embeddings(len(tokenizer))
-    model.gradient_checkpointing_enable()
-    model.config.use_cache = False
+    model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+    model.enable_input_require_grads()           # important for LoRA + checkpointing
+    model.config.use_cache = False               # for training
+    model.generation_config.use_cache = False    # quiets messages during GRPO generation
 
     # set up peft
     peft_config = LoraConfig(
@@ -152,10 +148,6 @@ def main():
         target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
     )
     
-    # get rank, world size for distributed
-    rank = get_rank()
-    world_size = get_world_size()
-
     # load dataset
     dataset = load_dataset("json", data_files=script_args.dataset_path, split="train")
     if script_args.dataset_subset_size is not None:
@@ -163,14 +155,18 @@ def main():
 
     # keep gt answer in the row for correctness reward, but do not include it in the prompt text
     def _map(example):
-        example["prompt"] = apply_chat_prompt(tokenizer, example["question"])
-        return example
+        return {
+            **example,
+            "prompt": build_prompt(example["question"], tokenizer),
+        } 
     dataset = dataset.map(_map, remove_columns=[])
 
     # rewards
     def format_reward_wrapper(completions, **kwargs):
-        return format_reward(completions, max_think_chars=script_args.max_think_chars, **kwargs) 
+        return format_reward(completions, max_think_chars=grpo_args.max_think_chars, **kwargs) 
     reward_funcs = [format_reward_wrapper, correctness_reward]
+
+    rank, world_size = get_rank_world_size()
 
     # if using multiple GPUs, shard the dataset
     if world_size > 1:
@@ -217,9 +213,23 @@ def main():
 
         # epochs
         num_train_epochs=grpo_args.num_train_epochs,
+
+        # vllm
+        use_vllm=False
     )
     # reward weights (order must match reward_funcs)
-    trl_args.reward_weights = [script_args.w_format, script_args.w_task]
+    trl_args.reward_weights = [grpo_args.w_format, grpo_args.w_task]
+
+    # configs for GRPO generations
+    trl_args.generation_kwargs = {
+        "max_new_tokens": grpo_args.max_completion_length,
+        "do_sample": True,
+        "top_p": 0.95,
+        "temperature": 0.7,
+        "use_cache": False,                        # <-- explicit: silences the message
+        "pad_token_id": tokenizer.pad_token_id,    # <-- important for batching
+        "eos_token_id": tokenizer.convert_tokens_to_ids("</answer>"),
+    }
 
     trainer = GRPOTrainer(
         model=model,
@@ -227,10 +237,11 @@ def main():
         train_dataset=dataset,
         reward_funcs=reward_funcs,
         peft_config=peft_config,
-        tokenizer=tokenizer,
-        prompt_column="prompt",
-        stop_sequences=["</answer>"]
     )
+
+    # Make sure the final wrapped model has the input-grad hook
+    if hasattr(trainer.model, "enable_input_require_grads"):
+        trainer.model.enable_input_require_grads()
 
     trainer.train()
     trainer.save_model(script_args.output_dir)

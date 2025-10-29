@@ -6,12 +6,36 @@ from typing import List, Dict, Any
 RE_THINK = re.compile(r"<think>(.*?)</think>", re.DOTALL)
 RE_ANS = re.compile(r"<answer>(.*?)</answer>", re.DOTALL)
 
+_TRIVIAL = {
+    "it","its","they","their","that","this","which","is","are","were","be","to",
+    "a","an","the","some","as","and","also",
+}
+_NOPUNC = str.maketrans("", "", string.punctuation)
+
 def _extract_answer(text:str) -> str:
     """
     Return the first <answer>...</answer> contents, or empty string.
     """
     m = RE_ANS.search(text)
     return m.group(1).strip() if m else ""
+
+def _to_text(c) -> str:
+    # Accept str, dict(content=...), or list of dicts/strings; join if needed
+    if isinstance(c, str):
+        return c
+    if isinstance(c, dict) and "content" in c:
+        return str(c["content"])
+    if isinstance(c, list):
+        parts = []
+        for x in c:
+            if isinstance(x, dict) and "content" in x:
+                parts.append(str(x["content"]))
+            else:
+                parts.append(str(x))
+        return " ".join(parts)
+    return str(c)
+
+
 
 ### FORMAT REWARDS
 def _score_single(text: str,
@@ -61,62 +85,73 @@ def _score_single(text: str,
     
     return max(-1.0, min(1.0, score))
 
-def format_reward(completions, **kwargs):
-    """
-    TRL/GRPO compatible reward:
-        - completions: list[list[{"content": str}]]
-        - returns: list[float]
-    """
-    texts = [c[0]["content"] for c in completions]
-    max_think_chars = int(kwargs.get("max_think_chars", 4000))
-    return [_score_single(t, max_think_chars=max_think_chars) for t in texts]
+def format_reward(completions, max_think_chars=4000, **kwargs):
+    texts = [_to_text(c) for c in completions]
 
-### N-GRAM MATCHING
-_TRIVIAL = {
-    "it", "its", "they", "their",
-    "that", "this", "which", "is",
-    "are", "were", "be", "to",
-    "a", "an", "the", "some",
-    "as", "and", "also",
-}
-_NOPUNC = str.maketrans("", "", string.punctuation)
+    thinks, answers = [], []
+    for t in texts:
+        m_think = re.search(r"<think>(.*?)</think>", t, flags=re.S)
+        m_ans   = re.search(r"<answer>(.*?)</answer>", t, flags=re.S)
+        think   = (m_think.group(1) if m_think else "")[:max_think_chars]
+        answer  = (m_ans.group(1) if m_ans else "").strip()
+        thinks.append(think)
+        answers.append(answer)
 
+    # Example: simple formatting reward (you can keep your original logic here)
+    # 1. has both tags
+    has_tags = [1.0 if ("<think>" in t and "</think>" in t and "<answer>" in t and "</answer>" in t) else 0.0 for t in texts]
+    # 2. non-empty answer
+    nonempty_answer = [1.0 if a else 0.0 for a in answers]
+
+    # combine however your original function did; here’s a simple sum
+    return [0.5 * h + 0.5 * n for h, n in zip(has_tags, nonempty_answer)]
+
+### CORRECTNESS
 def _clean_and_split(s: str) -> List[str]:
     return s.lower().translate(_NOPUNC).split()
 
 def check_accuracy(preds: List[str], targets: List[str]) -> List[float]:
-    # split into unique non-trivial words
-    pred_w = [set(_clean_and_split(p)) - _TRIVIAL for p in preds]
+    pred_w   = [set(_clean_and_split(p)) - _TRIVIAL for p in preds]
     target_w = [set(_clean_and_split(t)) - _TRIVIAL for t in targets]
-
-    # extract words present in both preds and targets
-    overlap = [p & t for p, t in zip(pred_w, target_w)]
-
-    # compute ratio of present to total words
     acc = []
-    for o, t in zip(overlap, target_w):
-        acc.append((len(o) / max(1, len(t))) if t else 0.0)
+    for pw, tw in zip(pred_w, target_w):
+        acc.append((len(pw & tw) / max(1, len(tw))) if tw else 0.0)
+    return acc
 
-    return acc 
-
-### CORRECTNESS REWARD
-def correctness_reward(completions: List[List[Dict[str, Any]]], **kwargs) -> List[float]:
+def correctness_reward(completions: List[Any], **kwargs) -> List[float]:
     """
-    Compare model <answer> block to dataset targets.
-    Expects one of these columns in **kwargs**: "target", "answer".
+    Compare the model's <answer> block to dataset targets.
+    Accepts various completion shapes (strings, dicts, lists of dicts).
+    Expects a target list/column in kwargs under 'target' or 'answer'.
+    Returns one float per completion.
     """
+    # Normalize completions to strings and extract <answer> (fallback to full text)
+    texts = [_to_text(c) for c in completions]
+    preds = [_extract_answer(t) or t for t in texts]
 
-    # extract textual preds from <answer> block
-    preds = [_extract_answer(c[0]["content"]) for c in completions]
-
-    # ground truth dataset
-    targets = kwargs.get("target")
+    # Pull targets from the batch (TRL passes batch columns in **kwargs)
+    targets = kwargs.get("target", kwargs.get("answer"))
     if targets is None:
-        targets = kwargs.get("answer")
-
-    # if no targets provided, give zero reward (training still runs) 
-    if targets is None:
+        # No ground truth available => neutral reward
         return [0.0] * len(preds)
 
-    return check_accuracy(preds, targets)
+    # Normalize targets to list[str]
+    if isinstance(targets, list):
+        targets_norm = [_to_text(t) for t in targets]
+    else:
+        targets_norm = [_to_text(targets)]
+
+    # Align lengths: GRPO often has num_generations per prompt
+    if len(targets_norm) != len(preds):
+        if len(targets_norm) == 1:
+            targets_norm = targets_norm * len(preds)
+        elif len(preds) % len(targets_norm) == 0:
+            k = len(preds) // len(targets_norm)
+            targets_norm = [t for t in targets_norm for _ in range(k)]
+        else:
+            # Fallback: repeat and trim
+            reps = (len(preds) + len(targets_norm) - 1) // len(targets_norm)
+            targets_norm = (targets_norm * reps)[:len(preds)]
+
+    return check_accuracy(preds, targets_norm)
 
