@@ -66,7 +66,6 @@ class GrpoTrainingArguments:
     # GRPO specifics
     num_generations: int = 8
     max_completion_length: int = 256
-    loss_type: str = "dapo"
 
     # Runtime / precision
     bf16: bool = True
@@ -118,8 +117,6 @@ def main():
 
     # grpo args
     grpo_args.remove_unused_columns = False
-    if not getattr(grpo_args, "loss_type", None):
-        grpo_args.loss_type = "dapo" # good for loss stability 
 
     # load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_path, use_fast=True)

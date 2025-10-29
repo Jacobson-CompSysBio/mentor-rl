@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=grpo-ds-debug
 #SBATCH -A SYB114
-#SBATCH -N 1
-#SBATCH -t 00:15:00
+#SBATCH -N 16
+#SBATCH -t 02:00:00
 #SBATCH -p batch 
 #SBATCH -C nvme
-#SBATCH -q debug
+##SBATCH -q debug
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
 #SBATCH -o logs/%x-%j.out # Out Path
