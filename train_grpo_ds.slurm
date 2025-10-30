@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=grpo-ds-debug
 #SBATCH -A SYB114
-#SBATCH -N 16
-#SBATCH -t 02:00:00
+#SBATCH -N 3 # 1 for vLLM, 2 for training
+#SBATCH -t 00:30:00
 #SBATCH -p batch 
 #SBATCH -C nvme
 ##SBATCH -q debug
@@ -56,9 +56,15 @@ MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mode
 DATA_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
 DS_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/config/"
 
+# hf cache
 export HF_HOME="/mnt/bb/$USER/hf_cache_${SLURM_JOB_ID}"
 export HF_DATASETS_CACHE="/mnt/bb/$USER/ds_cache_${SLURM_JOB_ID}"
 mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE"
+
+# vLLM cache/settings
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
+export VLLM_CACHE_DIR="${LOCAL_SSD_PATH}/vllm_cache"
+mkdir -p "$VLLM_CACHE_DIR"
 
 # --- STAGE 1: Stage Data to Local SSD on Each Node ---
 srun --kill-on-bad-exit=1 --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
@@ -83,11 +89,34 @@ srun --kill-on-bad-exit=1 --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
 "
 echo "--- Staging complete on all nodes ---"
 
-# --- STAGE 2: Run the Training Job ---
-echo "--- Launching Distributed Training with RCCL Plugin ---"
-head_node=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
-export MASTER_ADDR=$(getent hosts "$head_node" | awk '{print $1}')
+# --- STAGE 2.0: Partition nodes ---
+ALL_NODES=$(scontrol show hostnames "$SLURM_JOB_NODELIST")
+VLLM_NODE=$(echo "$ALL_NODES" | head -n1)
+TRAIN_NODES=$(echo "$ALL_NODES" | tail -n +2)
+NUM_TRAIN_NODES=$(echo "$TRAIN_NODES" | wc -l | awk '{print $1}')
+TRAIN_NODELIST=$(echo "$TRAIN_NODES" | tr ' ' ',')
+
+# --- STAGE 2.1: Launch vLLM Server ---
+# launch with mp for now since we're training on single node; in the future, start up with ray
+srun -N1 -n1 -w "$VLLM_NODE" \
+  bash -c 'CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
+  python -m vllm.entrypoints.openai.api_server \
+    --model "'"${LOCAL_MODEL_DIR}"'" \
+    --tensor-parallel-size 8 \
+    --distributed-executor-backend mp \
+    --host 0.0.0.0 --port 8000 \
+    --gpu-memory-utilization 0.9' &
+
+
+# --- STAGE 2.2: Run the Training Job ---
+HEAD_TRAIN_NODE=$(echo "$TRAIN_NODES" | head -n1)
+export MASTER_ADDR=$(getent hosts "$HEAD_TRAIN_NODE" | awk '{print $1}')
 export MASTER_PORT=29500
+
+echo "MASTER_ADDR=$MASTER_ADDR"
+echo "MASTER_PORT=$MASTER_PORT"
+echo "VLLM_NODE=$VLLM_NODE"
+echo "TRAIN_NODES=$TRAIN_NODELIST"
 
 # rccl settings
 export FI_PROVIDER=cxi
@@ -120,7 +149,11 @@ export https_proxy=http://proxy.ccs.ornl.gov:3128
 export http_proxy=$https_proxy
 export WANDB_HTTP_TIMEOUT=90
 
-srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
+srun -w "$TRAIN_NODELIST" \
+  --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 \
+  bash -c '
+  export VLLM_SERVER_HOST="'"$VLLM_NODE"'"
+  export VLLM_SERVER_PORT=8000
 
   export RANK=$SLURM_PROCID
   export WORLD_SIZE=$SLURM_NTASKS
@@ -157,7 +190,7 @@ PERSISTENT_OUTPUT_DIR="${HOME}/checkpoints/llama4_job_${SLURM_JOB_ID}"
 mkdir -p "$PERSISTENT_OUTPUT_DIR"
 
 # Only copy from the head node where trl has combined the results
-srun --nodes=1 --ntasks=1 -w "$head_node" \
+srun --nodes=1 --ntasks=1 -w "$HEAD_TRAIN_NODE" \
   rsync -a --info=progress2 "${LOCAL_SSD_PATH}/checkpoints/" "${PERSISTENT_OUTPUT_DIR}/"
 
 # --- STAGE 4: Cleanup ---

@@ -202,17 +202,19 @@ def main():
         remove_unused_columns=grpo_args.remove_unused_columns,
         gradient_checkpointing=grpo_args.gradient_checkpointing,
         deepspeed=grpo_args.deepspeed,
+        
+        # vLLM
+        use_vllm=True,
+        vllm_mode="server",
+        vllm_server_host="127.0.0.1",
+        vllm_server_port=8000,
 
         # GRPO specifics
         num_generations=grpo_args.num_generations,
         max_completion_length=grpo_args.max_completion_length,
-        loss_type=grpo_args.loss_type,
 
         # epochs
         num_train_epochs=grpo_args.num_train_epochs,
-
-        # vllm
-        use_vllm=False
     )
     # reward weights (order must match reward_funcs)
     trl_args.reward_weights = [grpo_args.w_format, grpo_args.w_task]
@@ -226,6 +228,13 @@ def main():
         "use_cache": False,                        # <-- explicit: silences the message
         "pad_token_id": tokenizer.pad_token_id,    # <-- important for batching
         "eos_token_id": tokenizer.convert_tokens_to_ids("</answer>"),
+    }
+ 
+    trl_args.vllm_engine_kwargs = {
+        "tensor_parallel_size": 8,
+        "gpu_memory_utilization": 0.9,
+        "enforce_eager": True,
+        "disable_log_stats": True,
     }
 
     trainer = GRPOTrainer(
