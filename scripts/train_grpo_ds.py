@@ -1,5 +1,7 @@
 ### SCRIPT FROM: https://cloud.google.com/ai-hypercomputer/docs/tutorials/fsdp-llama4 ###
 import os, sys
+import socket, time
+import urllib.request, urllib.error
 import torch
 import argparse
 from pathlib import Path
@@ -18,6 +20,7 @@ from trl import GRPOTrainer, GRPOConfig
 from dataclasses import dataclass, field
 from typing import Optional, Union, List
 from dotenv import load_dotenv
+import multiprocessing as mp
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from utils.utils import *
@@ -29,9 +32,13 @@ os.environ["WANDB_PROJECT"] = "mentor-rl"
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
 
+### slurm script info ###
 nnodes = int(os.environ.get("SLURM_NNODES", 1))
 timeout = int(os.environ.get("SLURM_JOB_TIMEOUT", 0))
 slurm_args = argparse.Namespace(nnodes=nnodes, timeout=timeout)
+
+VLLM_HOST=os.getenv("VLLM_HOST_IP")
+VLLM_PORT=os.getenv("VLLM_HTTP_PORT")
 
 ### Dataclasses for args
 @dataclass
@@ -68,7 +75,6 @@ class GrpoTrainingArguments:
     max_completion_length: int = 256
 
     # Runtime / precision
-    bf16: bool = True
     remove_unused_columns: bool = False
     gradient_checkpointing: bool = True
     dataloader_drop_last: bool = True
@@ -198,16 +204,16 @@ def main():
         save_total_limit=grpo_args.save_total_limit,
 
         # runtime
-        bf16=grpo_args.bf16,
         remove_unused_columns=grpo_args.remove_unused_columns,
         gradient_checkpointing=grpo_args.gradient_checkpointing,
         deepspeed=grpo_args.deepspeed,
+        bf16=False,
         
         # vLLM
         use_vllm=True,
         vllm_mode="server",
-        vllm_server_host="127.0.0.1",
-        vllm_server_port=8000,
+        vllm_server_host=VLLM_HOST,
+        vllm_server_port=VLLM_PORT,
 
         # GRPO specifics
         num_generations=grpo_args.num_generations,

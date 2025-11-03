@@ -36,7 +36,6 @@ def _to_text(c) -> str:
     return str(c)
 
 
-
 ### FORMAT REWARDS
 def _score_single(text: str,
                   max_think_chars: int = 4000) -> float:
