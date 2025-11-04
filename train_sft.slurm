@@ -1,11 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=fsdp-debug
 #SBATCH -A SYB114
-#SBATCH -N 8
+#SBATCH -N 2
 #SBATCH -t 02:00:00
 #SBATCH -p batch 
 #SBATCH -C nvme
-##SBATCH -q debug
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
 #SBATCH -o logs/%x-%j.out # Out Path
@@ -40,14 +39,13 @@ LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
 LOCAL_CACHE_DIR="${LOCAL_SSD_PATH}/hf_cache"
 LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/${MODEL_NAME}/"
-LOCAL_DATA_DIR="${LOCAL_SSD_PATH}/data/"
-LOCAL_CHECKPOINT_DIR="${LOCAL_SSD_PATH}/checkpoints/"
+LOCAL_DATA_DIR="${LOCAL_SSD_PATH}/data"
+LOCAL_CONFIG_DIR="${LOCAL_SSD_PATH}/config"
 
 VENV_PATH="/lustre/orion/syb111/world-shared/environments/pytorch-rocm"
 MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/${MODEL_NAME}"
-DATA_PATH="/lustre/orion/syb114/proj-shared/Personal/smithkp/sandbox/mentor-rl/data/all_qas/"
+DATA_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
 DS_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/config/"
-CHECKPOINT_PATH="/lustre/orion/syb114/proj-shared/Personal/smithkp/sandbox/mentor-rl/"
 
 # hf
 export HF_HUB_OFFLINE=1
@@ -62,7 +60,7 @@ mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE"
 srun --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
   echo '--- Staging on node: $(hostname) ---'
 
-  mkdir -p ${LOCAL_SSD_PATH} ${LOCAL_MODEL_DIR} ${LOCAL_ENV_DIR} ${LOCAL_DATA_DIR} ${LOCAL_CHECKPOINT_DIR}
+  mkdir -p ${LOCAL_SSD_PATH} ${LOCAL_MODEL_DIR} ${LOCAL_ENV_DIR} ${LOCAL_DATA_DIR}
 
   echo 'Checking Python/torch...'
   python -c 'import sys; print(sys.executable)'
@@ -112,7 +110,7 @@ export http_proxy=$https_proxy
 export WANDB_HTTP_TIMEOUT=90
 
 srun --cpu-bind=none --accel-bind=g --export=ALL --kill-on-bad-exit=1 bash -c '
-
+  
   # distrib settings
   export RANK=$SLURM_PROCID
   export WORLD_SIZE=$SLURM_NTASKS
@@ -120,13 +118,13 @@ srun --cpu-bind=none --accel-bind=g --export=ALL --kill-on-bad-exit=1 bash -c '
 
   # --- Launch the training ---
   python \
-    "'${SLURM_SUBMIT_DIR}'"/scripts/debug.py \
+    "'${SLURM_SUBMIT_DIR}'"/scripts/train_sft.py \
       --model_path="'${LOCAL_MODEL_DIR}'" \
-      --output_dir="'${LOCAL_SSD_PATH}'/checkpoints/" \
-      --dataset_path="'${LOCAL_DATA_DIR}'/mentor_rl_test_distance_qas.json" \
+      --output_dir="'${LOCAL_SSD_PATH}'/outputs/" \
+      --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
       --seed=900913 \
       --bf16=True \
-      --num_train_epochs=100 \
+      --num_train_epochs=1 \
       --per_device_train_batch_size=2 \
       --gradient_accumulation_steps=4 \
       --learning_rate=2e-5 \
@@ -139,7 +137,7 @@ srun --cpu-bind=none --accel-bind=g --export=ALL --kill-on-bad-exit=1 bash -c '
 
 # --- STAGE 3: Copy Final Results Back to Persistent Storage ---
 echo "--- Copying final results from local SSD to shared storage ---"
-PERSISTENT_OUTPUT_DIR="${CHECKPOINT_PATH}/checkpoints/${MODEL_NAME}_job_${SLURM_JOB_ID}"
+PERSISTENT_OUTPUT_DIR="${HOME}/outputs/llama4_job_${SLURM_JOB_ID}"
 mkdir -p "$PERSISTENT_OUTPUT_DIR"
 
 # Only copy from the head node where trl has combined the results

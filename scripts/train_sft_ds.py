@@ -1,12 +1,7 @@
 ### SCRIPT FROM: https://cloud.google.com/ai-hypercomputer/docs/tutorials/fsdp-llama4 ###
-import os 
-
-# set HIP env vars before importing torch
-os.environ.setdefault("PYTORCH_HIP_ALLOC_CONF", "expandable_segments:True,max_split_size_mb:128")
-print("HIP alloc conf:", os.environ.get("PYTORCH_HIP_ALLOC_CONF"))  # sanity in logs
-
-import sys
+import os, sys
 import torch
+import argparse
 from pathlib import Path
 from datasets import load_dataset
 from peft import LoraConfig, PeftModel
@@ -42,8 +37,7 @@ slurm_args = argparse.Namespace(nnodes=nnodes, timeout=timeout)
 @dataclass
 class ScriptArguments:
     model_path: str = field(metadata={"help": "Hugging Face model ID from the Hub"})
-    dataset_path: str = field(metadata={"help": "Local dataset path"})
-    
+    dataset_path: str = field(default="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/qa_pairs.json", metadata={"help": "Local dataset path"})
     run_inference_after_training: bool = field(default=False, metadata={"help": "Run sample inference on rank 0 after training"})
     dataset_subset_size: Optional[int] = field(default=None, metadata={"help": "Number of samples to use from the dataset for training. If None, uses the full dataset."})
 
@@ -80,31 +74,20 @@ def main():
 
     # make run name
     training_args.run_name = make_run_name(script_args, peft_args, training_args, slurm_args)
-
     training_args.optim = "adamw_torch_fused"
-
-    # set up FSDP
-    training_args.fsdp = "full_shard"
-    training_args.fsdp_config = {
-        "fsdp_auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
-        "fsdp_state_dict_type": "FULL_STATE_DICT",
-        "fsdp_offload_params": False,
-        "fsdp_forward_prefetch": False,
-        # grad checkpointing through fsdp
-        "activation_checkpointing": True,
-        "activation_checkpointing_reentrant": False,
-    }
+    training_args.gradient_checkpointing = True
 
     # load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_path)
     formatting_func = build_formatting_func(tokenizer)
 
-    # load model     
+    # load model (attn is sdpa)
     model = AutoModelForCausalLM.from_pretrained(
         script_args.model_path,
         dtype=torch.bfloat16,
-        low_cpu_mem_usage=True,
+        attn_implementation="eager"
     )
+    model.gradient_checkpointing_enable()
     model.use_cache = False  # needed for gradient checkpointing
     model.config.use_cache = False
     model.config.output_attentions = False
@@ -117,7 +100,7 @@ def main():
         lora_dropout=peft_args.lora_dropout,
         bias="none",
         task_type="CAUSAL_LM",
-        target_modules=["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
     )
     
     # get rank, world size for distributed
@@ -145,13 +128,6 @@ def main():
     print("Initializing SFTTrainer...")
     training_args.report_to = ["wandb"]
 
-    # turn off gradient checkpointing
-    training_args.gradient_checkpointing = False
-    try:
-        model.gradient_checkpointing_disable()
-    except Exception:
-        pass
-
     trainer = SFTTrainer(
         model=model,
         args=training_args,
@@ -163,6 +139,6 @@ def main():
 
     trainer.train()
     trainer.save_model(training_args.output_dir)
-    
+
 if __name__ == "__main__":
     main()
