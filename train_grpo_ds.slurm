@@ -2,7 +2,7 @@
 #SBATCH --job-name=grpo-ds-debug
 #SBATCH -A SYB114
 #SBATCH -N 4
-#SBATCH -t 00:20:00
+#SBATCH -t 00:30:00
 #SBATCH -p batch 
 #SBATCH -C nvme
 #SBATCH -q debug
@@ -43,7 +43,7 @@ export MASTER_ADDR=$(echo ${MASTER_ADDR} | sed 's/^\([^\.]*\)/\1-hsn0/')
 export MASTER_PORT=29500
 
 # --- Define Paths ---
-MODEL_NAME="gpt-oss-20b-bf16"
+MODEL_NAME="Llama-3.2-1B-Instruct"
 
 LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
@@ -105,8 +105,13 @@ export PYTORCH_ROCM_ARCH=gfx90a
 export ROCM_HOME=/opt/rocm-6.3.1
 export NCCL_DEBUG=INFO # Un-comment to diagnose NCCL issues if needed
 export HSA_XNACK=0
-#export DS_ACCELERATOR=cuda
+export DS_ACCELERATOR=cuda
 export OMP_NUM_THREADS=8
+
+# accelerate / transformer / deepspeed logs
+#export ACCELERATE_LOG_LEVEL=info                  # HF Accelerate init logs
+#export TRANSFORMERS_VERBOSITY=info
+#export DEEPSPEED_LOG_LEVEL=debug  
 
 # --- Per-rank, node-local caches to avoid Triton/Inductor races ---
 export LOCAL_CACHE_BASE="${LOCAL_SSD_PATH}/caches"
@@ -114,11 +119,7 @@ mkdir -p "${LOCAL_CACHE_BASE}"
 
 # Optional: keep HIP allocator log quiet (unrelated warning you saw)
 export PYTORCH_HIP_ALLOC_CONF="expandable_segments:False"
-
 # wandb
-export https_proxy=http://proxy.ccs.ornl.gov:3128
-export http_proxy=$https_proxy
-export WANDB_HTTP_TIMEOUT=90
 
 # pick nodes; use half for weight updates, half for generation
 NODELIST=($(scontrol show hostnames $SLURM_JOB_NODELIST))
@@ -126,54 +127,89 @@ NUM_NODES=${#NODELIST[@]}
 SPLIT=$((NUM_NODES / 2))
 GRPO_NODES=$(printf -v joined '%s', "${NODELIST[@]:0:SPLIT}"; echo "${joined%,}")
 
-RAY_HEAD_NODE=${NODELIST[SPLIT]}
-RAY_HEAD_NODE_IP=$(echo ${RAY_HEAD_NODE} | sed 's/^\([^\.]*\)/\1-hsn0/')
-RAY_WORKER_NODES=$(printf -v joined '%s', "${NODELIST[@]:SPLIT+1}"; echo "${joined%,}")
-
-# launch vLLM with Ray
-export RAY_PORT=6379
+VLLM_NODE=${NODELIST[$SPLIT]}
 export VLLM_HTTP_PORT=51001
-export LD_PRELOAD=/usr/lib64/libstdc++.so.6
+export VLLM_LOGGING_LEVEL=DEBUG
 export VLLM_WORKER_MULTIPROC_METHOD=spawn
-export UVICORN_WORKERS=1
-RAY_HEAD_CMD="
-export HIP_VISIBLE_DEVICES=\${ROCR_VISIBLE_DEVICES} ;
-unset ROCR_VISIBLE_DEVICES ;
-export VLLM_HOST_IP=\$(hostname | sed 's/^\([^\.]*\)/\1-hsn0/');
-ray start --head \
-  --node-ip-address=\${VLLM_HOST_IP} \
-  --port=${RAY_PORT} \
-  --num-cpus=64 \
-  --num-gpus=8 \
-  --block &
+# resolve ipv4 on vLLM node
+export VLLM_HOST_IP=$(
+  srun -N1 -n1 -w "${VLLM_NODE}" bash --noprofile --norc -c '
+    set -euo pipefail
+    # Prefer the IPv4 assigned to hsn0
+    ip -4 -o addr show dev hsn0 2>/dev/null | awk "{print \$4}" | cut -d/ -f1
+    # Fallback: resolve <shortname>-hsn0 via NSS/DNS if provided at your site
+    getent hosts "$(hostname -s)-hsn0" 2>/dev/null | awk "{print \$1}"
+  ' 2>/dev/null \
+  | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' \
+  | head -n1
+)
 
-trl vllm-serve \
-  --model=$LOCAL_MODEL_DIR \
-  --data-parallel-size=$((NUM_NODES-SPLIT)) \
-  --tensor-parallel-size 8 \
-  --max-model-len 8192 &
+if ! [[ "${VLLM_HOST_IP:-}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+  echo "[FATAL] Could not determine VLLM_HOST_IP (got: '${VLLM_HOST_IP:-<empty>}')" >&2
+  exit 1
+fi
 
-wait
-"
+echo "[debug] VLLM_NODE=${VLLM_NODE} VLLM_HOST_IP=${VLLM_HOST_IP}"
 
-srun -w $RAY_HEAD_NODE --exclusive -n 1 --nodes=1 --ntasks-per-node=1 --gpus-per-task=8 --export=ALL bash -c "${RAY_HEAD_CMD}" &
-srun -w $RAY_WORKER_NODES --exclusive --nodes=$((NUM_NODES-SPLIT-1)) --ntasks-per-node=1 --export=ALL \
-  bash -c " 
-    export HIP_VISIBLE_DEVICES=\${ROCR_VISIBLE_DEVICES} ;
-    unset ROCR_VISIBLE_DEVICES ;
-    export VLLM_HOST_IP=\$(hostname | sed 's/^\([^\.]*\)/\1-hsn0/') ;
-    ray start --node-ip-address=\${VLLM_HOST_IP} --address=${RAY_HEAD_NODE_IP}:${RAY_PORT} --num-cpus=64 --num-gpus=8 --block
-  " &
-export VLLM_HOST_IP=${RAY_HEAD_NODE_IP}
-export VLLM_HTTP_PORT
-export RAY_ADDRESS="ray://${RAY_HEAD_NODE_IP}:10001"
+# proxy
+export https_proxy=http://proxy.ccs.ornl.gov:3128
+export http_proxy=$https_proxy
+export WANDB_HTTP_TIMEOUT=90
+export NO_PROXY="localhost,127.0.0.1,${MASTER_ADDR},${VLLM_HOST_IP},*.olcf.ornl.gov"
+export no_proxy="$NO_PROXY"
+
+# trl client looks at "OPENAI_BASE_URL"
+export OPENAI_BASE_URL="http://${VLLM_HOST_IP}:${VLLM_HTTP_PORT}/v1"
+export OPENAI_API_KEY="dummy" 
+
+# launch vLLM server directly (no TRL, no Ray)
+srun -w ${VLLM_NODE} -N1 -n1 --gpus-per-task=8 --export=ALL \
+  bash -c '
+    export HIP_VISIBLE_DEVICES="${ROCR_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
+    unset ROCR_VISIBLE_DEVICES
+
+    ulimit -n 65536
+
+    df -h /dev/shm || true
+    export TMPDIR=/tmp
+
+    vllm serve "'"${LOCAL_MODEL_DIR}"'" \
+      --host 0.0.0.0 \
+      --port "'"${VLLM_HTTP_PORT}"'" \
+      --tensor-parallel-size 4 \
+      --max-model-len 8192 \
+      --dtype bfloat16 \
+      --tokenizer "'"${LOCAL_MODEL_DIR}"'" \
+      --enforce-eager \
+      --disable-custom-all-reduce \
+      --disable-log-stats
+  ' &
+
+TRAIN_PROBE_NODE=${NODELIST[0]}
+echo "[INFO] Waiting quietly for vLLM at http://${VLLM_HOST_IP}:${VLLM_HTTP_PORT}"
+srun --overlap -N1 -n1 -w "${TRAIN_PROBE_NODE}" bash -lc '
+  set -e
+  URL="http://'"${VLLM_HOST_IP}"':'"${VLLM_HTTP_PORT}"'/v1/models"
+  for i in $(seq 1 900); do
+    # -s : silent, -o /dev/null : discard body, -f : fail on non-200, 2>/dev/null : drop errors
+    if curl -sf -o /dev/null --connect-timeout 2 "$URL" 2>/dev/null; then
+      echo "[OK] vLLM is ready"
+      exit 0
+    fi
+    sleep 2
+  done
+  echo "[ERROR] vLLM did not become ready in 900s"
+  exit 7
+'
 
 # launch actual trl
 srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 --export=ALL \
-  -w "$GRPO_NODES" --nodes=$SPLIT \
-  --ntasks-per-node=1 --gpus-per-task=8 \
+  --nodes=$SPLIT \
   bash -c '
-  export HIP_VISIBLE_DEVICES="${ROCR_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
+
+  export HIP_VISIBLE_DEVICES="${ROCR_VISIBLE_DEVICES:-${SLURM_LOCALID}}"
+  unset CUDA_VISIBLE_DEVICES
+  echo "[RANK ${SLURM_PROCID}] ROCR=${ROCR_VISIBLE_DEVICES} HIP=${HIP_VISIBLE_DEVICES}"
 
   export AMDSMI_GPU_METRICS_CACHE_MS=5000
   if [ "${SLURM_LOCALID}" != "0" ]; then export WANDB_MODE=disabled; fi
@@ -196,19 +232,6 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 --export=ALL \
       --lora_dropout=0.05 \
       --run_inference_after_training
 '
-wait
 
-## --- STAGE 3: Copy Final Results Back to Persistent Storage ---
-#echo "--- Copying final results from local SSD to shared storage ---"
-#PERSISTENT_OUTPUT_DIR="${HOME}/checkpoints/llama4_job_${SLURM_JOB_ID}"
-#mkdir -p "$PERSISTENT_OUTPUT_DIR"
-#
-## Only copy from the head node where trl has combined the results
-#srun --nodes=1 --ntasks=1 -w "$head_node" \
-#  rsync -a --info=progress2 "${LOCAL_SSD_PATH}/checkpoints/" "${PERSISTENT_OUTPUT_DIR}/"
-#
-## --- STAGE 4: Cleanup ---
-#echo "--- Cleaning up local SSD on all nodes ---"
-#srun --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "rm -rf ${LOCAL_SSD_PATH}"
-#
-#echo "--- Slurm Job Finished ---"
+
+wait

@@ -15,7 +15,7 @@ from transformers import (
     GenerationConfig
 )
 import torch.distributed as dist
-from transformers.models.llama4.modeling_llama4 import Llama4TextDecoderLayer
+#from transformers.models.llama4.modeling_llama4 import Llama4TextDecoderLayer
 from trl import GRPOTrainer, GRPOConfig
 from dataclasses import dataclass, field
 from typing import Optional, Union, List
@@ -39,6 +39,44 @@ slurm_args = argparse.Namespace(nnodes=nnodes, timeout=timeout)
 
 VLLM_HOST=os.getenv("VLLM_HOST_IP")
 VLLM_PORT=os.getenv("VLLM_HTTP_PORT")
+
+### sanity check ###
+if "ROCR_VISIBLE_DEVICES" in os.environ and "HIP_VISIBLE_DEVICES" not in os.environ:
+    os.environ["HIP_VISIBLE_DEVICES"] = os.environ["ROCR_VISIBLE_DEVICES"]
+os.environ.setdefault("DS_ACCELERATOR", "cuda")
+
+def _debug_preflight():
+    import os, torch, platform
+    print("\n==== PY PRE-FLIGHT ====")
+    print("Host:", platform.node(), "PID:", os.getpid())
+    print("Torch:", torch.__version__, "HIP:", getattr(torch.version, "hip", None))
+    print("CUDA available?:", torch.cuda.is_available(), "num GPUs:", torch.cuda.device_count())
+    print("Env HIP_VISIBLE_DEVICES:", os.environ.get("HIP_VISIBLE_DEVICES"))
+    print("Env ROCR_VISIBLE_DEVICES:", os.environ.get("ROCR_VISIBLE_DEVICES"))
+    # Try simple HIP query per rank
+    try:
+        if torch.cuda.is_available():
+            i = torch.cuda.current_device()
+            props = torch.cuda.get_device_properties(i)
+            print(f"Rank sees device {i}: name={props.name}")
+    except Exception as e:
+        print("Device probe error:", repr(e))
+    # Library versions that often matter here
+    try:
+        import deepspeed
+        print("DeepSpeed:", getattr(deepspeed, "__version__", "unknown"))
+    except Exception as e:
+        print("DeepSpeed import error:", repr(e))
+    try:
+        import accelerate, transformers, vllm
+        print("Accelerate:", accelerate.__version__)
+        print("Transformers:", transformers.__version__)
+        print("vLLM:", getattr(vllm, "__version__", "unknown"))
+    except Exception as e:
+        print("HF/vLLM import error:", repr(e))
+    print("=======================\n")
+
+_debug_preflight()
 
 ### Dataclasses for args
 @dataclass
@@ -117,6 +155,18 @@ def build_prompt(question: str, tokenizer) -> str:
     )
 
 def main():
+    # verify vLLM server is reachable (rank 0 only)
+    try:
+        import requests
+        if int(os.environ.get("RANK", "0")) == 0:
+            url = f"http://{VLLM_HOST}:{VLLM_PORT}/v1/models"
+            r = requests.get(url, timeout=10)
+            r.raise_for_status()
+            print(f"[CHECK] vLLM /v1/models OK: {r.status_code}")
+    except Exception as e:
+        print(f"[FATAL] Cannot reach vLLM server at {VLLM_HOST}:{VLLM_PORT}: {e}")
+        sys.exit(2)
+
     # extract args from classes
     parser = HfArgumentParser((ScriptArguments, PeftArguments, GrpoTrainingArguments))
     script_args, peft_args, grpo_args = parser.parse_args_into_dataclasses()
@@ -170,6 +220,9 @@ def main():
     reward_funcs = [format_reward_wrapper, correctness_reward]
 
     rank, world_size = get_rank_world_size()
+    print(f"[DIST] rank={rank} world={world_size} "
+      f"LOCAL_RANK={os.getenv('LOCAL_RANK')} "
+      f"RANK={os.getenv('RANK')} WORLD_SIZE={os.getenv('WORLD_SIZE')}")
 
     # if using multiple GPUs, shard the dataset
     if world_size > 1:
@@ -241,6 +294,12 @@ def main():
         "gpu_memory_utilization": 0.9,
         "enforce_eager": True,
         "disable_log_stats": True,
+        "tensor_parallel_size": 8,
+        "gpu_memory_utilization": 0.9,
+        "enforce_eager": True,
+        "disable_log_stats": True,
+        "distributed_executor_backend": "ray",
+        "disable_custom_all_reduce": True,
     }
 
     trainer = GRPOTrainer(
