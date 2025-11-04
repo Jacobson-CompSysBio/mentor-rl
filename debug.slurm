@@ -34,15 +34,25 @@ echo "Node List: $SLURM_JOB_NODELIST"
 # --- Define Paths ---
 PACK_TARBALL="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/env.tar.gz"
 
+MODEL_NAME="gpt-oss-20b-bf16"
+
 LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
 LOCAL_CACHE_DIR="${LOCAL_SSD_PATH}/hf_cache"
-LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/Llama-4-Scout-17B-16E-Instruct/"
+LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/${MODEL_NAME}/"
 LOCAL_DATA_DIR="${LOCAL_SSD_PATH}/data/"
+LOCAL_CHECKPOINT_DIR="${LOCAL_SSD_PATH}/checkpoints/"
 
 VENV_PATH="/lustre/orion/syb111/world-shared/environments/pytorch-rocm"
-MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/Llama-4-Maverick-17B-128E-Instruct/"
-DATA_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
+MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/${MODEL_NAME}"
+DATA_PATH="/lustre/orion/syb114/proj-shared/Personal/smithkp/sandbox/mentor-rl/data/all_qas/"
+DS_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/config/"
+CHECKPOINT_PATH="/lustre/orion/syb114/proj-shared/Personal/smithkp/sandbox/mentor-rl/"
+
+# hf
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
 
 export HF_HOME="/mnt/bb/$USER/hf_cache_${SLURM_JOB_ID}"
 export HF_DATASETS_CACHE="/mnt/bb/$USER/ds_cache_${SLURM_JOB_ID}"
@@ -52,23 +62,17 @@ mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE"
 srun --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
   echo '--- Staging on node: $(hostname) ---'
 
-  mkdir -p ${LOCAL_SSD_PATH} ${LOCAL_MODEL_DIR} ${LOCAL_CACHE_DIR} ${LOCAL_ENV_DIR} ${LOCAL_DATA_DIR}
-
-  echo 'Extracting packed conda env to NVMe...'
-  tar -xzf ${PACK_TARBALL} -C ${LOCAL_ENV_DIR}
-  ${LOCAL_ENV_DIR}/bin/conda-unpack
+  mkdir -p ${LOCAL_SSD_PATH} ${LOCAL_MODEL_DIR} ${LOCAL_ENV_DIR} ${LOCAL_DATA_DIR} ${LOCAL_CHECKPOINT_DIR}
 
   echo 'Checking Python/torch...'
-  ${LOCAL_ENV_DIR}/bin/python -c 'import sys; print(sys.executable)'
-  ${LOCAL_ENV_DIR}/bin/python -c 'import torch; print(torch.__version__)'
+  python -c 'import sys; print(sys.executable)'
+  python -c 'import torch; print(torch.__version__)'
 
   echo 'Copying model weights...'
-  rsync -a --info=progress2 ${MODEL_PATH} ${LOCAL_MODEL_DIR}
+  rsync -a --info=progress2 "${MODEL_PATH}/" "${LOCAL_MODEL_DIR}"
 
   echo 'Copying dataset...'
-  rsync -a --info=progress2 ${DATA_PATH} ${LOCAL_DATA_DIR}
-
-  mkdir -p ${LOCAL_SSD_PATH}/hf_cache
+  rsync -a --info=progress2 ${DATA_PATH} ${LOCAL_DATA_DIR} 
 
   echo '--- Staging on $(hostname) complete ---'
 "
@@ -96,19 +100,20 @@ export NCCL_SOCKET_IFNAME=hsn0        # NCCL/RCCL will use the high speed networ
 export NCCL_OFI_USE_NICLIST=hsn0
 
 export NCCL_DEBUG=INFO # Un-comment to diagnose NCCL issues if needed
+export HSA_XNACK=0
+
+# deepspeed
+export ROCM_HOME=/opt/rocm-6.3.1
+export PYTORCH_ROCM_ARCH=gfx90a
 
 # wandb
 export https_proxy=http://proxy.ccs.ornl.gov:3128
 export http_proxy=$https_proxy
 export WANDB_HTTP_TIMEOUT=90
 
-srun --cpu-bind=none --accel-bind=g --export=ALL bash -c '
-  # Activate conda env on the local SSD
-  source "'${LOCAL_ENV_DIR}'"/bin/activate
+srun --cpu-bind=none --accel-bind=g --export=ALL --kill-on-bad-exit=1 bash -c '
 
-  # Point Hugging Face cache to the local SSD
-  export HF_HOME="'${LOCAL_CACHE_DIR}'"
-
+  # distrib settings
   export RANK=$SLURM_PROCID
   export WORLD_SIZE=$SLURM_NTASKS
   export LOCAL_RANK=$SLURM_LOCALID
@@ -118,10 +123,10 @@ srun --cpu-bind=none --accel-bind=g --export=ALL bash -c '
     "'${SLURM_SUBMIT_DIR}'"/scripts/debug.py \
       --model_path="'${LOCAL_MODEL_DIR}'" \
       --output_dir="'${LOCAL_SSD_PATH}'/checkpoints/" \
-      --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
+      --dataset_path="'${LOCAL_DATA_DIR}'/mentor_rl_test_distance_qas.json" \
       --seed=900913 \
       --bf16=True \
-      --num_train_epochs=2 \
+      --num_train_epochs=100 \
       --per_device_train_batch_size=2 \
       --gradient_accumulation_steps=4 \
       --learning_rate=2e-5 \
@@ -134,7 +139,7 @@ srun --cpu-bind=none --accel-bind=g --export=ALL bash -c '
 
 # --- STAGE 3: Copy Final Results Back to Persistent Storage ---
 echo "--- Copying final results from local SSD to shared storage ---"
-PERSISTENT_OUTPUT_DIR="${HOME}/checkpoints/llama4_job_${SLURM_JOB_ID}"
+PERSISTENT_OUTPUT_DIR="${CHECKPOINT_PATH}/checkpoints/${MODEL_NAME}_job_${SLURM_JOB_ID}"
 mkdir -p "$PERSISTENT_OUTPUT_DIR"
 
 # Only copy from the head node where trl has combined the results

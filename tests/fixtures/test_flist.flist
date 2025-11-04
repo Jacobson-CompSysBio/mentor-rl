@@ -1,3 +1,3 @@
-./tests/fixtures/network1.tsv	layer1
-./tests/fixtures/network2.tsv	layer2
-./tests/fixtures/network3.tsv	layer3
+/lustre/orion/syb114/proj-shared/Personal/smithkp/sandbox/mentor-rl/tests/fixtures/network1.tsv	layer1
+/lustre/orion/syb114/proj-shared/Personal/smithkp/sandbox/mentor-rl/tests/fixtures/network2.tsv	layer2
+/lustre/orion/syb114/proj-shared/Personal/smithkp/sandbox/mentor-rl/tests/fixtures/network3.tsv	layer3

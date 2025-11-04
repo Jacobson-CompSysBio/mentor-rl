@@ -3,6 +3,7 @@ import argparse
 import os
 import pandas as pd
 import numpy as np
+import json
 
 # parse arguments
 def parse_distance_qa_args():
@@ -15,15 +16,15 @@ def parse_distance_qa_args():
   parser.add_argument('--multiplex',
                       type=str,
                       required=True,
-                      help='Specify the flist used to generate the distance matrix.')
+                      help='JSON file representing the multiplex network.')
   parser.add_argument('--output_dir',
                       type=str,
                       default='./',
                       help='Specify the directory in which to store the output file. If no value is provided the local directory will be used.')
-  parser.add_argument('--outpur_file',
+  parser.add_argument('--output_file',
                       type=str,
-                      default='distance_qas.tsv',
-                      help='Specify the output file name. If no value is provided "distance_qas.tsv" will be used.')
+                      default='distance_qas.json',
+                      help='Specify the output file name. If no value is provided "distance_qas.json" will be used.')
 
   return parser.parse_args()
 
@@ -67,30 +68,70 @@ def read_distance_matrix(file_name: str) -> pd.DataFrame:
 
   raise ValueError("Distance matrix must be symmetric, or upper/lower-triangular with NaNs elsewhere")
 
+def get_json_to_str(json_file_name: str) -> str | None:
+  try:
+    # Open the JSON file in read mode
+    with open(json_file_name, 'r') as file:
+      data_dict = json.load(file)
+
+    # Convert the dictionary back to a JSON formatted string
+    json_string = json.dumps(data_dict)
+ 
+    return json_string
+  
+  except FileNotFoundError:
+    print(f'Error: The file {json_file_name} as not found.')
+  except json.JSONDecodeError:
+    print("EROR: Failed to decode the JSON from the file. Check for malformed JSON.")
+
 # Create Q/A pairs
-def write_qa_pairs(df: pd.DataFrame, out_dir: str, out_file_name: str, multiplex_path) -> None:
+def write_qa_pairs(df: pd.DataFrame, out_dir: str, out_file_name: str, json_str: str) -> None:
   os.makedirs(out_dir, exist_ok=True)
 
   output_file = os.path.join(out_dir, out_file_name)
   
-  with open(output_file, 'w') as fp:
-    fp.write('question\tlabel\tdesc\n')
+  # Add escape character to double quotes in json_str
+  # json_str = json_str.replace('"', '"/')
 
-    labels = df.columns.to_list()
-    N = len(labels)
-    for i in range(N):
-      node1 = labels[i]
-      for j in range(i+1,N):
-        node2 = labels[j]
+  # Initialize an empty list to store the dictionaries
+  qas = []
+
+  # 
+  labels = df.columns.to_list()
+  N = len(labels)
+
+  for i in range(N):
+    node1 = labels[i]
+    for j in range(N):
+      if i == j:
+        continue
+
+      node2 = labels[j]
+
+      if i < j:
         dist = df.iloc[i,j]
-        fp.write( f'What is the topological distance between nodes {node1} and {node2}?\t{dist}\t{multiplex_path}\n')
+      else:
+        dist = df.iloc[j,i]
+      
+      data_object = {
+        "question": f"Given the following multiplex, what is the topological distance between nodes {node1} and {node2}? {json_str}",
+        "answer": f"{dist}"
+      }
+
+      qas.append(data_object)
+  
+  # Write JSON to file
+  with open(output_file, "w", encoding="utf-8") as f:
+    json.dump(qas, f, ensure_ascii=False, indent = 2, separators=(",", ": "))
 
 def main():
   args = parse_distance_qa_args()
   validate_arguments(args)
 
   dist_df = read_distance_matrix(args.distance_matrix)
-  write_qa_pairs(dist_df, args.output_dir, args.outpur_file, args.multiplex)
+
+  json_string = get_json_to_str(args.multiplex)
+  write_qa_pairs(dist_df, args.output_dir, args.output_file, json_string)
 
 if __name__ == "__main__":
   main()

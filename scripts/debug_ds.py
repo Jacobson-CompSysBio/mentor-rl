@@ -1,6 +1,7 @@
 ### SCRIPT FROM: https://cloud.google.com/ai-hypercomputer/docs/tutorials/fsdp-llama4 ###
 import os, sys
 import torch
+import argparse
 from pathlib import Path
 from datasets import load_dataset
 from peft import LoraConfig, PeftModel
@@ -73,11 +74,7 @@ def main():
 
     # make run name
     training_args.run_name = make_run_name(script_args, peft_args, training_args, slurm_args)
-
     training_args.optim = "adamw_torch_fused"
-
-    # set up DS
-    training_args.deepspeed = os.environ.get("DS_CONFIG_PATH")
     training_args.gradient_checkpointing = True
 
     # load tokenizer
@@ -87,7 +84,8 @@ def main():
     # load model (attn is sdpa)
     model = AutoModelForCausalLM.from_pretrained(
         script_args.model_path,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
+        attn_implementation="eager"
     )
     model.gradient_checkpointing_enable()
     model.use_cache = False  # needed for gradient checkpointing
@@ -102,7 +100,7 @@ def main():
         lora_dropout=peft_args.lora_dropout,
         bias="none",
         task_type="CAUSAL_LM",
-        target_modules=["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
     )
     
     # get rank, world size for distributed
