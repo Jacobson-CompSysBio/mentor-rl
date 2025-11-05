@@ -121,51 +121,31 @@ export PYTORCH_HIP_ALLOC_CONF="expandable_segments:False"
 # wandb
 
 # pick nodes; use half for weight updates, half for generation
-NODELIST=($(scontrol show hostnames $SLURM_JOB_NODELIST))
+NODELIST=($(scontrol show hostnames "$SLURM_JOB_NODELIST"))
 NUM_NODES=${#NODELIST[@]}
 TRAIN_NODES=("${NODELIST[@]:0:2}")
 VLLM_NODES=("${NODELIST[@]:2:2}")
-GRPO_NODES=$(IFS=,; echo "${TRAIN_NODES[*]}")
+TRAIN_NODELIST_CSV="$(IFS=,; echo "${TRAIN_NODES[*]}")"
+VLLM_NODELIST_CSV="$(IFS=,; echo "${VLLM_NODES[*]}")"
 VLLM_HEAD_NODE="${VLLM_NODES[0]}"
 VLLM_WORKER_NODE="${VLLM_NODES[1]}"
-export VLLM_HTTP_PORT=51001
-export VLLM_LOGGING_LEVEL=DEBUG
+
+# vllm serve settings
+export VLLM_HTTP_PORT=${VLLM_HTTP_PORT:-51001}
+export VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-DEBUG}
 export VLLM_WORKER_MULTIPROC_METHOD=spawn
+export NUM_PP_NODES=${#VLLM_NODES[@]}
 
-# resolve ipv4 on vLLM node
-HEAD_IP=$(
-  srun -N1 -n1 -w "${VLLM_HEAD_NODE}" bash --noprofile --norc -c '
-    set -euo pipefail
-    # Prefer the IPv4 assigned to hsn0
-    ip -4 -o addr show dev hsn0 2>/dev/null | awk "{print \$4}" | cut -d/ -f1
-    # Fallback: resolve <shortname>-hsn0 via NSS/DNS if provided at your site
-    getent hosts "$(hostname -s)-hsn0" 2>/dev/null | awk "{print \$1}"
-  ' 2>/dev/null \
-  | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' \
-  | head -n1
-)
-
-if ! [[ "${HEAD_IP:-}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-  echo "[FATAL] Could not determine HEAD_IP (got: '${HEAD_IP:-<empty>}')" >&2
-  exit 1
-fi
-
-WORKER_IP=$(
-  srun -N1 -n1 -w "${VLLM_WORKER_NODE}" bash --noprofile --norc -c '
-  set -euo pipefail
-  ip -4 -o addr show dev hsn0 2>/dev/null | awk "{print \$4}" | cut -d/ -f1
-  getent hosts "$(hostname -s)-hsn0" 2>/dev/null | awk "{print \$1}"
-  ' 2>/dev/null \
-  | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' \
-  | head -n1 
-)
-echo "[debug] VLLM_HEAD=${VLLM_HEAD_NODE} ${HEAD_IP}, VLLM_WORKER=${VLLM_WORKER_NODE} ${WORKER_IP}"
+# resolve ipv4 of head node
+HEAD_IP=$(srun -N1 -n1 -w "$VLLM_HEAD_NODE" bash --noprofile --norc -lc 'hostname -I | awk "{print \$1}"')
+WORKER_IP=$(srun -N1 -n1 -w "$VLLM_WORKER_NODE" bash --noprofile --norc -lc 'hostname -I | awk "{print \$1}"')
+echo "[debug] VLLM_HEAD=${VLLM_HEAD_NODE} | HEAD_IP=${HEAD_IP} | VLLM_WORKER=${VLLM_WORKER_NODE} | WORKER_IP=${WORKER_IP}"
 
 # proxy
 export https_proxy=http://proxy.ccs.ornl.gov:3128
 export http_proxy=$https_proxy
 export WANDB_HTTP_TIMEOUT=90
-export NO_PROXY="localhost,127.0.0.1,${MASTER_ADDR},${HEAD_IP},*.olcf.ornl.gov"
+export NO_PROXY="localhost,127.0.0.1,${MASTER_ADDR},${HEAD_IP},${VLLM_HEAD_NODE},${VLLM_WORKER_NODE},*.olcf.ornl.gov"
 export no_proxy="$NO_PROXY"
 
 # trl client looks at "OPENAI_BASE_URL"
@@ -173,81 +153,141 @@ export OPENAI_BASE_URL="http://${HEAD_IP}:${VLLM_HTTP_PORT}/v1"
 export OPENAI_API_KEY="dummy" 
 
 # start Ray cluster on two vLLM nodes, then run vLLM with Ray
-# Ray HEAD on VLLM_HEAD_NODE
-srun -w ${VLLM_HEAD_NODE} -N1 -n1 --gpus-per-task=8 --export=ALL \
-  bash -c '
-    export HIP_VISIBLE_DEVICES="${ROCR_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
-    unset ROCR_VISIBLE_DEVICES
+export RAY_NODE_IP_ADDRESS=${HEAD_IP}
+export RAY_PORT=${RAY_PORT:-6379}
+export RAY_DASHBOARD_PORT=${RAY_DASHBOARD_PORT:-8265}
+export RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0
 
+# don't let ray set these - manually set them
+export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
+export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1
+export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
+
+# device masking to avoid HIP ordinal errors
+export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export CUDA_VISIBLE_DEVICES="$HIP_VISIBLE_DEVICES"
+export ROCR_VISIBLE_DEVICES="$HIP_VISIBLE_DEVICES"
+
+# Ray HEAD (background srun step)
+srun --overlap -N1 -n1 -w "${VLLM_HEAD_NODE}" --export=ALL \
+  bash --noprofile --norc -c "
+    set -euo pipefail
     ulimit -n 65536
-    export TMPDIR=/tmp
 
-    # start ray head
+    export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
+    export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1
+    export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
+    export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+    export CUDA_VISIBLE_DEVICES=\"\${HIP_VISIBLE_DEVICES}\"
+    export ROCR_VISIBLE_DEVICES=\"\${HIP_VISIBLE_DEVICES}\"
+    echo 'CUDA Devices: ${CUDA_VISIBLE_DEVICES} | HIP Devices: ${HIP_VISIBLE_DEVICES}'
+
+    export VLLM_HOST_IP=${HEAD_IP}
+    export RAY_NODE_IP_ADDRESS=${HEAD_IP}
+    ray stop --force >/dev/null 2>&1 || true
     ray start --head \
-      --node-ip-address='"$HEAD_IP"' \
-      --port=6379 \
+      --node-ip-address=${HEAD_IP} \
+      --port=${RAY_PORT} \
+      --dashboard-port=${RAY_DASHBOARD_PORT} \
       --num-gpus=8 \
       --disable-usage-stats \
-      --block &
-    
-    # pause to let head start
-    sleep 5
+      --block 
+  " &
 
-    # let vllm discover/join ray cluster
-    VLLM_CMD="vllm serve '${LOCAL_MODEL_DIR}' \
-      --host 0.0.0.0 --port '${VLLM_HTTP_PORT}' \
+# Ray WORKER (background srun step)
+srun --overlap -N1 -n1 -w "$VLLM_WORKER_NODE" --export=ALL \
+  bash --noprofile --norc -c "
+    set -euo pipefail
+    ulimit -n 65536
+
+    export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
+    export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1
+    export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
+    export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+    export CUDA_VISIBLE_DEVICES=\"\${HIP_VISIBLE_DEVICES}\"
+    export ROCR_VISIBLE_DEVICES=\"\${HIP_VISIBLE_DEVICES}\"
+    echo 'CUDA Devices: ${CUDA_VISIBLE_DEVICES} | HIP Devices: ${HIP_VISIBLE_DEVICES}'
+
+    export VLLM_HOST_IP=${WORKER_IP}
+    export RAY_NODE_IP_ADDRESS=${WORKER_IP}
+    ray stop --force >/dev/null 2>&1 || true
+    ray start --address=${HEAD_IP}:${RAY_PORT} \
+      --node-ip-address=${WORKER_IP} \
+      --num-gpus=8 \
+      --disable-usage-stats \
+      --block
+  " &
+
+# Wait for Ray to see both nodes, all gpus, before starting vllm
+until srun -N1 -n1 -w "${VLLM_HEAD_NODE}" bash --noprofile --norc -c '
+  addr="'"${HEAD_IP}"'":"'"${RAY_PORT}"'"
+  export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+  unset ROCR_VISIBLE_DEVICES
+  ray status --address="$addr" >/tmp/ray_status.txt 2>/dev/null || true
+  if grep -qE "GPU[^0-9]*16" /tmp/ray_status.txt; then
+    echo READY
+  else
+    echo NOT_READY
+  fi
+  exit 0
+  ' | grep -q READY; do
+  sleep 2
+done
+
+# vLLM serve on Ray HEAD (background srun step)
+srun --overlap -N1 -n1 -w "$VLLM_HEAD_NODE" --export=ALL \
+  bash --noprofile --norc -c "
+    set -euo pipefail 
+
+    export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
+    export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
+    export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+    export CUDA_VISIBLE_DEVICES=\"\${HIP_VISIBLE_DEVICES}\"
+    export ROCR_VISIBLE_DEVICES=\"\${HIP_VISIBLE_DEVICES}\"
+    echo 'CUDA Devices: ${CUDA_VISIBLE_DEVICES} | HIP Devices: ${HIP_VISIBLE_DEVICES}'
+
+    export RAY_ADDRESS=${HEAD_IP}:${RAY_PORT}
+    export VLLM_HOST_IP=${HEAD_IP}
+    echo \"[vLLM] TP_SIZE=8, PP_SIZE=${NUM_PP_NODES} using Ray at \${RAY_ADDRESS}\"
+
+    vllm serve '${LOCAL_MODEL_DIR}' \
+      --host 0.0.0.0 \
+      --port ${VLLM_HTTP_PORT} \
       --distributed-executor-backend ray \
-      --tensor-parallel-size 8 \
-      --pipeline-parallel-size 2 \
-      --max-model-len 8192 \
+      --tensor-parallel-size 8 --pipeline-parallel-size '${NUM_PP_NODES}' \
       --dtype bfloat16 \
       --tokenizer '${LOCAL_MODEL_DIR}' \
+      --max-model-len 8192 \
       --enforce-eager \
       --disable-custom-all-reduce \
-      --disable-log-stats"
-    echo "[vLLM]: Launching on HEAD with Ray: $VLLM_CMD"
-    eval "$VLLM_CMD"
-  ' &
-
-# Ray WORKER on second vllm node
-srun -w "${VLLM_WORKER_NODE}" -N1 -n1 --gpus-per-task=8 --export=ALL \
-  bash -c '
-  export HIP_VISIBLE_DEVICES="${ROCR_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
-  unset ROCR_VISIBLE_DEVICES
-  ulimit -n 65536
-
-  # give worker its own ip and connect to head
-  ray start --node-ip-address='"$WORKER_IP"' \
-    --address='"${HEAD_IP}"':6379 \
-    --num-gpus=8 \
-    --disable-usage-stats \
-    --block
-  ' &
+      --disable-log-stats
+  " &
 
 TRAIN_PROBE_NODE=${TRAIN_NODES[0]}
 echo "[INFO] Waiting quietly for vLLM at http://${HEAD_IP}:${VLLM_HTTP_PORT}"
-srun --overlap -N1 -n1 -w "${TRAIN_PROBE_NODE}" bash -lc '
-  set -e
-  URL="http://'"${HEAD_IP}"':'"${VLLM_HTTP_PORT}"'/v1/models"
-  for i in $(seq 1 900); do
-    # -s : silent, -o /dev/null : discard body, -f : fail on non-200, 2>/dev/null : drop errors
-    if curl -sf -o /dev/null --connect-timeout 2 "$URL" 2>/dev/null; then
-      echo "[OK] vLLM is ready"
-      exit 0
-    fi
-    sleep 2
-  done
-  echo "[ERROR] vLLM did not become ready in 900s"
-  exit 7
+srun --overlap -N1 -n1 -w "${TRAIN_PROBE_NODE}" bash -lc ' 
+  set -e 
+  URL="http://'"${HEAD_IP}"':'"${VLLM_HTTP_PORT}"'/v1/models" 
+  for i in $(seq 1 900); do 
+  # -s : silent, -o /dev/null : discard body, -f : fail on non-200, 2>/dev/null : drop errors 
+  if curl -sf -o /dev/null --connect-timeout 2 "$URL" 2>/dev/null; then 
+    echo "[OK] vLLM is ready" 
+    exit 0 
+  fi 
+  sleep 2 
+  done 
+  echo "[ERROR] vLLM did not become ready in 900s" 
+  exit 7 
 '
 
 # launch actual trl
 srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 --export=ALL \
-  --nodes="${GRPO_NODES}" \
+  -N ${#TRAIN_NODES[@]} \
+  --ntasks-per-node=8 \
+  -w "${TRAIN_NODELIST_CSV}" \
   bash -c '
-
-  export HIP_VISIBLE_DEVICES="${ROCR_VISIBLE_DEVICES:-${SLURM_LOCALID}}"
-  unset CUDA_VISIBLE_DEVICES
+  
+  export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
   echo "[RANK ${SLURM_PROCID}] ROCR=${ROCR_VISIBLE_DEVICES} HIP=${HIP_VISIBLE_DEVICES}"
 
   export AMDSMI_GPU_METRICS_CACHE_MS=5000
@@ -271,5 +311,3 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 --export=ALL \
       --lora_dropout=0.05 \
       --run_inference_after_training
 '
-
-wait
