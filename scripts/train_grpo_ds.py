@@ -37,7 +37,7 @@ nnodes = int(os.environ.get("SLURM_NNODES", 1))
 timeout = int(os.environ.get("SLURM_JOB_TIMEOUT", 0))
 slurm_args = argparse.Namespace(nnodes=nnodes, timeout=timeout)
 
-VLLM_HOST=os.getenv("VLLM_HOST_IP")
+VLLM_HOST=os.getenv("HEAD_IP")
 VLLM_PORT=os.getenv("VLLM_HTTP_PORT")
 
 ### sanity check ###
@@ -76,7 +76,21 @@ def _debug_preflight():
         print("HF/vLLM import error:", repr(e))
     print("=======================\n")
 
+def _verify_vllm():
+    # verify vLLM server is reachable (rank 0 only)
+    try:
+        import requests
+        if int(os.environ.get("RANK", "0")) == 0:
+            url = f"http://{VLLM_HOST}:{VLLM_PORT}/v0/models"
+            r = requests.get(url, timeout=10)
+            r.raise_for_status()
+            print(f"[CHECK] vLLM /v1/models OK: {r.status_code}")
+    except Exception as e:
+        print(f"[FATAL] Cannot reach vLLM server at {VLLM_HOST}:{VLLM_PORT}: {e}")
+        sys.exit(2)
+
 _debug_preflight()
+_verify_vllm()
 
 ### Dataclasses for args
 @dataclass
@@ -155,17 +169,7 @@ def build_prompt(question: str, tokenizer) -> str:
     )
 
 def main():
-    # verify vLLM server is reachable (rank 0 only)
-    try:
-        import requests
-        if int(os.environ.get("RANK", "0")) == 0:
-            url = f"http://{VLLM_HOST}:{VLLM_PORT}/v1/models"
-            r = requests.get(url, timeout=10)
-            r.raise_for_status()
-            print(f"[CHECK] vLLM /v1/models OK: {r.status_code}")
-    except Exception as e:
-        print(f"[FATAL] Cannot reach vLLM server at {VLLM_HOST}:{VLLM_PORT}: {e}")
-        sys.exit(2)
+
 
     # extract args from classes
     parser = HfArgumentParser((ScriptArguments, PeftArguments, GrpoTrainingArguments))
