@@ -13,9 +13,9 @@ def make_run_name(script_args, peft_args, training_args, slurm_args):
     return run_name
 
 def check_accuracy(
-        preds: list[str],
-        targets: list[str]
-    ) -> list[float]:
+    preds: list[str],
+    targets: list[str]
+) -> list[float]:
     # split into unique non-trivial words
     pred_w = [set(_clean_and_split(p)) - _TRIVIAL for p in preds]
     target_w = [set(_clean_and_split(t)) - _TRIVIAL for t in targets]
@@ -25,6 +25,24 @@ def check_accuracy(
 
     # compute ratio of present to total words
     accuracy = [len(o) / len(t) for o, t in zip(overlap, target_w)]
+
+    return accuracy
+
+def check_numeric_accuracy(
+    preds: list[str],
+    targets: list[float]
+) -> list[float]:
+    # extract numbers from preds as floats
+    pred_n = [_extract_num(p) for p in preds]
+
+    # check similarity with targets
+    similiarty = [
+        [_inv_sq_sim(q, t) for q in p]
+        for p, t in zip(pred_n, targets)
+    ]
+
+    # take most accurate prediction
+    accuracy = [max(s) for s in similiarty]
 
     return accuracy
 
@@ -39,10 +57,27 @@ _TRIVIAL = {
 _NOPUNC = str.maketrans("", "", string.punctuation)
 
 def _clean_and_split(
-        s: str
-    ) -> list[str]:
+    s: str
+) -> list[str]:
     return (
         s.lower() # all lowercase
          .translate(_NOPUNC) # remove punctuation
          .split() # split words by whitespace
     )
+
+def _extract_num(
+    s: str
+) -> list[float]:
+    nums = []
+    for w in s.split():
+        try:
+            nums.append(float(w))
+        except:
+            pass
+    return nums
+
+def _inv_sq_sim(
+    a: float,
+    b: float
+) -> float:
+    return 1 / ((a-b)**2 + 1)
