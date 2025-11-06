@@ -347,6 +347,8 @@ echo "##################################################"
 echo "VLLM SERVED. PROBING SERVER..."
 echo "##################################################"
 
+TRAIN_PROBE_NODE=${TRAIN_NODES[0]}
+echo "[INFO] Waiting quietly for vLLM at http://${HEAD_IP}:${VLLM_HTTP_PORT}"
 srun --overlap -N1 -n1 --export=ALL -w "${TRAIN_PROBE_NODE}" bash -c "
   set -e
   
