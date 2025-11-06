@@ -33,7 +33,7 @@ echo "Node List: $SLURM_JOB_NODELIST"
 # --- Define Paths ---
 PACK_TARBALL="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/env.tar.gz"
 
-MODEL_NAME="gpt-oss-20B-bf16"
+MODEL_NAME="gpt-oss-20b-bf16"
 
 LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"

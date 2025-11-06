@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=ds-debug
 #SBATCH -A SYB114
-#SBATCH -N 8
+#SBATCH -N 2
 #SBATCH -t 01:00:00
 #SBATCH -p batch 
 #SBATCH -C nvme
@@ -39,7 +39,7 @@ echo "Job ID: $SLURM_JOB_ID"
 echo "Node List: $SLURM_JOB_NODELIST"
 
 # --- Define Paths ---
-MODEL_NAME="gpt-oss-bf16"
+MODEL_NAME="gpt-oss-20b-bf16"
 
 LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
@@ -50,8 +50,14 @@ LOCAL_CONFIG_DIR="${LOCAL_SSD_PATH}/config"
 
 VENV_PATH="/lustre/orion/syb111/world-shared/environments/pytorch-rocm"
 MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/${MODEL_NAME}"
-DATA_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
-DS_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/config/"
+DATA_PATH="/lustre/orion/syb114/proj-shared/Personal/smithkp/sandbox/mentor-rl/data/all_qas/"
+DS_PATH="/lustre/orion/syb114/proj-shared/Personal/smithkp/sandbox/mentor-rl/config/"
+CHECKPOINT_PATH="/lustre/orion/syb114/proj-shared/Personal/smithkp/sandbox/mentor-rl/"
+
+# hf
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false
 
 export HF_HOME="/mnt/bb/$USER/hf_cache_${SLURM_JOB_ID}"
 export HF_DATASETS_CACHE="/mnt/bb/$USER/ds_cache_${SLURM_JOB_ID}"
@@ -131,10 +137,10 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
     "'${SLURM_SUBMIT_DIR}'"/scripts/debug_ds.py \
       --model_path="'${LOCAL_MODEL_DIR}'" \
       --output_dir="'${LOCAL_SSD_PATH}'/checkpoints/" \
-      --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
+      --dataset_path="'${LOCAL_DATA_DIR}'/mentor_rl_test_distance_qas.json" \
       --deepspeed="'${LOCAL_CONFIG_DIR}'/ds_zero3.json" \
       --seed=900913 \
-      --num_train_epochs=1 \
+      --num_train_epochs=100 \
       --per_device_train_batch_size=1 \
       --gradient_accumulation_steps=4 \
       --learning_rate=2e-5 \
@@ -148,7 +154,7 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
 
 # --- STAGE 3: Copy Final Results Back to Persistent Storage ---
 echo "--- Copying final results from local SSD to shared storage ---"
-PERSISTENT_OUTPUT_DIR="${HOME}/checkpoints/llama4_job_${SLURM_JOB_ID}"
+PERSISTENT_OUTPUT_DIR="${CHECKPOINT_PATH}/checkpoints/${MODEL_NAME}_job_${SLURM_JOB_ID}"
 mkdir -p "$PERSISTENT_OUTPUT_DIR"
 
 # Only copy from the head node where trl has combined the results
@@ -159,4 +165,4 @@ srun --nodes=1 --ntasks=1 -w "$head_node" \
 echo "--- Cleaning up local SSD on all nodes ---"
 srun --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "rm -rf ${LOCAL_SSD_PATH}"
 
-echo "--- Slurm Job Finished ---"
+echo "--- Slurm Job Finished ---"a
