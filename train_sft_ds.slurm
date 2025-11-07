@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name=20b-ds-dbg
+#SBATCH --job-name=120b-inference
 #SBATCH -A SYB114
 #SBATCH -N 2
-#SBATCH -t 00:15:00
+#SBATCH -t 0:30:00
 #SBATCH -p batch
 #SBATCH -q debug
 #SBATCH -C nvme
@@ -39,7 +39,7 @@ echo "Job ID: $SLURM_JOB_ID"
 echo "Node List: $SLURM_JOB_NODELIST"
 
 # --- Define Paths ---
-MODEL_NAME="gpt-oss-20b-bf16"
+MODEL_NAME="gpt-oss-120b-bf16"
 
 LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
@@ -51,8 +51,8 @@ LOCAL_CONFIG_DIR="${LOCAL_SSD_PATH}/config"
 VENV_PATH="/lustre/orion/syb111/world-shared/environments/pytorch-rocm"
 MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/${MODEL_NAME}"
 DATA_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
-DS_PATH="/lustre/orion/syb111/proj-shared/Personal/dandyjt/mentor-rl/config/"
-CHECKPOINT_PATH="/lustre/orion/syb111/proj-shared/Personal/dandyjt/mentor-rl/checkpoints"
+DS_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/config/"
+CHECKPOINT_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/checkpoints"
 
 # hf
 export HF_HUB_OFFLINE=1
