@@ -1,7 +1,8 @@
-### SCRIPT FROM: https://cloud.google.com/ai-hypercomputer/docs/tutorials/fsdp-llama4 ###
 import os, sys
 import torch
 import argparse
+import json
+import numpy as np
 from pathlib import Path
 from datasets import load_dataset
 from peft import LoraConfig, PeftModel
@@ -12,11 +13,10 @@ from transformers import (
     HfArgumentParser,
 )
 
-from torch.distributed import get_rank, get_world_size
-import deepspeed
-from deepspeed.utils.zero_to_fp32 import get_fp32_state_dict_from_zero_checkpoint
+from accelerate import Accelerator, DeepSpeedPlugin, PartialState
+from torch.utils.data import DataLoader
+import torch.distributed as dist
 
-from transformers.models.llama4.modeling_llama4 import Llama4TextDecoderLayer
 from trl import SFTTrainer
 from dataclasses import dataclass, field
 from typing import Optional
@@ -26,7 +26,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from utils.utils import * 
 
-### wandb logging ###
+### SLURM VARIABLES ###
 load_dotenv()
 os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
@@ -36,12 +36,17 @@ nnodes = int(os.environ.get("SLURM_NNODES", 1))
 timeout = int(os.environ.get("SLURM_JOB_TIMEOUT", 0))
 slurm_args = argparse.Namespace(nnodes=nnodes, timeout=timeout)
 
+
+
+### ARGS ###
 @dataclass
 class ScriptArguments:
     model_path: str = field(metadata={"help": "Hugging Face model ID from the Hub"})
     dataset_path: str = field(default="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/qa_pairs.json", metadata={"help": "Local dataset path"})
     run_inference_after_training: bool = field(default=False, metadata={"help": "Run sample inference on rank 0 after training"})
     dataset_subset_size: Optional[int] = field(default=None, metadata={"help": "Number of samples to use from the dataset for training. If None, uses the full dataset."})
+    use_ds_inference: bool = field(default=False, metadata={"help": "Use DeepSpeed init_inference for distributed generation (post-training recommended)"})
+    ds_kernel_inject: bool = field(default=False, metadata={"help": "Try kernel injection for DS inference (set False on ROCm)"})
 
 @dataclass
 class PeftArguments:
@@ -54,6 +59,13 @@ class SftTrainingArguments(TrainingArguments):
     max_length: Optional[int] = field(default=2048, metadata={"help": "The maximum sequence length for SFTTrainer"})
     packing: Optional[bool] = field(default=False, metadata={"help": "Enable packing for SFTTrainer"})
     ddp_find_unused_parameters: Optional[bool] = field(default=True, metadata={"help": "When using FSDP activation checkpointing, this must be set to True"})
+
+### FORMATTING/INFERENCE ###
+def _collate_single(examples):
+    """
+    unwraps  example in a list from dataloader
+    """
+    return examples[0]
 
 def build_formatting_func(tokenizer, train=True):
     SYSTEM_PROMPT = (
@@ -69,74 +81,113 @@ def build_formatting_func(tokenizer, train=True):
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": example["question"]},
         ]
-        if train:
-            return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
-        else:
-            return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    return _fmt
+        return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+    return _fmt 
 
-def infer_with_zero3_gather(model, tokenizer, format, input):
-    """
-    Inference function that properly handles DeepSpeed ZeRO-3 partitioned weights.
-    Uses deepspeed.zero.GatheredParameters context manager to gather weights for generation.
-    """
-    results = []
+def infer(model, tokenizer, format_fn, dataset, accelerator=None):
     
+    if accelerator is None:
+        # load inference config
+        local_cfg_dir = os.getenv("LOCAL_CONFIG_DIR")
+        with open(local_cfg_dir + "/ds_zero3_inference.json") as f:
+            ds_infer_cfg = json.load(f)
+        ds_inference_plugin = DeepSpeedPlugin(hf_ds_config=ds_infer_cfg)
+        inference_accelerator = Accelerator(deepspeed_plugin=ds_inference_plugin)
+    else:
+        inference_accelerator = accelerator
+    inference_accelerator.print(f"Accelerator loaded.")
+
+    # loading inference model
+    #print("loading inference model")
+    #inference_model = AutoModelForCausalLM.from_pretrained(
+    #    model_path,
+    #    dtype=torch.bfloat16,
+    #    attn_implementation="eager"
+    #)
+    inference_model=model
+    inference_model.eval()
+    inference_accelerator.print("Inference model loaded.")
+
+    dataloader = DataLoader(dataset,
+                            batch_size=1,
+                            shuffle=False,
+                            collate_fn=_collate_single)
+    
+    # accelerator.prepare model for distributed inference
+    if accelerator is None: 
+        inference_model, dataloader = inference_accelerator.prepare(inference_model, dataloader)
+    else:
+        dataloader = inference_accelerator.prepare(dataloader)
+
+    results=[]
     with torch.no_grad():
-        for example in input:
-            formatted = format(example)
-            inputs = tokenizer(formatted, return_tensors="pt").to(model.device)
+        for i, example in enumerate(dataloader):
+            formatted = format_fn(example)
+            inputs = tokenizer(formatted, return_tensors="pt").to(inference_model.device)
             input_len = inputs["input_ids"].shape[1]
-            
-            # CRITICAL: Gather all model parameters for generation with ZeRO-3
-            # This temporarily materializes the full model on each rank
-            with deepspeed.zero.GatheredParameters(model.parameters(), modifier_rank=None):
-                output = model.generate(
-                    **inputs,
-                    max_new_tokens=50,
-                    temperature=0.7,
-                    top_p=0.9,
-                    do_sample=True,
-                    eos_token_id=tokenizer.eos_token_id,
-                    pad_token_id=tokenizer.eos_token_id,
-                )
+
+            inference_accelerator.print(f"Generating completion {i}/{len(dataloader)}...")
+            output = inference_model.generate(
+                **inputs,
+                max_new_tokens=50,
+                temperature=0.7,
+                top_p=0.9,
+                do_sample=True,
+                eos_token_id=tokenizer.eos_token_id,
+                synced_gpus=True
+            )
 
             new_ids = output[0][input_len:]
             text = tokenizer.decode(new_ids, skip_special_tokens=True)
             results.append(text)
     
+    # clear memory, free cache
+    del inference_model, dataloader, inference_accelerator
+    torch.cuda.empty_cache()
     return results
 
 def main():
+
+    ############################
+    # MODEL LOADING / PRE-REQS #
+    ############################
+    # get rank, world_size
+    state = PartialState()
+    rank = state.process_index
+
     # extract args from classes
     parser = HfArgumentParser((ScriptArguments, PeftArguments, SftTrainingArguments))
     script_args, peft_args, training_args = parser.parse_args_into_dataclasses()
-
-    # get rank, world size for distributed
-    rank = get_rank()
-    world_size = get_world_size()
 
     # make run name
     training_args.run_name = make_run_name(script_args, peft_args, training_args, slurm_args)
     training_args.optim = "adamw_torch_fused"
     training_args.gradient_checkpointing = True
 
-    # load tokenizer and ensure padding is set
+    # load tokenizer and fix padding token
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_path)
+    
     if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+    
+    # Verify pad_token_id is within vocabulary range
+    if tokenizer.pad_token_id >= tokenizer.vocab_size:
+        if rank == 0:
+            print(f"[WARNING] pad_token_id ({tokenizer.pad_token_id}) >= vocab_size ({tokenizer.vocab_size}), setting to eos_token_id")
         tokenizer.pad_token = tokenizer.eos_token
         tokenizer.pad_token_id = tokenizer.eos_token_id
     
     formatting_func = build_formatting_func(tokenizer)
 
-    # load model
+    # load model (attn is eager for compatibility)
     model = AutoModelForCausalLM.from_pretrained(
         script_args.model_path,
         dtype=torch.bfloat16,
         attn_implementation="eager",
     )
     model.gradient_checkpointing_enable()
-    model.use_cache = False
+    model.use_cache = False  # needed for gradient checkpointing
     model.config.use_cache = False
     model.config.output_attentions = False
     model.config.output_hidden_states = False
@@ -151,31 +202,47 @@ def main():
         target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
     )
 
+    ###################    
+    # DATASET LOADING #
+    ###################
+
     # load dataset
     dataset = load_dataset("json", data_files=script_args.dataset_path, split="train")
 
     # Subset dataset if specified
     if script_args.dataset_subset_size is not None:
         dataset = dataset.select(range(script_args.dataset_subset_size))
-    else:
-        if rank == 0:
-            print(f"Using the full dataset with {len(dataset)} samples.")
-    
     dataset = dataset.shuffle(seed=training_args.seed)
-    if rank == 0:
-        print(f"Dataset shuffled with seed: {training_args.seed}.")
-    
-    # if using multiple GPUs, shard the dataset
-    if world_size > 1:
-        if rank == 0:
-            print(f"Sharding dataset for {world_size} ranks.")
-        dataset = dataset.shard(num_shards=world_size, index=rank)
 
-    # init trainer FIRST to initialize DeepSpeed
+    ##########################    
+    # PRE TRAINING INFERENCE #
+    ##########################
     if rank == 0:
-        print(f"[rank {rank}] Initializing SFTTrainer...")
+        print(f"Running pre-training inference...")
+    inf_ds = dataset.select(range(1))
+    inf_format = build_formatting_func(tokenizer, train=False)
+    pre_outputs = infer(
+        model,
+        tokenizer,
+        inf_format,
+        inf_ds,
+    ) 
+    pre_score = check_accuracy(pre_outputs, list(inf_ds["answer"]))
+    if isinstance(pre_score, list):
+        pre_score = np.mean(pre_score)
+ 
+    if rank == 0:
+        print(f"Pre-training inference complete. Average Score={pre_score:.2%}")
+        print("Outputs:", pre_outputs)
+
+    ############    
+    # TRAINING #
+    ############    
+
+    if rank == 0:
+        print(f"Initializing trainer...")
+    # init and run trainer
     training_args.report_to = ["wandb"]
-
     trainer = SFTTrainer(
         model=model,
         args=training_args,
@@ -186,51 +253,37 @@ def main():
     )
 
     if rank == 0:
-        print(f"[rank {rank}] Trainer initialized successfully.")
-    
-    # NOW perform pre-training inference with DeepSpeed-initialized model
-    if rank == 0:
-        print(f"\n[rank {rank}] Performing initial inference with ZeRO-3...\n", flush=True)
-    
-    inference_set = dataset.select(range(min(1, len(dataset))))
-    format_infer = build_formatting_func(tokenizer, train=False)
-    
-    # Use the DeepSpeed-wrapped model from trainer
-    trainer.model.eval()
-    outputs = infer_with_zero3_gather(trainer.model, tokenizer, format_infer, inference_set)
-    
-    if rank == 0:
-        print(f"\n[Rank {rank}] Initial inference results:", check_accuracy(
-            outputs, list(inference_set["answer"])), "\n", flush=True)
-    
-    trainer.model.train()
-    
-    # Synchronize all ranks
-    if world_size > 1:
-        torch.distributed.barrier()
-
+        print(f"Trainer initialized successfully, beginning training...") 
     # Run training
-    if rank == 0:
-        print(f"[rank {rank}] Beginning training...")
     trainer.train()
 
     if rank == 0:
-        print(f"[rank {rank}] Training finished, saving model...")
+        print(f"Training complete. Saving...")
     trainer.save_model(training_args.output_dir)
-
-    # perform post-training inference with ZeRO-3
     if rank == 0:
-        print(f"\n[Rank {rank}] Performing post-training inference with ZeRO-3...\n", flush=True)
-    
-    trainer.model.eval()
-    outputs = infer_with_zero3_gather(trainer.model, tokenizer, format_infer, inference_set)
-    
-    if rank == 0:
-        print(f"\n[Rank {rank}] Final inference results:", check_accuracy(outputs, list(inference_set["answer"])), "\n", flush=True)
+        print(f"Model saved to {training_args.output_dir}")
 
-    # Synchronize all ranks before exit
-    if world_size > 1:
-        torch.distributed.barrier()
+    ###########################   
+    # POST TRAINING INFERENCE #
+    ###########################
+    if rank == 0:
+        print(f"Running post-training inference...")
+    post_outputs = infer(
+        trainer.model,
+        tokenizer,
+        inf_format,
+        inf_ds,
+        trainer.accelerator
+    ) 
+    post_score = check_accuracy(post_outputs, list(inf_ds["answer"]))
+    if isinstance(post_score, list):
+        post_score = np.mean(post_score)
+ 
+    if rank == 0:
+        print(f"Post-training inference complete. Average Score={post_score:.2%}")
+        print(f"Performance improvement: {(post_score - pre_score):.2%}")
+        print("Outputs:", post_outputs)
+
 
 if __name__ == "__main__":
     main()

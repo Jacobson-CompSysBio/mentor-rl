@@ -9,7 +9,7 @@
     "contiguous_gradients": true,
     "reduce_bucket_size": 100000000,
     "stage3_prefetch_bucket_size": 100000000,
-    "stage3_param_persistence_threshold": 0,
+    "stage3_param_persistence_threshold": 1e6,
     "sub_group_size": 500000000,
     "offload_param": {
       "device": "cpu",
