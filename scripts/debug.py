@@ -42,7 +42,8 @@ slurm_args = argparse.Namespace(nnodes=nnodes, timeout=timeout)
 @dataclass
 class ScriptArguments:
     model_path: str = field(metadata={"help": "Hugging Face model ID from the Hub"})
-    dataset_path: str = field(default="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/qa_pairs.json", metadata={"help": "Local dataset path"})
+    dataset_path: str = field(metadata={"help": "Local dataset path"})
+    
     run_inference_after_training: bool = field(default=False, metadata={"help": "Run sample inference on rank 0 after training"})
     dataset_subset_size: Optional[int] = field(default=None, metadata={"help": "Number of samples to use from the dataset for training. If None, uses the full dataset."})
 

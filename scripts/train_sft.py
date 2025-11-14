@@ -1,8 +1,15 @@
+<<<<<<< HEAD
 import os, sys
 import torch
 import argparse
 import json
 import numpy as np
+=======
+### SCRIPT FROM: https://cloud.google.com/ai-hypercomputer/docs/tutorials/fsdp-llama4 ###
+import os, sys
+import torch
+import argparse
+>>>>>>> main
 from pathlib import Path
 from datasets import load_dataset
 from peft import LoraConfig, PeftModel
@@ -13,10 +20,16 @@ from transformers import (
     HfArgumentParser,
 )
 
+<<<<<<< HEAD
 from accelerate import Accelerator, DeepSpeedPlugin, PartialState
 from torch.utils.data import DataLoader
 import torch.distributed as dist
 
+=======
+from torch.distributed import get_rank, get_world_size
+
+from transformers.models.llama4.modeling_llama4 import Llama4TextDecoderLayer
+>>>>>>> main
 from trl import SFTTrainer
 from dataclasses import dataclass, field
 from typing import Optional
@@ -26,7 +39,11 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from utils.utils import * 
 
+<<<<<<< HEAD
 ### SLURM VARIABLES ###
+=======
+### wandb logging ###
+>>>>>>> main
 load_dotenv()
 os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
@@ -36,17 +53,23 @@ nnodes = int(os.environ.get("SLURM_NNODES", 1))
 timeout = int(os.environ.get("SLURM_JOB_TIMEOUT", 0))
 slurm_args = argparse.Namespace(nnodes=nnodes, timeout=timeout)
 
+<<<<<<< HEAD
 
 
 ### ARGS ###
+=======
+>>>>>>> main
 @dataclass
 class ScriptArguments:
     model_path: str = field(metadata={"help": "Hugging Face model ID from the Hub"})
     dataset_path: str = field(default="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/qa_pairs.json", metadata={"help": "Local dataset path"})
     run_inference_after_training: bool = field(default=False, metadata={"help": "Run sample inference on rank 0 after training"})
     dataset_subset_size: Optional[int] = field(default=None, metadata={"help": "Number of samples to use from the dataset for training. If None, uses the full dataset."})
+<<<<<<< HEAD
     use_ds_inference: bool = field(default=False, metadata={"help": "Use DeepSpeed init_inference for distributed generation (post-training recommended)"})
     ds_kernel_inject: bool = field(default=False, metadata={"help": "Try kernel injection for DS inference (set False on ROCm)"})
+=======
+>>>>>>> main
 
 @dataclass
 class PeftArguments:
@@ -60,6 +83,7 @@ class SftTrainingArguments(TrainingArguments):
     packing: Optional[bool] = field(default=False, metadata={"help": "Enable packing for SFTTrainer"})
     ddp_find_unused_parameters: Optional[bool] = field(default=True, metadata={"help": "When using FSDP activation checkpointing, this must be set to True"})
 
+<<<<<<< HEAD
 ### FORMATTING/INFERENCE ###
 def _collate_single(examples):
     """
@@ -68,6 +92,9 @@ def _collate_single(examples):
     return examples[0]
 
 def build_formatting_func(tokenizer, train=True):
+=======
+def build_formatting_func(tokenizer):
+>>>>>>> main
     SYSTEM_PROMPT = (
         "You are a helpful biological chatbot. You will be given a biological question; "
         "return the correct answer."
@@ -77,6 +104,7 @@ def build_formatting_func(tokenizer, train=True):
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": example["question"]},
             {"role": "assistant", "content": example["answer"]},
+<<<<<<< HEAD
         ] if train else [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": example["question"]},
@@ -155,6 +183,13 @@ def main():
     state = PartialState()
     rank = state.process_index
 
+=======
+        ]
+        return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+    return _fmt
+
+def main():
+>>>>>>> main
     # extract args from classes
     parser = HfArgumentParser((ScriptArguments, PeftArguments, SftTrainingArguments))
     script_args, peft_args, training_args = parser.parse_args_into_dataclasses()
@@ -164,6 +199,7 @@ def main():
     training_args.optim = "adamw_torch_fused"
     training_args.gradient_checkpointing = True
 
+<<<<<<< HEAD
     # load tokenizer and fix padding token
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_path)
     
@@ -185,6 +221,17 @@ def main():
         script_args.model_path,
         dtype=torch.bfloat16,
         attn_implementation="eager",
+=======
+    # load tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(script_args.model_path)
+    formatting_func = build_formatting_func(tokenizer)
+
+    # load model (attn is sdpa)
+    model = AutoModelForCausalLM.from_pretrained(
+        script_args.model_path,
+        dtype=torch.bfloat16,
+        attn_implementation="eager"
+>>>>>>> main
     )
     model.gradient_checkpointing_enable()
     model.use_cache = False  # needed for gradient checkpointing
@@ -201,10 +248,17 @@ def main():
         task_type="CAUSAL_LM",
         target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
     )
+<<<<<<< HEAD
 
     ###################    
     # DATASET LOADING #
     ###################
+=======
+    
+    # get rank, world size for distributed
+    rank = get_rank()
+    world_size = get_world_size()
+>>>>>>> main
 
     # load dataset
     dataset = load_dataset("json", data_files=script_args.dataset_path, split="train")
@@ -212,6 +266,7 @@ def main():
     # Subset dataset if specified
     if script_args.dataset_subset_size is not None:
         dataset = dataset.select(range(script_args.dataset_subset_size))
+<<<<<<< HEAD
     dataset = dataset.shuffle(seed=training_args.seed)
 
     ##########################    
@@ -243,6 +298,23 @@ def main():
         print(f"Initializing trainer...")
     # init and run trainer
     training_args.report_to = ["wandb"]
+=======
+    else:
+        print(f"Using the full dataset with {len(dataset)} samples.")
+
+    dataset = dataset.shuffle(seed=training_args.seed)
+    print(f"Dataset shuffled with seed: {training_args.seed}.")
+
+    # if using multiple GPUs, shard the dataset
+    if world_size > 1:
+        print(f"Sharding dataset for Rank {rank} of {world_size}.")
+        dataset = dataset.shard(num_shards=world_size, index=rank)
+
+    # init and run trainer
+    print("Initializing SFTTrainer...")
+    training_args.report_to = ["wandb"]
+
+>>>>>>> main
     trainer = SFTTrainer(
         model=model,
         args=training_args,
@@ -252,6 +324,7 @@ def main():
         processing_class=tokenizer,
     )
 
+<<<<<<< HEAD
     if rank == 0:
         print(f"Trainer initialized successfully, beginning training...") 
     # Run training
@@ -287,3 +360,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+=======
+    trainer.train()
+    trainer.save_model(training_args.output_dir)
+
+if __name__ == "__main__":
+    main()
+>>>>>>> main
