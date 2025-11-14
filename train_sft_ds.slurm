@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=inf-debug
+#SBATCH --job-name=120b-inf-debug
 #SBATCH -A SYB114
-#SBATCH -N 2
-#SBATCH -t 0:10:00
-#SBATCH -p batch
-#SBATCH -q debug
+#SBATCH -N 4
+#SBATCH -t 12:00:00
+#SBATCH -p extended
+##SBATCH -q debug
 #SBATCH -C nvme
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
@@ -39,7 +39,7 @@ echo "Job ID: $SLURM_JOB_ID"
 echo "Node List: $SLURM_JOB_NODELIST"
 
 # --- Define Paths ---
-MODEL_NAME="Llama-3.2-1B-Instruct"
+MODEL_NAME="gpt-oss-120b-bf16"
 
 export LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 export LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
@@ -140,7 +140,7 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
       --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
       --deepspeed="'${LOCAL_CONFIG_DIR}'/ds_zero3.json" \
       --seed=900913 \
-      --num_train_epochs=0.01 \
+      --num_train_epochs=10 \
       --per_device_train_batch_size=1 \
       --gradient_accumulation_steps=4 \
       --learning_rate=2e-5 \

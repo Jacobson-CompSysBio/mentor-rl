@@ -126,7 +126,7 @@ def infer(model, tokenizer, format_fn, dataset, accelerator=None):
             inputs = tokenizer(formatted, return_tensors="pt").to(inference_model.device)
             input_len = inputs["input_ids"].shape[1]
 
-            inference_accelerator.print(f"Generating completion {i}/{len(dataloader)}...")
+            #inference_accelerator.print(f"Generating completion {i}/{len(dataloader)}...")
             output = inference_model.generate(
                 **inputs,
                 max_new_tokens=50,
@@ -219,7 +219,7 @@ def main():
     ##########################
     if rank == 0:
         print(f"Running pre-training inference...")
-    inf_ds = dataset.select(range(1))
+    inf_ds = dataset.select(range(20))
     inf_format = build_formatting_func(tokenizer, train=False)
     pre_outputs = infer(
         model,
