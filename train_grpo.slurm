@@ -84,8 +84,9 @@ export FI_MR_CACHE_MONITOR=kdreg2     # Required to avoid a deadlock.
 export FI_CXI_DEFAULT_CQ_SIZE=131072  # Ask the network stack to allocate additional space to process message completions.
 export FI_CXI_DEFAULT_TX_SIZE=2048    # Ask the network stack to allocate additional space to hold pending outgoing messages.
 export FI_CXI_RX_MATCH_MODE=hybrid    # Allow the network stack to transition to software mode if necessary.
+export FI_CXI_ATS=0
 
-export NCCL_NET_GDR_LEVEL=3           # Typically improves performance, but remove this setting if you encounter a hang/crash.
+export NCCL_NET_GDR_LEVEL=0
 export NCCL_CROSS_NIC=1               # On large systems, this NCCL setting has been found to improve performance
 export NCCL_SOCKET_IFNAME=hsn0        # NCCL/RCCL will use the high speed network to coordinate startup.
 export NCCL_OFI_USE_NICLIST=hsn0
@@ -208,7 +209,7 @@ srun --overlap -N1 -n1 -w "${VLLM_HEAD_NODE}" --export=ALL \
     export FI_CXI_DEFAULT_TX_SIZE=2048    # Ask the network stack to allocate additional space to hold pending outgoing messages.
     export FI_CXI_RX_MATCH_MODE=hybrid    # Allow the network stack to transition to software mode if necessary.
 
-    export NCCL_NET_GDR_LEVEL=3           # Typically improves performance, but remove this setting if you encounter a hang/crash.
+    
     export NCCL_CROSS_NIC=1               # On large systems, this NCCL setting has been found to improve performance
     export NCCL_SOCKET_IFNAME=hsn0        # NCCL/RCCL will use the high speed network to coordinate startup.
     export NCCL_OFI_USE_NICLIST=hsn0
@@ -255,7 +256,6 @@ for ((i=1; i<${VLLM_NODE_COUNT}; i++)); do
       export FI_CXI_DEFAULT_TX_SIZE=2048    # Ask the network stack to allocate additional space to hold pending outgoing messages.
       export FI_CXI_RX_MATCH_MODE=hybrid    # Allow the network stack to transition to software mode if necessary.
 
-      export NCCL_NET_GDR_LEVEL=3           # Typically improves performance, but remove this setting if you encounter a hang/crash.
       export NCCL_CROSS_NIC=1               # On large systems, this NCCL setting has been found to improve performance
       export NCCL_SOCKET_IFNAME=hsn0        # NCCL/RCCL will use the high speed network to coordinate startup.
       export NCCL_OFI_USE_NICLIST=hsn0
@@ -299,7 +299,6 @@ srun --overlap -N1 -n1 -w "$VLLM_HEAD_NODE" --export=ALL \
     export FI_CXI_DEFAULT_TX_SIZE=2048    # Ask the network stack to allocate additional space to hold pending outgoing messages.
     export FI_CXI_RX_MATCH_MODE=hybrid    # Allow the network stack to transition to software mode if necessary.
 
-    export NCCL_NET_GDR_LEVEL=3           # Typically improves performance, but remove this setting if you encounter a hang/crash.
     export NCCL_CROSS_NIC=1               # On large systems, this NCCL setting has been found to improve performance
     export NCCL_SOCKET_IFNAME=hsn0        # NCCL/RCCL will use the high speed network to coordinate startup.
     export NCCL_OFI_USE_NICLIST=hsn0
@@ -308,7 +307,6 @@ srun --overlap -N1 -n1 -w "$VLLM_HEAD_NODE" --export=ALL \
     export NCCL_SOCKET_IFNAME=hsn0
     export NCCL_DEBUG=INFO  # Use INFO for initial debugging
     export NCCL_IB_DISABLE=0
-    export NCCL_NET_GDR_LEVEL=3
     export NCCL_CROSS_NIC=1
     export NCCL_ALGO=Tree
     export NCCL_PROTO=Simple
@@ -353,20 +351,27 @@ srun --overlap -N1 -n1 --export=ALL -w "${TRAIN_PROBE_NODE}" bash -c "
   set -e
   
   echo '[1/4] Testing /health endpoint...'
-  if curl -sf http://${HEAD_IP}:${VLLM_HTTP_PORT}/health 2>/dev/null; then
-    echo '[HEALTH CHECK] Health check passed'
-  else
-    echo '[HEALTH CHECK] Health check failed (non-critical)'
-  fi
+  for i in {1..180}; do
+    if curl -sf http://${HEAD_IP}:${VLLM_HTTP_PORT}/health 2>/dev/null; then
+      echo \"[HEALTH CHECK] Health check passed on attempt \$i\"
+      break
+    fi
+    echo \"[HEALTH CHECK] vLLM not ready yet (attempt \$i), sleeping 10s...\"
+    sleep 10
+  done 
   
   echo ''
   echo '[2/4] Testing /v1/models endpoint...'
-  MODELS=\$(curl -sf http://${HEAD_IP}:${VLLM_HTTP_PORT}/v1/models 2>/dev/null)
-  if echo \"\$MODELS\" | grep -q '\"object\":\"list\"'; then
-    echo '[HEALTH CHECK] Models endpoint working'
-    echo \"  Available models: \$(echo \"\$MODELS\" | grep -o '\"id\":\"[^\"]*\"' | head -1)\"
+  if MODELS=\$(curl -sf http://${HEAD_IP}:${VLLM_HTTP_PORT}/v1/models 2>/dev/null); then
+    if echo \"\$MODELS\" | grep -q '\"object\":\"list\"'; then
+      echo '[HEALTH CHECK] Models endpoint working'
+      echo \"  Available models: \$(echo \"\$MODELS\" | grep -o '\"id\":\"[^\"]*\"' | head -1)\"
+    else
+      echo '[HEALTH CHECK] Models endpoint returned unexpected payload'
+      exit 1
+    fi
   else
-    echo '[HEALTH CHECK] Models endpoint failed'
+    echo '[HEALTH CHECK] Models endpoint failed (connection or HTTP error)'
     exit 1
   fi
   
