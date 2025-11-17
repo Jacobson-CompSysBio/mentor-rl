@@ -1,16 +1,16 @@
 #!/bin/bash
 #SBATCH --job-name=grpo-ds-debug
 #SBATCH -A SYB114
-#SBATCH -N 4
-#SBATCH -t 00:15:00
+#SBATCH -N 4 
+#SBATCH -t 0:15:00
 #SBATCH -p batch 
 #SBATCH -C nvme
 #SBATCH -q debug
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
-#SBATCH -o logs/%x-%j.out # Out Path
-#SBATCH -e logs/%x-%j.err # Err Path
-#SBATCH --open-mode=truncate # Overwrite .out/.err
+#SBATCH -o logs/%x-%j.out
+#SBATCH -e logs/%x-%j.err
+#SBATCH --open-mode=truncate
 
 set -euo pipefail
 set -x
@@ -21,7 +21,6 @@ module load rocm/6.3.1
 module load craype-accel-amd-gfx90a
 module load gcc/12.2.0
 
-# export compilers
 export CC=cc
 export CXX=CC
 export CMAKE_C_COMPILER=cc
@@ -43,11 +42,9 @@ export MASTER_ADDR=$(echo ${MASTER_ADDR} | sed 's/^\([^\.]*\)/\1-hsn0/')
 export MASTER_PORT=29500
 
 # --- Define Paths ---
-MODEL_NAME="gpt-oss-20b-bf16"
+MODEL_NAME="Llama-3.2-1B-Instruct"  # Change to your large model
 
 LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
-LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
-LOCAL_CACHE_DIR="${LOCAL_SSD_PATH}/hf_cache"
 LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/${MODEL_NAME}/"
 LOCAL_DATA_DIR="${LOCAL_SSD_PATH}/data"
 LOCAL_CONFIG_DIR="${LOCAL_SSD_PATH}/config"
@@ -63,31 +60,25 @@ mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE"
 
 # --- STAGE 1: Stage Data to Local SSD on Each Node ---
 srun --kill-on-bad-exit=1 --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
-  echo '--- Staging on node: $(hostname) ---'
-
-  mkdir -p ${LOCAL_SSD_PATH} ${LOCAL_MODEL_DIR} ${LOCAL_ENV_DIR} ${LOCAL_DATA_DIR} ${LOCAL_CONFIG_DIR}
-
+  echo '--- Staging on node: \$(hostname) ---'
+  mkdir -p ${LOCAL_SSD_PATH} ${LOCAL_MODEL_DIR} ${LOCAL_DATA_DIR} ${LOCAL_CONFIG_DIR}
   echo 'Python check:'; which python; python -c 'import torch,sys; print(torch.__version__, sys.executable)'
-
   echo 'Copying model weights...'
-  rsync -a --info=progress2 "${MODEL_PATH}/" "${LOCAL_MODEL_DIR}"
-
+  rsync -a --info=progress2 \"${MODEL_PATH}/\" \"${LOCAL_MODEL_DIR}\"
   echo 'Copying dataset...'
   rsync -a --info=progress2 ${DATA_PATH} ${LOCAL_DATA_DIR}
-
   echo 'Copying DS config...'
   rsync -a --info=progress2 ${DS_PATH} ${LOCAL_CONFIG_DIR}
-
   mkdir -p ${LOCAL_SSD_PATH}/hf_cache
-
-  echo '--- Staging on $(hostname) complete ---'
+  echo '--- Staging on \$(hostname) complete ---'
 "
 echo "--- Staging complete on all nodes ---"
 
-# --- STAGE 2: Run the Training Job ---
 echo "--- Launching Distributed Training with RCCL Plugin ---"
 
-# rccl settings
+# ========================================
+# CRITICAL: RCCL/NCCL Environment Setup for Multi-Node
+# ========================================
 export FI_PROVIDER=cxi
 export FI_MR_CACHE_MONITOR=kdreg2     # Required to avoid a deadlock.
 export FI_CXI_DEFAULT_CQ_SIZE=131072  # Ask the network stack to allocate additional space to process message completions.
@@ -100,89 +91,337 @@ export NCCL_SOCKET_IFNAME=hsn0        # NCCL/RCCL will use the high speed networ
 export NCCL_OFI_USE_NICLIST=hsn0
 export GLOO_SOCKET_IFNAME=hsn0
 
-# for distributed
+#export NCCL_NET=Socket
+export NCCL_DEBUG=INFO
+
+# Additional RCCL settings for stability
+export NCCL_IB_DISABLE=0
+export NCCL_ALGO=Tree
+export NCCL_PROTO=Simple
+export NCCL_MIN_NCHANNELS=16
+export NCCL_P2P_LEVEL=SYS
+export NCCL_P2P_DISABLE=0
+
+# For distributed
 export PYTORCH_ROCM_ARCH=gfx90a
 export ROCM_HOME=/opt/rocm-6.3.1
-export NCCL_DEBUG=INFO # Un-comment to diagnose NCCL issues if needed
+export NCCL_DEBUG=WARN  # Change to INFO for debugging
 export HSA_XNACK=0
+export DS_ACCELERATOR=cuda
+export OMP_NUM_THREADS=8
 
-# --- Per-rank, node-local caches to avoid Triton/Inductor races ---
+# Force V0 engine - more stable for multi-node PP
+export VLLM_USE_V1=0
+
+# Per-rank, node-local caches
 export LOCAL_CACHE_BASE="${LOCAL_SSD_PATH}/caches"
 mkdir -p "${LOCAL_CACHE_BASE}"
-
-# Optional: keep HIP allocator log quiet (unrelated warning you saw)
 export PYTORCH_HIP_ALLOC_CONF="expandable_segments:False"
 
-# wandb
+# ========================================
+# Node Allocation Strategy for Large Models
+# ========================================
+NODELIST=($(scontrol show hostnames "$SLURM_JOB_NODELIST"))
+NUM_NODES=${#NODELIST[@]}
+
+# For 100B+ models, use more nodes for vLLM
+# Example: 8 nodes total -> 2 for training, 6 for vLLM
+TRAIN_NODE_COUNT=$(( $SLURM_NNODES / 2 ))
+VLLM_NODE_COUNT=$((NUM_NODES - TRAIN_NODE_COUNT))
+
+TRAIN_NODES=("${NODELIST[@]:0:${TRAIN_NODE_COUNT}}")
+VLLM_NODES=("${NODELIST[@]:${TRAIN_NODE_COUNT}:${VLLM_NODE_COUNT}}")
+
+TRAIN_NODELIST_CSV="$(IFS=,; echo "${TRAIN_NODES[*]}")"
+VLLM_NODELIST_CSV="$(IFS=,; echo "${VLLM_NODES[*]}")"
+VLLM_HEAD_NODE="${VLLM_NODES[0]}"
+
+echo "=== Node Allocation ==="
+echo "Total nodes: ${NUM_NODES}"
+echo "Training nodes (${TRAIN_NODE_COUNT}): ${TRAIN_NODELIST_CSV}"
+echo "vLLM nodes (${VLLM_NODE_COUNT}): ${VLLM_NODELIST_CSV}"
+echo "vLLM head: ${VLLM_HEAD_NODE}"
+
+# ========================================
+# vLLM Configuration for Large Models
+# ========================================
+export VLLM_HTTP_PORT=${VLLM_HTTP_PORT:-51001}
+export VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
+
+# For 100B+ models:
+# - TP size: 8 (one node)
+# - PP size: number of vLLM nodes
+export TENSOR_PARALLEL_SIZE=8
+export PIPELINE_PARALLEL_SIZE=${VLLM_NODE_COUNT}
+
+echo "=== vLLM Parallelism Config ==="
+echo "Tensor Parallel: ${TENSOR_PARALLEL_SIZE}"
+echo "Pipeline Parallel: ${PIPELINE_PARALLEL_SIZE}"
+echo "Total GPUs for inference: $((TENSOR_PARALLEL_SIZE * PIPELINE_PARALLEL_SIZE))"
+
+# Resolve IPs
+export HEAD_IP=$(srun -N1 -n1 -w "$VLLM_HEAD_NODE" bash --noprofile --norc -lc 'hostname -I | awk "{print \$1}"')
+echo "[INFO] VLLM_HEAD=${VLLM_HEAD_NODE} | HEAD_IP=${HEAD_IP}"
+
+# Proxy settings
 export https_proxy=http://proxy.ccs.ornl.gov:3128
 export http_proxy=$https_proxy
 export WANDB_HTTP_TIMEOUT=90
+export NO_PROXY="localhost,127.0.0.1,${MASTER_ADDR},${HEAD_IP},${VLLM_NODELIST_CSV//,/,},*.olcf.ornl.gov"
+export no_proxy="$NO_PROXY"
 
-# pick nodes; use half for weight updates, half for generation
-NODELIST=($(scontrol show hostnames $SLURM_JOB_NODELIST))
-NUM_NODES=${#NODELIST[@]}
-SPLIT=$((NUM_NODES / 2))
-GRPO_NODES=$(printf -v joined '%s', "${NODELIST[@]:0:SPLIT}"; echo "${joined%,}")
+export OPENAI_BASE_URL="http://${HEAD_IP}:${VLLM_HTTP_PORT}/v1"
+export OPENAI_API_KEY="dummy"
 
-RAY_HEAD_NODE=${NODELIST[SPLIT]}
-RAY_HEAD_NODE_IP=$(echo ${RAY_HEAD_NODE} | sed 's/^\([^\.]*\)/\1-hsn0/')
-RAY_WORKER_NODES=$(printf -v joined '%s', "${NODELIST[@]:SPLIT+1}"; echo "${joined%,}")
+# ========================================
+# Ray Configuration for Multi-Node
+# ========================================
+export RAY_NODE_IP_ADDRESS=${HEAD_IP}
+export RAY_PORT=${RAY_PORT:-6379}
+export RAY_DASHBOARD_PORT=${RAY_DASHBOARD_PORT:-8265}
+export RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0
 
-# launch vLLM with Ray
-export RAY_PORT=6379
-export VLLM_HTTP_PORT=51001
-export LD_PRELOAD=/usr/lib64/libstdc++.so.6
-export VLLM_WORKER_MULTIPROC_METHOD=spawn
-RAY_HEAD_CMD="
-export HIP_VISIBLE_DEVICES=\${ROCR_VISIBLE_DEVICES} ;
-unset ROCR_VISIBLE_DEVICES ;
-export VLLM_HOST_IP=\$(hostname | sed 's/^\([^\.]*\)/\1-hsn0/');
-ray start --head \
-  --node-ip-address=\${VLLM_HOST_IP} \
-  --port=${RAY_PORT} \
-  --num-cpus=64 \
-  --num-gpus=8 \
-  --block &
-trl vllm-serve \
-  --model=$LOCAL_MODEL_DIR \
-  --data_parallel_size=$((NUM_NODES-SPLIT)) \
-  --tensor-parallel-size 8 \
-  --max-model-len 8192 \
-  --host \${VLLM_HOST_IP}
-  --port ${VLLM_HTTP_PORT} \
-  --distributed-executor-backend ray \
-  --ray-address="auto"
-  &
-wait
+# Critical: Don't let Ray override device visibility
+export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
+export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1
+export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
+
+export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export CUDA_VISIBLE_DEVICES="$HIP_VISIBLE_DEVICES"
+export ROCR_VISIBLE_DEVICES="$HIP_VISIBLE_DEVICES"
+
+# ========================================
+# Start Ray Cluster on All vLLM Nodes
+# ========================================
+
+# Ray HEAD
+srun --overlap -N1 -n1 -w "${VLLM_HEAD_NODE}" --export=ALL \
+  bash --noprofile --norc -c "
+    set -euo pipefail
+    ulimit -n 65536
+
+    # Propagate NCCL settings
+    export FI_PROVIDER=cxi
+    export FI_MR_CACHE_MONITOR=kdreg2     # Required to avoid a deadlock.
+    export FI_CXI_DEFAULT_CQ_SIZE=131072  # Ask the network stack to allocate additional space to process message completions.
+    export FI_CXI_DEFAULT_TX_SIZE=2048    # Ask the network stack to allocate additional space to hold pending outgoing messages.
+    export FI_CXI_RX_MATCH_MODE=hybrid    # Allow the network stack to transition to software mode if necessary.
+
+    export NCCL_NET_GDR_LEVEL=3           # Typically improves performance, but remove this setting if you encounter a hang/crash.
+    export NCCL_CROSS_NIC=1               # On large systems, this NCCL setting has been found to improve performance
+    export NCCL_SOCKET_IFNAME=hsn0        # NCCL/RCCL will use the high speed network to coordinate startup.
+    export NCCL_OFI_USE_NICLIST=hsn0
+    export GLOO_SOCKET_IFNAME=hsn0
+    
+    export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
+    export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1
+    export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
+    export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+    export CUDA_VISIBLE_DEVICES=\"\${HIP_VISIBLE_DEVICES}\"
+    export ROCR_VISIBLE_DEVICES=\"\${HIP_VISIBLE_DEVICES}\"
+
+    export VLLM_HOST_IP=${HEAD_IP}
+    export RAY_NODE_IP_ADDRESS=${HEAD_IP}
+    ray stop --force >/dev/null 2>&1 || true
+    ray start --head \
+      --node-ip-address=${HEAD_IP} \
+      --port=${RAY_PORT} \
+      --dashboard-port=${RAY_DASHBOARD_PORT} \
+      --num-gpus=8 \
+      --disable-usage-stats \
+      --block 
+  " &
+
+sleep 10  # Give head time to start
+
+# Ray WORKERS (all remaining vLLM nodes)
+for ((i=1; i<${VLLM_NODE_COUNT}; i++)); do
+  WORKER_NODE="${VLLM_NODES[$i]}"
+  WORKER_IP=$(srun -N1 -n1 -w "$WORKER_NODE" bash --noprofile --norc -lc 'hostname -I | awk "{print \$1}"')
+  
+  echo "[INFO] Starting Ray worker on ${WORKER_NODE} (${WORKER_IP})"
+  
+  srun --overlap -N1 -n1 -w "$WORKER_NODE" --export=ALL \
+    bash --noprofile --norc -c "
+      set -euo pipefail
+      ulimit -n 65536
+
+      # Propagate NCCL settings
+      # rccl settings
+      export FI_PROVIDER=cxi
+      export FI_MR_CACHE_MONITOR=kdreg2     # Required to avoid a deadlock.
+      export FI_CXI_DEFAULT_CQ_SIZE=131072  # Ask the network stack to allocate additional space to process message completions.
+      export FI_CXI_DEFAULT_TX_SIZE=2048    # Ask the network stack to allocate additional space to hold pending outgoing messages.
+      export FI_CXI_RX_MATCH_MODE=hybrid    # Allow the network stack to transition to software mode if necessary.
+
+      export NCCL_NET_GDR_LEVEL=3           # Typically improves performance, but remove this setting if you encounter a hang/crash.
+      export NCCL_CROSS_NIC=1               # On large systems, this NCCL setting has been found to improve performance
+      export NCCL_SOCKET_IFNAME=hsn0        # NCCL/RCCL will use the high speed network to coordinate startup.
+      export NCCL_OFI_USE_NICLIST=hsn0
+      export GLOO_SOCKET_IFNAME=hsn0
+      
+      export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
+      export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1
+      export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
+      export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+      export CUDA_VISIBLE_DEVICES=\"\${HIP_VISIBLE_DEVICES}\"
+      export ROCR_VISIBLE_DEVICES=\"\${HIP_VISIBLE_DEVICES}\"
+
+      export VLLM_HOST_IP=${WORKER_IP}
+      export RAY_NODE_IP_ADDRESS=${WORKER_IP}
+      ray stop --force >/dev/null 2>&1 || true
+      ray start --address=${HEAD_IP}:${RAY_PORT} \
+        --node-ip-address=${WORKER_IP} \
+        --num-gpus=8 \
+        --disable-usage-stats \
+        --block
+    " &
+done
+
+echo "##################################################"
+echo "RAY CLUSTER STARTED. LAUNCHING VLLM SERVER"
+echo "##################################################"
+
+sleep 5
+
+# ========================================
+# vLLM Serve with Pipeline Parallelism
+# ========================================
+srun --overlap -N1 -n1 -w "$VLLM_HEAD_NODE" --export=ALL \
+  bash --noprofile --norc -c "
+    set -euo pipefail 
+
+    # Propagate all NCCL/RCCL settings
+    export FI_PROVIDER=cxi
+    export FI_MR_CACHE_MONITOR=kdreg2     # Required to avoid a deadlock.
+    export FI_CXI_DEFAULT_CQ_SIZE=131072  # Ask the network stack to allocate additional space to process message completions.
+    export FI_CXI_DEFAULT_TX_SIZE=2048    # Ask the network stack to allocate additional space to hold pending outgoing messages.
+    export FI_CXI_RX_MATCH_MODE=hybrid    # Allow the network stack to transition to software mode if necessary.
+
+    export NCCL_NET_GDR_LEVEL=3           # Typically improves performance, but remove this setting if you encounter a hang/crash.
+    export NCCL_CROSS_NIC=1               # On large systems, this NCCL setting has been found to improve performance
+    export NCCL_SOCKET_IFNAME=hsn0        # NCCL/RCCL will use the high speed network to coordinate startup.
+    export NCCL_OFI_USE_NICLIST=hsn0
+    export GLOO_SOCKET_IFNAME=hsn0
+    
+    export NCCL_SOCKET_IFNAME=hsn0
+    export NCCL_DEBUG=INFO  # Use INFO for initial debugging
+    export NCCL_IB_DISABLE=0
+    export NCCL_NET_GDR_LEVEL=3
+    export NCCL_CROSS_NIC=1
+    export NCCL_ALGO=Tree
+    export NCCL_PROTO=Simple
+    export NCCL_MIN_NCHANNELS=16
+    export NCCL_P2P_LEVEL=SYS
+    
+    export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
+    export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
+    export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+    export CUDA_VISIBLE_DEVICES=\"\${HIP_VISIBLE_DEVICES}\"
+    export ROCR_VISIBLE_DEVICES=\"\${HIP_VISIBLE_DEVICES}\"
+
+    export RAY_ADDRESS=${HEAD_IP}:${RAY_PORT}
+    export VLLM_HOST_IP=${HEAD_IP}
+    export VLLM_USE_V1=0  # Force V0 engine
+    
+    echo \"[vLLM] TP=${TENSOR_PARALLEL_SIZE}, PP=${PIPELINE_PARALLEL_SIZE} on ${VLLM_NODE_COUNT} nodes\"
+    echo \"[vLLM] Using Ray at \${RAY_ADDRESS}\"
+
+    vllm serve '${LOCAL_MODEL_DIR}' \
+      --host 0.0.0.0 \
+      --port ${VLLM_HTTP_PORT} \
+      --distributed-executor-backend ray \
+      --tensor-parallel-size ${TENSOR_PARALLEL_SIZE} \
+      --pipeline-parallel-size ${PIPELINE_PARALLEL_SIZE} \
+      --dtype bfloat16 \
+      --tokenizer '${LOCAL_MODEL_DIR}' \
+      --max-model-len 8192 \
+      --enforce-eager \
+      --disable-custom-all-reduce \
+      --disable-log-stats \
+      --gpu-memory-utilization 0.90
+  " &
+
+echo "##################################################"
+echo "VLLM SERVED. PROBING SERVER..."
+echo "##################################################"
+
+TRAIN_PROBE_NODE=${TRAIN_NODES[0]}
+echo "[INFO] Waiting quietly for vLLM at http://${HEAD_IP}:${VLLM_HTTP_PORT}"
+srun --overlap -N1 -n1 --export=ALL -w "${TRAIN_PROBE_NODE}" bash -c "
+  set -e
+  
+  echo '[1/4] Testing /health endpoint...'
+  if curl -sf http://${HEAD_IP}:${VLLM_HTTP_PORT}/health 2>/dev/null; then
+    echo '[HEALTH CHECK] Health check passed'
+  else
+    echo '[HEALTH CHECK] Health check failed (non-critical)'
+  fi
+  
+  echo ''
+  echo '[2/4] Testing /v1/models endpoint...'
+  MODELS=\$(curl -sf http://${HEAD_IP}:${VLLM_HTTP_PORT}/v1/models 2>/dev/null)
+  if echo \"\$MODELS\" | grep -q '\"object\":\"list\"'; then
+    echo '[HEALTH CHECK] Models endpoint working'
+    echo \"  Available models: \$(echo \"\$MODELS\" | grep -o '\"id\":\"[^\"]*\"' | head -1)\"
+  else
+    echo '[HEALTH CHECK] Models endpoint failed'
+    exit 1
+  fi
+  
+  echo ''
+  echo '[3/4] Testing /v1/completions with a simple prompt...'
+  RESPONSE=\$(curl -sf http://${HEAD_IP}:${VLLM_HTTP_PORT}/v1/completions \
+    -H 'Content-Type: application/json' \
+    -d '{
+      \"model\": \"${MODEL_NAME}\",
+      \"prompt\": \"Hello, world! Say hi:\",
+      \"max_tokens\": 10,
+      \"temperature\": 0
+    }' 2>/dev/null)
+  
+  if echo \"\$RESPONSE\" | grep -q '\"choices\"'; then
+    echo '[HEALTH CHECK] Completion endpoint working'
+    # Extract and show the generated text
+    GENERATED=\$(echo \"\$RESPONSE\" | grep -o '\"text\":\"[^\"]*\"' | head -1)
+    echo \"  Sample output: \$GENERATED\"
+  else
+    echo '[HEALTH CHECK] Completion endpoint failed'
+    echo \"  Response: \$RESPONSE\"
+    exit 1
+  fi
+  
+  echo ''
+  echo '[4/4] Verifying OPENAI_BASE_URL environment variable...'
+  echo \"  OPENAI_BASE_URL=\${OPENAI_BASE_URL:-NOT SET}\"
+  
+  if [ -z \"\${OPENAI_BASE_URL:-}\" ]; then
+    echo '✗ OPENAI_BASE_URL is not set!'
+    exit 1
+  fi
+  
+  echo '[HEALTH CHECK] PASSED'
+  echo '[HEALTH CHECK] vLLM server is ready for TRL training!'
 "
 
-srun -w $RAY_HEAD_NODE --exclusive -n 1 --nodes=1 --ntasks-per-node=1 --gpus-per-task=8 bash -c "${RAY_HEAD_CMD}" &
-srun -w $RAY_WORKER_NODES --exclusive --nodes=$((NUM_NODES-SPLIT-1)) --ntasks-per-node=1 bash -c \
-"
-export HIP_VISIBLE_DEVICES=\${ROCR_VISIBLE_DEVICES} ;
-unset ROCR_VISIBLE_DEVICES ;
-export VLLM_HOST_IP=\$(hostname | sed 's/^\([^\.]*\)/\1-hsn0/') ;
-ray start --node-ip-address=\${VLLM_HOST_IP} --address=${RAY_HEAD_NODE_IP}:${RAY_PORT} --num-cpus=64 --num-gpus=8 --block
-" &
-export VLLM_HOST_IP=${RAY_HEAD_NODE_IP}
-export VLLM_HTTP_PORT
-export RAY_ADDRESS="ray://${RAY_HEAD_NODE_IP}:10001"
+echo "##################################################"
+echo "SERVER READY. LAUNCHING TRL TRAINING..."
+echo "##################################################"
 
-# launch actual trl
-srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 \
-  -w "$GRPO_NODES" --nodes=$SPLIT \
+# Launch training
+srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 --export=ALL \
+  -N ${#TRAIN_NODES[@]} \
+  --ntasks-per-node=8 \
+  -w "${TRAIN_NODELIST_CSV}" \
   bash -c '
-  export HIP_VISIBLE_DEVICES=\${ROCR_VISIBLE_DEVICES} 
-  unset ROCR_VISIBLE_DEVICES 
-
-  export RANK=$SLURM_PROCID
-  export WORLD_SIZE=$SLURM_NTASKS
-  export LOCAL_RANK=$SLURM_LOCALID
+  
+  export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
+  echo "[RANK ${SLURM_PROCID}] ROCR=${ROCR_VISIBLE_DEVICES} HIP=${HIP_VISIBLE_DEVICES}"
 
   export AMDSMI_GPU_METRICS_CACHE_MS=5000
   if [ "${SLURM_LOCALID}" != "0" ]; then export WANDB_MODE=disabled; fi
 
-  # --- Launch the training ---
   python \
     "'${SLURM_SUBMIT_DIR}'"/scripts/train_grpo.py \
       --model_path="'${LOCAL_MODEL_DIR}'" \
@@ -200,19 +439,7 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 \
       --lora_dropout=0.05 \
       --run_inference_after_training
 '
-wait
 
-## --- STAGE 3: Copy Final Results Back to Persistent Storage ---
-#echo "--- Copying final results from local SSD to shared storage ---"
-#PERSISTENT_OUTPUT_DIR="${HOME}/checkpoints/llama4_job_${SLURM_JOB_ID}"
-#mkdir -p "$PERSISTENT_OUTPUT_DIR"
-#
-## Only copy from the head node where trl has combined the results
-#srun --nodes=1 --ntasks=1 -w "$head_node" \
-#  rsync -a --info=progress2 "${LOCAL_SSD_PATH}/checkpoints/" "${PERSISTENT_OUTPUT_DIR}/"
-#
-## --- STAGE 4: Cleanup ---
-#echo "--- Cleaning up local SSD on all nodes ---"
-#srun --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "rm -rf ${LOCAL_SSD_PATH}"
-#
-#echo "--- Slurm Job Finished ---"
+# Cleanup
+echo "Training complete. Shutting down..."
+ray stop --force || true
