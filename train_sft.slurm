@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH --job-name=20b-inf-debug
+#SBATCH --job-name=20b-debug
 #SBATCH -A SYB114
 #SBATCH -N 4
-#SBATCH -t 6:00:00
-#SBATCH -p extended
+#SBATCH -t 00:30:00
+#SBATCH -p batch
 ##SBATCH -q debug
 #SBATCH -C nvme
 #SBATCH --ntasks-per-node=8
