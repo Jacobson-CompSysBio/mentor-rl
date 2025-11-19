@@ -84,13 +84,22 @@ export FI_CXI_DEFAULT_CQ_SIZE=131072  # Ask the network stack to allocate additi
 export FI_CXI_DEFAULT_TX_SIZE=2048    # Ask the network stack to allocate additional space to hold pending outgoing messages.
 export FI_CXI_RX_MATCH_MODE=hybrid    # Allow the network stack to transition to software mode if necessary.
 
-export NCCL_NET_GDR_LEVEL=3           # Typically improves performance, but remove this setting if you encounter a hang/crash.
-export NCCL_CROSS_NIC=1               # On large systems, this NCCL setting has been found to improve performance
-export NCCL_SOCKET_IFNAME=hsn0        # NCCL/RCCL will use the high speed network to coordinate startup.
+# --- CRITICAL FRONTIER FIXES ---
+export FI_PROVIDER=cxi                    ### ADDED: Explicitly force Slingshot provider
+export NCCL_NET=AWS                       ### ADDED: Force usage of aws-ofi-rccl plugin
+export NCCL_SOCKET_FAMILY=AF_INET         ### ADDED: Force IPv4 for NCCL sockets
+export GLOO_SOCKET_FAMILY=AF_INET         ### ADDED: Force IPv4 for Gloo/PyTorch sockets
+
+export NCCL_NET_GDR_LEVEL=3
+export NCCL_IGNORE_DISABLED_P2P=1
+export NCCL_DEBUG=INFO
+export NCCL_CROSS_NIC=1
+export NCCL_SOCKET_IFNAME=hsn0
 export GLOO_SOCKET_IFNAME=hsn0
 export GLOO_IPV6=0
-export NCCL_IGNORE_DISABLED_P2P=1
-export VLLM_NCCL_SO_PATH=/opt/rocm-6.3.1/lib/librccl.so
+
+# Disable vLLM usage stats to clean up logs/prevent timeouts
+export VLLM_NO_USAGE_STATS=1
 
 #export NCCL_NET=Socket
 export NCCL_DEBUG=INFO
@@ -102,6 +111,9 @@ export NCCL_DEBUG=WARN  # Change to INFO for debugging
 export HSA_XNACK=0
 export DS_ACCELERATOR=cuda
 export OMP_NUM_THREADS=8
+
+# Point vLLM to the system RCCL
+export VLLM_NCCL_SO_PATH=${ROCM_HOME}/lib/librccl.so
 
 # Per-rank, node-local caches
 export LOCAL_CACHE_BASE="${LOCAL_SSD_PATH}/caches"
@@ -268,7 +280,7 @@ sleep 5
 # vLLM Serve with Pipeline Parallelism
 # ========================================
 # critical: set env vars to carry with vllm
-export VLLM_CARRY_OVER_ENV_VARS="FI_MR_CACHE_MONITOR,FI_CXI_DEFAULT_CQ_SIZE,FI_CXI_DEFAULT_TX_SIZE,FI_CXI_RX_MATCH_MODE,NCCL_CROSS_NIC,NCCL_SOCKET_IFNAME,NCCL_DEBUG,LD_LIBRARY_PATH,ROCM_HOME,HSA_XNACK,PYTORCH_ROCM_ARCH,NCCL_NET_GDR_LEVEL,NCCL_IGNORE_DISABLED_P2P,VLLM_NCCL_SO_PATH"
+export VLLM_CARRY_OVER_ENV_VARS="FI_MR_CACHE_MONITOR,FI_CXI_DEFAULT_CQ_SIZE,FI_CXI_DEFAULT_TX_SIZE,FI_CXI_RX_MATCH_MODE,NCCL_CROSS_NIC,NCCL_SOCKET_IFNAME,NCCL_DEBUG,LD_LIBRARY_PATH,ROCM_HOME,HSA_XNACK,PYTORCH_ROCM_ARCH,NCCL_NET_GDR_LEVEL,NCCL_IGNORE_DISABLED_P2P,VLLM_NCCL_SO_PATH,NCCL_SOCKET_FAMILY,GLOO_SOCKET_FAMILY,FI_PROVIDER,NCCL_NET,VLLM_NO_USAGE_STATS"
 echo "vLLM will propagate these env vars to Ray workers: $VLLM_CARRY_OVER_ENV_VARS"
 
 srun --overlap -N1 -n1 -w "$VLLM_HEAD_NODE" --export=ALL \
