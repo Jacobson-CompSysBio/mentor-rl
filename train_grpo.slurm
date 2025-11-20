@@ -84,22 +84,11 @@ export FI_CXI_DEFAULT_CQ_SIZE=131072  # Ask the network stack to allocate additi
 export FI_CXI_DEFAULT_TX_SIZE=2048    # Ask the network stack to allocate additional space to hold pending outgoing messages.
 export FI_CXI_RX_MATCH_MODE=hybrid    # Allow the network stack to transition to software mode if necessary.
 
-# --- CRITICAL FRONTIER FIXES ---
-export FI_PROVIDER=cxi                    ### ADDED: Explicitly force Slingshot provider
-export NCCL_NET=AWS                       ### ADDED: Force usage of aws-ofi-rccl plugin
-export NCCL_SOCKET_FAMILY=AF_INET         ### ADDED: Force IPv4 for NCCL sockets
-export GLOO_SOCKET_FAMILY=AF_INET         ### ADDED: Force IPv4 for Gloo/PyTorch sockets
-
-export NCCL_NET_GDR_LEVEL=3
-export NCCL_IGNORE_DISABLED_P2P=1
-export NCCL_DEBUG=INFO
-export NCCL_CROSS_NIC=1
-export NCCL_SOCKET_IFNAME=hsn0
+#export NCCL_NET_GDR_LEVEL=3           # Typically improves performance, but remove this setting if you encounter a hang/crash.
+export NCCL_CROSS_NIC=1               # On large systems, this NCCL setting has been found to improve performance
+export NCCL_SOCKET_IFNAME=hsn0        # NCCL/RCCL will use the high speed network to coordinate startup.
 export GLOO_SOCKET_IFNAME=hsn0
 export GLOO_IPV6=0
-
-# Disable vLLM usage stats to clean up logs/prevent timeouts
-export VLLM_NO_USAGE_STATS=1
 
 #export NCCL_NET=Socket
 export NCCL_DEBUG=INFO
@@ -194,6 +183,9 @@ export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 export CUDA_VISIBLE_DEVICES="$HIP_VISIBLE_DEVICES"
 export ROCR_VISIBLE_DEVICES="$HIP_VISIBLE_DEVICES"
 
+export FI_PROVIDER=cxi                    ### ADDED: Explicitly force Slingshot provider
+export RDMAV_FORK_SAFE=1
+
 # Critical: set RAY_CARRY_OVER_ENV_VARS to propagate env vars
 
 # ========================================
@@ -204,16 +196,25 @@ export ROCR_VISIBLE_DEVICES="$HIP_VISIBLE_DEVICES"
 srun --overlap -N1 -n1 -w "${VLLM_HEAD_NODE}" --export=ALL \
   bash --noprofile --norc -c "
     set -euo pipefail
-    ulimit -n 65536
-    export LD_LIBRARY_PATH=/lustre/orion/syb111/proj-shared/Personal/krusepi/packages/aws-ofi-rccl/lib:$LD_LIBRARY_PATH
-    export FI_MR_CACHE_MONITOR=kdreg2     # Required to avoid a deadlock.
-    export FI_CXI_DEFAULT_CQ_SIZE=131072  # Ask the network stack to allocate additional space to process message completions.
-    export FI_CXI_DEFAULT_TX_SIZE=2048    # Ask the network stack to allocate additional space to hold pending outgoing messages.
-    export FI_CXI_RX_MATCH_MODE=hybrid    # Allow the network stack to transition to software mode if necessary.
-    export NCCL_CROSS_NIC=1               # On large systems, this NCCL setting has been found to improve performance
+    # 1. EXPLICITLY SOURCE CONDA (Crucial for Ray to find python libs)
+    source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
+    source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
+
+    # 2. EXPLICITLY EXPORT LD_LIBRARY_PATH (Crucial for aws-ofi-rccl)
+    export LD_LIBRARY_PATH=/lustre/orion/syb111/proj-shared/Personal/krusepi/packages/aws-ofi-rccl/lib:\$LD_LIBRARY_PATH
+    
+    # 3. EXPLICITLY EXPORT NETWORK VARS
+    export FI_PROVIDER=cxi
+    export FI_MR_CACHE_MONITOR=kdreg2
+    export FI_CXI_DEFAULT_CQ_SIZE=131072
+    export FI_CXI_DEFAULT_TX_SIZE=2048
+    export FI_CXI_RX_MATCH_MODE=hybrid
+    export NCCL_CROSS_NIC=1
     export NCCL_SOCKET_IFNAME=hsn0
     export GLOO_SOCKET_IFNAME=hsn0
+    export RDMAV_FORK_SAFE=1
     
+    # Ray setup
     export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
     export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1
     export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
@@ -223,6 +224,8 @@ srun --overlap -N1 -n1 -w "${VLLM_HEAD_NODE}" --export=ALL \
 
     export VLLM_HOST_IP=${HEAD_IP}
     export RAY_NODE_IP_ADDRESS=${HEAD_IP}
+    
+    ulimit -n 65536
     ray stop --force >/dev/null 2>&1 || true
     ray start --head \
       --node-ip-address=${HEAD_IP} \
@@ -243,16 +246,23 @@ for ((i=1; i<${VLLM_NODE_COUNT}; i++)); do
   srun --overlap -N1 -n1 -w "$WORKER_NODE" --export=ALL \
     bash --noprofile --norc -c "
       set -euo pipefail
-      ulimit -n 65536
+      # 1. EXPLICITLY SOURCE CONDA
+      source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
+      source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
 
-      export LD_LIBRARY_PATH=/lustre/orion/syb111/proj-shared/Personal/krusepi/packages/aws-ofi-rccl/lib:$LD_LIBRARY_PATH
-      export FI_MR_CACHE_MONITOR=kdreg2     # Required to avoid a deadlock.
-      export FI_CXI_DEFAULT_CQ_SIZE=131072  # Ask the network stack to allocate additional space to process message completions.
-      export FI_CXI_DEFAULT_TX_SIZE=2048    # Ask the network stack to allocate additional space to hold pending outgoing messages.
-      export FI_CXI_RX_MATCH_MODE=hybrid    # Allow the network stack to transition to software mode if necessary.
-      export NCCL_CROSS_NIC=1               # On large systems, this NCCL setting has been found to improve performance
+      # 2. EXPLICITLY EXPORT LD_LIBRARY_PATH
+      export LD_LIBRARY_PATH=/lustre/orion/syb111/proj-shared/Personal/krusepi/packages/aws-ofi-rccl/lib:\$LD_LIBRARY_PATH
+
+      # 3. EXPLICITLY EXPORT NETWORK VARS
+      export FI_PROVIDER=cxi
+      export FI_MR_CACHE_MONITOR=kdreg2
+      export FI_CXI_DEFAULT_CQ_SIZE=131072
+      export FI_CXI_DEFAULT_TX_SIZE=2048
+      export FI_CXI_RX_MATCH_MODE=hybrid
+      export NCCL_CROSS_NIC=1
       export NCCL_SOCKET_IFNAME=hsn0
       export GLOO_SOCKET_IFNAME=hsn0
+      export RDMAV_FORK_SAFE=1
 
       export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
       export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1
@@ -263,6 +273,8 @@ for ((i=1; i<${VLLM_NODE_COUNT}; i++)); do
 
       export VLLM_HOST_IP=${WORKER_IP}
       export RAY_NODE_IP_ADDRESS=${WORKER_IP}
+      
+      ulimit -n 65536
       ray start --address=${HEAD_IP}:${RAY_PORT} \
         --node-ip-address=${WORKER_IP} \
         --num-gpus=8 \
@@ -279,35 +291,20 @@ sleep 5
 # ========================================
 # vLLM Serve with Pipeline Parallelism
 # ========================================
-# critical: set env vars to carry with vllm
-export VLLM_CARRY_OVER_ENV_VARS="FI_MR_CACHE_MONITOR,FI_CXI_DEFAULT_CQ_SIZE,FI_CXI_DEFAULT_TX_SIZE,FI_CXI_RX_MATCH_MODE,NCCL_CROSS_NIC,NCCL_SOCKET_IFNAME,NCCL_DEBUG,LD_LIBRARY_PATH,ROCM_HOME,HSA_XNACK,PYTORCH_ROCM_ARCH,NCCL_NET_GDR_LEVEL,NCCL_IGNORE_DISABLED_P2P,VLLM_NCCL_SO_PATH,NCCL_SOCKET_FAMILY,GLOO_SOCKET_FAMILY,FI_PROVIDER,NCCL_NET,VLLM_NO_USAGE_STATS"
+# Critical: Add FI_PROVIDER and RDMAV_FORK_SAFE to carry over vars
+export VLLM_CARRY_OVER_ENV_VARS="FI_PROVIDER,RDMAV_FORK_SAFE,FI_MR_CACHE_MONITOR,FI_CXI_DEFAULT_CQ_SIZE,FI_CXI_DEFAULT_TX_SIZE,FI_CXI_RX_MATCH_MODE,NCCL_CROSS_NIC,NCCL_SOCKET_IFNAME,NCCL_DEBUG,LD_LIBRARY_PATH,ROCM_HOME,HSA_XNACK,PYTORCH_ROCM_ARCH"
+
 echo "vLLM will propagate these env vars to Ray workers: $VLLM_CARRY_OVER_ENV_VARS"
 
 srun --overlap -N1 -n1 -w "$VLLM_HEAD_NODE" --export=ALL \
   bash --noprofile --norc -c "
     set -euo pipefail 
-
-    export LD_LIBRARY_PATH=/lustre/orion/syb111/proj-shared/Personal/krusepi/packages/aws-ofi-rccl/lib:$LD_LIBRARY_PATH
-    export FI_MR_CACHE_MONITOR=kdreg2     # Required to avoid a deadlock.
-    export FI_CXI_DEFAULT_CQ_SIZE=131072  # Ask the network stack to allocate additional space to process message completions.
-    export FI_CXI_DEFAULT_TX_SIZE=2048    # Ask the network stack to allocate additional space to hold pending outgoing messages.
-    export FI_CXI_RX_MATCH_MODE=hybrid    # Allow the network stack to transition to software mode if necessary.
-    export NCCL_CROSS_NIC=1               # On large systems, this NCCL setting has been found to improve performance
-    export NCCL_SOCKET_IFNAME=hsn0
-    export GLOO_SOCKET_IFNAME=hsn0
-
-    export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
-    export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
-    export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-    export CUDA_VISIBLE_DEVICES=\"\${HIP_VISIBLE_DEVICES}\"
-    export ROCR_VISIBLE_DEVICES=\"\${HIP_VISIBLE_DEVICES}\"
-
-    export RAY_ADDRESS=${HEAD_IP}:${RAY_PORT}
-    export VLLM_HOST_IP=${HEAD_IP}
     
-    echo \"[vLLM] TP=${TENSOR_PARALLEL_SIZE}, PP=${PIPELINE_PARALLEL_SIZE} on ${VLLM_NODE_COUNT} nodes\"
-    echo \"[vLLM] Using Ray at \${RAY_ADDRESS}\"
+    export LD_LIBRARY_PATH=/lustre/orion/syb111/proj-shared/Personal/krusepi/packages/aws-ofi-rccl/lib:\$LD_LIBRARY_PATH
+    export FI_PROVIDER=cxi  # <--- ADD THIS
+    export RDMAV_FORK_SAFE=1 # <--- ADD THIS
 
+    # ... (Rest of your vllm serve command remains the same) ...
     vllm serve '${LOCAL_MODEL_DIR}' \
       --host 0.0.0.0 \
       --port ${VLLM_HTTP_PORT} \
@@ -316,7 +313,7 @@ srun --overlap -N1 -n1 -w "$VLLM_HEAD_NODE" --export=ALL \
       --pipeline-parallel-size ${PIPELINE_PARALLEL_SIZE} \
       --dtype bfloat16 \
       --tokenizer '${LOCAL_MODEL_DIR}' \
-      --max-model-len 8192 \
+      --max-model-len 256 \
       --enforce-eager \
       --disable-custom-all-reduce \
       --gpu-memory-utilization 0.90
