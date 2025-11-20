@@ -39,7 +39,7 @@ echo "Job ID: $SLURM_JOB_ID"
 echo "Node List: $SLURM_JOB_NODELIST"
 
 # --- Define Paths ---
-MODEL_NAME="gpt-oss-120b-bf16"
+MODEL_NAME="gpt-oss-20b-bf16"
 
 export LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 export LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
