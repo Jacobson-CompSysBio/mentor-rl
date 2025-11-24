@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=vllm-multi-test
+#SBATCH --job-name=vllm-frontier
 #SBATCH -A SYB114
 #SBATCH -N 2
 #SBATCH -t 0:15:00
@@ -7,143 +7,118 @@
 #SBATCH -C nvme
 #SBATCH -q debug
 #SBATCH --gpus-per-node=8
-#SBATCH -o logs/test-multi-%j.out
-#SBATCH -e logs/test-multi-%j.err
+#SBATCH -o logs/%x-%j.out
+#SBATCH -e logs/%x-%j.err
 
 set -euo pipefail
 
-# --- 1. Load Modules ---
+# --- Load Modules ---
 module load PrgEnv-gnu/8.6.0
 module load rocm/6.3.1
+module load craype-accel-amd-gfx90a
 
-# --- 2. Activate Conda ---
+# --- Activate Conda ---
 source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
 source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
 
-# --- 3. Environment Setup ---
+# --- Set Paths ---
+export ROCM_HOME=/opt/rocm-6.3.1
+export LIBFABRIC_DIR=/opt/cray/libfabric/1.22.0/lib64
+# use the rocm rccl fork on frontier
+export AWS_OFI_PLUGIN_DIR=/lustre/orion/syb111/proj-shared/Personal/krusepi/packages/aws-ofi-rccl/lib
+# locate cxi lib dir
+export CXI_LIB_DIR=$(ls -d /opt/cray/pe/cxi/*/lib64 2>/dev/null | tail -n1 || true)
+if [[ -z "${CXI_LIB_DIR}" && -d /opt/cray/pe/cxi/default/lib64 ]]; then
+    export CXI_LIB_DIR=/opt/cray/pe/cxi/default/lib64
+fi
+
+# sanity checks
+[[ -f "${AWS_OFI_PLUGIN_DIR}/librccl-net.so" ]] || { echo "ERROR: ${AWS_OFI_PLUGIN_DIR}/librccl-nest.so not found"; exit 1; }
+[[ -d "${CXI_LIB_DIR}" ]] || { echo "ERROR: CXI lib dir not found"; exit 1; }
+
+# --- Networking / OFI / Slingshot ---
 export FI_PROVIDER=cxi
 export FI_MR_CACHE_MONITOR=kdreg2
-export FI_CXI_DEFAULT_CQ_SIZE=131072
-export FI_CXI_DEFAULT_TX_SIZE=2048
-export FI_CXI_RX_MATCH_MODE=hybrid
 export FI_CXI_ATS=0
+export FI_CXI_DEFAULT_CQ_SIZE=131072
+export FI_CXI_DEFAULT_TX_SIZE=131072
+export FI_CXI_RX_MATCH_MODE=1
 
-# CRITICAL: AWS-OFI-RCCL Plugin Path
-export AWS_OFI_RCCL_LIB=/lustre/orion/syb111/proj-shared/Personal/krusepi/packages/aws-ofi-nccl/lib
-
-# NCCL Configuration - UPDATED
-export NCCL_NET=AWS  # Load AWS-OFI-RCCL plugin
-export NCCL_NET_GDR_LEVEL=3
+# --- RCCL / OFI Plugin ---
+export VLLM_NCCL_SO_PATH=${ROCM_HOME}/lib/librccl.so
+export NCCL_NET=OFI
+export NCCL_COLLNET_DISABLE=1
+export NCCL_TIMEOUT=3600
 export NCCL_IGNORE_DISABLED_P2P=1
 export NCCL_CROSS_NIC=1
 export NCCL_SOCKET_IFNAME=hsn0
 export NCCL_SOCKET_FAMILY=AF_INET
-export NCCL_DEBUG=INFO  # Changed to INFO to see plugin loading
-export NCCL_DEBUG_SUBSYS=INIT,NET
-export NCCL_PROTO=Simple
-export NCCL_IB_DISABLE=1
+export NCCL_IB_DISABLE=1 # slingshot ≠ ib
 export NCCL_P2P_DISABLE=0
-export NCCL_TIMEOUT=3600
-export NCCL_COLLNET_ENABLE=0  # aws-ofi-nccl does not ship a CollNet plugin
 
-# Gloo for CPU fallback
-export GLOO_SOCKET_FAMILY=AF_INET
+# critical for cxi: disable HMEM path
+export NCCL_OFI_USE_HMEM=0
+export NCCL_OFI_HMEM_DISABLE=1
+
+# debug level while testing (drop to WARN later)
+export NCCL_DEBUG=INFO
+export NCCL_DEBUG_SUBSYS=INIT,NET
+
+# --- Gloo rendezvous ---
 export GLOO_SOCKET_IFNAME=hsn0
+export GLOO_SOCKET_FAMILY=AF_INET
+export GLOO_IPV6=0
 
-# Library Linking - CRITICAL: AWS-OFI-RCCL must come BEFORE ROCm
-export ROCM_HOME=/opt/rocm-6.3.1
-export VLLM_NCCL_SO_PATH=${ROCM_HOME}/lib/librccl.so
-
-# CRITICAL: Put AWS-OFI-RCCL first in LD_LIBRARY_PATH
-export LD_LIBRARY_PATH=${AWS_OFI_RCCL_LIB}:${ROCM_HOME}/lib:${LD_LIBRARY_PATH}
-
-# Verify the plugin exists
-if [ ! -f "${AWS_OFI_RCCL_LIB}/librccl-net.so" ]; then
-    echo "ERROR: AWS-OFI-RCCL plugin not found at ${AWS_OFI_RCCL_LIB}/librccl-net.so"
-    exit 1
-fi
-echo "Found AWS-OFI-RCCL plugin at: ${AWS_OFI_RCCL_LIB}/librccl-net.so"
-
-# GPU Visibility
+# --- Visible GPUs and Ray "don't touch" ---
 export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-export ROCR_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-export GPU_DEVICE_ORDINAL=0,1,2,3,4,5,6,7
-
-# Ray Configuration
+export ROCR_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES}
+export CUDA_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES}
 export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
 export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1
 export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
-export RAY_DEDUP_LOGS=0
 
-# vLLM Configuration
-export VLLM_USE_V1=0
-export VLLM_WORKER_MULTIPROC_METHOD=spawn
-export VLLM_ATTENTION_BACKEND=ROCM_FLASH
+# --- Library search order: plugin -> cxi -> libfabric -> rocm ---
+export LD_LIBRARY_PATH=${AWS_OFI_PLUGIN_DIR}:${CXI_LIB_DIR}:${LIBFABRIC_DIR}:${ROCM_HOME}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
 
-# Model Path
-export MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/Llama-3.2-1B-Instruct"
+# link check to show libcxi/libfabric/amdhip64
+ldd ${AWS_OFI_PLUGIN_DIR}/librccl-net.so | egrep 'libcxi|libfabric|amdhip64|rccl' || true
 
-# --- 4. Get Node Information ---
-nodes=$(scontrol show hostnames "$SLURM_JOB_NODELIST")
-nodes_array=($nodes)
-head_node=${nodes_array[0]}
-head_node_ip=$(srun --nodes=1 --ntasks=1 -w "$head_node" hostname -i | awk '{print $1}')
-port=6379
+# --- Model path ---
+export MODEL_PATH="${MODEL_PATH:-/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/Llama-3.2-1B-Instruct}"
+[[ -d "${MODEL_PATH}" ]] || { echo "ERROR: MODEL_PATH (${MODEL_PATH}) not found"; exit 1; }
 
-echo "=== Node Configuration ==="
-echo "Head node: $head_node"
-echo "Head IP: $head_node_ip"
-echo "Worker nodes: ${nodes_array[@]:1}"
-echo "AWS-OFI-RCCL: $AWS_OFI_RCCL_LIB"
-echo "=========================="
+# --- Ray cluster ports ---
+export RAY_PORT=${RAY_PORT:-6379}
+export RAY_DASHBOARD_PORT=${RAY_DASHBOARD_PORT:-8265}
+export RAY_NUM_CPUS=${RAY_NUM_CPUS:-7}
 
-# --- 5. Start Ray Head ---
-echo ""
-echo "Starting Ray Head on $head_node ($head_node_ip)"
-srun --export=ALL --nodes=1 --ntasks=1 -w "$head_node" \
-    ray start --head \
-        --node-ip-address="$head_node_ip" \
-        --port=$port \
-        --num-cpus=7 \
-        --num-gpus=8 \
-        --block &
+# --- Determine nodes/IPs on the hsn network ---
+mapfile -t NODELIST < <(scontrol show hostnames "${SLURM_JOB_NODELIST}")
+HEAD_NODE=${NODELIST[0]}
+WORKER_NODES=("${NODELIST[@]:1}")
 
-sleep 15
+resolve_hsn_ip() { getent hosts "$1-hsn0" | awk '{print $1}'; }
+HEAD_IP=$(resolve_hsn_ip "${HEAD_NODE}")
+[[ -n "${HEAD_IP}" ]] || { echo "ERROR: failed to resolve head IP"; exit 1; }
+export MASTER_ADDR=${HEAD_IP}
 
-# --- 6. Start Ray Workers ---
-worker_num=$((SLURM_JOB_NUM_NODES - 1))
-echo "Starting Ray Workers on remaining $worker_num node(s)"
+# --- Start Ray head/worker (simple) ---
+srun --nodes=1 --ntasks=1 -w "${HEAD_NODE}" \
+  bash -lc "ulimit -n 65536; ray stop --force >/dev/null 2>&1 || true; ray start --head --node-ip-address=${HEAD_IP} --port=${RAY_PORT} --dashboard-port=${RAY_DASHBOARD_PORT} --num-cpus=${RAY_NUM_CPUS} --num-gpus=8 --block" &
 
-for ((i=1; i<${#nodes_array[@]}; i++)); do
-    node_i=${nodes_array[$i]}
-    node_i_ip=$(srun --nodes=1 --ntasks=1 -w "$node_i" hostname -i | awk '{print $1}')
-    
-    echo "  Starting worker on $node_i ($node_i_ip)"
-    srun --export=ALL --nodes=1 --ntasks=1 -w "$node_i" \
-        ray start \
-            --address="$head_node_ip:$port" \
-            --node-ip-address="$node_i_ip" \
-            --num-cpus=7 \
-            --num-gpus=8 \
-            --block &
+for n in "${WORKER_NODES[@]}"; do
+  WIP=$(resolve_hsn_ip "${n}") || true
+  [[ -n "${WIP}" ]] || { echo "ERROR: failed to resolve ${n} IP"; exit 1; }
+  srun --nodes=1 --ntasks=1 -w "${n}" \
+    bash -lc "ulimit -n 65536; ray stop --force >/dev/null 2>&1 || true; ray start --address=${HEAD_IP}:${RAY_PORT} --node-ip-address=${WIP} --num-cpus=${RAY_NUM_CPUS} --num-gpus=8 --block" &
 done
 
-sleep 15
+sleep 12
+ray status --address="${HEAD_IP}:${RAY_PORT}" || true
 
-# --- 7. Verify Ray Cluster ---
-export RAY_ADDRESS="$head_node_ip:$port"
-echo ""
-echo "=== Ray Cluster Status ==="
-ray status
-echo "=========================="
+# --- Run the test on the head node ---
+srun --nodes=1 --ntasks=1 -w "${HEAD_NODE}" \
+  bash -lc "python tests/test_vllm_ray_multinode_min.py"
 
-# --- 8. Run the Test ---
-echo ""
-echo "--- Running vLLM Multinode Test ---"
-python tests/test_vllm_ray_multinode.py
-
-# --- 9. Cleanup ---
-echo ""
-echo "Stopping Ray cluster..."
-ray stop --force
+# --- Cleanup on exit ---
+trap "srun --nodes=${SLURM_JOB_NUM_NODES} --ntasks=${SLURM_JOB_NUM_NODES} bash -lc 'ray stop --force' >/dev/null 2>&1 || true" EXIT
