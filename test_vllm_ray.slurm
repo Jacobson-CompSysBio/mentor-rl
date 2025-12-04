@@ -23,51 +23,51 @@ source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
 
 # --- Set Paths ---
 export ROCM_HOME=/opt/rocm-6.3.1
-export LIBFABRIC_DIR=/opt/cray/libfabric/1.22.0/lib64
-# use the rocm rccl fork on frontier
-export AWS_OFI_PLUGIN_DIR=/lustre/orion/syb111/proj-shared/Personal/krusepi/packages/aws-ofi-rccl/lib
-# locate cxi lib dir
-export CXI_LIB_DIR=$(ls -d /opt/cray/pe/cxi/*/lib64 2>/dev/null | tail -n1 || true)
-if [[ -z "${CXI_LIB_DIR}" && -d /opt/cray/pe/cxi/default/lib64 ]]; then
-    export CXI_LIB_DIR=/opt/cray/pe/cxi/default/lib64
-fi
 
-# sanity checks
-[[ -f "${AWS_OFI_PLUGIN_DIR}/librccl-net.so" ]] || { echo "ERROR: ${AWS_OFI_PLUGIN_DIR}/librccl-nest.so not found"; exit 1; }
-[[ -d "${CXI_LIB_DIR}" ]] || { echo "ERROR: CXI lib dir not found"; exit 1; }
+# ============================================================================
+# WORKING NCCL CONFIGURATION (Socket-based transport - NO OFI)
+# ============================================================================
+# This configuration bypasses the OFI/CXI fi_domain() VNI allocation issue
+# by using RCCL's built-in Socket transport for inter-node communication.
+# Successfully tested with 2-node, 16-GPU all_reduce and broadcast operations.
+#
+# Trade-off: Socket transport is slower than native OFI/CXI, but it's functional
+# and allows vLLM multi-node inference to work on Frontier.
+# ============================================================================
 
-# --- Networking / OFI / Slingshot ---
-export FI_PROVIDER=cxi
-export FI_MR_CACHE_MONITOR=kdreg2
-export FI_CXI_ATS=0
-export FI_CXI_DEFAULT_CQ_SIZE=131072
-export FI_CXI_DEFAULT_TX_SIZE=131072
-export FI_CXI_RX_MATCH_MODE=1
+# DON'T force OFI - let RCCL use its internal socket transport
+unset NCCL_NET
+unset NCCL_NET_PLUGIN
 
-# --- RCCL / OFI Plugin ---
-export VLLM_NCCL_SO_PATH=${ROCM_HOME}/lib/librccl.so
-export NCCL_NET=OFI
-export NCCL_COLLNET_DISABLE=1
-export NCCL_TIMEOUT=3600
-export NCCL_IGNORE_DISABLED_P2P=1
-export NCCL_CROSS_NIC=1
+# Disable InfiniBand (not used on Slingshot)
+export NCCL_IB_DISABLE=1
+
+# Use Slingshot NIC for socket communication
 export NCCL_SOCKET_IFNAME=hsn0
 export NCCL_SOCKET_FAMILY=AF_INET
-export NCCL_IB_DISABLE=1 # slingshot ≠ ib
+
+# RCCL tuning
+export NCCL_CROSS_NIC=1
+export NCCL_SOCKET_NTHREADS=4
+export NCCL_NSOCKS_PERTHREAD=4
+export NCCL_MIN_NCHANNELS=4
 export NCCL_P2P_DISABLE=0
+export NCCL_TIMEOUT=3600
 
-# critical for cxi: disable HMEM path
-export NCCL_OFI_USE_HMEM=0
-export NCCL_OFI_HMEM_DISABLE=1
-
-# debug level while testing (drop to WARN later)
+# Debug level while testing (change to WARN for production)
 export NCCL_DEBUG=INFO
 export NCCL_DEBUG_SUBSYS=INIT,NET
+
+export VLLM_NCCL_SO_PATH=${ROCM_HOME}/lib/librccl.so
 
 # --- Gloo rendezvous ---
 export GLOO_SOCKET_IFNAME=hsn0
 export GLOO_SOCKET_FAMILY=AF_INET
 export GLOO_IPV6=0
+
+# --- PyTorch Distributed / c10d ---
+export TP_SOCKET_IFNAME=hsn0
+export TORCH_DISTRIBUTED_DEBUG=INFO
 
 # --- Visible GPUs and Ray "don't touch" ---
 export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
@@ -77,11 +77,7 @@ export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
 export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1
 export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
 
-# --- Library search order: plugin -> cxi -> libfabric -> rocm ---
-export LD_LIBRARY_PATH=${AWS_OFI_PLUGIN_DIR}:${CXI_LIB_DIR}:${LIBFABRIC_DIR}:${ROCM_HOME}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
-
-# link check to show libcxi/libfabric/amdhip64
-ldd ${AWS_OFI_PLUGIN_DIR}/librccl-net.so | egrep 'libcxi|libfabric|amdhip64|rccl' || true
+export GPU_MAX_HW_QUEUES=2
 
 # --- Model path ---
 export MODEL_PATH="${MODEL_PATH:-/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/Llama-3.2-1B-Instruct}"
@@ -102,23 +98,38 @@ HEAD_IP=$(resolve_hsn_ip "${HEAD_NODE}")
 [[ -n "${HEAD_IP}" ]] || { echo "ERROR: failed to resolve head IP"; exit 1; }
 export MASTER_ADDR=${HEAD_IP}
 
+# NOTE: Use VLLM_HOST_IF instead of VLLM_HOST_IP - each node will automatically
+# detect its own IP from the specified network interface. This is cleaner than
+# trying to set per-node VLLM_HOST_IP values.
+export VLLM_HOST_IF=hsn0
+
 # --- Start Ray head/worker (simple) ---
-srun --nodes=1 --ntasks=1 -w "${HEAD_NODE}" \
-  bash -lc "ulimit -n 65536; ray stop --force >/dev/null 2>&1 || true; ray start --head --node-ip-address=${HEAD_IP} --port=${RAY_PORT} --dashboard-port=${RAY_DASHBOARD_PORT} --num-cpus=${RAY_NUM_CPUS} --num-gpus=8 --block" &
+# Note: VLLM_HOST_IF is set globally, so all vLLM actors will automatically
+# get the correct hsn0 IP address for their node.
+srun --nodes=1 --ntasks=1 -w "${HEAD_NODE}" --export=ALL \
+  bash -c "echo 'HEAD: VLLM_HOST_IF='\$VLLM_HOST_IF; ulimit -n 65536; ray stop --force >/dev/null 2>&1 || true; ray start --head --node-ip-address='${HEAD_IP}' --port=${RAY_PORT} --dashboard-port=${RAY_DASHBOARD_PORT} --num-cpus=${RAY_NUM_CPUS} --num-gpus=8 --block" &
 
 for n in "${WORKER_NODES[@]}"; do
   WIP=$(resolve_hsn_ip "${n}") || true
   [[ -n "${WIP}" ]] || { echo "ERROR: failed to resolve ${n} IP"; exit 1; }
-  srun --nodes=1 --ntasks=1 -w "${n}" \
-    bash -lc "ulimit -n 65536; ray stop --force >/dev/null 2>&1 || true; ray start --address=${HEAD_IP}:${RAY_PORT} --node-ip-address=${WIP} --num-cpus=${RAY_NUM_CPUS} --num-gpus=8 --block" &
+  srun --nodes=1 --ntasks=1 -w "${n}" --export=ALL \
+    bash -c "echo 'WORKER ${n}: VLLM_HOST_IF='\$VLLM_HOST_IF; ulimit -n 65536; ray stop --force >/dev/null 2>&1 || true; ray start --address='${HEAD_IP}':${RAY_PORT} --node-ip-address='${WIP}' --num-cpus=${RAY_NUM_CPUS} --num-gpus=8 --block" &
 done
 
-sleep 12
+
+# --- Wait for GCS to be up instead of a blind sleep ---
+for i in {1..30}; do
+  if ray status --address="${HEAD_IP}:${RAY_PORT}" >/dev/null 2>&1; then
+    echo "Ray is up."
+    break
+  fi
+  sleep 2
+done
+
 ray status --address="${HEAD_IP}:${RAY_PORT}" || true
 
 # --- Run the test on the head node ---
-srun --nodes=1 --ntasks=1 -w "${HEAD_NODE}" \
-  bash -lc "python tests/test_vllm_ray_multinode_min.py"
+python tests/test_vllm_ray_multinode.py
 
 # --- Cleanup on exit ---
-trap "srun --nodes=${SLURM_JOB_NUM_NODES} --ntasks=${SLURM_JOB_NUM_NODES} bash -lc 'ray stop --force' >/dev/null 2>&1 || true" EXIT
+trap "ray stop --force >/dev/null 2>&1 || true" EXIT
