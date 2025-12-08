@@ -2,7 +2,7 @@
 #SBATCH --job-name=grpo-ds-debug
 #SBATCH -A SYB114
 #SBATCH -N 4 
-#SBATCH -t 0:15:00
+#SBATCH -t 0:45:00
 #SBATCH -p batch 
 #SBATCH -C nvme
 #SBATCH -q debug
@@ -26,8 +26,10 @@ export CXX=CC
 export CMAKE_C_COMPILER=cc
 export CMAKE_CXX_COMPILER=CC
 
-# load aws-ofi-rccl and export proper vars
-export LD_LIBRARY_PATH=/lustre/orion/syb111/proj-shared/Personal/krusepi/packages/aws-ofi-rccl/lib:$LD_LIBRARY_PATH
+# NOTE: We do NOT load aws-ofi-rccl since we're using socket transport.
+# The OFI plugin would try to use Slingshot CXI which fails without VNI allocation.
+# Socket transport is slower but works without special network setup.
+# export LD_LIBRARY_PATH=/lustre/orion/syb111/proj-shared/Personal/krusepi/packages/aws-ofi-rccl/lib:$LD_LIBRARY_PATH
 
 # load conda, activate env
 source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
@@ -37,9 +39,11 @@ echo "--- Slurm Job Started ---"
 echo "Job ID: $SLURM_JOB_ID"
 echo "Node List: $SLURM_JOB_NODELIST"
 
-export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
-export MASTER_ADDR=$(echo ${MASTER_ADDR} | sed 's/^\([^\.]*\)/\1-hsn0/')
-export MASTER_PORT=29500
+# NOTE: MASTER_ADDR/PORT for training will be set later, specific to training nodes
+# Don't export globally here as it confuses vLLM which uses its own HEAD_IP
+TRAIN_MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
+TRAIN_MASTER_ADDR=$(echo ${TRAIN_MASTER_ADDR} | sed 's/^\([^\.]*\)/\1-hsn0/')
+TRAIN_MASTER_PORT=29500
 
 # --- Define Paths ---
 MODEL_NAME="Llama-3.2-1B-Instruct"  # Change to your large model
@@ -79,19 +83,38 @@ echo "--- Launching Distributed Training with RCCL Plugin ---"
 # ========================================
 # CRITICAL: RCCL/NCCL Environment Setup for Multi-Node
 # ========================================
-export FI_MR_CACHE_MONITOR=kdreg2     # Required to avoid a deadlock.
-export FI_CXI_DEFAULT_CQ_SIZE=131072  # Ask the network stack to allocate additional space to process message completions.
-export FI_CXI_DEFAULT_TX_SIZE=2048    # Ask the network stack to allocate additional space to hold pending outgoing messages.
-export FI_CXI_RX_MATCH_MODE=hybrid    # Allow the network stack to transition to software mode if necessary.
+# This configuration uses RCCL's built-in Socket transport for inter-node
+# communication. It bypasses the OFI/CXI fi_domain() VNI allocation issue
+# that occurs when SLINGSHOT_VNIS is not allocated in the job environment.
+# Trade-off: Socket transport is slower than native OFI/CXI, but it works.
+# ========================================
 
-#export NCCL_NET_GDR_LEVEL=3           # Typically improves performance, but remove this setting if you encounter a hang/crash.
-export NCCL_CROSS_NIC=1               # On large systems, this NCCL setting has been found to improve performance
-export NCCL_SOCKET_IFNAME=hsn0        # NCCL/RCCL will use the high speed network to coordinate startup.
+# DON'T let RCCL load external network plugins - use built-in socket transport
+unset NCCL_NET
+unset NCCL_NET_PLUGIN
+
+# Disable InfiniBand (not used on Slingshot)
+export NCCL_IB_DISABLE=1
+
+# Use Slingshot NIC for socket communication
+export NCCL_SOCKET_IFNAME=hsn0
+export NCCL_SOCKET_FAMILY=AF_INET
+
+# RCCL tuning for socket transport
+export NCCL_CROSS_NIC=1
+export NCCL_SOCKET_NTHREADS=4
+export NCCL_NSOCKS_PERTHREAD=4
+export NCCL_MIN_NCHANNELS=4
+export NCCL_P2P_DISABLE=0
+export NCCL_TIMEOUT=3600
+
+# Gloo rendezvous
 export GLOO_SOCKET_IFNAME=hsn0
+export GLOO_SOCKET_FAMILY=AF_INET
 export GLOO_IPV6=0
 
-#export NCCL_NET=Socket
 export NCCL_DEBUG=INFO
+export NCCL_DEBUG_SUBSYS=INIT,NET
 
 # For distributed
 export PYTORCH_ROCM_ARCH=gfx90a
@@ -160,7 +183,7 @@ echo "[INFO] VLLM_HEAD=${VLLM_HEAD_NODE} | HEAD_IP=${HEAD_IP} (hsn0)"
 export https_proxy=http://proxy.ccs.ornl.gov:3128
 export http_proxy=$https_proxy
 export WANDB_HTTP_TIMEOUT=90
-export NO_PROXY="localhost,127.0.0.1,${MASTER_ADDR},${HEAD_IP},${VLLM_NODELIST_CSV//,/,},*.olcf.ornl.gov"
+export NO_PROXY="localhost,127.0.0.1,${TRAIN_MASTER_ADDR},${HEAD_IP},${VLLM_NODELIST_CSV//,/,},*.olcf.ornl.gov"
 export no_proxy="$NO_PROXY"
 
 export OPENAI_BASE_URL="http://${HEAD_IP}:${VLLM_HTTP_PORT}/v1"
@@ -183,8 +206,13 @@ export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 export CUDA_VISIBLE_DEVICES="$HIP_VISIBLE_DEVICES"
 export ROCR_VISIBLE_DEVICES="$HIP_VISIBLE_DEVICES"
 
-export FI_PROVIDER=cxi                    ### ADDED: Explicitly force Slingshot provider
-export RDMAV_FORK_SAFE=1
+# vLLM v0 engine (required to avoid Ray Compiled DAG issues on multi-node ROCm)
+export VLLM_USE_V1=0
+export VLLM_USE_RAY_COMPILED_DAG=0
+export VLLM_USE_RAY_SPMD_WORKER=0
+
+# Use hsn0 interface for vLLM communication
+export VLLM_HOST_IF=hsn0
 
 # Critical: set RAY_CARRY_OVER_ENV_VARS to propagate env vars
 
@@ -200,19 +228,19 @@ srun --overlap -N1 -n1 -w "${VLLM_HEAD_NODE}" --export=ALL \
     source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
     source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
 
-    # 2. EXPLICITLY EXPORT LD_LIBRARY_PATH (Crucial for aws-ofi-rccl)
-    export LD_LIBRARY_PATH=/lustre/orion/syb111/proj-shared/Personal/krusepi/packages/aws-ofi-rccl/lib:\$LD_LIBRARY_PATH
-    
-    # 3. EXPLICITLY EXPORT NETWORK VARS
-    export FI_PROVIDER=cxi
-    export FI_MR_CACHE_MONITOR=kdreg2
-    export FI_CXI_DEFAULT_CQ_SIZE=131072
-    export FI_CXI_DEFAULT_TX_SIZE=2048
-    export FI_CXI_RX_MATCH_MODE=hybrid
-    export NCCL_CROSS_NIC=1
+    # 2. Socket-based RCCL transport configuration (no OFI)
+    unset NCCL_NET
+    unset NCCL_NET_PLUGIN
+    export NCCL_IB_DISABLE=1
     export NCCL_SOCKET_IFNAME=hsn0
+    export NCCL_SOCKET_FAMILY=AF_INET
+    export NCCL_CROSS_NIC=1
+    export NCCL_SOCKET_NTHREADS=4
+    export NCCL_NSOCKS_PERTHREAD=4
+    export NCCL_P2P_DISABLE=0
     export GLOO_SOCKET_IFNAME=hsn0
-    export RDMAV_FORK_SAFE=1
+    export GLOO_SOCKET_FAMILY=AF_INET
+    export GLOO_IPV6=0
     
     # Ray setup
     export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
@@ -222,6 +250,11 @@ srun --overlap -N1 -n1 -w "${VLLM_HEAD_NODE}" --export=ALL \
     export CUDA_VISIBLE_DEVICES=\"\${HIP_VISIBLE_DEVICES}\"
     export ROCR_VISIBLE_DEVICES=\"\${HIP_VISIBLE_DEVICES}\"
 
+    # vLLM v0 engine settings
+    export VLLM_USE_V1=0
+    export VLLM_USE_RAY_COMPILED_DAG=0
+    export VLLM_USE_RAY_SPMD_WORKER=0
+    export VLLM_HOST_IF=hsn0
     export VLLM_HOST_IP=${HEAD_IP}
     export RAY_NODE_IP_ADDRESS=${HEAD_IP}
     
@@ -250,19 +283,19 @@ for ((i=1; i<${VLLM_NODE_COUNT}; i++)); do
       source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
       source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
 
-      # 2. EXPLICITLY EXPORT LD_LIBRARY_PATH
-      export LD_LIBRARY_PATH=/lustre/orion/syb111/proj-shared/Personal/krusepi/packages/aws-ofi-rccl/lib:\$LD_LIBRARY_PATH
-
-      # 3. EXPLICITLY EXPORT NETWORK VARS
-      export FI_PROVIDER=cxi
-      export FI_MR_CACHE_MONITOR=kdreg2
-      export FI_CXI_DEFAULT_CQ_SIZE=131072
-      export FI_CXI_DEFAULT_TX_SIZE=2048
-      export FI_CXI_RX_MATCH_MODE=hybrid
-      export NCCL_CROSS_NIC=1
+      # 2. Socket-based RCCL transport configuration (no OFI)
+      unset NCCL_NET
+      unset NCCL_NET_PLUGIN
+      export NCCL_IB_DISABLE=1
       export NCCL_SOCKET_IFNAME=hsn0
+      export NCCL_SOCKET_FAMILY=AF_INET
+      export NCCL_CROSS_NIC=1
+      export NCCL_SOCKET_NTHREADS=4
+      export NCCL_NSOCKS_PERTHREAD=4
+      export NCCL_P2P_DISABLE=0
       export GLOO_SOCKET_IFNAME=hsn0
-      export RDMAV_FORK_SAFE=1
+      export GLOO_SOCKET_FAMILY=AF_INET
+      export GLOO_IPV6=0
 
       export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
       export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1
@@ -271,6 +304,11 @@ for ((i=1; i<${VLLM_NODE_COUNT}; i++)); do
       export CUDA_VISIBLE_DEVICES=\"\${HIP_VISIBLE_DEVICES}\"
       export ROCR_VISIBLE_DEVICES=\"\${HIP_VISIBLE_DEVICES}\"
 
+      # vLLM v0 engine settings
+      export VLLM_USE_V1=0
+      export VLLM_USE_RAY_COMPILED_DAG=0
+      export VLLM_USE_RAY_SPMD_WORKER=0
+      export VLLM_HOST_IF=hsn0
       export VLLM_HOST_IP=${WORKER_IP}
       export RAY_NODE_IP_ADDRESS=${WORKER_IP}
       
@@ -291,8 +329,8 @@ sleep 5
 # ========================================
 # vLLM Serve with Pipeline Parallelism
 # ========================================
-# Critical: Add FI_PROVIDER and RDMAV_FORK_SAFE to carry over vars
-export VLLM_CARRY_OVER_ENV_VARS="FI_PROVIDER,RDMAV_FORK_SAFE,FI_MR_CACHE_MONITOR,FI_CXI_DEFAULT_CQ_SIZE,FI_CXI_DEFAULT_TX_SIZE,FI_CXI_RX_MATCH_MODE,NCCL_CROSS_NIC,NCCL_SOCKET_IFNAME,NCCL_DEBUG,LD_LIBRARY_PATH,ROCM_HOME,HSA_XNACK,PYTORCH_ROCM_ARCH"
+# Socket-based RCCL env vars to propagate to Ray workers
+export VLLM_CARRY_OVER_ENV_VARS="NCCL_SOCKET_IFNAME,NCCL_SOCKET_FAMILY,NCCL_IB_DISABLE,NCCL_CROSS_NIC,NCCL_SOCKET_NTHREADS,NCCL_NSOCKS_PERTHREAD,NCCL_P2P_DISABLE,GLOO_SOCKET_IFNAME,GLOO_SOCKET_FAMILY,GLOO_IPV6,VLLM_USE_V1,VLLM_USE_RAY_COMPILED_DAG,VLLM_USE_RAY_SPMD_WORKER,VLLM_HOST_IF,ROCM_HOME,HSA_XNACK,PYTORCH_ROCM_ARCH,VLLM_NCCL_SO_PATH"
 
 echo "vLLM will propagate these env vars to Ray workers: $VLLM_CARRY_OVER_ENV_VARS"
 
@@ -300,11 +338,24 @@ srun --overlap -N1 -n1 -w "$VLLM_HEAD_NODE" --export=ALL \
   bash --noprofile --norc -c "
     set -euo pipefail 
     
-    export LD_LIBRARY_PATH=/lustre/orion/syb111/proj-shared/Personal/krusepi/packages/aws-ofi-rccl/lib:\$LD_LIBRARY_PATH
-    export FI_PROVIDER=cxi  # <--- ADD THIS
-    export RDMAV_FORK_SAFE=1 # <--- ADD THIS
-
-    # ... (Rest of your vllm serve command remains the same) ...
+    # Socket-based RCCL transport configuration (no OFI)
+    unset NCCL_NET
+    unset NCCL_NET_PLUGIN
+    export NCCL_IB_DISABLE=1
+    export NCCL_SOCKET_IFNAME=hsn0
+    export NCCL_SOCKET_FAMILY=AF_INET
+    export NCCL_CROSS_NIC=1
+    export NCCL_SOCKET_NTHREADS=4
+    export NCCL_NSOCKS_PERTHREAD=4
+    export GLOO_SOCKET_IFNAME=hsn0
+    export GLOO_IPV6=0
+    
+    # vLLM v0 engine (avoids Ray Compiled DAG issues on multi-node ROCm)
+    export VLLM_USE_V1=0
+    export VLLM_USE_RAY_COMPILED_DAG=0
+    export VLLM_USE_RAY_SPMD_WORKER=0
+    export VLLM_HOST_IF=hsn0
+    
     vllm serve '${LOCAL_MODEL_DIR}' \
       --host 0.0.0.0 \
       --port ${VLLM_HTTP_PORT} \
@@ -343,7 +394,14 @@ srun --overlap -N1 -n1 --export=ALL -w "${TRAIN_PROBE_NODE}" bash -c "
   if MODELS=\$(curl -sf http://${HEAD_IP}:${VLLM_HTTP_PORT}/v1/models 2>/dev/null); then
     if echo \"\$MODELS\" | grep -q '\"object\":\"list\"'; then
       echo '[HEALTH CHECK] Models endpoint working'
-      echo \"  Available models: \$(echo \"\$MODELS\" | grep -o '\"id\":\"[^\"]*\"' | head -1)\"
+      # Extract the actual model ID from the response
+      MODEL_ID=\$(echo \"\$MODELS\" | python3 -c \"import sys, json; data = json.load(sys.stdin); print(data['data'][0]['id'] if data.get('data') else '')\" 2>/dev/null)
+      if [ -z \"\$MODEL_ID\" ]; then
+        echo '[HEALTH CHECK] Could not extract model ID from response'
+        echo \"  Response: \$MODELS\"
+        exit 1
+      fi
+      echo \"  Available models: \$MODEL_ID\"
     else
       echo '[HEALTH CHECK] Models endpoint returned unexpected payload'
       exit 1
@@ -358,7 +416,7 @@ srun --overlap -N1 -n1 --export=ALL -w "${TRAIN_PROBE_NODE}" bash -c "
   RESPONSE=\$(curl -sf http://${HEAD_IP}:${VLLM_HTTP_PORT}/v1/completions \
     -H 'Content-Type: application/json' \
     -d '{
-      \"model\": \"${MODEL_NAME}\",
+      \"model\": \"'\$MODEL_ID'\",
       \"prompt\": \"Hello, world! Say hi:\",
       \"max_tokens\": 10,
       \"temperature\": 0
@@ -392,12 +450,18 @@ echo "##################################################"
 echo "SERVER READY. LAUNCHING TRL TRAINING..."
 echo "##################################################"
 
-# Launch training
+# Launch training - set MASTER_ADDR for training nodes
 srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 --export=ALL \
   -N ${#TRAIN_NODES[@]} \
   --ntasks-per-node=8 \
   -w "${TRAIN_NODELIST_CSV}" \
   bash -c '
+  
+  # Set MASTER_ADDR for torch distributed (training nodes only)
+  export MASTER_ADDR="'"${TRAIN_MASTER_ADDR}"'"  
+  export HEAD_IP="'"${HEAD_IP}"'"  
+  export VLLM_HTTP_PORT="'"${VLLM_HTTP_PORT}"'"
+  export MASTER_PORT="'"${TRAIN_MASTER_PORT}"'"
   
   export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
   echo "[RANK ${SLURM_PROCID}] ROCR=${ROCR_VISIBLE_DEVICES} HIP=${HIP_VISIBLE_DEVICES}"

@@ -1,7 +1,11 @@
-# tests/test_vllm_ray_multinode_min.py
-import asyncio, os
+# tests/test_vllm_ray_multinode.py
+# Use AsyncLLMEngine (required for pipeline parallel) with v0 engine
+# v1 engine's Ray Compiled DAG fails on multi-node ROCm
+import asyncio
+import os
 import ray
-from vllm import AsyncLLMEngine, SamplingParams
+from vllm import SamplingParams
+from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.engine.arg_utils import AsyncEngineArgs
 
 def main():
@@ -26,11 +30,19 @@ def main():
     )
 
     async def run():
+        # Use from_engine_args to create AsyncLLMEngine (v0 style)
         engine = AsyncLLMEngine.from_engine_args(engine_args)
         params = SamplingParams(temperature=0.0, max_tokens=8)
-        async for out in engine.generate("Hello world", params, request_id="smoke"):
-            last = out
-        print("✓ vLLM init OK. Sample:", repr(last.outputs[0].text))
+        
+        # Generate using async interface
+        results = engine.generate("Hello world", params, request_id="smoke")
+        async for output in results:
+            final_output = output
+        
+        print("✓ vLLM init OK. Sample:", repr(final_output.outputs[0].text))
+        
+        # Cleanup
+        engine.shutdown_background_loop()
 
     asyncio.run(run())
 

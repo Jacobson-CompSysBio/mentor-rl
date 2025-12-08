@@ -79,6 +79,16 @@ export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
 
 export GPU_MAX_HW_QUEUES=2
 
+# --- vLLM configuration ---
+# CRITICAL: Disable v1 engine because Ray Compiled DAG tensor channel fails
+# on multi-node with ROCm/RCCL socket transport. The v0 engine works without
+# needing Ray's NCCL-based tensor channel.
+export VLLM_USE_V1=0
+
+# Disable Ray Compiled DAG (not needed with v0 engine, but set explicitly)
+export VLLM_USE_RAY_COMPILED_DAG=0
+export VLLM_USE_RAY_SPMD_WORKER=0
+
 # --- Model path ---
 export MODEL_PATH="${MODEL_PATH:-/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/Llama-3.2-1B-Instruct}"
 [[ -d "${MODEL_PATH}" ]] || { echo "ERROR: MODEL_PATH (${MODEL_PATH}) not found"; exit 1; }

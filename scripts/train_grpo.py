@@ -38,7 +38,7 @@ timeout = int(os.environ.get("SLURM_JOB_TIMEOUT", 0))
 slurm_args = argparse.Namespace(nnodes=nnodes, timeout=timeout)
 
 VLLM_HOST=os.getenv("HEAD_IP")
-VLLM_PORT=os.getenv("VLLM_HTTP_PORT")
+VLLM_PORT=int(os.getenv("VLLM_HTTP_PORT", "51001"))  # convert to int for gRPC/HTTP
 
 ### sanity check ###
 if "ROCR_VISIBLE_DEVICES" in os.environ and "HIP_VISIBLE_DEVICES" not in os.environ:
@@ -77,16 +77,36 @@ def _debug_preflight():
     print("=======================\n")
 
 def _verify_vllm():
-    # verify vLLM server is reachable (rank 0 only)
+    # verify vLLM server is reachable and completions endpoint works (rank 0 only)
     try:
         import requests
         if int(os.environ.get("RANK", "0")) == 0:
-            url = f"http://{VLLM_HOST}:{VLLM_PORT}/v0/models"
+            url = f"http://{VLLM_HOST}:{int(VLLM_PORT)}/v1/models"
             r = requests.get(url, timeout=10)
             r.raise_for_status()
-            print(f"[CHECK] vLLM /v1/models OK: {r.status_code}")
+            models = r.json()
+            print(f"[CHECK] vLLM /v1/models OK: {r.status_code} {models}")
+            if not models.get("data"):
+                print("[FATAL] No models loaded in vLLM server!")
+                sys.exit(2)
+            model_id = models["data"][0]["id"]
+
+            # Now test completions (first request may be slow due to kernel compilation)
+            completions_url = f"http://{VLLM_HOST}:{VLLM_PORT}/v1/completions"
+            payload = {
+                "model": model_id,
+                "prompt": "Hello, world! Say hi:",
+                "max_tokens": 10,
+                "temperature": 0
+            }
+            print("[CHECK] Testing /v1/completions (may take 30-60s for first request)...")
+            resp = requests.post(completions_url, json=payload, timeout=120)
+            print(f"[CHECK] vLLM /v1/completions: {resp.status_code} {resp.text}")
+            if "choices" not in resp.text:
+                print("[FATAL] vLLM completions endpoint did not return choices!")
+                sys.exit(2)
     except Exception as e:
-        print(f"[FATAL] Cannot reach vLLM server at {VLLM_HOST}:{VLLM_PORT}: {e}")
+        print(f"[FATAL] Cannot reach vLLM server or completions endpoint at {VLLM_HOST}:{VLLM_PORT}: {e}")
         sys.exit(2)
 
 _debug_preflight()
@@ -293,17 +313,17 @@ def main():
         "eos_token_id": tokenizer.convert_tokens_to_ids("</answer>"),
     }
  
+    # vLLM engine kwargs (used when TRL spawns vLLM directly, not in server mode)
+    # These are kept for reference but vllm_mode="server" uses external server
     trl_args.vllm_engine_kwargs = {
-        "tensor_parallel_size": 8,
-        "gpu_memory_utilization": 0.9,
-        "enforce_eager": True,
-        "disable_log_stats": True,
         "tensor_parallel_size": 8,
         "gpu_memory_utilization": 0.9,
         "enforce_eager": True,
         "disable_log_stats": True,
         "distributed_executor_backend": "ray",
         "disable_custom_all_reduce": True,
+        "trust_remote_code": True,
+        "max_model_len": 4096,
     }
 
     trainer = GRPOTrainer(
