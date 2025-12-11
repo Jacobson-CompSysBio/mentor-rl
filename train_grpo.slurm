@@ -39,6 +39,33 @@ echo "--- Slurm Job Started ---"
 echo "Job ID: $SLURM_JOB_ID"
 echo "Node List: $SLURM_JOB_NODELIST"
 
+# ========================================
+# FIX: Clean up stale ROCm SMI mutex locks on all nodes
+# ========================================
+# The rocm_smi mutex error occurs when stale shared memory files from previous
+# jobs exist in /dev/shm. These can cause segfaults when multiple processes
+# try to re-initialize them simultaneously.
+#
+# Solution: Clean up any stale locks at job start, then disable SMI entirely.
+# ========================================
+echo "--- Cleaning up stale ROCm SMI locks on all nodes ---"
+srun --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c '
+  # Remove stale ROCm SMI shared memory files (only our own, ignore errors)
+  rm -f /dev/shm/rocm_smi* 2>/dev/null || true
+  rm -f /dev/shm/amd_smi* 2>/dev/null || true
+  echo "[$(hostname)] Cleaned /dev/shm/rocm_smi* and /dev/shm/amd_smi*"
+'
+
+# Disable ROCm SMI completely for this job
+export ROCM_SMI_DISABLE=1
+export AMD_SMI_DISABLE=1
+export RSMI_LOGGING=0
+export AMDSMI_GPU_METRICS_CACHE_MS=0
+
+# Also prevent any SMI initialization by unsetting related vars
+unset GPU_DEVICE_ORDINAL
+export HSA_TOOLS_LIB=""
+
 # NOTE: MASTER_ADDR/PORT for training will be set later, specific to training nodes
 # Don't export globally here as it confuses vLLM which uses its own HEAD_IP
 TRAIN_MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
@@ -311,7 +338,7 @@ for ((i=1; i<${VLLM_NODE_COUNT}; i++)); do
       export VLLM_HOST_IF=hsn0
       export VLLM_HOST_IP=${WORKER_IP}
       export RAY_NODE_IP_ADDRESS=${WORKER_IP}
-      
+
       ulimit -n 65536
       ray start --address=${HEAD_IP}:${RAY_PORT} \
         --node-ip-address=${WORKER_IP} \
@@ -463,18 +490,31 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 --export=ALL \
   export VLLM_HTTP_PORT="'"${VLLM_HTTP_PORT}"'"
   export MASTER_PORT="'"${TRAIN_MASTER_PORT}"'"
   
+  # Critical: Set distributed training env vars for each rank
+  export RANK=${SLURM_PROCID}
+  export LOCAL_RANK=${SLURM_LOCALID}
+  export WORLD_SIZE=${SLURM_NTASKS}
+  
   export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
-  echo "[RANK ${SLURM_PROCID}] ROCR=${ROCR_VISIBLE_DEVICES} HIP=${HIP_VISIBLE_DEVICES}"
+  echo "[RANK ${SLURM_PROCID}] ROCR=${ROCR_VISIBLE_DEVICES} HIP=${HIP_VISIBLE_DEVICES} RANK=${RANK} WORLD_SIZE=${WORLD_SIZE}"
 
-  export AMDSMI_GPU_METRICS_CACHE_MS=5000
+  # Disable ROCm SMI to avoid mutex errors
+  export ROCM_SMI_DISABLE=1
+  export AMD_SMI_DISABLE=1
+  export RSMI_LOGGING=0
+  
+  # Don't import vLLM in training process, we use HTTP API only
+  # This avoids RCCL version conflicts between PyTorch and vLLM
+  export TRL_VLLM_IMPORT=0
+  
   if [ "${SLURM_LOCALID}" != "0" ]; then export WANDB_MODE=disabled; fi
 
   python \
-    "'${SLURM_SUBMIT_DIR}'"/scripts/train_grpo.py \
-      --model_path="'${LOCAL_MODEL_DIR}'" \
-      --output_dir="'${LOCAL_SSD_PATH}'/checkpoints/" \
-      --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
-      --deepspeed="'${LOCAL_CONFIG_DIR}'/ds_zero3.json" \
+    '"${SLURM_SUBMIT_DIR}"'/scripts/train_grpo.py \
+      --model_path='"${LOCAL_MODEL_DIR}"' \
+      --output_dir='"${LOCAL_SSD_PATH}"'/checkpoints/ \
+      --dataset_path='"${LOCAL_DATA_DIR}"'/qa_pairs.json \
+      --deepspeed='"${LOCAL_CONFIG_DIR}"'/ds_zero3.json \
       --seed=900913 \
       --num_train_epochs=1 \
       --per_device_train_batch_size=1 \

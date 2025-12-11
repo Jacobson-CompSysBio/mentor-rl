@@ -22,6 +22,172 @@ from typing import Optional, Union, List
 from dotenv import load_dotenv
 import multiprocessing as mp
 
+# ============================================================================
+# MONKEY-PATCH: Disable TRL's VLLMClient weight synchronization
+# ============================================================================
+# TRL's vllm_mode="server" expects special endpoints (/get_world_size/, 
+# /init_communicator/, /generate/, etc.) that are only available in TRL's custom 
+# vLLM server (trl vllm-serve). Standard vLLM serve doesn't have these endpoints.
+# 
+# Since we're using standard vLLM with Ray for multi-node inference (TP+PP),
+# we patch VLLMClient to:
+# 1. Skip weight sync (vLLM uses initial weights)
+# 2. Use /v1/completions instead of /generate/ for text generation
+# ============================================================================
+def _patch_vllm_client():
+    """Patch VLLMClient to work with standard vLLM server (no weight sync)."""
+    try:
+        from trl.extras import vllm_client
+        import requests
+        
+        # Store original init_communicator
+        original_init_communicator = vllm_client.VLLMClient.init_communicator
+        
+        def patched_init_communicator(self, device=0):
+            """Skip weight synchronization - standard vLLM doesn't support it."""
+            print("[PATCH] VLLMClient.init_communicator called - SKIPPING (using standard vLLM)")
+            print("[PATCH] Weight synchronization is disabled. vLLM will use initial model weights.")
+            # Set minimal attributes that TRL might check
+            self.rank = 0
+            self.world_size = 1
+        
+        vllm_client.VLLMClient.init_communicator = patched_init_communicator
+        
+        # Also patch update_named_param if it exists
+        if hasattr(vllm_client.VLLMClient, 'update_named_param'):
+            def patched_update_named_param(self, name, weights):
+                # Silently skip - don't spam logs during training
+                return True
+            vllm_client.VLLMClient.update_named_param = patched_update_named_param
+        
+        # Patch close_communicator
+        if hasattr(vllm_client.VLLMClient, 'close_communicator'):
+            def patched_close_communicator(self):
+                pass  # No-op
+            vllm_client.VLLMClient.close_communicator = patched_close_communicator
+        
+        # Patch reset_prefix_cache
+        if hasattr(vllm_client.VLLMClient, 'reset_prefix_cache'):
+            def patched_reset_prefix_cache(self):
+                pass  # Standard vLLM doesn't have this endpoint
+            vllm_client.VLLMClient.reset_prefix_cache = patched_reset_prefix_cache
+        
+        # ================================================================
+        # CRITICAL: Patch generate() to use /v1/completions instead of /generate/
+        # ================================================================
+        original_generate = vllm_client.VLLMClient.generate
+        
+        def patched_generate(
+            self,
+            prompts,
+            images=None,
+            n=1,
+            repetition_penalty=1.0,
+            temperature=1.0,
+            top_p=1.0,
+            top_k=-1,
+            min_p=0.0,
+            max_tokens=16,
+            truncate_prompt_tokens=None,
+            guided_decoding_regex=None,
+            generation_kwargs=None,
+        ):
+            """
+            Use standard vLLM /v1/completions endpoint instead of TRL's /generate/.
+            Returns dict with prompt_ids, completion_ids, and logprobs.
+            """
+            import requests
+            from transformers import AutoTokenizer
+            
+            # Get model name from vLLM server
+            models_url = f"{self.base_url}/v1/models"
+            try:
+                models_resp = requests.get(models_url, timeout=30)
+                models_resp.raise_for_status()
+                model_name = models_resp.json()["data"][0]["id"]
+            except Exception as e:
+                print(f"[PATCH] Failed to get model name: {e}")
+                raise
+            
+            # Build request for /v1/completions
+            url = f"{self.base_url}/v1/completions"
+            
+            all_prompt_ids = []
+            all_completion_ids = []
+            all_logprobs = []
+            
+            # Load tokenizer for encoding/decoding (cache it on self)
+            if not hasattr(self, '_tokenizer'):
+                # Use the model path from the model name
+                self._tokenizer = AutoTokenizer.from_pretrained(model_name)
+            tokenizer = self._tokenizer
+            
+            # Process each prompt
+            for prompt in prompts:
+                payload = {
+                    "model": model_name,
+                    "prompt": prompt,
+                    "max_tokens": max_tokens,
+                    "n": n,
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    "repetition_penalty": repetition_penalty,
+                    "logprobs": 1,  # Request logprobs
+                    "echo": False,  # Don't echo prompt
+                }
+                
+                if top_k > 0:
+                    payload["top_k"] = top_k
+                if min_p > 0:
+                    payload["min_p"] = min_p
+                if generation_kwargs:
+                    payload.update(generation_kwargs)
+                
+                try:
+                    response = requests.post(url, json=payload, timeout=300)
+                    response.raise_for_status()
+                    result = response.json()
+                except Exception as e:
+                    print(f"[PATCH] Completion request failed: {e}")
+                    raise Exception(f"Request failed: {response.status_code if 'response' in dir() else 'N/A'}, {str(e)}")
+                
+                # Extract results for each completion (n completions per prompt)
+                prompt_tokens = tokenizer.encode(prompt, add_special_tokens=False)
+                
+                for choice in result.get("choices", []):
+                    completion_text = choice.get("text", "")
+                    completion_tokens = tokenizer.encode(completion_text, add_special_tokens=False)
+                    
+                    # Extract logprobs if available
+                    choice_logprobs = []
+                    if choice.get("logprobs") and choice["logprobs"].get("token_logprobs"):
+                        choice_logprobs = [lp if lp is not None else 0.0 for lp in choice["logprobs"]["token_logprobs"]]
+                    else:
+                        # If no logprobs, use zeros
+                        choice_logprobs = [0.0] * len(completion_tokens)
+                    
+                    all_prompt_ids.append(prompt_tokens)
+                    all_completion_ids.append(completion_tokens)
+                    all_logprobs.append(choice_logprobs)
+            
+            return {
+                "prompt_ids": all_prompt_ids,
+                "completion_ids": all_completion_ids,
+                "logprobs": all_logprobs,
+            }
+        
+        vllm_client.VLLMClient.generate = patched_generate
+        
+        print("[PATCH] VLLMClient patched for standard vLLM server compatibility")
+        print("[PATCH] - init_communicator: SKIPPED")
+        print("[PATCH] - generate: Using /v1/completions instead of /generate/")
+        
+    except ImportError as e:
+        print(f"[PATCH] Could not patch VLLMClient: {e}")
+
+# Apply patch immediately on import
+_patch_vllm_client()
+
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from utils.utils import *
 from utils.rewards import format_reward, correctness_reward
@@ -206,7 +372,7 @@ def main():
     # load model (attn is sdpa)
     model = AutoModelForCausalLM.from_pretrained(
         script_args.model_path,
-        dtype=torch.bfloat16,
+        torch_dtype=torch.bfloat16,
         attn_implementation="eager"
     )
     model.resize_token_embeddings(len(tokenizer))
@@ -284,7 +450,7 @@ def main():
         remove_unused_columns=grpo_args.remove_unused_columns,
         gradient_checkpointing=grpo_args.gradient_checkpointing,
         deepspeed=grpo_args.deepspeed,
-        bf16=False,
+        bf16=True,  # Must match model dtype (bfloat16)
         
         # vLLM
         use_vllm=True,
