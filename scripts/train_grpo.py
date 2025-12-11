@@ -124,10 +124,20 @@ def _patch_vllm_client():
             
             # Process each prompt
             for prompt in prompts:
+                # Convert max_new_tokens to max_tokens if provided in generation_kwargs
+                effective_max_tokens = max_tokens
+                if generation_kwargs and 'max_new_tokens' in generation_kwargs:
+                    effective_max_tokens = generation_kwargs['max_new_tokens']
+                
+                # Ensure max_tokens is positive (vLLM requires > 0)
+                if effective_max_tokens <= 0:
+                    print(f"[PATCH] WARNING: max_tokens={effective_max_tokens}, using default 128")
+                    effective_max_tokens = 128
+                
                 payload = {
                     "model": model_name,
                     "prompt": prompt,
-                    "max_tokens": max_tokens,
+                    "max_tokens": effective_max_tokens,
                     "n": n,
                     "temperature": temperature,
                     "top_p": top_p,
@@ -140,8 +150,16 @@ def _patch_vllm_client():
                     payload["top_k"] = top_k
                 if min_p > 0:
                     payload["min_p"] = min_p
+                
+                # Filter out HuggingFace-specific kwargs that vLLM doesn't support
+                IGNORED_KWARGS = {
+                    'max_new_tokens', 'pad_token_id', 'eos_token_id', 'use_cache',
+                    'do_sample', 'num_return_sequences', 'output_scores',
+                    'return_dict_in_generate', 'synced_gpus', 'attention_mask',
+                }
                 if generation_kwargs:
-                    payload.update(generation_kwargs)
+                    filtered_kwargs = {k: v for k, v in generation_kwargs.items() if k not in IGNORED_KWARGS}
+                    payload.update(filtered_kwargs)
                 
                 try:
                     response = requests.post(url, json=payload, timeout=300)

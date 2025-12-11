@@ -391,7 +391,7 @@ srun --overlap -N1 -n1 -w "$VLLM_HEAD_NODE" --export=ALL \
       --pipeline-parallel-size ${PIPELINE_PARALLEL_SIZE} \
       --dtype bfloat16 \
       --tokenizer '${LOCAL_MODEL_DIR}' \
-      --max-model-len 256 \
+      --max-model-len 1024 \
       --enforce-eager \
       --disable-custom-all-reduce \
       --gpu-memory-utilization 0.90
@@ -477,6 +477,16 @@ echo "##################################################"
 echo "SERVER READY. LAUNCHING TRL TRAINING..."
 echo "##################################################"
 
+# Export variables needed inside srun bash -c
+export TRAIN_MASTER_ADDR
+export TRAIN_MASTER_PORT
+export HEAD_IP
+export VLLM_HTTP_PORT
+export LOCAL_MODEL_DIR
+export LOCAL_SSD_PATH
+export LOCAL_DATA_DIR
+export LOCAL_CONFIG_DIR
+
 # Launch training - set MASTER_ADDR for training nodes
 srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 --export=ALL \
   -N ${#TRAIN_NODES[@]} \
@@ -485,10 +495,8 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 --export=ALL \
   bash -c '
   
   # Set MASTER_ADDR for torch distributed (training nodes only)
-  export MASTER_ADDR="'"${TRAIN_MASTER_ADDR}"'"  
-  export HEAD_IP="'"${HEAD_IP}"'"  
-  export VLLM_HTTP_PORT="'"${VLLM_HTTP_PORT}"'"
-  export MASTER_PORT="'"${TRAIN_MASTER_PORT}"'"
+  export MASTER_ADDR=${TRAIN_MASTER_ADDR}
+  export MASTER_PORT=${TRAIN_MASTER_PORT}
   
   # Critical: Set distributed training env vars for each rank
   export RANK=${SLURM_PROCID}
@@ -503,18 +511,18 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 --export=ALL \
   export AMD_SMI_DISABLE=1
   export RSMI_LOGGING=0
   
-  # Don't import vLLM in training process, we use HTTP API only
+  # Don'\''t import vLLM in training process, we use HTTP API only
   # This avoids RCCL version conflicts between PyTorch and vLLM
   export TRL_VLLM_IMPORT=0
   
   if [ "${SLURM_LOCALID}" != "0" ]; then export WANDB_MODE=disabled; fi
 
   python \
-    '"${SLURM_SUBMIT_DIR}"'/scripts/train_grpo.py \
-      --model_path='"${LOCAL_MODEL_DIR}"' \
-      --output_dir='"${LOCAL_SSD_PATH}"'/checkpoints/ \
-      --dataset_path='"${LOCAL_DATA_DIR}"'/qa_pairs.json \
-      --deepspeed='"${LOCAL_CONFIG_DIR}"'/ds_zero3.json \
+    ${SLURM_SUBMIT_DIR}/scripts/train_grpo.py \
+      --model_path=${LOCAL_MODEL_DIR} \
+      --output_dir=${LOCAL_SSD_PATH}/checkpoints/ \
+      --dataset_path=${LOCAL_DATA_DIR}/qa_pairs.json \
+      --deepspeed=${LOCAL_CONFIG_DIR}/ds_zero3.json \
       --seed=900913 \
       --num_train_epochs=1 \
       --per_device_train_batch_size=1 \
