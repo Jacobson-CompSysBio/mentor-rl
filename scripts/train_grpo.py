@@ -22,18 +22,17 @@ from typing import Optional, Union, List
 from dotenv import load_dotenv
 import multiprocessing as mp
 
-# ============================================================================
-# MONKEY-PATCH: Disable TRL's VLLMClient weight synchronization
-# ============================================================================
-# TRL's vllm_mode="server" expects special endpoints (/get_world_size/, 
-# /init_communicator/, /generate/, etc.) that are only available in TRL's custom 
-# vLLM server (trl vllm-serve). Standard vLLM serve doesn't have these endpoints.
-# 
-# Since we're using standard vLLM with Ray for multi-node inference (TP+PP),
-# we patch VLLMClient to:
-# 1. Skip weight sync (vLLM uses initial weights)
-# 2. Use /v1/completions instead of /generate/ for text generation
-# ============================================================================
+# PATCH VLLMClient to work with standard vLLM server
+"""
+TRL's vllm_mode="server" expects special endpoints (/get_world_size/, 
+/init_communicator/, /generate/, etc.) that are only available in TRL's custom 
+vLLM server (trl vllm-serve). Standard vLLM serve doesn't have these endpoints.
+ 
+Since we're using standard vLLM with Ray for multi-node inference (TP+PP),
+we patch VLLMClient to:
+1. Skip weight sync (vLLM uses initial weights)
+2. Use /v1/completions instead of /generate/ for text generation
+"""
 def _patch_vllm_client():
     """Patch VLLMClient to work with standard vLLM server (no weight sync)."""
     try:
