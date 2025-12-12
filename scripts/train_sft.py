@@ -28,15 +28,13 @@ from utils.utils import *
 
 ### SLURM VARIABLES ###
 load_dotenv()
-os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT")
+os.environ["WANDB_PROJECT"] = "mentor-sft"
 os.environ["WANDB_ENTITY"] = os.getenv("WANDB_ENTITY")
 os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
 
 nnodes = int(os.environ.get("SLURM_NNODES", 1))
 timeout = int(os.environ.get("SLURM_JOB_TIMEOUT", 0))
 slurm_args = argparse.Namespace(nnodes=nnodes, timeout=timeout)
-
-
 
 ### ARGS ###
 @dataclass
@@ -211,20 +209,15 @@ def main():
     ##########################    
     # PRE TRAINING INFERENCE #
     ##########################
-    if rank == 0:
-        print(f"Running pre-training inference...")
     inf_ds = dataset.select(range(20))
     inf_format = build_formatting_func(tokenizer, train=False)
-    pre_outputs = infer(
-        model,
-        tokenizer,
-        inf_format,
-        inf_ds,
-    ) 
+    
+    if rank == 0:
+        print(f"Running pre-training inference...")
+    pre_outputs = infer(model, tokenizer, inf_format, inf_ds)
     pre_score = check_accuracy(pre_outputs, list(inf_ds["answer"]))
     if isinstance(pre_score, list):
         pre_score = np.mean(pre_score)
- 
     if rank == 0:
         print(f"Pre-training inference complete. Average Score={pre_score:.2%}")
         print("Outputs:", pre_outputs)
