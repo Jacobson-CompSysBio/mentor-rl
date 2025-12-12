@@ -146,6 +146,7 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
       --learning_rate=2e-5 \
       --logging_steps=1 \
       --bf16 \
+      --packing \
       --lora_r=16 \
       --lora_alpha=32 \
       --lora_dropout=0.05 \

@@ -174,14 +174,57 @@ def _patch_vllm_client():
                 
                 for choice in result.get("choices", []):
                     completion_text = choice.get("text", "")
-                    completion_tokens = tokenizer.encode(completion_text, add_special_tokens=False)
                     
-                    # Extract logprobs if available
+                    # Extract logprobs and token_ids from vLLM response
                     choice_logprobs = []
-                    if choice.get("logprobs") and choice["logprobs"].get("token_logprobs"):
-                        choice_logprobs = [lp if lp is not None else 0.0 for lp in choice["logprobs"]["token_logprobs"]]
-                    else:
-                        # If no logprobs, use zeros
+                    completion_tokens = []
+                    
+                    if choice.get("logprobs"):
+                        logprobs_data = choice["logprobs"]
+                        # Get token logprobs
+                        if logprobs_data.get("token_logprobs"):
+                            choice_logprobs = [lp if lp is not None else 0.0 for lp in logprobs_data["token_logprobs"]]
+                        # Get actual token IDs from vLLM (preferred) or tokens
+                        if logprobs_data.get("tokens"):
+                            # vLLM returns the actual tokens, convert to IDs
+                            # This ensures consistency with logprobs count
+                            tokens = logprobs_data["tokens"]
+                            try:
+                                converted = tokenizer.convert_tokens_to_ids(tokens)
+                                # Handle both single value and list returns
+                                if converted is None:
+                                    completion_tokens = []
+                                elif isinstance(converted, int):
+                                    completion_tokens = [converted]
+                                elif isinstance(converted, list):
+                                    # Filter out None values and replace with unk_token_id
+                                    unk_id = tokenizer.unk_token_id if tokenizer.unk_token_id is not None else 0
+                                    completion_tokens = [t if t is not None else unk_id for t in converted]
+                                else:
+                                    completion_tokens = []
+                            except Exception:
+                                completion_tokens = []
+                    
+                    # Fallback: if we didn't get tokens from logprobs, re-tokenize the text
+                    if not completion_tokens:
+                        completion_tokens = tokenizer.encode(completion_text, add_special_tokens=False)
+                    
+                    # Safety: ensure completion_tokens is a list of ints
+                    if not isinstance(completion_tokens, list):
+                        completion_tokens = list(completion_tokens) if completion_tokens else []
+                    
+                    # Ensure logprobs match completion_tokens length
+                    if len(choice_logprobs) != len(completion_tokens):
+                        # Adjust logprobs to match token count
+                        if len(choice_logprobs) < len(completion_tokens):
+                            # Pad with zeros
+                            choice_logprobs.extend([0.0] * (len(completion_tokens) - len(choice_logprobs)))
+                        else:
+                            # Truncate
+                            choice_logprobs = choice_logprobs[:len(completion_tokens)]
+                    
+                    # Final fallback: if still no logprobs, use zeros
+                    if not choice_logprobs:
                         choice_logprobs = [0.0] * len(completion_tokens)
                     
                     all_prompt_ids.append(prompt_tokens)

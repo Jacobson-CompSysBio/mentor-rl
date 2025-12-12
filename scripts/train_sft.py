@@ -36,8 +36,6 @@ nnodes = int(os.environ.get("SLURM_NNODES", 1))
 timeout = int(os.environ.get("SLURM_JOB_TIMEOUT", 0))
 slurm_args = argparse.Namespace(nnodes=nnodes, timeout=timeout)
 
-
-
 ### ARGS ###
 @dataclass
 class ScriptArguments:
@@ -211,23 +209,12 @@ def main():
     ##########################    
     # PRE TRAINING INFERENCE #
     ##########################
-    if rank == 0:
-        print(f"Running pre-training inference...")
+    # NOTE: Skipping pre-training inference - creating a separate DeepSpeed accelerator
+    # then deleting it corrupts the distributed state for SFTTrainer.
+    # TODO: Refactor to run inference after trainer is initialized using trainer.accelerator
     inf_ds = dataset.select(range(20))
     inf_format = build_formatting_func(tokenizer, train=False)
-    pre_outputs = infer(
-        model,
-        tokenizer,
-        inf_format,
-        inf_ds,
-    ) 
-    pre_score = check_accuracy(pre_outputs, list(inf_ds["answer"]))
-    if isinstance(pre_score, list):
-        pre_score = np.mean(pre_score)
- 
-    if rank == 0:
-        print(f"Pre-training inference complete. Average Score={pre_score:.2%}")
-        print("Outputs:", pre_outputs)
+    pre_score = 0.0  # Placeholder until we can run inference properly
 
     ############    
     # TRAINING #
