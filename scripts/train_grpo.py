@@ -356,7 +356,7 @@ class PeftArguments:
 @dataclass
 class GrpoTrainingArguments:
     # Core trainer knobs (needed by your run-name function)
-    per_device_train_batch_size: int = 1
+    per_device_train_batch_size: int = 4  # Increased: more prompts per vLLM request
     gradient_accumulation_steps: int = 1
     num_train_epochs: int = 1
     learning_rate: float = 2e-5
@@ -370,8 +370,8 @@ class GrpoTrainingArguments:
     report_to = ["wandb"]
 
     # GRPO specifics
-    num_generations: int = 8
-    max_completion_length: int = 256
+    num_generations: int = 4   # Reduced: fewer generations per prompt (4 is often sufficient)
+    max_completion_length: int = 128  # Reduced: faster generation if task allows
 
     # Runtime / precision
     remove_unused_columns: bool = False

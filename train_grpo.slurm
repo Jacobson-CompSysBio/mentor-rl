@@ -2,7 +2,7 @@
 #SBATCH --job-name=grpo-ds-debug
 #SBATCH -A SYB114
 #SBATCH -N 4 
-#SBATCH -t 0:45:00
+#SBATCH -t 2:00:00
 #SBATCH -p batch 
 #SBATCH -C nvme
 #SBATCH -q debug
@@ -392,9 +392,10 @@ srun --overlap -N1 -n1 -w "$VLLM_HEAD_NODE" --export=ALL \
       --dtype bfloat16 \
       --tokenizer '${LOCAL_MODEL_DIR}' \
       --max-model-len 1024 \
-      --enforce-eager \
       --disable-custom-all-reduce \
-      --gpu-memory-utilization 0.90
+      --gpu-memory-utilization 0.90 \
+      --max-num-batched-tokens 16384 \
+      --max-num-seqs 128
   " &
 
 echo "##################################################"
@@ -525,13 +526,15 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 --export=ALL \
       --deepspeed=${LOCAL_CONFIG_DIR}/ds_zero3.json \
       --seed=900913 \
       --num_train_epochs=1 \
-      --per_device_train_batch_size=1 \
-      --gradient_accumulation_steps=4 \
+      --per_device_train_batch_size=4 \
+      --gradient_accumulation_steps=1 \
       --learning_rate=2e-5 \
       --logging_steps=1 \
       --lora_r=16 \
       --lora_alpha=32 \
       --lora_dropout=0.05 \
+      --num_generations=4 \
+      --max_completion_length=128 \
       --run_inference_after_training
 '
 
