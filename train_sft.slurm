@@ -39,7 +39,7 @@ echo "Job ID: $SLURM_JOB_ID"
 echo "Node List: $SLURM_JOB_NODELIST"
 
 # --- Define Paths ---
-MODEL_NAME="gpt-oss-120b-bf16"
+MODEL_NAME="gpt-oss-20b-bf16"
 
 export LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 export LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
@@ -146,6 +146,7 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
       --learning_rate=2e-5 \
       --logging_steps=1 \
       --bf16 \
+      --packing \
       --lora_r=16 \
       --lora_alpha=32 \
       --lora_dropout=0.05 \
