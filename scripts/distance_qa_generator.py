@@ -85,7 +85,7 @@ def get_json_to_str(json_file_name: str) -> str | None:
     print("EROR: Failed to decode the JSON from the file. Check for malformed JSON.")
 
 # Create Q/A pairs
-def write_qa_pairs(df: pd.DataFrame, out_dir: str, out_file_name: str, json_str: str) -> None:
+def write_qa_pairs(df: pd.DataFrame, out_dir: str, out_file_name: str, json_str: str | None) -> None:
   os.makedirs(out_dir, exist_ok=True)
 
   output_file = os.path.join(out_dir, out_file_name)
