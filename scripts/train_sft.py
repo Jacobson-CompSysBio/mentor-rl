@@ -1,11 +1,10 @@
 import os, sys
 import torch
 import argparse
-import json
 import numpy as np
 from pathlib import Path
 from datasets import load_dataset
-from peft import LoraConfig, PeftModel
+from peft import LoraConfig
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -13,9 +12,7 @@ from transformers import (
     HfArgumentParser,
 )
 
-from accelerate import Accelerator, DeepSpeedPlugin, PartialState
-from torch.utils.data import DataLoader
-import torch.distributed as dist
+from accelerate import PartialState
 
 from trl import SFTTrainer
 from dataclasses import dataclass, field
@@ -24,6 +21,7 @@ from dotenv import load_dotenv
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from inference import build_formatting_func, infer
 from utils.utils import * 
 
 ### SLURM VARIABLES ###
@@ -55,88 +53,6 @@ class SftTrainingArguments(TrainingArguments):
     max_length: Optional[int] = field(default=2048, metadata={"help": "The maximum sequence length for SFTTrainer"})
     packing: Optional[bool] = field(default=False, metadata={"help": "Enable packing for SFTTrainer"})
     ddp_find_unused_parameters: Optional[bool] = field(default=True, metadata={"help": "When using FSDP activation checkpointing, this must be set to True"})
-
-### FORMATTING/INFERENCE ###
-def _collate_single(examples):
-    """
-    unwraps  example in a list from dataloader
-    """
-    return examples[0]
-
-def build_formatting_func(tokenizer, train=True):
-    SYSTEM_PROMPT = (
-        "You are a helpful biological chatbot. You will be given a biological question; "
-        "return the correct answer."
-    )
-    def _fmt(example):
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": example["question"]},
-            {"role": "assistant", "content": example["answer"]},
-        ] if train else [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": example["question"]},
-        ]
-        if train:
-            return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
-        else:
-            return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    return _fmt 
-
-def infer(model, tokenizer, format_fn, dataset, accelerator=None):
-    
-    if accelerator is None:
-        # load inference config
-        local_cfg_dir = os.getenv("LOCAL_CONFIG_DIR")
-        with open(local_cfg_dir + "/ds_zero3_inference.json") as f:
-            ds_infer_cfg = json.load(f)
-        ds_inference_plugin = DeepSpeedPlugin(hf_ds_config=ds_infer_cfg)
-        inference_accelerator = Accelerator(deepspeed_plugin=ds_inference_plugin)
-    else:
-        inference_accelerator = accelerator
-    inference_accelerator.print(f"Accelerator loaded.")
-
-    inference_model=model
-    inference_model.eval()
-    inference_accelerator.print("Inference model loaded.")
-
-    dataloader = DataLoader(dataset,
-                            batch_size=1,
-                            shuffle=False,
-                            collate_fn=_collate_single)
-    
-    # accelerator.prepare model for distributed inference
-    if accelerator is None: 
-        inference_model, dataloader = inference_accelerator.prepare(inference_model, dataloader)
-    else:
-        dataloader = inference_accelerator.prepare(dataloader)
-
-    results=[]
-    with torch.no_grad():
-        for i, example in enumerate(dataloader):
-            formatted = format_fn(example)
-            inputs = tokenizer(formatted, return_tensors="pt").to(inference_model.device)
-            input_len = inputs["input_ids"].shape[1]
-
-            #inference_accelerator.print(f"Generating completion {i}/{len(dataloader)}...")
-            output = inference_model.generate(
-                **inputs,
-                max_new_tokens=50,
-                temperature=0.7,
-                top_p=0.9,
-                do_sample=True,
-                eos_token_id=tokenizer.eos_token_id,
-                synced_gpus=True
-            )
-
-            new_ids = output[0][input_len:]
-            text = tokenizer.decode(new_ids, skip_special_tokens=True)
-            results.append(text)
-    
-    # clear memory, free cache
-    del inference_model, dataloader, inference_accelerator
-    torch.cuda.empty_cache()
-    return results
 
 def main():
 
@@ -206,21 +122,11 @@ def main():
         dataset = dataset.select(range(script_args.dataset_subset_size))
     dataset = dataset.shuffle(seed=training_args.seed)
 
-    ##########################    
-    # PRE TRAINING INFERENCE #
-    ##########################
-    inf_ds = dataset.select(range(20))
-    inf_format = build_formatting_func(tokenizer, train=False)
-    
-    if rank == 0:
-        print(f"Running pre-training inference...")
-    pre_outputs = infer(model, tokenizer, inf_format, inf_ds)
-    pre_score = check_accuracy(pre_outputs, list(inf_ds["answer"]))
-    if isinstance(pre_score, list):
-        pre_score = np.mean(pre_score)
-    if rank == 0:
-        print(f"Pre-training inference complete. Average Score={pre_score:.2%}")
-        print("Outputs:", pre_outputs)
+    # Slice a subset for post-training evaluation if requested
+    if script_args.run_inference_after_training:
+        sample_size = min(20, len(dataset))
+        inf_ds = dataset.select(range(sample_size))
+        inf_format = build_formatting_func(tokenizer, train=False)
 
     ############    
     # TRAINING #
@@ -250,26 +156,26 @@ def main():
     if rank == 0:
         print(f"Model saved to {training_args.output_dir}")
 
-    ###########################   
-    # POST TRAINING INFERENCE #
-    ###########################
-    if rank == 0:
-        print(f"Running post-training inference...")
-    post_outputs = infer(
-        trainer.model,
-        tokenizer,
-        inf_format,
-        inf_ds,
-        trainer.accelerator
-    ) 
-    post_score = check_accuracy(post_outputs, list(inf_ds["answer"]))
-    if isinstance(post_score, list):
-        post_score = np.mean(post_score)
+    if script_args.run_inference_after_training:
+        ###########################   
+        # POST TRAINING INFERENCE #
+        ###########################
+        if rank == 0:
+            print("Running post-training inference...")
+        post_outputs = infer(
+            trainer.model,
+            tokenizer,
+            inf_format,
+            inf_ds,
+            trainer.accelerator
+        )
+        post_score = check_accuracy(post_outputs, list(inf_ds["answer"]))
+        if isinstance(post_score, list):
+            post_score = np.mean(post_score)
  
-    if rank == 0:
-        print(f"Post-training inference complete. Average Score={post_score:.2%}")
-        print(f"Performance improvement: {(post_score - pre_score):.2%}")
-        print("Outputs:", post_outputs)
+        if rank == 0:
+            print(f"Post-training inference complete. Average Score={post_score:.2%}")
+            print("Outputs:", post_outputs)
 
 if __name__ == "__main__":
     main()
