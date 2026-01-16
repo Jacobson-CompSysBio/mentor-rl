@@ -121,114 +121,122 @@ def _patch_vllm_client():
                 self._tokenizer = AutoTokenizer.from_pretrained(model_name)
             tokenizer = self._tokenizer
             
-            # Process each prompt
-            for prompt in prompts:
-                # Convert max_new_tokens to max_tokens if provided in generation_kwargs
-                effective_max_tokens = max_tokens
-                if generation_kwargs and 'max_new_tokens' in generation_kwargs:
-                    effective_max_tokens = generation_kwargs['max_new_tokens']
+            # Convert max_new_tokens to max_tokens if provided in generation_kwargs
+            effective_max_tokens = max_tokens
+            if generation_kwargs and 'max_new_tokens' in generation_kwargs:
+                effective_max_tokens = generation_kwargs['max_new_tokens']
+            
+            # Ensure max_tokens is positive (vLLM requires > 0)
+            if effective_max_tokens <= 0:
+                print(f"[PATCH] WARNING: max_tokens={effective_max_tokens}, using default 128")
+                effective_max_tokens = 128
+            
+            # OPTIMIZATION: Batch ALL prompts into a SINGLE request
+            # vLLM supports prompt as a list for batched inference
+            payload = {
+                "model": model_name,
+                "prompt": prompts,  # Send all prompts at once!
+                "max_tokens": effective_max_tokens,
+                "n": n,  # n completions per prompt
+                "temperature": temperature,
+                "top_p": top_p,
+                "repetition_penalty": repetition_penalty,
+                "logprobs": 1,  # Request logprobs
+                "echo": False,  # Don't echo prompt
+            }
+            
+            if top_k > 0:
+                payload["top_k"] = top_k
+            if min_p > 0:
+                payload["min_p"] = min_p
+            
+            # Filter out HuggingFace-specific kwargs that vLLM doesn't support
+            IGNORED_KWARGS = {
+                'max_new_tokens', 'pad_token_id', 'eos_token_id', 'use_cache',
+                'do_sample', 'num_return_sequences', 'output_scores',
+                'return_dict_in_generate', 'synced_gpus', 'attention_mask',
+            }
+            if generation_kwargs:
+                filtered_kwargs = {k: v for k, v in generation_kwargs.items() if k not in IGNORED_KWARGS}
+                payload.update(filtered_kwargs)
+            
+            try:
+                response = requests.post(url, json=payload, timeout=300)
+                response.raise_for_status()
+                result = response.json()
+            except Exception as e:
+                print(f"[PATCH] Completion request failed: {e}")
+                raise Exception(f"Request failed: {response.status_code if 'response' in dir() else 'N/A'}, {str(e)}")
+            
+            # Pre-tokenize all prompts for prompt_ids
+            prompt_tokens_list = [tokenizer.encode(p, add_special_tokens=False) for p in prompts]
+            
+            # vLLM returns choices in order: all n completions for prompt 0, then all n for prompt 1, etc.
+            # Total choices = len(prompts) * n
+            choices = result.get("choices", [])
+            
+            for i, choice in enumerate(choices):
+                # Determine which prompt this choice belongs to
+                prompt_idx = i // n
+                prompt_tokens = prompt_tokens_list[prompt_idx]
                 
-                # Ensure max_tokens is positive (vLLM requires > 0)
-                if effective_max_tokens <= 0:
-                    print(f"[PATCH] WARNING: max_tokens={effective_max_tokens}, using default 128")
-                    effective_max_tokens = 128
+                completion_text = choice.get("text", "")
                 
-                payload = {
-                    "model": model_name,
-                    "prompt": prompt,
-                    "max_tokens": effective_max_tokens,
-                    "n": n,
-                    "temperature": temperature,
-                    "top_p": top_p,
-                    "repetition_penalty": repetition_penalty,
-                    "logprobs": 1,  # Request logprobs
-                    "echo": False,  # Don't echo prompt
-                }
+                # Extract logprobs and token_ids from vLLM response
+                choice_logprobs = []
+                completion_tokens = []
                 
-                if top_k > 0:
-                    payload["top_k"] = top_k
-                if min_p > 0:
-                    payload["min_p"] = min_p
-                
-                # Filter out HuggingFace-specific kwargs that vLLM doesn't support
-                IGNORED_KWARGS = {
-                    'max_new_tokens', 'pad_token_id', 'eos_token_id', 'use_cache',
-                    'do_sample', 'num_return_sequences', 'output_scores',
-                    'return_dict_in_generate', 'synced_gpus', 'attention_mask',
-                }
-                if generation_kwargs:
-                    filtered_kwargs = {k: v for k, v in generation_kwargs.items() if k not in IGNORED_KWARGS}
-                    payload.update(filtered_kwargs)
-                
-                try:
-                    response = requests.post(url, json=payload, timeout=300)
-                    response.raise_for_status()
-                    result = response.json()
-                except Exception as e:
-                    print(f"[PATCH] Completion request failed: {e}")
-                    raise Exception(f"Request failed: {response.status_code if 'response' in dir() else 'N/A'}, {str(e)}")
-                
-                # Extract results for each completion (n completions per prompt)
-                prompt_tokens = tokenizer.encode(prompt, add_special_tokens=False)
-                
-                for choice in result.get("choices", []):
-                    completion_text = choice.get("text", "")
-                    
-                    # Extract logprobs and token_ids from vLLM response
-                    choice_logprobs = []
-                    completion_tokens = []
-                    
-                    if choice.get("logprobs"):
-                        logprobs_data = choice["logprobs"]
-                        # Get token logprobs
-                        if logprobs_data.get("token_logprobs"):
-                            choice_logprobs = [lp if lp is not None else 0.0 for lp in logprobs_data["token_logprobs"]]
-                        # Get actual token IDs from vLLM (preferred) or tokens
-                        if logprobs_data.get("tokens"):
-                            # vLLM returns the actual tokens, convert to IDs
-                            # This ensures consistency with logprobs count
-                            tokens = logprobs_data["tokens"]
-                            try:
-                                converted = tokenizer.convert_tokens_to_ids(tokens)
-                                # Handle both single value and list returns
-                                if converted is None:
-                                    completion_tokens = []
-                                elif isinstance(converted, int):
-                                    completion_tokens = [converted]
-                                elif isinstance(converted, list):
-                                    # Filter out None values and replace with unk_token_id
-                                    unk_id = tokenizer.unk_token_id if tokenizer.unk_token_id is not None else 0
-                                    completion_tokens = [t if t is not None else unk_id for t in converted]
-                                else:
-                                    completion_tokens = []
-                            except Exception:
+                if choice.get("logprobs"):
+                    logprobs_data = choice["logprobs"]
+                    # Get token logprobs
+                    if logprobs_data.get("token_logprobs"):
+                        choice_logprobs = [lp if lp is not None else 0.0 for lp in logprobs_data["token_logprobs"]]
+                    # Get actual token IDs from vLLM (preferred) or tokens
+                    if logprobs_data.get("tokens"):
+                        # vLLM returns the actual tokens, convert to IDs
+                        # This ensures consistency with logprobs count
+                        tokens = logprobs_data["tokens"]
+                        try:
+                            converted = tokenizer.convert_tokens_to_ids(tokens)
+                            # Handle both single value and list returns
+                            if converted is None:
                                 completion_tokens = []
-                    
-                    # Fallback: if we didn't get tokens from logprobs, re-tokenize the text
-                    if not completion_tokens:
-                        completion_tokens = tokenizer.encode(completion_text, add_special_tokens=False)
-                    
-                    # Safety: ensure completion_tokens is a list of ints
-                    if not isinstance(completion_tokens, list):
-                        completion_tokens = list(completion_tokens) if completion_tokens else []
-                    
-                    # Ensure logprobs match completion_tokens length
-                    if len(choice_logprobs) != len(completion_tokens):
-                        # Adjust logprobs to match token count
-                        if len(choice_logprobs) < len(completion_tokens):
-                            # Pad with zeros
-                            choice_logprobs.extend([0.0] * (len(completion_tokens) - len(choice_logprobs)))
-                        else:
-                            # Truncate
-                            choice_logprobs = choice_logprobs[:len(completion_tokens)]
-                    
-                    # Final fallback: if still no logprobs, use zeros
-                    if not choice_logprobs:
-                        choice_logprobs = [0.0] * len(completion_tokens)
-                    
-                    all_prompt_ids.append(prompt_tokens)
-                    all_completion_ids.append(completion_tokens)
-                    all_logprobs.append(choice_logprobs)
+                            elif isinstance(converted, int):
+                                completion_tokens = [converted]
+                            elif isinstance(converted, list):
+                                # Filter out None values and replace with unk_token_id
+                                unk_id = tokenizer.unk_token_id if tokenizer.unk_token_id is not None else 0
+                                completion_tokens = [t if t is not None else unk_id for t in converted]
+                            else:
+                                completion_tokens = []
+                        except Exception:
+                            completion_tokens = []
+                
+                # Fallback: if we didn't get tokens from logprobs, re-tokenize the text
+                if not completion_tokens:
+                    completion_tokens = tokenizer.encode(completion_text, add_special_tokens=False)
+                
+                # Safety: ensure completion_tokens is a list of ints
+                if not isinstance(completion_tokens, list):
+                    completion_tokens = list(completion_tokens) if completion_tokens else []
+                
+                # Ensure logprobs match completion_tokens length
+                if len(choice_logprobs) != len(completion_tokens):
+                    # Adjust logprobs to match token count
+                    if len(choice_logprobs) < len(completion_tokens):
+                        # Pad with zeros
+                        choice_logprobs.extend([0.0] * (len(completion_tokens) - len(choice_logprobs)))
+                    else:
+                        # Truncate
+                        choice_logprobs = choice_logprobs[:len(completion_tokens)]
+                
+                # Final fallback: if still no logprobs, use zeros
+                if not choice_logprobs:
+                    choice_logprobs = [0.0] * len(completion_tokens)
+                
+                all_prompt_ids.append(prompt_tokens)
+                all_completion_ids.append(completion_tokens)
+                all_logprobs.append(choice_logprobs)
             
             return {
                 "prompt_ids": all_prompt_ids,

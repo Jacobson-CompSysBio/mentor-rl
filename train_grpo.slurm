@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=grpo-ds-debug
 #SBATCH -A SYB114
-#SBATCH -N 4 
+#SBATCH -N 8
 #SBATCH -t 2:00:00
 #SBATCH -p batch 
 #SBATCH -C nvme
@@ -73,7 +73,7 @@ TRAIN_MASTER_ADDR=$(echo ${TRAIN_MASTER_ADDR} | sed 's/^\([^\.]*\)/\1-hsn0/')
 TRAIN_MASTER_PORT=29500
 
 # --- Define Paths ---
-MODEL_NAME="Llama-3.2-1B-Instruct"  # Change to your large model
+MODEL_NAME="gpt-oss-20b-bf16"  # Change to your large model
 
 LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/${MODEL_NAME}/"
@@ -166,7 +166,7 @@ NODELIST=($(scontrol show hostnames "$SLURM_JOB_NODELIST"))
 NUM_NODES=${#NODELIST[@]}
 
 # For 100B+ models, use more nodes for vLLM
-# Example: 8 nodes total -> 2 for training, 6 for vLLM
+# Example: 8 nodes total -> 4 for training, 4 for vLLM
 TRAIN_NODE_COUNT=$(( $SLURM_NNODES / 2 ))
 VLLM_NODE_COUNT=$((NUM_NODES - TRAIN_NODE_COUNT))
 
@@ -395,7 +395,8 @@ srun --overlap -N1 -n1 -w "$VLLM_HEAD_NODE" --export=ALL \
       --disable-custom-all-reduce \
       --gpu-memory-utilization 0.90 \
       --max-num-batched-tokens 16384 \
-      --max-num-seqs 128
+      --max-num-seqs 128 \
+      --enforce-eager
   " &
 
 echo "##################################################"
@@ -408,7 +409,7 @@ srun --overlap -N1 -n1 --export=ALL -w "${TRAIN_PROBE_NODE}" bash -c "
   set -e
   
   echo '[1/4] Testing /health endpoint...'
-  for i in {1..180}; do
+  for i in {1..360}; do
     if curl -sf http://${HEAD_IP}:${VLLM_HTTP_PORT}/health 2>/dev/null; then
       echo \"[HEALTH CHECK] Health check passed on attempt \$i\"
       break
@@ -534,7 +535,7 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 --export=ALL \
       --lora_alpha=32 \
       --lora_dropout=0.05 \
       --num_generations=4 \
-      --max_completion_length=128 \
+      --max_completion_length=2048 \
       --run_inference_after_training
 '
 
