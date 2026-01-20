@@ -4,7 +4,7 @@
   "gradient_accumulation_steps": "auto",
   "bf16": { "enabled": "auto" },
   "zero_optimization": {
-    "stage": 2,
+    "stage": 3,
     "overlap_comm": true,
     "contiguous_gradients": true,
     "reduce_bucket_size": 100000000,

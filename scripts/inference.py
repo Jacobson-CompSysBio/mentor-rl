@@ -144,7 +144,6 @@ class InferenceArguments:
         metadata={"help": "Top-p nucleus sampling value for generation."},
     )
 
-
 def run_inference(args: InferenceArguments):
     state = PartialState()
     rank = state.process_index
