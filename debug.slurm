@@ -171,6 +171,7 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
 '
 
 # --- STAGE 3: Copy Final Results Back to Persistent Storage ---
+head_node="$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)"
 echo "--- Copying final results from local SSD to shared storage ---"
 PERSISTENT_OUTPUT_DIR="${CHECKPOINT_PATH}/checkpoints/${MODEL_NAME}_job_${SLURM_JOB_ID}"
 mkdir -p "$PERSISTENT_OUTPUT_DIR"

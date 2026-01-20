@@ -2,9 +2,9 @@
 #SBATCH --job-name=inference_debug
 #SBATCH -A SYB114
 #SBATCH -N 4
-#SBATCH -t 00:30:00
-#SBATCH -p batch
-#SBATCH -q debug
+#SBATCH -t 24:00:00
+#SBATCH -p extended
+##SBATCH -q debug
 #SBATCH -C nvme
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
@@ -177,6 +177,7 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
 '
 
 # --- STAGE 3: Copy Final Results Back to Persistent Storage ---
+head_node="$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)"
 echo "--- Copying final results from local SSD to shared storage ---"
 PERSISTENT_OUTPUT_DIR="${CHECKPOINT_PATH}/${MODEL_NAME}_job_${SLURM_JOB_ID}"
 mkdir -p "$PERSISTENT_OUTPUT_DIR"
