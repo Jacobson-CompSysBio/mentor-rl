@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=inference_debug
 #SBATCH -A SYB114
-#SBATCH -N 4
-#SBATCH -t 00:50:00
+#SBATCH -N 2
+#SBATCH -t 00:15:00
 #SBATCH -p batch
 #SBATCH -q debug
 #SBATCH -C nvme
