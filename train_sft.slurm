@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=20b-debug
+#SBATCH --job-name=inference_debug
 #SBATCH -A SYB114
-#SBATCH -N 4
-#SBATCH -t 00:50:00
+#SBATCH -N 2
+#SBATCH -t 00:15:00
 #SBATCH -p batch
-##SBATCH -q debug
+#SBATCH -q debug
 #SBATCH -C nvme
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
@@ -82,12 +82,12 @@ srun --kill-on-bad-exit=1 --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
 
   mkdir -p ${LOCAL_SSD_PATH}/hf_cache
 
-  echo '--- Staging on $(hostname) complete ---'
+echo '--- Staging on $(hostname) complete ---'
 "
 echo "--- Staging complete on all nodes ---"
 
-# --- STAGE 2: Run the Training Job ---
-echo "--- Launching Distributed Training with RCCL Plugin ---"
+# --- STAGE 2: Run Pre-Training Inference and Training ---
+echo "--- Preparing distributed environment ---"
 export MASTER_ADDR=$(hostname -i)
 export MASTER_PORT=29500
 
@@ -123,6 +123,25 @@ export https_proxy=http://proxy.ccs.ornl.gov:3128
 export http_proxy=$https_proxy
 export WANDB_HTTP_TIMEOUT=90
 
+echo "--- Launching pre-training inference baseline ---"
+srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
+
+  export RANK=$SLURM_PROCID
+  export WORLD_SIZE=$SLURM_NTASKS
+  export LOCAL_RANK=$SLURM_LOCALID
+
+  export AMDSMI_GPU_METRICS_CACHE_MS=5000
+  if [ "${SLURM_LOCALID}" != "0" ]; then export WANDB_MODE=disabled; fi
+
+  python \
+    "'${SLURM_SUBMIT_DIR}'"/scripts/inference.py \
+      --model_path="'${LOCAL_MODEL_DIR}'" \
+      --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
+      --seed=900913 \
+      --sample_size=20
+'
+
+echo "--- Launching Distributed Training with RCCL Plugin ---"
 srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
 
   export RANK=$SLURM_PROCID
