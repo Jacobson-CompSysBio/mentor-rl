@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=inference_debug
 #SBATCH -A SYB114
-#SBATCH -N 2
-#SBATCH -t 00:15:00
+#SBATCH -N 4
+#SBATCH -t 00:30:00
 #SBATCH -p batch
 #SBATCH -q debug
 #SBATCH -C nvme
@@ -88,7 +88,11 @@ echo "--- Staging complete on all nodes ---"
 
 # --- STAGE 2: Run Pre-Training Inference and Training ---
 echo "--- Preparing distributed environment ---"
-export MASTER_ADDR=$(hostname -i)
+MASTER_ADDR="$(ip -4 addr show hsn0 | awk '/inet /{print $2}' | cut -d/ -f1 | head -n 1)"
+if [ -z "${MASTER_ADDR}" ]; then
+  MASTER_ADDR="$(hostname -I | awk '{print $1}')"
+fi
+export MASTER_ADDR
 export MASTER_PORT=29500
 
 # rccl settings
@@ -165,7 +169,7 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
       --learning_rate=2e-5 \
       --logging_steps=1 \
       --bf16 \
-      --packing \
+      --ddp_find_unused_parameters False \
       --lora_r=16 \
       --lora_alpha=32 \
       --lora_dropout=0.05 \

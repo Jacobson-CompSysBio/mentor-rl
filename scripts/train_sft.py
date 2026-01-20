@@ -12,8 +12,6 @@ from transformers import (
     HfArgumentParser,
 )
 
-from accelerate import PartialState
-
 from trl import SFTTrainer
 from dataclasses import dataclass, field
 from typing import Optional
@@ -59,13 +57,10 @@ def main():
     ############################
     # MODEL LOADING / PRE-REQS #
     ############################
-    # get rank, world_size
-    state = PartialState()
-    rank = state.process_index
-
     # extract args from classes
     parser = HfArgumentParser((ScriptArguments, PeftArguments, SftTrainingArguments))
     script_args, peft_args, training_args = parser.parse_args_into_dataclasses()
+    rank, world_size = get_rank_world_size()
 
     # make run name
     training_args.run_name = make_run_name(script_args, peft_args, training_args, slurm_args)
@@ -120,13 +115,21 @@ def main():
     # Subset dataset if specified
     if script_args.dataset_subset_size is not None:
         dataset = dataset.select(range(script_args.dataset_subset_size))
+    elif rank == 0:
+        print(f"Using the full dataset with {len(dataset)} samples.")
     dataset = dataset.shuffle(seed=training_args.seed)
+    if rank == 0:
+        print(f"Dataset shuffled with seed: {training_args.seed}.")
 
     # Slice a subset for post-training evaluation if requested
     if script_args.run_inference_after_training:
         sample_size = min(20, len(dataset))
         inf_ds = dataset.select(range(sample_size))
         inf_format = build_formatting_func(tokenizer, train=False)
+    if world_size > 1:
+        if rank == 0:
+            print(f"Sharding dataset for Rank {rank} of {world_size}.")
+        dataset = dataset.shard(num_shards=world_size, index=rank)
 
     ############    
     # TRAINING #

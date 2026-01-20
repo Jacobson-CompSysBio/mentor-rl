@@ -1,6 +1,9 @@
 import argparse
-from transformers import HfArgumentParser
+import os
 import string
+
+import torch.distributed as dist
+from transformers import HfArgumentParser
 
 ### RUN NAME
 def make_run_name(script_args, peft_args, training_args, slurm_args):
@@ -44,6 +47,16 @@ def make_grpo_run_name(script_args, peft_args, grpo_args, slurm_args):
     )
     
     return run_name
+
+def get_rank_world_size():
+    # Use env first (works before PG init)
+    rank = int(os.environ.get("RANK", "0"))
+    world = int(os.environ.get("WORLD_SIZE", "1"))
+    # If PG happens to be ready already, prefer that
+    if dist.is_available() and dist.is_initialized():
+        rank = dist.get_rank()
+        world = dist.get_world_size()
+    return rank, world
 
 ### INFERENCE
 def check_accuracy(

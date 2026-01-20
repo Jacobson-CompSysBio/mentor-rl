@@ -41,12 +41,12 @@ echo "Node List: $SLURM_JOB_NODELIST"
 # --- Define Paths ---
 MODEL_NAME="gpt-oss-20b-bf16"
 
-LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
-LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
-LOCAL_CACHE_DIR="${LOCAL_SSD_PATH}/hf_cache"
-LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/${MODEL_NAME}/"
-LOCAL_DATA_DIR="${LOCAL_SSD_PATH}/data"
-LOCAL_CONFIG_DIR="${LOCAL_SSD_PATH}/config"
+export LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
+export LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
+export LOCAL_CACHE_DIR="${LOCAL_SSD_PATH}/hf_cache"
+export LOCAL_MODEL_DIR="${LOCAL_SSD_PATH}/model/${MODEL_NAME}/"
+export LOCAL_DATA_DIR="${LOCAL_SSD_PATH}/data"
+export LOCAL_CONFIG_DIR="${LOCAL_SSD_PATH}/config"
 
 VENV_PATH="/lustre/orion/syb111/world-shared/environments/pytorch-rocm"
 MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/${MODEL_NAME}"
@@ -123,6 +123,24 @@ export https_proxy=http://proxy.ccs.ornl.gov:3128
 export http_proxy=$https_proxy
 export WANDB_HTTP_TIMEOUT=90
 
+echo "--- Launching pre-training inference baseline ---"
+srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
+
+  export RANK=$SLURM_PROCID
+  export WORLD_SIZE=$SLURM_NTASKS
+  export LOCAL_RANK=$SLURM_LOCALID
+
+  export AMDSMI_GPU_METRICS_CACHE_MS=5000
+  if [ "${SLURM_LOCALID}" != "0" ]; then export WANDB_MODE=disabled; fi
+
+  python \
+    "'${SLURM_SUBMIT_DIR}'"/scripts/inference.py \
+      --model_path="'${LOCAL_MODEL_DIR}'" \
+      --dataset_path="'${LOCAL_DATA_DIR}'/mentor_rl_test_distance_qas.json" \
+      --seed=900913 \
+      --sample_size=20
+'
+
 srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
 
   export RANK=$SLURM_PROCID
@@ -165,4 +183,4 @@ srun --nodes=1 --ntasks=1 -w "$head_node" \
 echo "--- Cleaning up local SSD on all nodes ---"
 srun --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "rm -rf ${LOCAL_SSD_PATH}"
 
-echo "--- Slurm Job Finished ---"a
+echo "--- Slurm Job Finished ---"

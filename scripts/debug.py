@@ -2,9 +2,10 @@
 import os, sys
 import torch
 import argparse
+import numpy as np
 from pathlib import Path
 from datasets import load_dataset
-from peft import LoraConfig, PeftModel
+from peft import LoraConfig
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -12,9 +13,6 @@ from transformers import (
     HfArgumentParser,
 )
 
-from torch.distributed import get_rank, get_world_size
-
-from transformers.models.llama4.modeling_llama4 import Llama4TextDecoderLayer
 from trl import SFTTrainer
 from dataclasses import dataclass, field
 from typing import Optional
@@ -22,6 +20,7 @@ from dotenv import load_dotenv
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from inference import build_formatting_func, infer
 from utils.utils import * 
 
 ### wandb logging ###
@@ -53,24 +52,11 @@ class SftTrainingArguments(TrainingArguments):
     packing: Optional[bool] = field(default=False, metadata={"help": "Enable packing for SFTTrainer"})
     ddp_find_unused_parameters: Optional[bool] = field(default=True, metadata={"help": "When using FSDP activation checkpointing, this must be set to True"})
 
-def build_formatting_func(tokenizer):
-    SYSTEM_PROMPT = (
-        "You are a helpful biological chatbot. You will be given a biological question; "
-        "return the correct answer."
-    )
-    def _fmt(example):
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": example["question"]},
-            {"role": "assistant", "content": example["answer"]},
-        ]
-        return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
-    return _fmt
-
 def main():
     # extract args from classes
     parser = HfArgumentParser((ScriptArguments, PeftArguments, SftTrainingArguments))
     script_args, peft_args, training_args = parser.parse_args_into_dataclasses()
+    rank, world_size = get_rank_world_size()
 
     # make run name
     training_args.run_name = make_run_name(script_args, peft_args, training_args, slurm_args)
@@ -79,6 +65,17 @@ def main():
 
     # load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_path)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+    if tokenizer.pad_token_id >= tokenizer.vocab_size:
+        if rank == 0:
+            print(
+                f"[WARNING] pad_token_id ({tokenizer.pad_token_id}) >= vocab_size ({tokenizer.vocab_size}), "
+                "setting to eos_token_id"
+            )
+        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.pad_token_id = tokenizer.eos_token_id
     formatting_func = build_formatting_func(tokenizer)
 
     # load model (attn is sdpa)
@@ -103,25 +100,28 @@ def main():
         target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
     )
     
-    # get rank, world size for distributed
-    rank = get_rank()
-    world_size = get_world_size()
-
     # load dataset
     dataset = load_dataset("json", data_files=script_args.dataset_path, split="train")
 
     # Subset dataset if specified
     if script_args.dataset_subset_size is not None:
         dataset = dataset.select(range(script_args.dataset_subset_size))
-    else:
+    elif rank == 0:
         print(f"Using the full dataset with {len(dataset)} samples.")
 
     dataset = dataset.shuffle(seed=training_args.seed)
-    print(f"Dataset shuffled with seed: {training_args.seed}.")
+    if rank == 0:
+        print(f"Dataset shuffled with seed: {training_args.seed}.")
+
+    if script_args.run_inference_after_training:
+        sample_size = min(20, len(dataset))
+        inf_ds = dataset.select(range(sample_size))
+        inf_format = build_formatting_func(tokenizer, train=False)
 
     # if using multiple GPUs, shard the dataset
     if world_size > 1:
-        print(f"Sharding dataset for Rank {rank} of {world_size}.")
+        if rank == 0:
+            print(f"Sharding dataset for Rank {rank} of {world_size}.")
         dataset = dataset.shard(num_shards=world_size, index=rank)
 
     # init and run trainer
@@ -139,6 +139,22 @@ def main():
 
     trainer.train()
     trainer.save_model(training_args.output_dir)
+    if script_args.run_inference_after_training:
+        if rank == 0:
+            print("Running post-training inference...")
+        post_outputs = infer(
+            trainer.model,
+            tokenizer,
+            inf_format,
+            inf_ds,
+            trainer.accelerator,
+        )
+        post_score = check_accuracy(post_outputs, list(inf_ds["answer"]))
+        if isinstance(post_score, list):
+            post_score = np.mean(post_score)
+        if rank == 0:
+            print(f"Post-training inference complete. Average Score={post_score:.2%}")
+            print("Outputs:", post_outputs)
 
 if __name__ == "__main__":
     main()
