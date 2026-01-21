@@ -155,6 +155,20 @@ def main():
         if rank == 0:
             print(f"Post-training inference complete. Average Score={post_score:.2%}")
             print("Outputs:", post_outputs)
+            try:
+                import wandb
+                table = wandb.Table(columns=["question", "answer", "prediction"])
+                for example, pred in zip(inf_ds, post_outputs):
+                    table.add_data(example["question"], example["answer"], pred)
+                trainer.log(
+                    {
+                        "post_inference_score": post_score,
+                        "post_inference_num_samples": len(inf_ds),
+                        "post_inference_samples": table,
+                    }
+                )
+            except Exception as exc:
+                print(f"[WARNING] Failed to log post-training inference to wandb: {exc}")
 
 if __name__ == "__main__":
     main()
