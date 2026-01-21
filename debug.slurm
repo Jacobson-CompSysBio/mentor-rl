@@ -158,7 +158,7 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
       --dataset_path="'${LOCAL_DATA_DIR}'/mentor_rl_test_distance_qas.json" \
       --deepspeed="'${LOCAL_CONFIG_DIR}'/ds_zero3.json" \
       --seed=900913 \
-      --num_train_epochs=100 \
+      --num_train_epochs=10 \
       --per_device_train_batch_size=1 \
       --gradient_accumulation_steps=4 \
       --learning_rate=2e-5 \
