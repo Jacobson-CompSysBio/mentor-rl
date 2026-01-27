@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name=inference_debug
+#SBATCH --job-name=tot-sft
 #SBATCH -A SYB114
 #SBATCH -N 4
-#SBATCH -t 24:00:00
+#SBATCH -t 06:00:00
 #SBATCH -p extended
 ##SBATCH -q debug
 #SBATCH -C nvme
@@ -50,9 +50,9 @@ export LOCAL_CONFIG_DIR="${LOCAL_SSD_PATH}/config"
 
 VENV_PATH="/lustre/orion/syb111/world-shared/environments/pytorch-rocm"
 MODEL_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/${MODEL_NAME}"
-DATA_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/"
-DS_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/config/"
-CHECKPOINT_PATH="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/checkpoints"
+DATA_PATH="/lustre/orion/syb111/proj-shared/Personal/dandyjt/mentor-rl/data/"
+DS_PATH="/lustre/orion/syb111/proj-shared/Personal/dandyjt/mentor-rl/config/"
+CHECKPOINT_PATH="/lustre/orion/syb111/proj-shared/Personal/dandyjt/mentor-rl/checkpoints"
 
 # hf
 export HF_HUB_OFFLINE=1
@@ -140,7 +140,7 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
   python \
     "'${SLURM_SUBMIT_DIR}'"/scripts/inference.py \
       --model_path="'${LOCAL_MODEL_DIR}'" \
-      --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
+      --dataset_path="'${LOCAL_DATA_DIR}'/ToT-Biology-32k.json" \
       --seed=900913 \
       --sample_size=20
 '
@@ -160,7 +160,7 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
     "'${SLURM_SUBMIT_DIR}'"/scripts/train_sft.py \
       --model_path="'${LOCAL_MODEL_DIR}'" \
       --output_dir="'${LOCAL_SSD_PATH}'/checkpoints/" \
-      --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
+      --dataset_path="'${LOCAL_DATA_DIR}'/ToT-Biology-32k.json" \
       --deepspeed="'${LOCAL_CONFIG_DIR}'/ds_zero3.json" \
       --seed=900913 \
       --num_train_epochs=1 \

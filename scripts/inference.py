@@ -34,7 +34,7 @@ def build_formatting_func(tokenizer, train=True):
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": example["question"]},
-            {"role": "assistant", "content": example["answer"]},
+            {"role": "assistant", "content": example["metadata"]["reasoning"] + example["answer"]},
         ] if train else [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": example["question"]},
