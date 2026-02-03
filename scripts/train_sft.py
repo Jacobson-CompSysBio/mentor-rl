@@ -11,6 +11,7 @@ from transformers import (
     TrainingArguments,
     HfArgumentParser,
 )
+from accelerate.utils import gather_object
 
 from trl import SFTTrainer
 from dataclasses import dataclass, field
@@ -112,6 +113,14 @@ def main():
     # load dataset
     dataset = load_dataset("json", data_files=script_args.dataset_path, split="train")
 
+    # Add system prompt if it doesn't exist
+    SYSTEM_PROMPT = (
+        "You are a helpful biological chatbot. You will be given a biological question; "
+        "return the correct answer."
+    )
+    if "system" not in dataset.column_names:
+        dataset = dataset.map(lambda x: {"system": SYSTEM_PROMPT})
+
     # Subset dataset if specified
     if script_args.dataset_subset_size is not None:
         dataset = dataset.select(range(script_args.dataset_subset_size))
@@ -121,16 +130,17 @@ def main():
     if rank == 0:
         print(f"Dataset shuffled with seed: {training_args.seed}.")
 
-    # Slice a subset for post-training evaluation if requested
+    # create inf ds before sharding
     if script_args.run_inference_after_training:
         sample_size = min(20, len(dataset))
         inf_ds = dataset.select(range(sample_size))
-        inf_format = build_formatting_func(tokenizer, train=False)
+        inf_format = build_formatting_func(tokenizer, train=False)  
+
     if world_size > 1:
         if rank == 0:
             print(f"Sharding dataset for Rank {rank} of {world_size}.")
         dataset = dataset.shard(num_shards=world_size, index=rank)
-
+    
     ############    
     # TRAINING #
     ############    
@@ -172,22 +182,32 @@ def main():
             inf_ds,
             trainer.accelerator
         )
-        post_score = check_accuracy(post_outputs, list(inf_ds["answer"]))
+        # Gather outputs from all ranks and truncate to actual sample count (removes padding duplicates)
+        all_outputs = gather_object(post_outputs)[:len(inf_ds)]
+        
+        post_score = check_accuracy(all_outputs, list(inf_ds["answer"]))
         if isinstance(post_score, list):
             post_score = np.mean(post_score)
  
         if rank == 0:
             print(f"Post-training inference complete. Average Score={post_score:.2%}")
-            print("Outputs:", post_outputs)
+            print("Outputs:", all_outputs)
             try:
                 import wandb
-                table = wandb.Table(columns=["question", "answer", "prediction"])
-                for example, pred in zip(inf_ds, post_outputs):
-                    table.add_data(example["question"], example["answer"], pred)
+                # Check if system column exists in dataset
+                has_system = "system" in inf_ds.column_names
+                if has_system:
+                    table = wandb.Table(columns=["system", "question", "answer", "prediction"])
+                    for example, pred in zip(inf_ds, all_outputs):
+                        table.add_data(example["system"], example["question"], example["answer"], pred)
+                else:
+                    table = wandb.Table(columns=["question", "answer", "prediction"])
+                    for example, pred in zip(inf_ds, all_outputs):
+                        table.add_data(example["question"], example["answer"], pred)
                 trainer.log(
                     {
                         "post_inference_score": post_score,
-                        "post_inference_num_samples": len(inf_ds),
+                        "post_inference_num_samples": len(all_outputs),
                         "post_inference_samples": table,
                     }
                 )

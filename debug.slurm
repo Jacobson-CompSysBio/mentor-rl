@@ -2,7 +2,7 @@
 #SBATCH --job-name=ds-debug
 #SBATCH -A SYB114
 #SBATCH -N 2
-#SBATCH -t 01:00:00
+#SBATCH -t 00:15:00
 #SBATCH -p batch 
 #SBATCH -C nvme
 #SBATCH -q debug
@@ -39,7 +39,7 @@ echo "Job ID: $SLURM_JOB_ID"
 echo "Node List: $SLURM_JOB_NODELIST"
 
 # --- Define Paths ---
-MODEL_NAME="gpt-oss-20b-bf16"
+MODEL_NAME="Llama-3.2-1B-Instruct"
 
 export LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 export LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
@@ -158,7 +158,7 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
       --dataset_path="'${LOCAL_DATA_DIR}'/mentor_rl_test_distance_qas.json" \
       --deepspeed="'${LOCAL_CONFIG_DIR}'/ds_zero3.json" \
       --seed=900913 \
-      --num_train_epochs=10 \
+      --num_train_epochs=1 \
       --per_device_train_batch_size=1 \
       --gradient_accumulation_steps=4 \
       --learning_rate=2e-5 \
