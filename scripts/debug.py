@@ -159,8 +159,8 @@ def main():
             trainer.accelerator,
         )
         
-        # Gather outputs from all ranks
-        all_outputs = gather_object(post_outputs)
+        # Gather outputs from all ranks and truncate to actual sample count (removes padding duplicates)
+        all_outputs = gather_object(post_outputs)[:len(inf_ds)]
         
         post_score = check_accuracy(all_outputs, list(inf_ds["answer"]))
         if isinstance(post_score, list):
