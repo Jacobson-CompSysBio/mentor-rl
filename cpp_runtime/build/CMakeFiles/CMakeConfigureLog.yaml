@@ -2112,3 +2112,401 @@ events:
       Running the CXX compiler's linker: "/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/bin/ld" "-v"
       GNU ld (GNU Binutils; SUSE Linux Enterprise 15) 2.43.1.20241209-150100.7.52
 ...
+
+---
+events:
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/FindOpenMP.cmake:251 (try_compile)"
+      - "/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/FindOpenMP.cmake:558 (_OPENMP_GET_FLAGS)"
+      - "CMakeLists.txt:5 (find_package)"
+    description: "Detecting CXX OpenMP compiler info"
+    directories:
+      source: "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Kj9tQu"
+      binary: "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Kj9tQu"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: ""
+      CMAKE_CXX_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "OpenMP_COMPILE_RESULT_CXX_fopenmp"
+      cached: true
+      stdout: |
+        Change Dir: '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Kj9tQu'
+        
+        Run Build Command(s): /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_8db38/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_8db38.dir/build.make CMakeFiles/cmTC_8db38.dir/build
+        gmake[1]: Entering directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Kj9tQu'
+        Building CXX object CMakeFiles/cmTC_8db38.dir/OpenMPTryFlag.cpp.o
+        /usr/bin/c++   -fopenmp -o CMakeFiles/cmTC_8db38.dir/OpenMPTryFlag.cpp.o -c /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Kj9tQu/OpenMPTryFlag.cpp
+        Linking CXX executable cmTC_8db38
+        /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E cmake_link_script CMakeFiles/cmTC_8db38.dir/link.txt --verbose=1
+        Using built-in specs.
+        COLLECT_GCC=/usr/bin/c++
+        COLLECT_LTO_WRAPPER=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper
+        OFFLOAD_TARGET_NAMES=hsa:nvptx-none
+        Target: x86_64-suse-linux
+        Configured with: ../configure --prefix=/usr --infodir=/usr/share/info --mandir=/usr/share/man --libdir=/usr/lib64 --libexecdir=/usr/lib64 --enable-languages=c,c++,objc,fortran,obj-c++,ada,go --enable-offload-targets=hsa,nvptx-none, --without-cuda-driver --enable-checking=release --disable-werror --with-gxx-include-dir=/usr/include/c++/7 --enable-ssp --disable-libssp --disable-libvtv --disable-libcc1 --disable-plugin --with-bugurl=https://bugs.opensuse.org/ --with-pkgversion='SUSE Linux' --with-slibdir=/lib64 --with-system-zlib --enable-libstdcxx-allocator=new --disable-libstdcxx-pch --enable-version-specific-runtime-libs --with-gcc-major-version-only --enable-linker-build-id --enable-linux-futex --enable-gnu-indirect-function --program-suffix=-7 --without-system-libunwind --enable-multilib --with-arch-32=x86-64 --with-tune=generic --build=x86_64-suse-linux --host=x86_64-suse-linux
+        Thread model: posix
+        gcc version 7.5.0 (SUSE Linux) 
+        COMPILER_PATH=/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/:/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/bin/
+        LIBRARY_PATH=/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/:/lib/../lib64/:/usr/lib/../lib64/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../:/lib/:/usr/lib/
+        Reading specs from /usr/lib64/gcc/x86_64-suse-linux/7/libgomp.spec
+        COLLECT_GCC_OPTIONS='-fopenmp' '-v' '-o' 'cmTC_8db38' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-pthread'
+         /usr/lib64/gcc/x86_64-suse-linux/7/collect2 -plugin /usr/lib64/gcc/x86_64-suse-linux/7/liblto_plugin.so -plugin-opt=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper -plugin-opt=-fresolution=/tmp/cctrqpNV.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lpthread -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_8db38 /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crt1.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crti.o /usr/lib64/gcc/x86_64-suse-linux/7/crtbegin.o /usr/lib64/gcc/x86_64-suse-linux/7/crtoffloadbegin.o -L/usr/lib64/gcc/x86_64-suse-linux/7 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64 -L/lib/../lib64 -L/usr/lib/../lib64 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib -L/usr/lib64/gcc/x86_64-suse-linux/7/../../.. CMakeFiles/cmTC_8db38.dir/OpenMPTryFlag.cpp.o -lstdc++ -lm -lgomp -lgcc_s -lgcc -lpthread -lc -lgcc_s -lgcc /usr/lib64/gcc/x86_64-suse-linux/7/crtend.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crtn.o /usr/lib64/gcc/x86_64-suse-linux/7/crtoffloadend.o
+        COLLECT_GCC_OPTIONS='-fopenmp' '-v' '-o' 'cmTC_8db38' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-pthread'
+        /usr/bin/c++  -fopenmp -v CMakeFiles/cmTC_8db38.dir/OpenMPTryFlag.cpp.o -o cmTC_8db38
+        gmake[1]: Leaving directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Kj9tQu'
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/FindOpenMP.cmake:295 (message)"
+      - "/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/FindOpenMP.cmake:558 (_OPENMP_GET_FLAGS)"
+      - "CMakeLists.txt:5 (find_package)"
+    message: |
+      Parsed CXX OpenMP implicit link information from above output:
+        link line regex: [^( *|.*[/\\])(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        ignore line: [Change Dir: '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Kj9tQu']
+        ignore line: []
+        ignore line: [Run Build Command(s): /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_8db38/fast]
+        ignore line: [/usr/bin/gmake  -f CMakeFiles/cmTC_8db38.dir/build.make CMakeFiles/cmTC_8db38.dir/build]
+        ignore line: [gmake[1]: Entering directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Kj9tQu']
+        ignore line: [Building CXX object CMakeFiles/cmTC_8db38.dir/OpenMPTryFlag.cpp.o]
+        ignore line: [/usr/bin/c++   -fopenmp -o CMakeFiles/cmTC_8db38.dir/OpenMPTryFlag.cpp.o -c /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Kj9tQu/OpenMPTryFlag.cpp]
+        ignore line: [Linking CXX executable cmTC_8db38]
+        ignore line: [/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E cmake_link_script CMakeFiles/cmTC_8db38.dir/link.txt --verbose=1]
+        ignore line: [Using built-in specs.]
+        ignore line: [COLLECT_GCC=/usr/bin/c++]
+        ignore line: [COLLECT_LTO_WRAPPER=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper]
+        ignore line: [OFFLOAD_TARGET_NAMES=hsa:nvptx-none]
+        ignore line: [Target: x86_64-suse-linux]
+        ignore line: [Configured with: ../configure --prefix=/usr --infodir=/usr/share/info --mandir=/usr/share/man --libdir=/usr/lib64 --libexecdir=/usr/lib64 --enable-languages=c c++ objc fortran obj-c++ ada go --enable-offload-targets=hsa nvptx-none  --without-cuda-driver --enable-checking=release --disable-werror --with-gxx-include-dir=/usr/include/c++/7 --enable-ssp --disable-libssp --disable-libvtv --disable-libcc1 --disable-plugin --with-bugurl=https://bugs.opensuse.org/ --with-pkgversion='SUSE Linux' --with-slibdir=/lib64 --with-system-zlib --enable-libstdcxx-allocator=new --disable-libstdcxx-pch --enable-version-specific-runtime-libs --with-gcc-major-version-only --enable-linker-build-id --enable-linux-futex --enable-gnu-indirect-function --program-suffix=-7 --without-system-libunwind --enable-multilib --with-arch-32=x86-64 --with-tune=generic --build=x86_64-suse-linux --host=x86_64-suse-linux]
+        ignore line: [Thread model: posix]
+        ignore line: [gcc version 7.5.0 (SUSE Linux) ]
+        ignore line: [COMPILER_PATH=/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/:/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/bin/]
+        ignore line: [LIBRARY_PATH=/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/:/lib/../lib64/:/usr/lib/../lib64/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../:/lib/:/usr/lib/]
+        ignore line: [Reading specs from /usr/lib64/gcc/x86_64-suse-linux/7/libgomp.spec]
+        ignore line: [COLLECT_GCC_OPTIONS='-fopenmp' '-v' '-o' 'cmTC_8db38' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-pthread']
+        link line: [ /usr/lib64/gcc/x86_64-suse-linux/7/collect2 -plugin /usr/lib64/gcc/x86_64-suse-linux/7/liblto_plugin.so -plugin-opt=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper -plugin-opt=-fresolution=/tmp/cctrqpNV.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lpthread -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_8db38 /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crt1.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crti.o /usr/lib64/gcc/x86_64-suse-linux/7/crtbegin.o /usr/lib64/gcc/x86_64-suse-linux/7/crtoffloadbegin.o -L/usr/lib64/gcc/x86_64-suse-linux/7 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64 -L/lib/../lib64 -L/usr/lib/../lib64 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib -L/usr/lib64/gcc/x86_64-suse-linux/7/../../.. CMakeFiles/cmTC_8db38.dir/OpenMPTryFlag.cpp.o -lstdc++ -lm -lgomp -lgcc_s -lgcc -lpthread -lc -lgcc_s -lgcc /usr/lib64/gcc/x86_64-suse-linux/7/crtend.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crtn.o /usr/lib64/gcc/x86_64-suse-linux/7/crtoffloadend.o]
+          arg [/usr/lib64/gcc/x86_64-suse-linux/7/collect2] ==> ignore
+          arg [-plugin] ==> ignore
+          arg [/usr/lib64/gcc/x86_64-suse-linux/7/liblto_plugin.so] ==> ignore
+          arg [-plugin-opt=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper] ==> ignore
+          arg [-plugin-opt=-fresolution=/tmp/cctrqpNV.res] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc_s] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc] ==> ignore
+          arg [-plugin-opt=-pass-through=-lpthread] ==> ignore
+          arg [-plugin-opt=-pass-through=-lc] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc_s] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc] ==> ignore
+          arg [--build-id] ==> ignore
+          arg [--eh-frame-hdr] ==> ignore
+          arg [-m] ==> ignore
+          arg [elf_x86_64] ==> ignore
+          arg [-dynamic-linker] ==> ignore
+          arg [/lib64/ld-linux-x86-64.so.2] ==> ignore
+          arg [-o] ==> ignore
+          arg [cmTC_8db38] ==> ignore
+          arg [-L/usr/lib64/gcc/x86_64-suse-linux/7] ==> dir [/usr/lib64/gcc/x86_64-suse-linux/7]
+          arg [-L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64] ==> dir [/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64]
+          arg [-L/lib/../lib64] ==> dir [/lib/../lib64]
+          arg [-L/usr/lib/../lib64] ==> dir [/usr/lib/../lib64]
+          arg [-L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib] ==> dir [/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib]
+          arg [-L/usr/lib64/gcc/x86_64-suse-linux/7/../../..] ==> dir [/usr/lib64/gcc/x86_64-suse-linux/7/../../..]
+          arg [CMakeFiles/cmTC_8db38.dir/OpenMPTryFlag.cpp.o] ==> ignore
+          arg [-lstdc++] ==> lib [stdc++]
+          arg [-lm] ==> lib [m]
+          arg [-lgomp] ==> lib [gomp]
+          arg [-lgcc_s] ==> lib [gcc_s]
+          arg [-lgcc] ==> lib [gcc]
+          arg [-lpthread] ==> lib [pthread]
+          arg [-lc] ==> lib [c]
+          arg [-lgcc_s] ==> lib [gcc_s]
+          arg [-lgcc] ==> lib [gcc]
+        collapse library dir [/usr/lib64/gcc/x86_64-suse-linux/7] ==> [/usr/lib64/gcc/x86_64-suse-linux/7]
+        collapse library dir [/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64] ==> [/usr/lib64]
+        collapse library dir [/lib/../lib64] ==> [/lib64]
+        collapse library dir [/usr/lib/../lib64] ==> [/usr/lib64]
+        collapse library dir [/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib] ==> [/usr/x86_64-suse-linux/lib]
+        collapse library dir [/usr/lib64/gcc/x86_64-suse-linux/7/../../..] ==> [/usr/lib64]
+        implicit libs: [stdc++;m;gomp;gcc_s;gcc;pthread;c;gcc_s;gcc]
+        implicit objs: []
+        implicit dirs: [/usr/lib64/gcc/x86_64-suse-linux/7;/usr/lib64;/lib64;/usr/x86_64-suse-linux/lib]
+        implicit fwks: []
+      
+      
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/FindOpenMP.cmake:313 (find_library)"
+      - "/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/FindOpenMP.cmake:558 (_OPENMP_GET_FLAGS)"
+      - "CMakeLists.txt:5 (find_package)"
+    mode: "library"
+    variable: "OpenMP_gomp_LIBRARY"
+    description: "Path to the gomp library for OpenMP"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "gomp"
+    candidate_directories:
+      - "/usr/lib64/gcc/x86_64-suse-linux/7/"
+      - "/usr/lib64/"
+      - "/lib64/"
+      - "/usr/x86_64-suse-linux/lib/"
+      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/ccs/home/krusepi/.local/bin/"
+      - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
+      - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/sw/sources/hpss/bin/"
+      - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
+      - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
+      - "/opt/cray/pe/mpich/8.1.31/ofi/crayclang/17.0/bin/"
+      - "/opt/cray/pe/mpich/8.1.31/bin/"
+      - "/opt/cray/pe/craype/2.7.33/bin/"
+      - "/opt/cray/pe/cce/18.0.1/binutils/x86_64/x86_64-pc-linux-gnu/bin/"
+      - "/opt/cray/pe/cce/18.0.1/utils/x86_64/bin/"
+      - "/opt/cray/pe/cce/18.0.1/bin/"
+      - "/opt/cray/pe/perftools/24.11.0/bin/"
+      - "/opt/cray/pe/papi/7.1.0.4/bin/"
+      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/clmgr/bin/"
+      - "/opt/sgi/sbin/"
+      - "/opt/sgi/bin/"
+      - "/sw/frontier/bin/"
+      - "/usr/local/bin/"
+      - "/usr/bin/"
+      - "/bin/"
+      - "/opt/bin/"
+      - "/opt/c3/bin/"
+      - "/usr/lib/mit/bin/"
+      - "/opt/puppetlabs/bin/"
+      - "/opt/cray/pe/bin/"
+      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
+      - "/usr/local/lib64/"
+      - "/usr/local/lib/"
+      - "/usr/local/"
+      - "/usr/lib64/"
+      - "/usr/lib/"
+      - "/usr/"
+      - "/lib64/"
+      - "/lib/"
+      - "/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/"
+      - "/opt/"
+      - "/usr/lib/X11/"
+    found: "/usr/lib64/gcc/x86_64-suse-linux/7/libgomp.so"
+    search_context:
+      ENV{CMAKE_PREFIX_PATH}:
+        - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
+        - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
+      ENV{PATH}:
+        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.local/bin"
+        - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
+        - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/sw/sources/hpss/bin"
+        - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
+        - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
+        - "/opt/cray/pe/mpich/8.1.31/ofi/crayclang/17.0/bin"
+        - "/opt/cray/pe/mpich/8.1.31/bin"
+        - "/opt/cray/pe/craype/2.7.33/bin"
+        - "/opt/cray/pe/cce/18.0.1/binutils/x86_64/x86_64-pc-linux-gnu/bin"
+        - "/opt/cray/pe/cce/18.0.1/binutils/cross/x86_64-aarch64/bin"
+        - "/opt/cray/pe/cce/18.0.1/utils/x86_64/bin"
+        - "/opt/cray/pe/cce/18.0.1/bin"
+        - "/opt/cray/pe/perftools/24.11.0/bin"
+        - "/opt/cray/pe/papi/7.1.0.4/bin"
+        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/clmgr/sbin"
+        - "/opt/clmgr/bin"
+        - "/opt/sgi/sbin"
+        - "/opt/sgi/bin"
+        - "/sw/frontier/bin"
+        - "/ccs/home/krusepi/.local/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/opt/bin"
+        - "/opt/c3/bin"
+        - "/usr/lib/mit/bin"
+        - "/opt/puppetlabs/bin"
+        - "/opt/cray/pe/bin"
+        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/local"
+        - "/usr"
+        - "/"
+        - "/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data"
+        - "/usr/local"
+        - "/usr/X11R6"
+        - "/usr/pkg"
+        - "/opt"
+      CMAKE_SYSTEM_LIBRARY_PATH:
+        - "/usr/lib/X11"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/FindOpenMP.cmake:313 (find_library)"
+      - "/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/FindOpenMP.cmake:558 (_OPENMP_GET_FLAGS)"
+      - "CMakeLists.txt:5 (find_package)"
+    mode: "library"
+    variable: "OpenMP_pthread_LIBRARY"
+    description: "Path to the pthread library for OpenMP"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "pthread"
+    candidate_directories:
+      - "/usr/lib64/gcc/x86_64-suse-linux/7/"
+      - "/usr/lib64/"
+      - "/lib64/"
+      - "/usr/x86_64-suse-linux/lib/"
+      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/ccs/home/krusepi/.local/bin/"
+      - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
+      - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/sw/sources/hpss/bin/"
+      - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
+      - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
+      - "/opt/cray/pe/mpich/8.1.31/ofi/crayclang/17.0/bin/"
+      - "/opt/cray/pe/mpich/8.1.31/bin/"
+      - "/opt/cray/pe/craype/2.7.33/bin/"
+      - "/opt/cray/pe/cce/18.0.1/binutils/x86_64/x86_64-pc-linux-gnu/bin/"
+      - "/opt/cray/pe/cce/18.0.1/utils/x86_64/bin/"
+      - "/opt/cray/pe/cce/18.0.1/bin/"
+      - "/opt/cray/pe/perftools/24.11.0/bin/"
+      - "/opt/cray/pe/papi/7.1.0.4/bin/"
+      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/clmgr/bin/"
+      - "/opt/sgi/sbin/"
+      - "/opt/sgi/bin/"
+      - "/sw/frontier/bin/"
+      - "/usr/local/bin/"
+      - "/usr/bin/"
+      - "/bin/"
+      - "/opt/bin/"
+      - "/opt/c3/bin/"
+      - "/usr/lib/mit/bin/"
+      - "/opt/puppetlabs/bin/"
+      - "/opt/cray/pe/bin/"
+      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
+      - "/usr/local/lib64/"
+      - "/usr/local/lib/"
+      - "/usr/local/"
+      - "/usr/lib64/"
+      - "/usr/lib/"
+      - "/usr/"
+      - "/lib64/"
+      - "/lib/"
+      - "/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/"
+      - "/opt/"
+      - "/usr/lib/X11/"
+    searched_directories:
+      - "/usr/lib64/gcc/x86_64-suse-linux/7/"
+    found: "/usr/lib64/libpthread.a"
+    search_context:
+      ENV{CMAKE_PREFIX_PATH}:
+        - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
+        - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
+      ENV{PATH}:
+        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.local/bin"
+        - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
+        - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/sw/sources/hpss/bin"
+        - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
+        - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
+        - "/opt/cray/pe/mpich/8.1.31/ofi/crayclang/17.0/bin"
+        - "/opt/cray/pe/mpich/8.1.31/bin"
+        - "/opt/cray/pe/craype/2.7.33/bin"
+        - "/opt/cray/pe/cce/18.0.1/binutils/x86_64/x86_64-pc-linux-gnu/bin"
+        - "/opt/cray/pe/cce/18.0.1/binutils/cross/x86_64-aarch64/bin"
+        - "/opt/cray/pe/cce/18.0.1/utils/x86_64/bin"
+        - "/opt/cray/pe/cce/18.0.1/bin"
+        - "/opt/cray/pe/perftools/24.11.0/bin"
+        - "/opt/cray/pe/papi/7.1.0.4/bin"
+        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/clmgr/sbin"
+        - "/opt/clmgr/bin"
+        - "/opt/sgi/sbin"
+        - "/opt/sgi/bin"
+        - "/sw/frontier/bin"
+        - "/ccs/home/krusepi/.local/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/opt/bin"
+        - "/opt/c3/bin"
+        - "/usr/lib/mit/bin"
+        - "/opt/puppetlabs/bin"
+        - "/opt/cray/pe/bin"
+        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/local"
+        - "/usr"
+        - "/"
+        - "/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data"
+        - "/usr/local"
+        - "/usr/X11R6"
+        - "/usr/pkg"
+        - "/opt"
+      CMAKE_SYSTEM_LIBRARY_PATH:
+        - "/usr/lib/X11"
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/FindOpenMP.cmake:492 (try_compile)"
+      - "/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/FindOpenMP.cmake:632 (_OPENMP_GET_SPEC_DATE)"
+      - "CMakeLists.txt:5 (find_package)"
+    description: "Detecting CXX OpenMP version"
+    directories:
+      source: "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-aPQkrs"
+      binary: "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-aPQkrs"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: ""
+      CMAKE_CXX_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "OpenMP_SPECTEST_CXX_"
+      cached: true
+      stdout: |
+        Change Dir: '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-aPQkrs'
+        
+        Run Build Command(s): /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_6f267/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_6f267.dir/build.make CMakeFiles/cmTC_6f267.dir/build
+        gmake[1]: Entering directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-aPQkrs'
+        Building CXX object CMakeFiles/cmTC_6f267.dir/OpenMPCheckVersion.cpp.o
+        /usr/bin/c++   -fopenmp -o CMakeFiles/cmTC_6f267.dir/OpenMPCheckVersion.cpp.o -c /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-aPQkrs/OpenMPCheckVersion.cpp
+        Linking CXX executable cmTC_6f267
+        /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E cmake_link_script CMakeFiles/cmTC_6f267.dir/link.txt --verbose=1
+        /usr/bin/c++  -fopenmp CMakeFiles/cmTC_6f267.dir/OpenMPCheckVersion.cpp.o -o cmTC_6f267
+        gmake[1]: Leaving directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-aPQkrs'
+        
+      exitCode: 0
+...

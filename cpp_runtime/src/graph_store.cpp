@@ -73,6 +73,18 @@ LayerCsr read_layer(
   if (!layer.indptr.empty() && layer.indptr.back() != layer.indices.size()) {
     throw std::runtime_error("Layer indptr does not match nnz for layer: " + name);
   }
+
+  const auto num_nodes = layer.indptr.empty() ? 0U : layer.indptr.size() - 1U;
+  layer.degree_sums.resize(num_nodes, 0.0);
+  for (std::size_t row = 0; row < num_nodes; ++row) {
+    const auto start = static_cast<std::size_t>(layer.indptr[row]);
+    const auto end = static_cast<std::size_t>(layer.indptr[row + 1]);
+    double total = 0.0;
+    for (auto offset = start; offset < end; ++offset) {
+      total += static_cast<double>(layer.weights[offset]);
+    }
+    layer.degree_sums[row] = total;
+  }
   return layer;
 }
 

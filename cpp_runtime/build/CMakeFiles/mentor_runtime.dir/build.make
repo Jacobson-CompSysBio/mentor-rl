@@ -128,6 +128,8 @@ libmentor_runtime.so: CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.o
 libmentor_runtime.so: CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.o
 libmentor_runtime.so: CMakeFiles/mentor_runtime.dir/build.make
 libmentor_runtime.so: CMakeFiles/mentor_runtime.dir/compiler_depend.ts
+libmentor_runtime.so: /usr/lib64/gcc/x86_64-suse-linux/7/libgomp.so
+libmentor_runtime.so: /usr/lib64/libpthread.a
 libmentor_runtime.so: CMakeFiles/mentor_runtime.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Linking CXX shared library libmentor_runtime.so"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/mentor_runtime.dir/link.txt --verbose=$(VERBOSE)

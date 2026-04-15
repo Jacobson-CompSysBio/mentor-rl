@@ -10,6 +10,10 @@
 #include <stdexcept>
 #include <unordered_set>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 namespace mentor {
 
 namespace {
@@ -143,21 +147,6 @@ std::string json_ranked_results(
   return stream.str();
 }
 
-std::vector<double> row_weight_sums(const LayerCsr& layer) {
-  const auto num_nodes = layer.indptr.empty() ? 0U : layer.indptr.size() - 1U;
-  std::vector<double> sums(num_nodes, 0.0);
-  for (std::size_t row = 0; row < num_nodes; ++row) {
-    const auto start = static_cast<std::size_t>(layer.indptr[row]);
-    const auto end = static_cast<std::size_t>(layer.indptr[row + 1]);
-    double total = 0.0;
-    for (auto offset = start; offset < end; ++offset) {
-      total += static_cast<double>(layer.weights[offset]);
-    }
-    sums[row] = total;
-  }
-  return sums;
-}
-
 std::vector<double> personalized_pagerank(
     const LayerCsr& layer,
     const std::vector<std::uint32_t>& seed_indices,
@@ -177,10 +166,10 @@ std::vector<double> personalized_pagerank(
   }
 
   scores = personalization;
-  const auto degree = row_weight_sums(layer);
+  std::vector<double> next_scores(num_nodes, 0.0);
+  const auto& degree = layer.degree_sums;
 
   for (std::size_t iteration = 0; iteration < max_iterations; ++iteration) {
-    std::vector<double> next_scores(num_nodes, 0.0);
     for (std::size_t node = 0; node < num_nodes; ++node) {
       next_scores[node] = restart_probability * personalization[node];
     }
@@ -219,17 +208,17 @@ std::vector<std::pair<std::uint32_t, double>> top_k_scores(
   for (std::size_t index = 0; index < scores.size(); ++index) {
     ranked.push_back({static_cast<std::uint32_t>(index), scores[index]});
   }
-  std::sort(
-      ranked.begin(),
-      ranked.end(),
-      [](const auto& left, const auto& right) {
-        if (left.second != right.second) {
-          return left.second > right.second;
-        }
-        return left.first < right.first;
-      });
+  const auto comparator = [](const auto& left, const auto& right) {
+    if (left.second != right.second) {
+      return left.second > right.second;
+    }
+    return left.first < right.first;
+  };
   if (ranked.size() > top_k) {
+    std::partial_sort(ranked.begin(), ranked.begin() + top_k, ranked.end(), comparator);
     ranked.resize(top_k);
+  } else {
+    std::sort(ranked.begin(), ranked.end(), comparator);
   }
   return ranked;
 }
@@ -534,12 +523,18 @@ std::string json_rwr_multiplex(
     std::vector<double> aggregated_scores(num_nodes, 0.0);
     std::vector<std::string> active_layers;
     std::unordered_set<std::string> active_seed_gene_ids_set;
+    const auto present_seed_indices = resolve_present_gene_indices(store, unique_seed_ids);
 
-    for (const auto& layer : store.layers()) {
-      const auto active_seed_indices = resolve_present_gene_indices(store, unique_seed_ids);
+    std::vector<std::size_t> active_layer_indices;
+    std::vector<std::vector<std::uint32_t>> active_layer_seed_indices;
+    active_layer_indices.reserve(store.layers().size());
+    active_layer_seed_indices.reserve(store.layers().size());
+
+    for (std::size_t layer_index = 0; layer_index < store.layers().size(); ++layer_index) {
+      const auto& layer = store.layers()[layer_index];
       std::vector<std::uint32_t> layer_seed_indices;
-      layer_seed_indices.reserve(active_seed_indices.size());
-      for (const auto seed_index : active_seed_indices) {
+      layer_seed_indices.reserve(present_seed_indices.size());
+      for (const auto seed_index : present_seed_indices) {
         const auto start = static_cast<std::size_t>(layer.indptr[seed_index]);
         const auto end = static_cast<std::size_t>(layer.indptr[seed_index + 1]);
         if (start != end) {
@@ -547,12 +542,28 @@ std::string json_rwr_multiplex(
           active_seed_gene_ids_set.insert(store.gene_id(seed_index));
         }
       }
-      if (layer_seed_indices.empty()) {
-        continue;
+      if (!layer_seed_indices.empty()) {
+        active_layer_indices.push_back(layer_index);
+        active_layer_seed_indices.push_back(std::move(layer_seed_indices));
       }
+    }
 
-      active_layers.push_back(layer.name);
-      const auto layer_scores = personalized_pagerank(layer, layer_seed_indices, restart_probability);
+    std::vector<std::vector<double>> per_layer_scores(active_layer_indices.size());
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+    for (int active_index = 0; active_index < static_cast<int>(active_layer_indices.size()); ++active_index) {
+      const auto layer_index = active_layer_indices[active_index];
+      per_layer_scores[active_index] = personalized_pagerank(
+          store.layers()[layer_index],
+          active_layer_seed_indices[active_index],
+          restart_probability);
+    }
+
+    for (std::size_t active_index = 0; active_index < active_layer_indices.size(); ++active_index) {
+      const auto layer_index = active_layer_indices[active_index];
+      active_layers.push_back(store.layers()[layer_index].name);
+      const auto& layer_scores = per_layer_scores[active_index];
       for (std::size_t index = 0; index < layer_scores.size(); ++index) {
         aggregated_scores[index] += layer_scores[index];
       }

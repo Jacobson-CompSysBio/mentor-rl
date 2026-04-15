@@ -4,6 +4,8 @@ libmentor_runtime.so: \
   CMakeFiles/mentor_runtime.dir/src/c_api.cpp.o \
   CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.o \
   CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.o \
+  /usr/lib64/gcc/x86_64-suse-linux/7/libgomp.so \
+  /usr/lib64/libpthread.a \
   /usr/lib64/gcc/x86_64-suse-linux/7/libstdc++.so \
   /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/libm.so \
   /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/libm.so \
@@ -38,6 +40,10 @@ CMakeFiles/mentor_runtime.dir/src/c_api.cpp.o:
 CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.o:
 
 CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.o:
+
+/usr/lib64/gcc/x86_64-suse-linux/7/libgomp.so:
+
+/usr/lib64/libpthread.a:
 
 /usr/lib64/gcc/x86_64-suse-linux/7/libstdc++.so:
 

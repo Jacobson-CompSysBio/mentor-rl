@@ -12,6 +12,7 @@ struct LayerCsr {
   std::vector<std::uint64_t> indptr;
   std::vector<std::uint32_t> indices;
   std::vector<float> weights;
+  std::vector<double> degree_sums;
   std::uint32_t node_count = 0;
   std::uint64_t undirected_edge_count = 0;
   std::uint64_t stored_nnz = 0;
