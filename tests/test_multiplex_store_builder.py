@@ -53,8 +53,13 @@ class MultiplexStoreBuilderTests(unittest.TestCase):
             base_dir = Path(tmpdir)
             flist_path = _write_test_inputs(base_dir)
             out_dir = base_dir / "store"
+            progress_path = out_dir / "progress.json"
 
-            manifest = build_store(multiplex_flist=str(flist_path), out_dir=str(out_dir))
+            manifest = build_store(
+                multiplex_flist=str(flist_path),
+                out_dir=str(out_dir),
+                progress_path=str(progress_path),
+            )
 
             self.assertEqual(manifest["format_version"], "mentor-rl-multiplex-store-v1")
             self.assertEqual(manifest["num_genes"], 4)
@@ -63,10 +68,17 @@ class MultiplexStoreBuilderTests(unittest.TestCase):
             self.assertTrue((out_dir / "genes.tsv").exists())
             self.assertTrue((out_dir / "layers.tsv").exists())
             self.assertTrue((out_dir / "aggregate_indptr.bin").exists())
+            self.assertTrue(progress_path.exists())
 
             saved_manifest = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(saved_manifest["num_layers"], 2)
             self.assertEqual(len(saved_manifest["layers"]), 2)
+
+            saved_progress = json.loads(progress_path.read_text(encoding="utf-8"))
+            self.assertEqual(saved_progress["status"], "completed")
+            self.assertEqual(saved_progress["overall_progress"], 1.0)
+            self.assertEqual(saved_progress["metrics"]["num_layers"], 2)
+            self.assertEqual(saved_progress["metrics"]["num_genes"], 4)
 
             genes_table = (out_dir / "genes.tsv").read_text(encoding="utf-8").strip().splitlines()
             self.assertEqual(genes_table[0], "0\tENSG1")
