@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+"""Build the CORUM-grounded canonical corpus.
+
+This script turns the raw CORUM human complexes export into the structured
+corpus used by the rest of the MENTOR-RL pipeline. At a high level it:
+
+1. parses CORUM rows
+2. resolves member genes to Ensembl IDs
+3. drops unusable complexes
+4. deduplicates exact gene sets
+5. assigns train/val/test splits
+6. creates canonical task prototypes
+7. materializes final task JSONL files
+
+The code is intentionally split into small stages so long runs are easier to
+follow and debug.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -50,10 +67,14 @@ CORPUS_BUILD_STAGES = (
 
 
 def utc_now_iso() -> str:
+    """Return the current UTC time in a JSON-friendly ISO format."""
+
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 class ProgressTracker:
+    """Write a simple progress file for long corpus-generation jobs."""
+
     def __init__(
         self,
         path: Path,
@@ -227,6 +248,8 @@ class ProgressTracker:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for corpus generation."""
+
     parser = argparse.ArgumentParser(description="Build the CORUM-grounded canonical corpus.")
     parser.add_argument(
         "--corum-path",
@@ -274,11 +297,15 @@ def parse_args() -> argparse.Namespace:
 
 
 def chunks(values: list[str], size: int) -> Iterable[list[str]]:
+    """Yield fixed-size chunks from a list."""
+
     for start in range(0, len(values), size):
         yield values[start : start + size]
 
 
 def parse_semicolon_field(raw_value: str) -> list[str]:
+    """Split a CORUM semicolon-separated field into clean values."""
+
     if raw_value is None:
         return []
     text = str(raw_value).strip()
@@ -288,6 +315,8 @@ def parse_semicolon_field(raw_value: str) -> list[str]:
 
 
 def parse_member_alias_field(raw_value: str) -> list[list[str]]:
+    """Parse the nested alias column used for member gene synonyms."""
+
     alias_entries = parse_semicolon_field(raw_value)
     parsed: list[list[str]] = []
     for entry in alias_entries:
@@ -296,6 +325,8 @@ def parse_member_alias_field(raw_value: str) -> list[list[str]]:
 
 
 def align_list(values: list[Any], size: int, fill_value: Any) -> list[Any]:
+    """Pad or trim a list so it matches an expected width."""
+
     aligned = list(values[:size])
     while len(aligned) < size:
         aligned.append(copy.deepcopy(fill_value))
@@ -303,6 +334,8 @@ def align_list(values: list[Any], size: int, fill_value: Any) -> list[Any]:
 
 
 def unique_preserve_order(values: Iterable[Any]) -> list[Any]:
+    """Drop duplicates while keeping the first-seen order."""
+
     seen = set()
     unique_values = []
     for value in values:
@@ -315,6 +348,8 @@ def unique_preserve_order(values: Iterable[Any]) -> list[Any]:
 
 
 def size_bin(size: int) -> str:
+    """Map a complex size to the split-stratification bin used in the corpus."""
+
     if size <= 2:
         return "2"
     if size == 3:
@@ -325,6 +360,8 @@ def size_bin(size: int) -> str:
 
 
 def parse_go_pairs(row: dict[str, str]) -> list[dict[str, str]]:
+    """Align GO IDs and GO names from one raw CORUM row."""
+
     go_ids = parse_semicolon_field(row.get("functions_go_id", ""))
     go_names = parse_semicolon_field(row.get("functions_go_name", ""))
     width = max(len(go_ids), len(go_names))
@@ -339,6 +376,8 @@ def parse_go_pairs(row: dict[str, str]) -> list[dict[str, str]]:
 
 
 def parse_corum_row(row: dict[str, str]) -> dict[str, Any]:
+    """Convert one raw CORUM TSV row into a structured Python dictionary."""
+
     gene_symbols = parse_semicolon_field(row.get("subunits_gene_name", ""))
     uniprot_ids = align_list(
         parse_semicolon_field(row.get("subunits_uniprot_id", "")),
@@ -400,12 +439,16 @@ def parse_corum_row(row: dict[str, str]) -> dict[str, Any]:
 
 
 def load_corum_complexes(corum_path: Path) -> list[dict[str, Any]]:
+    """Read and parse the full CORUM human complexes export."""
+
     with corum_path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         return [parse_corum_row(row) for row in reader]
 
 
 def load_json(path: Path, default: Any) -> Any:
+    """Load JSON if it exists, otherwise return the provided default."""
+
     if not path.exists():
         return default
     with path.open("r", encoding="utf-8") as handle:
@@ -413,6 +456,8 @@ def load_json(path: Path, default: Any) -> Any:
 
 
 def write_json(path: Path, payload: Any) -> None:
+    """Write one JSON file with stable formatting."""
+
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True)
@@ -420,6 +465,8 @@ def write_json(path: Path, payload: Any) -> None:
 
 
 def write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
+    """Write newline-delimited JSON rows."""
+
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
@@ -428,6 +475,8 @@ def write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
 
 
 def extract_ensembl_gene_ids(hit: dict[str, Any]) -> list[str]:
+    """Pull Ensembl gene IDs out of a MyGene hit."""
+
     ensembl = hit.get("ensembl")
     if not ensembl:
         return []
@@ -447,6 +496,8 @@ def extract_ensembl_gene_ids(hit: dict[str, Any]) -> list[str]:
 
 
 def extract_uniprot_ids(hit: dict[str, Any]) -> set[str]:
+    """Pull UniProt accessions out of a MyGene hit."""
+
     uniprot = hit.get("uniprot")
     if not isinstance(uniprot, dict):
         return set()
@@ -461,6 +512,8 @@ def extract_uniprot_ids(hit: dict[str, Any]) -> set[str]:
 
 
 def extract_aliases(hit: dict[str, Any]) -> set[str]:
+    """Pull alias names out of a MyGene hit."""
+
     aliases = hit.get("alias", [])
     if isinstance(aliases, str):
         aliases = [aliases]
@@ -468,6 +521,8 @@ def extract_aliases(hit: dict[str, Any]) -> set[str]:
 
 
 class MyGeneResolver:
+    """Resolve CORUM members to Ensembl IDs using cached MyGene lookups."""
+
     def __init__(
         self,
         cache_dir: Path,
@@ -483,9 +538,13 @@ class MyGeneResolver:
         self._dirty = False
 
     def cache_key(self, scope: str, query: str) -> str:
+        """Build the normalized cache key for one lookup term."""
+
         return f"{scope}::{query.strip().upper()}"
 
     def save(self) -> None:
+        """Write the query cache if it changed during this run."""
+
         if not self._dirty:
             return
         write_json(self.cache_path, self.cache)
@@ -500,6 +559,8 @@ class MyGeneResolver:
         base_completed: int = 0,
         total_queries: int | None = None,
     ) -> None:
+        """Preload MyGene hits for a batch of terms and update progress if requested."""
+
         ordered_queries = []
         seen = set()
         for query in queries:
@@ -592,6 +653,8 @@ class MyGeneResolver:
         self.save()
 
     def get_hits(self, scope: str, query: str) -> list[dict[str, Any]]:
+        """Return cached MyGene hits for one query term."""
+
         return self.cache.get(self.cache_key(scope, query), [])
 
     def _matched_gene_candidates(self, scope: str, query: str) -> dict[str, list[dict[str, Any]]]:
@@ -641,6 +704,8 @@ class MyGeneResolver:
         uniprot_id: str,
         aliases: list[str],
     ) -> dict[str, Any]:
+        """Resolve one CORUM member using symbol, then UniProt, then alias."""
+
         attempts = []
         if gene_symbol:
             attempts.append(("symbol", gene_symbol))
@@ -682,6 +747,8 @@ class MyGeneResolver:
         }
 
     def get_gene_annotation(self, ensembl_gene_id: str) -> dict[str, Any]:
+        """Fetch a display symbol and lookup metadata for a resolved gene ID."""
+
         self.prefetch("ensembl.gene", [ensembl_gene_id])
         candidates = self._matched_gene_candidates("ensembl.gene", ensembl_gene_id)
         annotation_candidates = candidates.get(ensembl_gene_id, [])
@@ -719,6 +786,8 @@ def load_multiplex_gene_universe(
     cache_dir: Path,
     tracker: ProgressTracker | None = None,
 ) -> set[str]:
+    """Build or load the set of genes that appear anywhere in the multiplex."""
+
     cache_path = cache_dir / "multiplex_gene_universe.json"
     cached = load_json(cache_path, None)
     if isinstance(cached, dict) and cached.get("multiplex_flist") == str(flist_path):
@@ -798,6 +867,8 @@ def load_multiplex_gene_universe(
 
 
 def collect_prefetch_terms(parsed_complexes: list[dict[str, Any]]) -> dict[str, set[str]]:
+    """Collect symbol, UniProt, and alias terms needed for MyGene prefetch."""
+
     symbol_terms = set()
     uniprot_terms = set()
     alias_terms = set()
@@ -826,6 +897,8 @@ def normalize_complexes(
     min_complex_size: int,
     tracker: ProgressTracker | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Resolve members, drop unusable complexes, and create normalized rows."""
+
     normalization_summary = {
         "parsed_complexes": len(parsed_complexes),
         "excluded_complexes_unresolved_members": 0,
@@ -926,6 +999,8 @@ def normalize_complexes(
 
 
 def aggregate_complex_group(group: list[dict[str, Any]]) -> dict[str, Any]:
+    """Merge duplicate normalized rows that collapse to the same gene set."""
+
     ordered = sorted(group, key=lambda row: row["source_complex_id"])
     primary = copy.deepcopy(ordered[0])
     duplicate_rows = ordered[1:]
@@ -968,6 +1043,8 @@ def aggregate_complex_group(group: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def build_mechanism_labels(complex_row: dict[str, Any]) -> dict[str, Any]:
+    """Create the structured mechanism label block stored with each complex."""
+
     go_ids = [entry["go_id"] for entry in complex_row["go_terms"] if entry.get("go_id")]
     go_names = [entry["go_name"] for entry in complex_row["go_terms"] if entry.get("go_name")]
     fcgs_names = complex_row["fcgs"]["names"]
@@ -991,6 +1068,8 @@ def build_mechanism_labels(complex_row: dict[str, Any]) -> dict[str, Any]:
 def deduplicate_normalized_complexes(
     normalized_complexes: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Collapse exact post-normalization duplicates into one retained record."""
+
     grouped: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
     for complex_row in normalized_complexes:
         grouped[tuple(complex_row["gene_ids"])].append(complex_row)
@@ -1015,6 +1094,8 @@ def deduplicate_normalized_complexes(
 
 
 def stratified_split_counts(size: int) -> tuple[int, int, int]:
+    """Compute train/val/test counts for one stratum."""
+
     if size <= 0:
         return 0, 0, 0
     val_count = int(round(size * 0.1))
@@ -1036,6 +1117,8 @@ def assign_splits(
     complex_rows: list[dict[str, Any]],
     seed: int,
 ) -> list[dict[str, Any]]:
+    """Assign deterministic complex-level splits inside each stratum."""
+
     split_assignments = []
     strata: dict[tuple[str, bool], list[dict[str, Any]]] = defaultdict(list)
     for complex_row in complex_rows:
@@ -1068,6 +1151,8 @@ def assign_splits(
 def build_gene_conflict_index(
     complex_rows: list[dict[str, Any]],
 ) -> tuple[dict[str, set[str]], dict[str, str]]:
+    """Track which complexes each gene appears in."""
+
     gene_to_complexes: dict[str, set[str]] = defaultdict(set)
     gene_to_symbol: dict[str, str] = {}
     for complex_row in complex_rows:
@@ -1083,6 +1168,8 @@ def deterministic_select_subset(
     seed: int,
     salt: str,
 ) -> list[str]:
+    """Choose a deterministic subset using a seed plus a per-call salt."""
+
     if subset_size <= 0:
         return []
     ordered = sorted(values)
@@ -1101,6 +1188,8 @@ def sample_conflict_free_genes(
     forbidden_genes: set[str] | None = None,
     forbidden_complexes: set[str] | None = None,
 ) -> list[str]:
+    """Sample genes that do not clash through shared-complex membership."""
+
     if sample_size <= 0:
         return []
 
@@ -1130,6 +1219,8 @@ def sample_conflict_free_genes(
 
 
 def recovery_drop_count(size: int, difficulty: str) -> int:
+    """Return how many genes to hide for a recovery task."""
+
     if difficulty == "easy":
         raw = 1
     elif difficulty == "medium":
@@ -1140,6 +1231,8 @@ def recovery_drop_count(size: int, difficulty: str) -> int:
 
 
 def refinement_add_count(size: int, difficulty: str) -> int:
+    """Return how many noise genes to add for a refinement task."""
+
     if difficulty == "easy":
         return 1
     if difficulty == "medium":
@@ -1148,6 +1241,8 @@ def refinement_add_count(size: int, difficulty: str) -> int:
 
 
 def positive_prototype_count(complex_size: int) -> int:
+    """Count how many positive prototypes one complex will generate."""
+
     count = 1
     if complex_size >= 3:
         count += len(RECOVERY_REFINEMENT_DIFFICULTIES)
@@ -1157,6 +1252,8 @@ def positive_prototype_count(complex_size: int) -> int:
 
 
 def build_context_text(task_type: str, complex_row: dict[str, Any] | None) -> str:
+    """Choose the text context shown to the model for contextual evidence modes."""
+
     if complex_row is None:
         return (
             "This seed set was flagged for mechanistic follow-up, but no curated shared-context note "
@@ -1178,6 +1275,8 @@ def build_graph_query_spec(
     seed_gene_ids: list[str],
     seed_gene_symbols: list[str],
 ) -> dict[str, Any]:
+    """Create the lightweight graph request stored in graph/full evidence modes."""
+
     return {
         "multiplex_flist": str(multiplex_flist),
         "operator": "induce_subgraph",
@@ -1189,6 +1288,8 @@ def build_graph_query_spec(
 
 
 def build_structured_annotations(complex_row: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Create the structured annotation block shown in the full evidence mode."""
+
     if complex_row is None:
         return {
             "go_terms": [],
@@ -1212,6 +1313,8 @@ def build_query_text(
     evidence_mode: str,
     seed_gene_symbols: list[str],
 ) -> tuple[str, str]:
+    """Render the user-facing query text for one task and evidence mode."""
+
     gene_list = ", ".join(seed_gene_symbols)
     if task_type == "explanation":
         templates = {
@@ -1301,6 +1404,8 @@ def build_visible_inputs(
     multiplex_flist: Path,
     complex_row: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    """Assemble the part of the task row that the agent is allowed to see."""
+
     visible_inputs = {
         "seed_gene_ids": seed_gene_ids,
         "seed_gene_symbols": seed_gene_symbols,
@@ -1327,6 +1432,8 @@ def build_task_prototypes(
     seed: int,
     tracker: ProgressTracker | None = None,
 ) -> list[dict[str, Any]]:
+    """Create task skeletons before expanding them across evidence modes."""
+
     gene_to_complexes, gene_to_symbol = build_gene_conflict_index(complex_rows)
     retained_corum_gene_universe = sorted(gene_to_symbol.keys())
     multiplex_only_noise_genes = sorted(set(multiplex_gene_universe) - set(retained_corum_gene_universe))
@@ -1503,6 +1610,8 @@ def build_gene_annotation_index(
     resolver: MyGeneResolver,
     tracker: ProgressTracker | None = None,
 ) -> dict[str, dict[str, Any]]:
+    """Collect display metadata for every gene that can appear in a task."""
+
     annotation_index: dict[str, dict[str, Any]] = {}
     for complex_row in complex_rows:
         for member in complex_row["member_mappings"]:
@@ -1570,6 +1679,8 @@ def materialize_tasks(
     seed: int,
     tracker: ProgressTracker | None = None,
 ) -> list[dict[str, Any]]:
+    """Expand prototypes into the final canonical task rows."""
+
     complexes_by_id = {row["complex_record_id"]: row for row in complex_rows}
     tasks = []
     total_task_count = len(prototypes) * len(EVIDENCE_MODES)
