@@ -1,0 +1,206 @@
+import unittest
+
+from runtime.schemas import (
+    ActorStep,
+    CandidateBranch,
+    ContinuationState,
+    Interpretation,
+    LocalScoreBreakdown,
+    PreferenceDifficulty,
+    PreferencePair,
+    SharedPrefixContext,
+    TaskType,
+    ToolAction,
+    ToolObservation,
+    ToolObservationStatus,
+    VerifierStep,
+)
+from runtime.state import initialize_state_from_corum_task
+from runtime.validators import (
+    is_duplicate_tool_action,
+    tool_action_fingerprint,
+    validate_candidate_branch,
+    validate_preference_pair,
+    validate_tool_action,
+    validate_tool_action_schema,
+    validate_tool_action_semantics,
+)
+
+
+def _build_task_row() -> dict:
+    return {
+        "task_id": "corum_complex_00001.explanation.complete.graph",
+        "query_text": "What mechanism connects HDAC4 and BCL6?",
+        "evidence_mode": "graph",
+        "visible_inputs": {
+            "seed_gene_ids": ["ENSG00000068024", "ENSG00000113916"],
+            "seed_gene_symbols": ["HDAC4", "BCL6"],
+            "context_text": None,
+            "graph_query_spec": {"operator": "induce_subgraph"},
+            "structured_annotations": None,
+        },
+    }
+
+
+def _build_branch(branch_id: str) -> CandidateBranch:
+    interpretation, state = initialize_state_from_corum_task(_build_task_row(), max_budget=4)
+    next_state = state
+    next_state.continuation_state = ContinuationState.CONTINUE
+
+    return CandidateBranch(
+        branch_id=branch_id,
+        actor_step=ActorStep(
+            reasoning_text="Look at the direct neighborhood first.",
+            tool_action=ToolAction(
+                tool_name="get_neighbors",
+                arguments={"gene": "ENSG00000068024", "layers": ["ppi"]},
+                call_id=f"call_{branch_id}",
+            ),
+        ),
+        observation=ToolObservation(
+            status=ToolObservationStatus.SUCCESS,
+            payload={"neighbors": ["ENSG00000113916"]},
+            provenance={"tool_name": "get_neighbors", "layer_name": "ppi"},
+            call_id=f"call_{branch_id}",
+        ),
+        verifier_step=VerifierStep(
+            updated_interpretation=Interpretation(
+                mechanistic_claim=interpretation.mechanistic_claim,
+                main_evidence="Neighborhood evidence supports a shared module.",
+                uncertainty="",
+                next_subgoal="Check the induced subgraph.",
+            ),
+            updated_state=next_state,
+            continuation_decision=ContinuationState.CONTINUE,
+        ),
+        local_score=LocalScoreBreakdown(
+            schema_score=1.0,
+            complex_membership_delta=0.4,
+            mechanistic_label_delta=0.1,
+            efficiency_penalty=0.05,
+            total_score=1.0 if branch_id == "good" else 0.3,
+            normalized_score=1.0 if branch_id == "good" else 0.2,
+        ),
+    )
+
+
+class RuntimeValidatorTests(unittest.TestCase):
+    def test_validate_tool_action_schema_accepts_valid_graph_call(self) -> None:
+        action = ToolAction(
+            tool_name="get_neighbors",
+            arguments={"gene": "ENSG00000068024", "layers": ["ppi"]},
+            call_id="call_1",
+        )
+
+        result = validate_tool_action_schema(action)
+
+        self.assertTrue(result.valid)
+        self.assertEqual(result.errors, [])
+
+    def test_validate_tool_action_schema_rejects_bad_arguments(self) -> None:
+        action = ToolAction(
+            tool_name="get_neighbors",
+            arguments={"gene": "", "layer": "ppi"},
+            call_id="call_1",
+        )
+
+        result = validate_tool_action_schema(action)
+
+        self.assertFalse(result.valid)
+        self.assertGreaterEqual(len(result.errors), 2)
+
+    def test_validate_tool_action_semantics_checks_gene_and_layer_membership(self) -> None:
+        interpretation, state = initialize_state_from_corum_task(_build_task_row(), max_budget=4)
+        action = ToolAction(
+            tool_name="get_neighbors",
+            arguments={"gene": "ENSG_MISSING", "layers": ["unknown_layer"]},
+            call_id="call_1",
+        )
+
+        result = validate_tool_action_semantics(
+            action,
+            state=state,
+            available_gene_ids={"ENSG00000068024", "ENSG00000113916"},
+            available_layers={"ppi"},
+        )
+
+        self.assertFalse(result.valid)
+        self.assertTrue(any("not present in the runtime graph" in error for error in result.errors))
+        self.assertTrue(any("unknown layers" in error for error in result.errors))
+        self.assertEqual(interpretation.next_subgoal, _build_task_row()["query_text"])
+
+    def test_duplicate_tool_detection_uses_stable_fingerprint(self) -> None:
+        action_a = ToolAction(
+            tool_name="induce_subgraph",
+            arguments={"genes": ["ENSG1", "ENSG2"], "layers": ["ppi"]},
+            call_id="call_1",
+        )
+        action_b = ToolAction(
+            tool_name="induce_subgraph",
+            arguments={"genes": ["ENSG1", "ENSG2"], "layers": ["ppi"]},
+            call_id="call_2",
+        )
+
+        self.assertEqual(tool_action_fingerprint(action_a), tool_action_fingerprint(action_b))
+        self.assertTrue(is_duplicate_tool_action(action_b, [action_a]))
+
+    def test_validate_candidate_branch_catches_call_id_mismatch(self) -> None:
+        branch = _build_branch("bad")
+        branch.observation.call_id = "different_call_id"
+
+        result = validate_candidate_branch(branch)
+
+        self.assertFalse(result.valid)
+        self.assertTrue(any("call_id" in error for error in result.errors))
+
+    def test_validate_preference_pair_checks_nested_objects(self) -> None:
+        interpretation, state = initialize_state_from_corum_task(_build_task_row(), max_budget=4)
+        pair = PreferencePair(
+            pair_id="pair_1",
+            context=SharedPrefixContext(
+                query_text=_build_task_row()["query_text"],
+                user_evidence=_build_task_row()["visible_inputs"],
+                interpretation=interpretation,
+                state=state,
+                source_task_id=_build_task_row()["task_id"],
+            ),
+            chosen=_build_branch("good"),
+            rejected=_build_branch("bad"),
+            task_type=TaskType.EXPLANATION,
+            difficulty_bin=PreferenceDifficulty.EASY,
+            decision_step=0,
+            raw_score_chosen=1.0,
+            raw_score_rejected=0.3,
+            normalized_score_chosen=1.0,
+            normalized_score_rejected=0.2,
+            score_margin=0.8,
+            source_task_id=_build_task_row()["task_id"],
+            trajectory_id="trajectory_1",
+            trajectory_seed=42,
+        )
+
+        result = validate_preference_pair(pair)
+
+        self.assertTrue(result.valid)
+
+    def test_validate_tool_action_combines_schema_and_semantics(self) -> None:
+        _, state = initialize_state_from_corum_task(_build_task_row(), max_budget=0)
+        action = ToolAction(
+            tool_name="rwr_monoplex",
+            arguments={"seeds": ["ENSG00000068024"], "layer": "ppi", "top_k": 5},
+            call_id="call_1",
+        )
+
+        result = validate_tool_action(
+            action,
+            state=state,
+            available_gene_ids={"ENSG00000068024"},
+            available_layers={"ppi"},
+        )
+
+        self.assertFalse(result.valid)
+        self.assertTrue(any("remaining budget is 0" in error for error in result.errors))
+
+
+if __name__ == "__main__":
+    unittest.main()

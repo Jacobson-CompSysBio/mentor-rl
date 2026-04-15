@@ -1789,6 +1789,8 @@ def build_split_report(
     normalization_summary: dict[str, Any],
     dedup_summary: dict[str, Any],
 ) -> dict[str, Any]:
+    """Summarize what was kept, generated, and leaked across splits."""
+
     split_counts = Counter(row["split"] for row in complex_rows)
     size_histograms: dict[str, dict[str, int]] = {split: Counter() for split in SPLITS}
     task_counts: dict[str, dict[str, int]] = {split: Counter() for split in SPLITS}
@@ -1864,6 +1866,8 @@ def build_manifest(
     normalization_summary: dict[str, Any],
     dedup_summary: dict[str, Any],
 ) -> dict[str, Any]:
+    """Build the top-level metadata file for the finished corpus."""
+
     return {
         "schema_version": "corum-corpus-v1",
         "corum_path": str(corum_path),
@@ -1886,6 +1890,8 @@ def build_manifest(
 
 
 def build_complex_jsonl_rows(complex_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert retained complex rows into their final JSONL form."""
+
     rows = []
     for complex_row in complex_rows:
         rows.append(
@@ -1941,6 +1947,8 @@ def build_corum_corpus(
     cache_dir: Path,
     progress_path: Path | None = None,
 ) -> dict[str, Any]:
+    """Run the full canonical-corpus build from raw CORUM to final JSONL files."""
+
     out_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
     progress_path = progress_path or (out_dir / "progress.json")
@@ -2148,6 +2156,8 @@ def build_corum_corpus(
 
 
 def main() -> None:
+    """CLI entrypoint for corpus generation."""
+
     args = parse_args()
     result = build_corum_corpus(
         corum_path=args.corum_path,

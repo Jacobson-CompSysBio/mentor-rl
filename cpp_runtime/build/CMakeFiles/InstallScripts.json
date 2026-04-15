@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
