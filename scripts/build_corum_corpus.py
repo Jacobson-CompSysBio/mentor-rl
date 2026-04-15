@@ -7,6 +7,7 @@ import csv
 import json
 import random
 from collections import Counter, defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -32,6 +33,197 @@ RECOVERY_REFINEMENT_DIFFICULTIES = ("easy", "medium", "hard")
 EXPLANATION_DIFFICULTY = "complete"
 NONE_RELATIONSHIP_STATUS = "insufficient_support"
 POSITIVE_RELATIONSHIP_STATUS = "validated_group"
+CORPUS_BUILD_STAGES = (
+    ("parse_corum", "Parse CORUM complexes"),
+    ("load_multiplex_gene_universe", "Load multiplex gene universe"),
+    ("prefetch_mygene_terms", "Prefetch MyGene mappings"),
+    ("normalize_complexes", "Normalize CORUM complexes"),
+    ("deduplicate_complexes", "Deduplicate normalized complexes"),
+    ("assign_splits", "Assign train/val/test splits"),
+    ("build_task_prototypes", "Build canonical task prototypes"),
+    ("build_gene_annotation_index", "Build gene annotation index"),
+    ("materialize_tasks", "Materialize canonical tasks"),
+    ("build_split_report", "Build split report"),
+    ("build_manifest", "Build manifest"),
+    ("write_outputs", "Write corpus files"),
+)
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+class ProgressTracker:
+    def __init__(
+        self,
+        path: Path,
+        stage_defs: tuple[tuple[str, str], ...],
+    ) -> None:
+        self.path = path
+        self.stage_defs = stage_defs
+        self.stage_index_lookup = {
+            stage_name: index for index, (stage_name, _) in enumerate(stage_defs, start=1)
+        }
+        timestamp = utc_now_iso()
+        self.state: dict[str, Any] = {
+            "status": "running",
+            "current_stage": None,
+            "current_stage_label": None,
+            "stage_index": 0,
+            "stage_count": len(stage_defs),
+            "stage_progress": {
+                "completed": 0,
+                "total": None,
+                "unit": None,
+            },
+            "overall_progress": 0.0,
+            "message": "Initialized CORUM corpus build.",
+            "metrics": {},
+            "run_context": {},
+            "started_at": timestamp,
+            "updated_at": timestamp,
+            "stages": [
+                {
+                    "stage": stage_name,
+                    "label": stage_label,
+                    "status": "pending",
+                }
+                for stage_name, stage_label in stage_defs
+            ],
+        }
+        self._write()
+
+    def _write(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("w", encoding="utf-8") as handle:
+            json.dump(self.state, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+
+    def _touch(self) -> None:
+        self.state["updated_at"] = utc_now_iso()
+
+    def _find_stage_entry(self, stage_name: str) -> dict[str, Any]:
+        for entry in self.state["stages"]:
+            if entry["stage"] == stage_name:
+                return entry
+        raise KeyError(f"Unknown progress stage: {stage_name}")
+
+    def _mark_running_stage_complete(self) -> None:
+        current_stage = self.state.get("current_stage")
+        if not current_stage:
+            return
+        current_entry = self._find_stage_entry(current_stage)
+        if current_entry["status"] == "running":
+            current_entry["status"] = "completed"
+
+    def _recompute_overall_progress(self) -> None:
+        if self.state["status"] == "completed":
+            self.state["overall_progress"] = 1.0
+            return
+
+        stage_index = int(self.state.get("stage_index", 0))
+        if stage_index <= 0:
+            self.state["overall_progress"] = 0.0
+            return
+
+        progress = self.state.get("stage_progress", {})
+        completed = progress.get("completed")
+        total = progress.get("total")
+        stage_fraction = 0.0
+        if isinstance(completed, (int, float)) and isinstance(total, (int, float)) and total > 0:
+            stage_fraction = min(max(float(completed) / float(total), 0.0), 1.0)
+
+        overall = ((stage_index - 1) + stage_fraction) / max(1, self.state["stage_count"])
+        self.state["overall_progress"] = round(overall, 6)
+
+    def set_context(self, context: dict[str, Any]) -> None:
+        self.state["run_context"] = context
+        self._touch()
+        self._write()
+
+    def start_stage(
+        self,
+        stage_name: str,
+        *,
+        total: int | None = None,
+        unit: str | None = None,
+        message: str | None = None,
+        metrics: dict[str, Any] | None = None,
+    ) -> None:
+        stage_index = self.stage_index_lookup[stage_name]
+        stage_entry = self._find_stage_entry(stage_name)
+        self._mark_running_stage_complete()
+        stage_entry["status"] = "running"
+        self.state["status"] = "running"
+        self.state["current_stage"] = stage_name
+        self.state["current_stage_label"] = stage_entry["label"]
+        self.state["stage_index"] = stage_index
+        self.state["stage_progress"] = {
+            "completed": 0,
+            "total": total,
+            "unit": unit,
+        }
+        self.state["metrics"] = metrics or {}
+        self.state["message"] = message or stage_entry["label"]
+        self._touch()
+        self._recompute_overall_progress()
+        self._write()
+        print(
+            f"[corum_corpus] {stage_index}/{self.state['stage_count']} {stage_entry['label']}",
+            flush=True,
+        )
+
+    def update(
+        self,
+        *,
+        completed: int | float | None = None,
+        total: int | float | None = None,
+        unit: str | None = None,
+        message: str | None = None,
+        metrics: dict[str, Any] | None = None,
+    ) -> None:
+        if self.state.get("current_stage") is None:
+            return
+
+        if completed is not None:
+            self.state["stage_progress"]["completed"] = completed
+        if total is not None:
+            self.state["stage_progress"]["total"] = total
+        if unit is not None:
+            self.state["stage_progress"]["unit"] = unit
+        if message is not None:
+            self.state["message"] = message
+        if metrics:
+            self.state["metrics"].update(metrics)
+        self._touch()
+        self._recompute_overall_progress()
+        self._write()
+
+    def complete(self, *, message: str | None = None, metrics: dict[str, Any] | None = None) -> None:
+        self._mark_running_stage_complete()
+        self.state["status"] = "completed"
+        if metrics:
+            self.state["metrics"].update(metrics)
+        self.state["message"] = message or "Completed CORUM corpus build."
+        self._touch()
+        self._recompute_overall_progress()
+        self._write()
+        print("[corum_corpus] build complete", flush=True)
+
+    def fail(self, error: Exception) -> None:
+        current_stage = self.state.get("current_stage")
+        if current_stage:
+            self._find_stage_entry(current_stage)["status"] = "failed"
+        self.state["status"] = "failed"
+        self.state["message"] = f"Build failed: {error}"
+        self.state["error"] = {
+            "type": error.__class__.__name__,
+            "message": str(error),
+        }
+        self._touch()
+        self._recompute_overall_progress()
+        self._write()
+        print(f"[corum_corpus] build failed: {error}", flush=True)
 
 
 def parse_args() -> argparse.Namespace:
@@ -71,6 +263,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=DEFAULT_CACHE_DIR,
         help="Cache directory for MyGene responses and the multiplex gene universe.",
+    )
+    parser.add_argument(
+        "--progress-path",
+        type=Path,
+        default=None,
+        help="Optional path for the build progress tracker JSON. Defaults to <out-dir>/progress.json.",
     )
     return parser.parse_args()
 
@@ -293,7 +491,15 @@ class MyGeneResolver:
         write_json(self.cache_path, self.cache)
         self._dirty = False
 
-    def prefetch(self, scope: str, queries: Iterable[str]) -> None:
+    def prefetch(
+        self,
+        scope: str,
+        queries: Iterable[str],
+        *,
+        tracker: ProgressTracker | None = None,
+        base_completed: int = 0,
+        total_queries: int | None = None,
+    ) -> None:
         ordered_queries = []
         seen = set()
         for query in queries:
@@ -308,9 +514,39 @@ class MyGeneResolver:
         missing = [
             query for query in ordered_queries if self.cache_key(scope, query) not in self.cache
         ]
+        progress_total = (
+            total_queries if total_queries is not None else base_completed + len(ordered_queries)
+        )
+        cached_count = len(ordered_queries) - len(missing)
         if not missing:
+            if tracker:
+                tracker.update(
+                    completed=base_completed + len(ordered_queries),
+                    total=progress_total,
+                    unit="queries",
+                    message=f"MyGene {scope} queries satisfied from cache.",
+                    metrics={
+                        "prefetch_scope": scope,
+                        "queries_total": len(ordered_queries),
+                        "queries_missing": 0,
+                    },
+                )
             return
 
+        if tracker:
+            tracker.update(
+                completed=base_completed + cached_count,
+                total=progress_total,
+                unit="queries",
+                message=f"Prefetching MyGene {scope} queries.",
+                metrics={
+                    "prefetch_scope": scope,
+                    "queries_total": len(ordered_queries),
+                    "queries_missing": len(missing),
+                },
+            )
+
+        fetched_count = 0
         for chunk in chunks(missing, self.batch_size):
             response = requests.post(
                 MYGENE_API_URL,
@@ -338,6 +574,20 @@ class MyGeneResolver:
                     [],
                 )
             self._dirty = True
+            fetched_count += len(chunk)
+            if tracker:
+                tracker.update(
+                    completed=base_completed + cached_count + fetched_count,
+                    total=progress_total,
+                    unit="queries",
+                    message=f"Prefetching MyGene {scope} queries.",
+                    metrics={
+                        "prefetch_scope": scope,
+                        "queries_total": len(ordered_queries),
+                        "queries_missing": len(missing),
+                        "queries_fetched": fetched_count,
+                    },
+                )
 
         self.save()
 
@@ -464,26 +714,78 @@ class MyGeneResolver:
         }
 
 
-def load_multiplex_gene_universe(flist_path: Path, cache_dir: Path) -> set[str]:
+def load_multiplex_gene_universe(
+    flist_path: Path,
+    cache_dir: Path,
+    tracker: ProgressTracker | None = None,
+) -> set[str]:
     cache_path = cache_dir / "multiplex_gene_universe.json"
     cached = load_json(cache_path, None)
     if isinstance(cached, dict) and cached.get("multiplex_flist") == str(flist_path):
+        if tracker:
+            tracker.update(
+                completed=1,
+                total=1,
+                unit="cache",
+                message="Loaded multiplex gene universe from cache.",
+                metrics={
+                    "from_cache": True,
+                    "gene_universe_size": len(cached.get("gene_ids", [])),
+                    "network_files_processed": 0,
+                },
+            )
         return set(cached.get("gene_ids", []))
 
-    gene_ids = set()
+    network_paths: list[Path] = []
     with flist_path.open("r", encoding="utf-8") as handle:
         for line in handle:
             parts = line.rstrip("\n").split("\t")
             if not parts or not parts[0]:
                 continue
             network_path = Path(parts[0])
-            with network_path.open("r", encoding="utf-8") as network_handle:
-                for edge_line in network_handle:
-                    edge_parts = edge_line.rstrip("\n").split("\t")
-                    if len(edge_parts) < 2:
-                        continue
-                    gene_ids.add(edge_parts[0])
-                    gene_ids.add(edge_parts[1])
+            if not network_path.is_absolute():
+                network_path = flist_path.parent / network_path
+            network_paths.append(network_path)
+
+    gene_ids = set()
+    edges_processed = 0
+    total_networks = len(network_paths)
+    if tracker:
+        tracker.update(
+            completed=0,
+            total=total_networks,
+            unit="network files",
+            message="Scanning multiplex network files.",
+            metrics={
+                "from_cache": False,
+                "network_files_processed": 0,
+                "gene_universe_size": 0,
+                "edges_processed": 0,
+            },
+        )
+
+    for index, network_path in enumerate(network_paths, start=1):
+        with network_path.open("r", encoding="utf-8") as network_handle:
+            for edge_line in network_handle:
+                edge_parts = edge_line.rstrip("\n").split("\t")
+                if len(edge_parts) < 2:
+                    continue
+                gene_ids.add(edge_parts[0])
+                gene_ids.add(edge_parts[1])
+                edges_processed += 1
+        if tracker:
+            tracker.update(
+                completed=index,
+                total=total_networks,
+                unit="network files",
+                message=f"Scanned multiplex network file {index} of {total_networks}.",
+                metrics={
+                    "from_cache": False,
+                    "network_files_processed": index,
+                    "gene_universe_size": len(gene_ids),
+                    "edges_processed": edges_processed,
+                },
+            )
 
     write_json(
         cache_path,
@@ -522,6 +824,7 @@ def normalize_complexes(
     parsed_complexes: list[dict[str, Any]],
     resolver: MyGeneResolver,
     min_complex_size: int,
+    tracker: ProgressTracker | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     normalization_summary = {
         "parsed_complexes": len(parsed_complexes),
@@ -533,7 +836,8 @@ def normalize_complexes(
     unresolved_examples = []
     normalized = []
 
-    for complex_row in parsed_complexes:
+    total_complexes = len(parsed_complexes)
+    for index, complex_row in enumerate(parsed_complexes, start=1):
         member_mappings = []
         unresolved_members = []
         for member in complex_row["members_raw"]:
@@ -595,6 +899,26 @@ def normalize_complexes(
                 "has_fcgs": bool(complex_row["fcgs"]["names"]),
             }
         )
+
+        if tracker and (index % 100 == 0 or index == total_complexes):
+            tracker.update(
+                completed=index,
+                total=total_complexes,
+                unit="complexes",
+                message=f"Normalized {index} of {total_complexes} CORUM complexes.",
+                metrics={
+                    "retained_after_normalization": len(normalized),
+                    "excluded_complexes_unresolved_members": normalization_summary[
+                        "excluded_complexes_unresolved_members"
+                    ],
+                    "excluded_complexes_below_min_size": normalization_summary[
+                        "excluded_complexes_below_min_size"
+                    ],
+                    "excluded_member_resolution_events": normalization_summary[
+                        "excluded_member_resolution_events"
+                    ],
+                },
+            )
 
     normalization_summary["retained_after_normalization"] = len(normalized)
     normalization_summary["unresolved_examples"] = unresolved_examples[:20]
@@ -823,6 +1147,15 @@ def refinement_add_count(size: int, difficulty: str) -> int:
     return max(2, round(0.33 * size))
 
 
+def positive_prototype_count(complex_size: int) -> int:
+    count = 1
+    if complex_size >= 3:
+        count += len(RECOVERY_REFINEMENT_DIFFICULTIES)
+    if complex_size >= 2:
+        count += len(RECOVERY_REFINEMENT_DIFFICULTIES)
+    return count
+
+
 def build_context_text(task_type: str, complex_row: dict[str, Any] | None) -> str:
     if complex_row is None:
         return (
@@ -992,6 +1325,7 @@ def build_task_prototypes(
     complex_rows: list[dict[str, Any]],
     multiplex_gene_universe: set[str],
     seed: int,
+    tracker: ProgressTracker | None = None,
 ) -> list[dict[str, Any]]:
     gene_to_complexes, gene_to_symbol = build_gene_conflict_index(complex_rows)
     retained_corum_gene_universe = sorted(gene_to_symbol.keys())
@@ -1008,7 +1342,12 @@ def build_task_prototypes(
         complex_id for complex_id, gene_ids in unique_genes_by_complex.items() if gene_ids
     )
     prototypes = []
-    for complex_row in complex_rows:
+    positive_prototype_target = sum(
+        positive_prototype_count(complex_row["size"]) for complex_row in complex_rows
+    )
+    total_work_units = len(complex_rows) + positive_prototype_target
+    total_complexes = len(complex_rows)
+    for index, complex_row in enumerate(complex_rows, start=1):
         complex_id = complex_row["complex_record_id"]
         target_gene_ids = list(complex_row["gene_ids"])
 
@@ -1087,8 +1426,22 @@ def build_task_prototypes(
                     }
                 )
 
+        if tracker and (index % 100 == 0 or index == total_complexes):
+            tracker.update(
+                completed=index,
+                total=total_work_units,
+                unit="work units",
+                message=f"Built positive task prototypes for {index} of {total_complexes} complexes.",
+                metrics={
+                    "positive_prototypes_built": len(prototypes),
+                    "positive_prototype_target": positive_prototype_target,
+                    "none_prototypes_built": 0,
+                },
+            )
+
     positive_prototypes = list(prototypes)
-    for positive_prototype in positive_prototypes:
+    total_positive_prototypes = len(positive_prototypes)
+    for index, positive_prototype in enumerate(positive_prototypes, start=1):
         matched_input_size = len(positive_prototype["input_gene_ids"])
         if len(complexes_with_unique_genes) >= matched_input_size:
             chosen_complex_ids = deterministic_select_subset(
@@ -1127,6 +1480,20 @@ def build_task_prototypes(
             }
         )
 
+        if tracker and (index % 250 == 0 or index == total_positive_prototypes):
+            tracker.update(
+                completed=len(complex_rows) + index,
+                total=total_work_units,
+                unit="work units",
+                message=f"Built matched none prototypes for {index} of {total_positive_prototypes} positive prototypes.",
+                metrics={
+                    "positive_prototypes_built": total_positive_prototypes,
+                    "positive_prototype_target": positive_prototype_target,
+                    "none_prototypes_built": index,
+                    "prototype_count": len(prototypes),
+                },
+            )
+
     return sorted(prototypes, key=lambda prototype: prototype["prototype_id"])
 
 
@@ -1134,6 +1501,7 @@ def build_gene_annotation_index(
     complex_rows: list[dict[str, Any]],
     prototypes: list[dict[str, Any]],
     resolver: MyGeneResolver,
+    tracker: ProgressTracker | None = None,
 ) -> dict[str, dict[str, Any]]:
     annotation_index: dict[str, dict[str, Any]] = {}
     for complex_row in complex_rows:
@@ -1154,10 +1522,43 @@ def build_gene_annotation_index(
             if gene_id not in annotation_index
         }
     )
+    stage_total = max(1, len(missing_gene_ids))
+    if tracker:
+        tracker.update(
+            completed=0 if missing_gene_ids else 1,
+            total=stage_total,
+            unit="genes",
+            message=(
+                "Resolving missing gene annotations."
+                if missing_gene_ids
+                else "No missing gene annotations required."
+            ),
+            metrics={
+                "annotation_index_size": len(annotation_index),
+                "missing_gene_annotation_count": len(missing_gene_ids),
+            },
+        )
     if missing_gene_ids:
-        resolver.prefetch("ensembl.gene", missing_gene_ids)
-        for gene_id in missing_gene_ids:
+        resolver.prefetch(
+            "ensembl.gene",
+            missing_gene_ids,
+            tracker=tracker,
+            base_completed=0,
+            total_queries=stage_total,
+        )
+        for index, gene_id in enumerate(missing_gene_ids, start=1):
             annotation_index[gene_id] = resolver.get_gene_annotation(gene_id)
+            if tracker and (index % 250 == 0 or index == len(missing_gene_ids)):
+                tracker.update(
+                    completed=index,
+                    total=stage_total,
+                    unit="genes",
+                    message=f"Resolved {index} of {len(missing_gene_ids)} missing gene annotations.",
+                    metrics={
+                        "annotation_index_size": len(annotation_index),
+                        "missing_gene_annotation_count": len(missing_gene_ids),
+                    },
+                )
     return annotation_index
 
 
@@ -1167,10 +1568,12 @@ def materialize_tasks(
     annotation_index: dict[str, dict[str, Any]],
     multiplex_flist: Path,
     seed: int,
+    tracker: ProgressTracker | None = None,
 ) -> list[dict[str, Any]]:
     complexes_by_id = {row["complex_record_id"]: row for row in complex_rows}
     tasks = []
-    for prototype in prototypes:
+    total_task_count = len(prototypes) * len(EVIDENCE_MODES)
+    for prototype_index, prototype in enumerate(prototypes, start=1):
         complex_row = (
             complexes_by_id.get(prototype["target_complex_record_id"])
             if prototype["target_complex_record_id"]
@@ -1250,6 +1653,21 @@ def materialize_tasks(
                     },
                 }
             )
+
+            if tracker and (len(tasks) % 250 == 0 or len(tasks) == total_task_count):
+                tracker.update(
+                    completed=len(tasks),
+                    total=total_task_count,
+                    unit="tasks",
+                    message=(
+                        f"Materialized {len(tasks)} of {total_task_count} canonical tasks "
+                        f"across {prototype_index} of {len(prototypes)} prototypes."
+                    ),
+                    metrics={
+                        "prototype_count": len(prototypes),
+                        "tasks_materialized": len(tasks),
+                    },
+                )
 
     return sorted(tasks, key=lambda task: task["task_id"])
 
@@ -1410,75 +1828,212 @@ def build_corum_corpus(
     seed: int,
     min_complex_size: int,
     cache_dir: Path,
+    progress_path: Path | None = None,
 ) -> dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
-
-    parsed_complexes = load_corum_complexes(corum_path)
-    multiplex_gene_universe = load_multiplex_gene_universe(multiplex_flist, cache_dir)
-    resolver = MyGeneResolver(cache_dir=cache_dir, multiplex_genes=multiplex_gene_universe)
-
-    prefetch_terms = collect_prefetch_terms(parsed_complexes)
-    for scope in ("symbol", "uniprot", "alias"):
-        resolver.prefetch(scope, sorted(prefetch_terms[scope]))
-
-    normalized_complexes, normalization_summary = normalize_complexes(
-        parsed_complexes=parsed_complexes,
-        resolver=resolver,
-        min_complex_size=min_complex_size,
-    )
-    deduplicated_complexes, dedup_summary = deduplicate_normalized_complexes(normalized_complexes)
-    split_complexes = assign_splits(deduplicated_complexes, seed=seed)
-    prototypes = build_task_prototypes(
-        complex_rows=split_complexes,
-        multiplex_gene_universe=multiplex_gene_universe,
-        seed=seed,
-    )
-    annotation_index = build_gene_annotation_index(
-        complex_rows=split_complexes,
-        prototypes=prototypes,
-        resolver=resolver,
-    )
-    tasks = materialize_tasks(
-        complex_rows=split_complexes,
-        prototypes=prototypes,
-        annotation_index=annotation_index,
-        multiplex_flist=multiplex_flist,
-        seed=seed,
-    )
-    split_report = build_split_report(
-        complex_rows=split_complexes,
-        tasks=tasks,
-        normalization_summary=normalization_summary,
-        dedup_summary=dedup_summary,
-    )
-    manifest = build_manifest(
-        corum_path=corum_path,
-        multiplex_flist=multiplex_flist,
-        out_dir=out_dir,
-        cache_dir=cache_dir,
-        seed=seed,
-        min_complex_size=min_complex_size,
-        complex_rows=split_complexes,
-        tasks=tasks,
-        normalization_summary=normalization_summary,
-        dedup_summary=dedup_summary,
+    progress_path = progress_path or (out_dir / "progress.json")
+    tracker = ProgressTracker(progress_path, CORPUS_BUILD_STAGES)
+    tracker.set_context(
+        {
+            "corum_path": str(corum_path),
+            "multiplex_flist": str(multiplex_flist),
+            "out_dir": str(out_dir),
+            "cache_dir": str(cache_dir),
+            "seed": seed,
+            "min_complex_size": min_complex_size,
+        }
     )
 
-    complex_rows_for_output = build_complex_jsonl_rows(split_complexes)
-    write_json(out_dir / "manifest.json", manifest)
-    write_json(out_dir / "split_report.json", split_report)
-    write_jsonl(out_dir / "complexes.jsonl", complex_rows_for_output)
-    for split in SPLITS:
-        split_tasks = [task for task in tasks if task["split"] == split]
-        write_jsonl(out_dir / f"tasks.{split}.jsonl", split_tasks)
+    try:
+        tracker.start_stage("parse_corum", unit="complexes")
+        parsed_complexes = load_corum_complexes(corum_path)
+        tracker.update(
+            completed=len(parsed_complexes),
+            total=len(parsed_complexes),
+            unit="complexes",
+            message=f"Parsed {len(parsed_complexes)} CORUM complexes.",
+            metrics={"parsed_complexes": len(parsed_complexes)},
+        )
 
-    return {
-        "manifest": manifest,
-        "split_report": split_report,
-        "complex_rows": complex_rows_for_output,
-        "tasks": tasks,
-    }
+        tracker.start_stage("load_multiplex_gene_universe")
+        multiplex_gene_universe = load_multiplex_gene_universe(
+            multiplex_flist,
+            cache_dir,
+            tracker=tracker,
+        )
+
+        resolver = MyGeneResolver(cache_dir=cache_dir, multiplex_genes=multiplex_gene_universe)
+        prefetch_terms = collect_prefetch_terms(parsed_complexes)
+        prefetch_total = sum(len(prefetch_terms[scope]) for scope in ("symbol", "uniprot", "alias"))
+
+        tracker.start_stage(
+            "prefetch_mygene_terms",
+            total=prefetch_total,
+            unit="queries",
+            metrics={"prefetch_scope": None},
+        )
+        prefetch_completed = 0
+        for scope in ("symbol", "uniprot", "alias"):
+            scope_queries = sorted(prefetch_terms[scope])
+            resolver.prefetch(
+                scope,
+                scope_queries,
+                tracker=tracker,
+                base_completed=prefetch_completed,
+                total_queries=prefetch_total,
+            )
+            prefetch_completed += len(scope_queries)
+        tracker.update(
+            completed=prefetch_total,
+            total=prefetch_total,
+            unit="queries",
+            message=f"Prefetched {prefetch_total} MyGene lookup terms.",
+            metrics={
+                "prefetch_scope": "complete",
+                "prefetch_total": prefetch_total,
+            },
+        )
+
+        tracker.start_stage(
+            "normalize_complexes",
+            total=len(parsed_complexes),
+            unit="complexes",
+        )
+        normalized_complexes, normalization_summary = normalize_complexes(
+            parsed_complexes=parsed_complexes,
+            resolver=resolver,
+            min_complex_size=min_complex_size,
+            tracker=tracker,
+        )
+
+        tracker.start_stage("deduplicate_complexes", unit="complexes")
+        deduplicated_complexes, dedup_summary = deduplicate_normalized_complexes(normalized_complexes)
+        tracker.update(
+            completed=len(deduplicated_complexes),
+            total=len(deduplicated_complexes),
+            unit="complexes",
+            message=(
+                f"Deduplicated {len(normalized_complexes)} normalized complexes down to "
+                f"{len(deduplicated_complexes)} retained records."
+            ),
+            metrics=dedup_summary,
+        )
+
+        tracker.start_stage("assign_splits", total=len(deduplicated_complexes), unit="complexes")
+        split_complexes = assign_splits(deduplicated_complexes, seed=seed)
+        tracker.update(
+            completed=len(split_complexes),
+            total=len(split_complexes),
+            unit="complexes",
+            message=f"Assigned splits for {len(split_complexes)} retained complexes.",
+            metrics={"split_complex_count": len(split_complexes)},
+        )
+
+        tracker.start_stage("build_task_prototypes")
+        prototypes = build_task_prototypes(
+            complex_rows=split_complexes,
+            multiplex_gene_universe=multiplex_gene_universe,
+            seed=seed,
+            tracker=tracker,
+        )
+
+        tracker.start_stage("build_gene_annotation_index")
+        annotation_index = build_gene_annotation_index(
+            complex_rows=split_complexes,
+            prototypes=prototypes,
+            resolver=resolver,
+            tracker=tracker,
+        )
+
+        tracker.start_stage(
+            "materialize_tasks",
+            total=len(prototypes) * len(EVIDENCE_MODES),
+            unit="tasks",
+        )
+        tasks = materialize_tasks(
+            complex_rows=split_complexes,
+            prototypes=prototypes,
+            annotation_index=annotation_index,
+            multiplex_flist=multiplex_flist,
+            seed=seed,
+            tracker=tracker,
+        )
+
+        tracker.start_stage("build_split_report", unit="reports")
+        split_report = build_split_report(
+            complex_rows=split_complexes,
+            tasks=tasks,
+            normalization_summary=normalization_summary,
+            dedup_summary=dedup_summary,
+        )
+        tracker.update(
+            completed=1,
+            total=1,
+            unit="reports",
+            message="Built split report.",
+        )
+
+        tracker.start_stage("build_manifest", unit="manifests")
+        manifest = build_manifest(
+            corum_path=corum_path,
+            multiplex_flist=multiplex_flist,
+            out_dir=out_dir,
+            cache_dir=cache_dir,
+            seed=seed,
+            min_complex_size=min_complex_size,
+            complex_rows=split_complexes,
+            tasks=tasks,
+            normalization_summary=normalization_summary,
+            dedup_summary=dedup_summary,
+        )
+        tracker.update(
+            completed=1,
+            total=1,
+            unit="manifests",
+            message="Built manifest.",
+            metrics={
+                "complex_count": manifest["complex_count"],
+                "task_count": manifest["task_count"],
+            },
+        )
+
+        tracker.start_stage("write_outputs", total=3 + len(SPLITS), unit="files")
+        complex_rows_for_output = build_complex_jsonl_rows(split_complexes)
+        write_json(out_dir / "manifest.json", manifest)
+        tracker.update(completed=1, total=3 + len(SPLITS), unit="files", message="Wrote manifest.json.")
+        write_json(out_dir / "split_report.json", split_report)
+        tracker.update(completed=2, total=3 + len(SPLITS), unit="files", message="Wrote split_report.json.")
+        write_jsonl(out_dir / "complexes.jsonl", complex_rows_for_output)
+        tracker.update(completed=3, total=3 + len(SPLITS), unit="files", message="Wrote complexes.jsonl.")
+        for index, split in enumerate(SPLITS, start=1):
+            split_tasks = [task for task in tasks if task["split"] == split]
+            write_jsonl(out_dir / f"tasks.{split}.jsonl", split_tasks)
+            tracker.update(
+                completed=3 + index,
+                total=3 + len(SPLITS),
+                unit="files",
+                message=f"Wrote tasks.{split}.jsonl.",
+                metrics={"last_written_split": split},
+            )
+
+        tracker.complete(
+            metrics={
+                "complex_count": manifest["complex_count"],
+                "task_count": manifest["task_count"],
+                "progress_path": str(progress_path),
+            }
+        )
+        return {
+            "manifest": manifest,
+            "split_report": split_report,
+            "complex_rows": complex_rows_for_output,
+            "tasks": tasks,
+            "progress_path": progress_path,
+        }
+    except Exception as error:
+        tracker.fail(error)
+        raise
 
 
 def main() -> None:
@@ -1490,11 +2045,13 @@ def main() -> None:
         seed=args.seed,
         min_complex_size=args.min_complex_size,
         cache_dir=args.cache_dir,
+        progress_path=args.progress_path,
     )
     print(
         json.dumps(
             {
                 "complex_count": result["manifest"]["complex_count"],
+                "progress_path": str(result["progress_path"]),
                 "task_count": result["manifest"]["task_count"],
                 "task_count_by_split": result["manifest"]["task_count_by_split"],
                 "out_dir": str(args.out_dir),

@@ -91,7 +91,7 @@ class FakeResolver:
     def __init__(self, cache_dir, multiplex_genes=None, batch_size=500):
         self.multiplex_genes = multiplex_genes or set()
 
-    def prefetch(self, scope, queries):
+    def prefetch(self, scope, queries, tracker=None, base_completed=0, total_queries=None):
         return None
 
     def resolve_member(self, gene_symbol, uniprot_id, aliases):
@@ -437,6 +437,7 @@ def test_build_corum_corpus_smoke_and_determinism(tmp_path, monkeypatch):
     required_files = [
         "manifest.json",
         "complexes.jsonl",
+        "progress.json",
         "tasks.train.jsonl",
         "tasks.val.jsonl",
         "tasks.test.jsonl",
@@ -495,3 +496,10 @@ def test_build_corum_corpus_smoke_and_determinism(tmp_path, monkeypatch):
 
     split_report = json.loads((out_dir_1 / "split_report.json").read_text(encoding="utf-8"))
     assert "cross_split_shared_genes" in split_report
+
+    progress = json.loads((out_dir_1 / "progress.json").read_text(encoding="utf-8"))
+    assert progress["status"] == "completed"
+    assert progress["current_stage"] == "write_outputs"
+    assert progress["stage_index"] == progress["stage_count"]
+    assert progress["overall_progress"] == 1.0
+    assert progress["run_context"]["seed"] == 11
