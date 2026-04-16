@@ -81,8 +81,38 @@ TRAJECTORY_STAGES = (
 )
 
 ACTOR_SYSTEM_PROMPT = """You are the actor policy for MENTOR-RL.
-Return exactly one JSON object and nothing else.
-Choose at most one next tool call.
+Your job is to pick the single best next action using only the visible task inputs,
+the current interpretation, and the current visible state.
+
+Task types:
+- explanation: decide the strongest shared mechanism already supported by the seed set
+- recovery: the seed set is incomplete; expand to a coherent related module
+- refinement: the seed set may contain unrelated genes; isolate the coherent subset
+- none: decide whether the set fails to support one shared mechanism
+
+Evidence modes:
+- minimal: only seed genes are visible
+- graph: seed genes plus a graph query specification are visible
+- contextual: seed genes plus context text are visible
+- full: seed genes, graph query specification, context text, and structured annotations are visible
+
+Actor rules:
+- Return exactly one JSON object and nothing else.
+- Choose at most one next tool call.
+- Use only visible evidence and deterministic runtime observations.
+- Never assume access to hidden targets or labels that were not shown.
+- Use canonical Ensembl gene ids when you reference genes in tool arguments.
+- Prefer the cheapest action that is most likely to reduce uncertainty.
+- If current visible evidence is already enough, return "tool_action": null.
+
+Tool guidance:
+- query_mygene: look up identifiers or metadata for one gene or alias string
+- get_neighbors: inspect one seed gene's neighborhood
+- shortest_path: test whether two genes are closely connected
+- induce_subgraph: inspect coherence inside a candidate group
+- rwr_monoplex: rank candidates on one named layer
+- rwr_multiplex: rank candidates across the multiplex; prefer for recovery or refinement
+
 Allowed tools:
 - query_mygene: {"query": str, "fields": [str] optional}
 - get_neighbors: {"gene": str, "layers": [str] optional}
@@ -90,29 +120,51 @@ Allowed tools:
 - rwr_multiplex: {"seeds": [str], "top_k": int optional}
 - rwr_monoplex: {"seeds": [str], "layer": str, "top_k": int optional}
 - induce_subgraph: {"genes": [str], "layers": [str] optional}
+
 Output schema:
 {"reasoning_text": "...", "tool_action": null or {"tool_name": "...", "arguments": {...}}}
-Use canonical Ensembl gene ids when you reference genes."""
+"""
 
 VERIFIER_SYSTEM_PROMPT = """You are the verifier policy for MENTOR-RL.
-Return exactly one JSON object and nothing else.
-Update the interpretation and the visible hypothesis state after the actor step and deterministic observation.
-Allowed relationship_status values:
-- unknown
-- partially_observed_group
-- validated_group
-- multiple_groups
-- insufficient_support
-Allowed continuation_decision values:
-- continue
-- revise
-- stop
-Allowed label_source values:
-- go
-- fcgs
-- complex_name
-- free_text
-- other
+Your job is to update the current interpretation and visible hypothesis state after
+the actor step and the deterministic observation.
+
+Verifier rules:
+- Return exactly one JSON object and nothing else.
+- Use only the visible task inputs, prior interpretation, prior state, actor output,
+  and deterministic observation.
+- Never assume access to hidden targets or labels that were not shown.
+- Use canonical Ensembl gene ids when you reference genes.
+- Keep the update conservative and grounded in the visible evidence.
+
+Relationship status meanings:
+- unknown: evidence is still too weak to classify the group
+- partially_observed_group: there appears to be one coherent group, but it is still incomplete or uncertain
+- validated_group: there is enough evidence for one coherent shared group
+- multiple_groups: the evidence suggests more than one unrelated module
+- insufficient_support: the evidence does not support one coherent mechanism
+
+Continuation decision meanings:
+- continue: one more step could improve the hypothesis
+- revise: the last action was invalid, noisy, or unhelpful; try a different direction
+- stop: current evidence is sufficient for the best current conclusion
+
+Label source meanings:
+- go: Gene Ontology label
+- fcgs: FCGS label
+- complex_name: complex-name-derived label
+- free_text: grounded free-text label
+- other: any other grounded label source
+
+State update guidance:
+- predicted_gene_ids should contain the best current coherent group.
+- For explanation, the predicted group often matches the visible seed set.
+- For recovery, add genes only when the observation supports them.
+- For refinement, remove genes that look unsupported or off-module.
+- For none tasks, prefer "insufficient_support" or "multiple_groups" when one coherent mechanism is not supported.
+- If relationship_status is insufficient_support, an empty predicted_gene_ids list is acceptable.
+- Prefer GO or FCGS labels when visible annotations support them.
+
 Output schema:
 {
   "updated_interpretation": {
@@ -131,7 +183,7 @@ Output schema:
     "verifier_notes": str
   }
 }
-Use canonical Ensembl gene ids when you reference genes."""
+"""
 
 
 def utc_now_iso() -> str:

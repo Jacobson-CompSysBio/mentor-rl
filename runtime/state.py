@@ -108,7 +108,6 @@ def build_seed_gene_group(
         rationale=rationale,
     )
 
-
 def make_initial_interpretation(task_row: dict[str, Any]) -> Interpretation:
     """Build the initial working interpretation described in the proposal."""
 
@@ -122,7 +121,6 @@ def make_initial_interpretation(task_row: dict[str, Any]) -> Interpretation:
         uncertainty="",
         next_subgoal=query_text,
     )
-
 
 def initialize_state_from_corum_task(
     task_row: dict[str, Any],
