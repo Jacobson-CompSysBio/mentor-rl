@@ -32,12 +32,16 @@ OUT_DIR="${OUT_DIR:-${REPO_ROOT}/data/corum_trajectories/gpt_oss_120b_job_${SLUR
 ENCODINGS_SHARED_DIR="${ENCODINGS_SHARED_DIR:-${REPO_ROOT}/data/tiktoken_encodings}"
 
 MAX_TASKS="${MAX_TASKS:-8}"
+TASK_SHARD_INDEX="${TASK_SHARD_INDEX:-0}"
+TASK_SHARD_COUNT="${TASK_SHARD_COUNT:-1}"
 MAX_STEPS="${MAX_STEPS:-4}"
 N_ACT="${N_ACT:-4}"
 N_VER="${N_VER:-2}"
 GENERATOR_TEMPERATURE="${GENERATOR_TEMPERATURE:-0.8}"
 GENERATOR_TOP_P="${GENERATOR_TOP_P:-0.95}"
 GENERATOR_MAX_COMPLETION_TOKENS="${GENERATOR_MAX_COMPLETION_TOKENS:-700}"
+GENERATOR_REASONING_EFFORT="${GENERATOR_REASONING_EFFORT:-low}"
+GENERATOR_TIMEOUT_SECONDS="${GENERATOR_TIMEOUT_SECONDS:-900}"
 
 RAY_PORT="${RAY_PORT:-6379}"
 RAY_DASHBOARD_PORT="${RAY_DASHBOARD_PORT:-8265}"
@@ -141,6 +145,10 @@ log "SERVE_MODEL_PATH=${SERVE_MODEL_PATH}"
 log "SERVE_ENCODINGS_DIR=${SERVE_ENCODINGS_DIR}"
 log "TASKS_PATH=${TASKS_PATH}"
 log "OUT_DIR=${OUT_DIR}"
+log "TASK_SHARD_INDEX=${TASK_SHARD_INDEX}"
+log "TASK_SHARD_COUNT=${TASK_SHARD_COUNT}"
+log "GENERATOR_REASONING_EFFORT=${GENERATOR_REASONING_EFFORT}"
+log "GENERATOR_TIMEOUT_SECONDS=${GENERATOR_TIMEOUT_SECONDS}"
 log "EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND=${EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND}"
 
 cleanup() {
@@ -294,6 +302,7 @@ srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
     export HIP_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES}
     unset ROCR_VISIBLE_DEVICES || true
     cd '${REPO_ROOT}'
+    export PYTHONPATH='${REPO_ROOT}':\${PYTHONPATH:-}
     python scripts/generate_trajectories.py \
       --tasks-path '${TASKS_PATH}' \
       --out-dir '${OUT_DIR}' \
@@ -303,7 +312,11 @@ srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
       --generator-temperature ${GENERATOR_TEMPERATURE} \
       --generator-top-p ${GENERATOR_TOP_P} \
       --generator-max-completion-tokens ${GENERATOR_MAX_COMPLETION_TOKENS} \
+      --generator-reasoning-effort ${GENERATOR_REASONING_EFFORT} \
+      --generator-timeout-seconds ${GENERATOR_TIMEOUT_SECONDS} \
       --max-tasks ${MAX_TASKS} \
+      --task-shard-index ${TASK_SHARD_INDEX} \
+      --task-shard-count ${TASK_SHARD_COUNT} \
       --max-steps ${MAX_STEPS} \
       --n-act ${N_ACT} \
       --n-ver ${N_VER}

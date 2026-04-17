@@ -26,12 +26,18 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
 import requests
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from runtime import (
     ActorStep,
@@ -66,7 +72,6 @@ from runtime import (
 )
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_TASKS_PATH = REPO_ROOT / "data" / "corum_corpus" / "tasks.train.jsonl"
 DEFAULT_OUT_DIR = REPO_ROOT / "data" / "corum_trajectories"
 DEFAULT_STORE_DIR = REPO_ROOT / "data" / "humannet_multiplex_store"
@@ -258,6 +263,223 @@ def _safe_text(value: Any) -> str:
     return value if isinstance(value, str) else ""
 
 
+def _json_dumps_compact(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=True, sort_keys=True)
+
+
+def _message_content_to_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, dict):
+        content = [content]
+    if not isinstance(content, list):
+        return ""
+
+    parts: list[str] = []
+    for item in content:
+        if isinstance(item, str):
+            text = item.strip()
+        elif isinstance(item, dict):
+            text = ""
+            for key in ("text", "content", "input_text"):
+                value = item.get(key)
+                if isinstance(value, str) and value.strip():
+                    text = value.strip()
+                    break
+        else:
+            text = ""
+        if text:
+            parts.append(text)
+    return "\n".join(parts).strip()
+
+
+def _response_choice_to_text(choice: dict[str, Any]) -> str:
+    message = _safe_dict(choice.get("message"))
+    content_text = _message_content_to_text(message.get("content"))
+    if content_text:
+        return content_text
+
+    tool_calls = message.get("tool_calls")
+    if isinstance(tool_calls, list) and tool_calls:
+        return _json_dumps_compact({"tool_calls": tool_calls})
+
+    reasoning_text = _message_content_to_text(message.get("reasoning_content"))
+    if reasoning_text:
+        return _json_dumps_compact({"reasoning_content": reasoning_text})
+
+    return _json_dumps_compact(
+        {
+            "choice_index": choice.get("index"),
+            "finish_reason": choice.get("finish_reason"),
+            "message": message,
+        }
+    )
+
+
+def _message_has_visible_output(message: dict[str, Any]) -> bool:
+    if _message_content_to_text(message.get("content")):
+        return True
+    if _message_content_to_text(message.get("reasoning_content")):
+        return True
+    if _safe_text(message.get("refusal")):
+        return True
+    tool_calls = message.get("tool_calls")
+    return isinstance(tool_calls, list) and bool(tool_calls)
+
+
+def _response_truncated_before_visible_output(
+    payload: dict[str, Any],
+    *,
+    prefix: str,
+) -> str | None:
+    if payload.get("finish_reason") != "length":
+        return None
+    message = _safe_dict(payload.get("message"))
+    if _message_has_visible_output(message):
+        return None
+    return f"{prefix}_response_truncated_before_visible_output"
+
+
+def _tool_action_from_tool_calls(tool_calls: Any) -> tuple[dict[str, Any] | None, list[str]]:
+    errors: list[str] = []
+    if not isinstance(tool_calls, list) or not tool_calls:
+        return None, errors
+
+    if len(tool_calls) > 1:
+        errors.append("actor_multiple_tool_calls_returned")
+
+    first_call = tool_calls[0]
+    if not isinstance(first_call, dict):
+        return None, errors + ["actor_tool_call_not_a_dict"]
+
+    function_payload = _safe_dict(first_call.get("function"))
+    tool_name = function_payload.get("name")
+    if not isinstance(tool_name, str) or not tool_name:
+        return None, errors + ["actor_tool_call_name_missing_or_invalid"]
+
+    raw_arguments = function_payload.get("arguments")
+    arguments: dict[str, Any] = {}
+    if isinstance(raw_arguments, dict):
+        arguments = raw_arguments
+    elif isinstance(raw_arguments, str):
+        if raw_arguments.strip():
+            try:
+                parsed_arguments = json.loads(raw_arguments)
+            except Exception as error:
+                errors.append(f"actor_tool_call_arguments_json_parse_error: {error}")
+            else:
+                if isinstance(parsed_arguments, dict):
+                    arguments = parsed_arguments
+                else:
+                    errors.append("actor_tool_call_arguments_not_a_dict")
+    elif raw_arguments is not None:
+        errors.append("actor_tool_call_arguments_invalid")
+
+    return {"tool_name": tool_name, "arguments": arguments}, errors
+
+
+def _normalize_actor_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    errors: list[str] = []
+
+    response_error = _response_truncated_before_visible_output(payload, prefix="actor")
+    if response_error:
+        errors.append(response_error)
+
+    reasoning_text = ""
+    raw_reasoning_text = payload.get("reasoning_text")
+    if isinstance(raw_reasoning_text, str):
+        reasoning_text = raw_reasoning_text
+    elif raw_reasoning_text is not None:
+        errors.append("actor_reasoning_text_invalid")
+
+    if not reasoning_text:
+        reasoning_content = payload.get("reasoning_content")
+        if isinstance(reasoning_content, str):
+            reasoning_text = reasoning_content
+
+    saw_tool_action = "tool_action" in payload or "tool_calls" in payload
+    tool_action = payload.get("tool_action")
+    if "tool_calls" in payload:
+        tool_action, tool_call_errors = _tool_action_from_tool_calls(payload.get("tool_calls"))
+        errors.extend(tool_call_errors)
+    elif tool_action is not None and not isinstance(tool_action, dict):
+        tool_action = None
+        errors.append("actor_tool_action_not_a_dict")
+
+    if not saw_tool_action:
+        errors.append("actor_tool_action_missing")
+
+    if not reasoning_text and tool_action is None:
+        errors.append("actor_reasoning_and_tool_action_blank")
+
+    return {"reasoning_text": reasoning_text, "tool_action": tool_action}, errors
+
+
+def _validate_verifier_payload(payload: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    response_error = _response_truncated_before_visible_output(payload, prefix="verifier")
+    if response_error:
+        errors.append(response_error)
+    if not isinstance(payload.get("updated_interpretation"), dict):
+        errors.append("verifier_updated_interpretation_missing_or_invalid")
+    if not isinstance(payload.get("updated_state"), dict):
+        errors.append("verifier_updated_state_missing_or_invalid")
+    updated_interpretation = _safe_dict(payload.get("updated_interpretation"))
+    updated_state = _safe_dict(payload.get("updated_state"))
+    if (
+        isinstance(payload.get("updated_interpretation"), dict)
+        and isinstance(payload.get("updated_state"), dict)
+        and not any(
+            value not in (None, "", [], {})
+            for value in list(updated_interpretation.values()) + list(updated_state.values())
+        )
+    ):
+        errors.append("verifier_payload_blank")
+    return errors
+
+
+def _has_error_prefix(errors: Iterable[str], prefixes: tuple[str, ...]) -> bool:
+    return any(
+        isinstance(error, str) and error.startswith(prefix)
+        for error in errors
+        for prefix in prefixes
+    )
+
+
+def _actor_candidate_is_usable(actor_step: ActorStep, errors: Iterable[str]) -> bool:
+    fatal_errors = {
+        "actor_response_truncated_before_visible_output",
+        "actor_tool_action_missing",
+        "actor_tool_action_not_a_dict",
+        "actor_tool_name_missing_or_invalid",
+        "actor_reasoning_and_tool_action_blank",
+    }
+    if any(error in fatal_errors for error in errors):
+        return False
+    if _has_error_prefix(errors, ("actor_json_parse_error:", "actor_tool_call_")):
+        return False
+    return bool(actor_step.reasoning_text.strip()) or actor_step.tool_action is not None
+
+
+def _verifier_candidate_is_usable(candidate: dict[str, Any], errors: Iterable[str]) -> bool:
+    fatal_errors = {
+        "verifier_response_truncated_before_visible_output",
+        "verifier_updated_interpretation_missing_or_invalid",
+        "verifier_updated_state_missing_or_invalid",
+        "verifier_payload_blank",
+    }
+    if any(error in fatal_errors for error in errors):
+        return False
+    if _has_error_prefix(errors, ("verifier_json_parse_error:",)):
+        return False
+
+    payload = _safe_dict(candidate.get("payload"))
+    return (
+        isinstance(payload.get("updated_interpretation"), dict)
+        and isinstance(payload.get("updated_state"), dict)
+    )
+
+
 @dataclass
 class ModelGeneratorConfig:
     """Configuration for the model-backed trajectory candidate generator."""
@@ -270,6 +492,7 @@ class ModelGeneratorConfig:
     temperature: float = 0.8
     top_p: float = 0.95
     max_completion_tokens: int = 700
+    reasoning_effort: str = "low"
 
     def resolved_api_key(self) -> str:
         """Return the API key, falling back to an environment variable."""
@@ -316,7 +539,9 @@ class OpenAICompatibleCandidateGenerator:
             "n": n,
             "temperature": self.config.temperature,
             "top_p": self.config.top_p,
-            "max_tokens": self.config.max_completion_tokens,
+            "max_completion_tokens": self.config.max_completion_tokens,
+            "reasoning_effort": self.config.reasoning_effort,
+            "include_reasoning": True,
             "seed": seed,
         }
         response = self.session.post(
@@ -329,10 +554,19 @@ class OpenAICompatibleCandidateGenerator:
         payload = response.json()
         texts: list[str] = []
         for choice in payload.get("choices", []):
-            message = choice.get("message", {})
-            content = message.get("content")
-            if isinstance(content, str):
-                texts.append(content)
+            if not isinstance(choice, dict):
+                texts.append(_json_dumps_compact({"choice": choice}))
+                continue
+            texts.append(_response_choice_to_text(choice))
+        if not texts:
+            texts.append(
+                _json_dumps_compact(
+                    {
+                        "error": "chat_completion_returned_no_choices",
+                        "response_keys": sorted(payload),
+                    }
+                )
+            )
         return texts
 
     def generate_actor_candidates(
@@ -369,12 +603,13 @@ class OpenAICompatibleCandidateGenerator:
         for raw_text in self._chat(messages, n=n_act, seed=seed):
             try:
                 payload = _parse_model_json(raw_text)
+                normalized_payload, payload_errors = _normalize_actor_payload(payload)
                 candidates.append(
                     {
-                        "reasoning_text": payload.get("reasoning_text", ""),
-                        "tool_action": payload.get("tool_action"),
+                        "reasoning_text": normalized_payload["reasoning_text"],
+                        "tool_action": normalized_payload["tool_action"],
                         "raw_text": raw_text,
-                        "generator_errors": [],
+                        "generator_errors": payload_errors,
                     }
                 )
             except Exception as error:
@@ -434,7 +669,8 @@ class OpenAICompatibleCandidateGenerator:
                     {
                         "payload": payload,
                         "raw_text": raw_text,
-                        "generator_errors": list(actor_candidate.get("generator_errors", [])),
+                        "generator_errors": list(actor_candidate.get("generator_errors", []))
+                        + _validate_verifier_payload(payload),
                     }
                 )
             except Exception as error:
@@ -464,14 +700,30 @@ def _write_jsonl_line(handle: Any, payload: dict[str, Any]) -> None:
     handle.write("\n")
 
 
-def _load_task_rows(tasks_path: Path, *, max_tasks: int | None = None) -> list[dict[str, Any]]:
+def _load_task_rows(
+    tasks_path: Path,
+    *,
+    max_tasks: int | None = None,
+    task_shard_index: int = 0,
+    task_shard_count: int = 1,
+) -> list[dict[str, Any]]:
+    if task_shard_count <= 0:
+        raise ValueError("task_shard_count must be positive.")
+    if task_shard_index < 0 or task_shard_index >= task_shard_count:
+        raise ValueError("task_shard_index must be between 0 and task_shard_count - 1.")
+
     rows: list[dict[str, Any]] = []
+    input_task_index = 0
     with tasks_path.open("r", encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
             if not line:
                 continue
+            if input_task_index % task_shard_count != task_shard_index:
+                input_task_index += 1
+                continue
             rows.append(json.loads(line))
+            input_task_index += 1
             if max_tasks is not None and len(rows) >= max_tasks:
                 break
     return rows
@@ -1041,7 +1293,7 @@ def _build_actor_step_from_model_candidate(
     step_index: int,
     actor_index: int,
 ) -> tuple[ActorStep, list[str]]:
-    errors = list(candidate.get("generator_errors", []))
+    errors: list[str] = []
     reasoning_text = candidate.get("reasoning_text")
     if not isinstance(reasoning_text, str):
         reasoning_text = ""
@@ -1112,7 +1364,7 @@ def _build_branch_from_model_output(
     payload = _safe_dict(verifier_candidate.get("payload"))
     updated_interpretation_payload = _safe_dict(payload.get("updated_interpretation"))
     updated_state_payload = _safe_dict(payload.get("updated_state"))
-    errors = list(generator_errors) + list(verifier_candidate.get("generator_errors", []))
+    errors = _unique(list(generator_errors) + list(verifier_candidate.get("generator_errors", [])))
 
     updated_state = clone_state(prior_state)
     updated_state = decrement_budget(updated_state)
@@ -1541,6 +1793,7 @@ def generate_task_trajectory(
             source_task_id=task_row.get("task_id"),
         )
         branches: list[CandidateBranch] = []
+        rejected_model_errors: list[str] = []
         if config.candidate_source == "model_vllm":
             if candidate_generator is None:
                 raise ValueError("candidate_generator is required for model_vllm generation.")
@@ -1559,6 +1812,12 @@ def generate_task_trajectory(
                     step_index=step_index,
                     actor_index=actor_index,
                 )
+                actor_generation_errors = _unique(
+                    actor_errors + list(actor_candidate.get("generator_errors", []))
+                )
+                if not _actor_candidate_is_usable(actor_step, actor_generation_errors):
+                    rejected_model_errors.extend(actor_generation_errors)
+                    continue
                 observation = None
                 if actor_step.tool_action is not None:
                     observation = environment.execute(
@@ -1578,6 +1837,12 @@ def generate_task_trajectory(
                     seed=trajectory_seed + (step_index * 100) + actor_index,
                 )
                 for verifier_index, verifier_candidate in enumerate(verifier_candidates):
+                    branch_generation_errors = _unique(
+                        actor_generation_errors + list(verifier_candidate.get("generator_errors", []))
+                    )
+                    if not _verifier_candidate_is_usable(verifier_candidate, branch_generation_errors):
+                        rejected_model_errors.extend(branch_generation_errors)
+                        continue
                     branch_id = f"{trajectory_id}.step{step_index}.a{actor_index}.v{verifier_index}"
                     branch = _build_branch_from_model_output(
                         task_row,
@@ -1588,7 +1853,7 @@ def generate_task_trajectory(
                         branch_id=branch_id,
                         step_index=step_index,
                         symbol_lookup=symbol_lookup,
-                        generator_errors=actor_errors + list(actor_candidate.get("generator_errors", [])),
+                        generator_errors=actor_generation_errors,
                     )
                     branch.metadata["raw_actor_response"] = actor_candidate.get("raw_text", "")
                     branch = _score_branch(
@@ -1642,7 +1907,9 @@ def generate_task_trajectory(
                             symbol_lookup=symbol_lookup,
                         )
                         branch.metadata["generator_backend"] = "heuristic_fallback"
-                        branch.metadata["generator_errors"] = ["model_generator_returned_no_candidates"]
+                        branch.metadata["generator_errors"] = _unique(
+                            rejected_model_errors or ["model_generator_returned_no_candidates"]
+                        )
                         branch = _score_branch(
                             task_row,
                             state,
@@ -1761,6 +2028,7 @@ def generate_trajectories(
     model_generator_config: ModelGeneratorConfig | None = None,
     candidate_generator: OpenAICompatibleCandidateGenerator | None = None,
     progress_path: Path | None = None,
+    task_selection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Generate trajectories for a task list and write the run artifacts."""
 
@@ -1784,7 +2052,10 @@ def generate_trajectories(
         progress_tracker.start_stage(
             "load_tasks",
             message="Loaded canonical CORUM tasks.",
-            metrics={"total_tasks": len(task_rows)},
+            metrics={
+                "total_tasks": len(task_rows),
+                **(task_selection or {}),
+            },
         )
 
         progress_tracker.start_stage(
@@ -1893,7 +2164,14 @@ def generate_trajectories(
                 "candidate_source": config.candidate_source,
                 "api_base": model_generator_config.api_base if model_generator_config else None,
                 "model_name": candidate_generator.model_name if candidate_generator else None,
+                "max_completion_tokens": (
+                    model_generator_config.max_completion_tokens if model_generator_config else None
+                ),
+                "reasoning_effort": (
+                    model_generator_config.reasoning_effort if model_generator_config else None
+                ),
             },
+            "task_selection": task_selection or {},
             "runtime": environment.describe(),
             "outputs": {
                 "branch_pools": str(branch_pool_path),
@@ -1960,6 +2238,18 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="Optional number of task rows to process from the input JSONL.",
+    )
+    parser.add_argument(
+        "--task-shard-index",
+        type=int,
+        default=0,
+        help="Zero-based shard index used to partition the input task list.",
+    )
+    parser.add_argument(
+        "--task-shard-count",
+        type=int,
+        default=1,
+        help="Total number of disjoint task shards to partition the input task list into.",
     )
     parser.add_argument(
         "--max-steps",
@@ -2034,6 +2324,12 @@ def parse_args() -> argparse.Namespace:
         help="Maximum completion tokens for actor and verifier generation calls.",
     )
     parser.add_argument(
+        "--generator-reasoning-effort",
+        choices=("low", "medium", "high"),
+        default="low",
+        help="Reasoning effort sent to GPT-OSS-compatible chat completions.",
+    )
+    parser.add_argument(
         "--generator-timeout-seconds",
         type=int,
         default=180,
@@ -2052,7 +2348,12 @@ def main() -> None:
     """Run trajectory generation from the command line."""
 
     args = parse_args()
-    task_rows = _load_task_rows(args.tasks_path, max_tasks=args.max_tasks)
+    task_rows = _load_task_rows(
+        args.tasks_path,
+        max_tasks=args.max_tasks,
+        task_shard_index=args.task_shard_index,
+        task_shard_count=args.task_shard_count,
+    )
     config = TrajectoryGenerationConfig(
         max_steps=args.max_steps,
         n_act=args.n_act,
@@ -2071,6 +2372,7 @@ def main() -> None:
             temperature=args.generator_temperature,
             top_p=args.generator_top_p,
             max_completion_tokens=args.generator_max_completion_tokens,
+            reasoning_effort=args.generator_reasoning_effort,
         )
 
     if args.store_dir is not None:
@@ -2083,6 +2385,13 @@ def main() -> None:
     else:
         raise ValueError("Provide either --store-dir or --multiplex-flist.")
 
+    task_selection = {
+        "tasks_path": str(args.tasks_path),
+        "max_tasks": args.max_tasks,
+        "task_shard_index": args.task_shard_index,
+        "task_shard_count": args.task_shard_count,
+    }
+
     generate_trajectories(
         task_rows=task_rows,
         out_dir=args.out_dir,
@@ -2090,6 +2399,7 @@ def main() -> None:
         config=config,
         model_generator_config=model_generator_config,
         progress_path=args.progress_path,
+        task_selection=task_selection,
     )
 
 
