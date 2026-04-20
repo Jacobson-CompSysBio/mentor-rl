@@ -5,9 +5,11 @@ from pathlib import Path
 
 import networkx as nx
 
+from runtime import ActorStep, SharedPrefixContext, ToolAction, initialize_state_from_corum_task
 from runtime.environment import RuntimeEnvironment
 from scripts.generate_trajectories import (
     ModelGeneratorConfig,
+    OpenAICompatibleCandidateGenerator,
     TrajectoryGenerationConfig,
     generate_trajectories,
 )
@@ -159,6 +161,62 @@ class _FakeModelGenerator:
         ]
 
 
+class _UnusableModelGenerator:
+    model_name = "gpt-oss-120b-bf16"
+
+    def generate_actor_candidates(self, context, *, task_row, step_index, n_act, seed):
+        del context, task_row, step_index, n_act, seed
+        return [
+            {
+                "reasoning_text": "",
+                "tool_action": None,
+                "raw_text": '{"finish_reason":"length","message":{}}',
+                "generator_errors": [
+                    "actor_response_truncated_before_visible_output",
+                    "actor_tool_action_missing",
+                    "actor_reasoning_and_tool_action_blank",
+                ],
+            }
+        ]
+
+    def generate_verifier_candidates(self, context, *, task_row, actor_candidate, actor_step, observation, step_index, n_ver, seed):
+        del context, task_row, actor_candidate, actor_step, observation, step_index, n_ver, seed
+        raise AssertionError("Verifier generation should not run when the actor candidate is unusable.")
+
+
+class _FakeHTTPResponse:
+    def __init__(self, payload: dict) -> None:
+        self._payload = payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict:
+        return self._payload
+
+
+class _RecordingSession:
+    def __init__(self, responses: list[dict]) -> None:
+        self.responses = responses[:]
+        self.requests: list[dict] = []
+
+    def get(self, *args, **kwargs):
+        raise AssertionError("Model discovery should not run when the model name is provided explicitly.")
+
+    def post(self, url, headers=None, json=None, timeout=None):
+        self.requests.append(
+            {
+                "url": url,
+                "headers": headers,
+                "json": json,
+                "timeout": timeout,
+            }
+        )
+        if not self.responses:
+            raise AssertionError("No fake response was configured for this request.")
+        return _FakeHTTPResponse(self.responses.pop(0))
+
+
 class GenerateTrajectoriesTests(unittest.TestCase):
     def test_generate_trajectories_writes_expected_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -249,20 +307,203 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                     max_steps=3,
                     n_act=1,
                     n_ver=1,
+                    task_concurrency=2,
                     seed=5,
                     candidate_source="model_vllm",
                 ),
-                model_generator_config=ModelGeneratorConfig(api_base="http://unused"),
+                model_generator_config=ModelGeneratorConfig(
+                    api_base="http://unused",
+                    request_timeout_seconds=7200,
+                ),
                 candidate_generator=_FakeModelGenerator(),
             )
 
             self.assertEqual(manifest["generator"]["candidate_source"], "model_vllm")
             self.assertEqual(manifest["generator"]["model_name"], "gpt-oss-120b-bf16")
+            self.assertEqual(manifest["config"]["task_concurrency"], 2)
+            self.assertEqual(manifest["generator"]["request_timeout_seconds"], 7200)
             branch_pools = _read_jsonl(out_dir / "branch_pools.jsonl")
             first_branch = branch_pools[0]["branches"][0]
             self.assertEqual(first_branch["metadata"]["generator_backend"], "model_vllm")
             self.assertEqual(first_branch["verifier_step"]["updated_state"]["relationship_status"], "validated_group")
             self.assertEqual(first_branch["local_score"]["schema_score"], 1.0)
+
+    def test_task_concurrency_must_be_positive(self) -> None:
+        with self.assertRaisesRegex(ValueError, "task_concurrency must be positive"):
+            TrajectoryGenerationConfig(task_concurrency=0)
+
+    def test_openai_candidate_generator_requests_structured_tool_outputs(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+        generator = OpenAICompatibleCandidateGenerator(
+            ModelGeneratorConfig(api_base="http://unused", model_name="gpt-oss-120b-bf16")
+        )
+        generator.session = _RecordingSession(
+            [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "tool_calls",
+                            "message": {
+                                "tool_calls": [
+                                    {
+                                        "id": "call_actor",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "emit_actor_step",
+                                            "arguments": json.dumps(
+                                                {
+                                                    "reasoning_text": "Inspect the current group with a multiplex walk.",
+                                                    "tool_action": {
+                                                        "tool_name": "rwr_multiplex",
+                                                        "arguments": {
+                                                            "seeds": ["ENSG1", "ENSG2"],
+                                                            "top_k": 5,
+                                                        },
+                                                    },
+                                                }
+                                            ),
+                                        },
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                },
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "tool_calls",
+                            "message": {
+                                "tool_calls": [
+                                    {
+                                        "id": "call_verifier",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "emit_verifier_update",
+                                            "arguments": json.dumps(
+                                                {
+                                                    "updated_interpretation": {
+                                                        "mechanistic_claim": "The evidence supports one shared module.",
+                                                        "main_evidence": "The restart walk elevated ENSG3 with the seeds.",
+                                                        "uncertainty": "",
+                                                        "next_subgoal": "",
+                                                    },
+                                                    "updated_state": {
+                                                        "relationship_status": "validated_group",
+                                                        "predicted_gene_ids": ["ENSG1", "ENSG2", "ENSG3"],
+                                                        "mechanistic_labels": [
+                                                            {
+                                                                "label_source": "go",
+                                                                "label_name": "toy process",
+                                                                "label_id": "GO:0000001",
+                                                            }
+                                                        ],
+                                                        "continuation_decision": "stop",
+                                                        "verifier_notes": "Accepted the ranked expansion.",
+                                                    },
+                                                }
+                                            ),
+                                        },
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                },
+            ]
+        )
+
+        actor_candidates = generator.generate_actor_candidates(
+            context,
+            task_row=task_row,
+            step_index=0,
+            n_act=1,
+            seed=5,
+        )
+        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr_multiplex")
+        self.assertEqual(actor_candidates[0]["tool_action"]["arguments"]["top_k"], 5)
+        first_request = generator.session.requests[0]["json"]
+        self.assertEqual(first_request["tools"][0]["function"]["name"], "emit_actor_step")
+        self.assertEqual(first_request["tool_choice"]["function"]["name"], "emit_actor_step")
+
+        tool_action = ToolAction(
+            tool_name=actor_candidates[0]["tool_action"]["tool_name"],
+            arguments=actor_candidates[0]["tool_action"]["arguments"],
+            call_id="call_0",
+        )
+        actor_step = ActorStep(
+            reasoning_text=actor_candidates[0]["reasoning_text"],
+            tool_action=tool_action,
+        )
+        verifier_candidates = generator.generate_verifier_candidates(
+            context,
+            task_row=task_row,
+            actor_candidate=actor_candidates[0],
+            actor_step=actor_step,
+            observation=None,
+            step_index=0,
+            n_ver=1,
+            seed=9,
+        )
+        self.assertEqual(
+            verifier_candidates[0]["payload"]["updated_state"]["relationship_status"],
+            "validated_group",
+        )
+        second_request = generator.session.requests[1]["json"]
+        self.assertEqual(second_request["tools"][0]["function"]["name"], "emit_verifier_update")
+        self.assertEqual(second_request["tool_choice"]["function"]["name"], "emit_verifier_update")
+
+    def test_model_backed_generation_fails_when_no_usable_model_candidates_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "strict_model_run"
+            with self.assertRaisesRegex(RuntimeError, "no usable candidates"):
+                generate_trajectories(
+                    task_rows=_task_rows()[:1],
+                    out_dir=out_dir,
+                    environment=_build_environment(),
+                    config=TrajectoryGenerationConfig(
+                        max_steps=3,
+                        n_act=1,
+                        n_ver=1,
+                        seed=3,
+                        candidate_source="model_vllm",
+                    ),
+                    model_generator_config=ModelGeneratorConfig(api_base="http://unused"),
+                    candidate_generator=_UnusableModelGenerator(),
+                )
+
+    def test_model_backed_generation_can_opt_in_to_heuristic_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "fallback_model_run"
+            manifest = generate_trajectories(
+                task_rows=_task_rows()[:1],
+                out_dir=out_dir,
+                environment=_build_environment(),
+                config=TrajectoryGenerationConfig(
+                    max_steps=3,
+                    n_act=1,
+                    n_ver=1,
+                    seed=3,
+                    candidate_source="model_vllm",
+                    allow_model_fallback=True,
+                ),
+                model_generator_config=ModelGeneratorConfig(api_base="http://unused"),
+                candidate_generator=_UnusableModelGenerator(),
+            )
+
+            self.assertTrue(manifest["config"]["allow_model_fallback"])
+            branch_pools = _read_jsonl(out_dir / "branch_pools.jsonl")
+            self.assertEqual(branch_pools[0]["branches"][0]["metadata"]["generator_backend"], "heuristic_fallback")
 
 
 if __name__ == "__main__":
