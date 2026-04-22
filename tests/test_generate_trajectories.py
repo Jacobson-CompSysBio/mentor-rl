@@ -320,6 +320,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
 
             self.assertEqual(manifest["generator"]["candidate_source"], "model_vllm")
             self.assertEqual(manifest["generator"]["model_name"], "gpt-oss-120b-bf16")
+            self.assertEqual(manifest["generator"]["configured_api_mode"], "auto")
             self.assertEqual(manifest["config"]["task_concurrency"], 2)
             self.assertEqual(manifest["generator"]["request_timeout_seconds"], 7200)
             branch_pools = _read_jsonl(out_dir / "branch_pools.jsonl")
@@ -332,7 +333,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "task_concurrency must be positive"):
             TrajectoryGenerationConfig(task_concurrency=0)
 
-    def test_openai_candidate_generator_requests_structured_tool_outputs(self) -> None:
+    def test_openai_candidate_generator_requests_structured_json_outputs_on_responses(self) -> None:
         task_row = _task_rows()[0]
         interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
         context = SharedPrefixContext(
@@ -343,82 +344,94 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             source_task_id=task_row["task_id"],
         )
         generator = OpenAICompatibleCandidateGenerator(
-            ModelGeneratorConfig(api_base="http://unused", model_name="gpt-oss-120b-bf16")
+            ModelGeneratorConfig(
+                api_base="http://unused",
+                api_mode="responses",
+                model_name="gpt-oss-120b-bf16",
+            )
         )
         generator.session = _RecordingSession(
             [
                 {
-                    "choices": [
+                    "id": "resp_actor",
+                    "status": "completed",
+                    "output": [
                         {
-                            "index": 0,
-                            "finish_reason": "tool_calls",
-                            "message": {
-                                "tool_calls": [
-                                    {
-                                        "id": "call_actor",
-                                        "type": "function",
-                                        "function": {
-                                            "name": "emit_actor_step",
-                                            "arguments": json.dumps(
-                                                {
-                                                    "reasoning_text": "Inspect the current group with a multiplex walk.",
-                                                    "tool_action": {
-                                                        "tool_name": "rwr_multiplex",
-                                                        "arguments": {
-                                                            "seeds": ["ENSG1", "ENSG2"],
-                                                            "top_k": 5,
-                                                        },
-                                                    },
-                                                }
-                                            ),
-                                        },
-                                    }
-                                ]
-                            },
-                        }
-                    ]
+                            "type": "reasoning",
+                            "content": [
+                                {
+                                    "type": "reasoning_text",
+                                    "text": "Inspect the current group with a multiplex walk.",
+                                }
+                            ],
+                        },
+                        {
+                            "type": "message",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": json.dumps(
+                                        {
+                                            "reasoning_text": "Inspect the current group with a multiplex walk.",
+                                            "tool_action": {
+                                                "tool_name": "rwr_multiplex",
+                                                "arguments": {
+                                                    "seeds": ["ENSG1", "ENSG2"],
+                                                    "top_k": 5,
+                                                },
+                                            },
+                                        }
+                                    ),
+                                }
+                            ],
+                        },
+                    ],
                 },
                 {
-                    "choices": [
+                    "id": "resp_verifier",
+                    "status": "completed",
+                    "output": [
                         {
-                            "index": 0,
-                            "finish_reason": "tool_calls",
-                            "message": {
-                                "tool_calls": [
-                                    {
-                                        "id": "call_verifier",
-                                        "type": "function",
-                                        "function": {
-                                            "name": "emit_verifier_update",
-                                            "arguments": json.dumps(
-                                                {
-                                                    "updated_interpretation": {
-                                                        "mechanistic_claim": "The evidence supports one shared module.",
-                                                        "main_evidence": "The restart walk elevated ENSG3 with the seeds.",
-                                                        "uncertainty": "",
-                                                        "next_subgoal": "",
-                                                    },
-                                                    "updated_state": {
-                                                        "relationship_status": "validated_group",
-                                                        "predicted_gene_ids": ["ENSG1", "ENSG2", "ENSG3"],
-                                                        "mechanistic_labels": [
-                                                            {
-                                                                "label_source": "go",
-                                                                "label_name": "toy process",
-                                                                "label_id": "GO:0000001",
-                                                            }
-                                                        ],
-                                                        "continuation_decision": "stop",
-                                                        "verifier_notes": "Accepted the ranked expansion.",
-                                                    },
-                                                }
-                                            ),
-                                        },
-                                    }
-                                ]
-                            },
-                        }
-                    ]
+                            "type": "reasoning",
+                            "content": [
+                                {
+                                    "type": "reasoning_text",
+                                    "text": "The restart walk elevated ENSG3 with the seeds.",
+                                }
+                            ],
+                        },
+                        {
+                            "type": "message",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": json.dumps(
+                                        {
+                                            "updated_interpretation": {
+                                                "mechanistic_claim": "The evidence supports one shared module.",
+                                                "main_evidence": "The restart walk elevated ENSG3 with the seeds.",
+                                                "uncertainty": "",
+                                                "next_subgoal": "",
+                                            },
+                                            "updated_state": {
+                                                "relationship_status": "validated_group",
+                                                "predicted_gene_ids": ["ENSG1", "ENSG2", "ENSG3"],
+                                                "mechanistic_labels": [
+                                                    {
+                                                        "label_source": "go",
+                                                        "label_name": "toy process",
+                                                        "label_id": "GO:0000001",
+                                                    }
+                                                ],
+                                                "continuation_decision": "stop",
+                                                "verifier_notes": "Accepted the ranked expansion.",
+                                            },
+                                        }
+                                    ),
+                                }
+                            ],
+                        },
+                    ],
                 },
             ]
         )
@@ -430,11 +443,18 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             n_act=1,
             seed=5,
         )
+        self.assertEqual(generator.api_mode, "responses")
         self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr_multiplex")
         self.assertEqual(actor_candidates[0]["tool_action"]["arguments"]["top_k"], 5)
         first_request = generator.session.requests[0]["json"]
-        self.assertEqual(first_request["tools"][0]["function"]["name"], "emit_actor_step")
-        self.assertEqual(first_request["tool_choice"]["function"]["name"], "emit_actor_step")
+        self.assertTrue(generator.session.requests[0]["url"].endswith("/responses"))
+        self.assertNotIn("tools", first_request)
+        self.assertNotIn("tool_choice", first_request)
+        self.assertNotIn("reasoning", first_request)
+        self.assertEqual(first_request["text"]["format"]["type"], "json_schema")
+        self.assertEqual(first_request["text"]["format"]["name"], "emit_actor_step")
+        self.assertEqual(first_request["input"][0]["role"], "system")
+        self.assertEqual(first_request["input"][1]["role"], "user")
 
         tool_action = ToolAction(
             tool_name=actor_candidates[0]["tool_action"]["tool_name"],
@@ -460,8 +480,341 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             "validated_group",
         )
         second_request = generator.session.requests[1]["json"]
-        self.assertEqual(second_request["tools"][0]["function"]["name"], "emit_verifier_update")
-        self.assertEqual(second_request["tool_choice"]["function"]["name"], "emit_verifier_update")
+        self.assertTrue(generator.session.requests[1]["url"].endswith("/responses"))
+        self.assertNotIn("tools", second_request)
+        self.assertNotIn("tool_choice", second_request)
+        self.assertNotIn("reasoning", second_request)
+        self.assertEqual(second_request["text"]["format"]["type"], "json_schema")
+        self.assertEqual(second_request["text"]["format"]["name"], "emit_verifier_update")
+
+    def test_openai_candidate_generator_auto_mode_prefers_chat_completions_for_gpt_oss(self) -> None:
+        generator = OpenAICompatibleCandidateGenerator(
+            ModelGeneratorConfig(
+                api_base="http://unused",
+                api_mode="auto",
+                model_name="gpt-oss-120b-bf16",
+            )
+        )
+        self.assertEqual(generator.api_mode, "chat_completions")
+
+        non_gpt_oss_generator = OpenAICompatibleCandidateGenerator(
+            ModelGeneratorConfig(
+                api_base="http://unused",
+                api_mode="auto",
+                model_name="llama-3.1-70b-instruct",
+            )
+        )
+        self.assertEqual(non_gpt_oss_generator.api_mode, "chat_completions")
+
+    def test_openai_candidate_generator_can_force_chat_completions(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+        generator = OpenAICompatibleCandidateGenerator(
+            ModelGeneratorConfig(
+                api_base="http://unused",
+                api_mode="chat_completions",
+                model_name="llama-3.1-70b-instruct",
+            )
+        )
+        generator.session = _RecordingSession(
+            [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "stop",
+                            "message": {
+                                "content": json.dumps(
+                                    {
+                                        "reasoning_text": "Inspect the current group with a multiplex walk.",
+                                        "tool_action": {
+                                            "tool_name": "rwr_multiplex",
+                                            "arguments": {
+                                                "seeds": ["ENSG1", "ENSG2"],
+                                                "top_k": 5,
+                                            },
+                                        },
+                                    }
+                                ),
+                            }
+                        }
+                    ]
+                }
+            ]
+        )
+
+        actor_candidates = generator.generate_actor_candidates(
+            context,
+            task_row=task_row,
+            step_index=0,
+            n_act=1,
+            seed=5,
+        )
+
+        self.assertEqual(generator.api_mode, "chat_completions")
+        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr_multiplex")
+        first_request = generator.session.requests[0]["json"]
+        self.assertTrue(generator.session.requests[0]["url"].endswith("/chat/completions"))
+        self.assertNotIn("tools", first_request)
+        self.assertNotIn("tool_choice", first_request)
+        self.assertNotIn("reasoning_effort", first_request)
+        self.assertEqual(first_request["guided_json"]["required"], ["reasoning_text", "tool_action"])
+
+    def test_openai_candidate_generator_uses_named_output_tool_for_gpt_oss_chat(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+        generator = OpenAICompatibleCandidateGenerator(
+            ModelGeneratorConfig(
+                api_base="http://unused",
+                api_mode="chat_completions",
+                model_name="gpt-oss-20b-bf16",
+            )
+        )
+        generator.session = _RecordingSession(
+            [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "stop",
+                            "message": {
+                                "content": json.dumps(
+                                    {
+                                        "reasoning_text": "The visible seed set is still incomplete, so a multiplex restart walk is the cheapest grounded way to look for a coherent expansion before making a stronger claim."
+                                    }
+                                ),
+                            },
+                        }
+                    ]
+                },
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "tool_calls",
+                            "message": {
+                                "tool_calls": [
+                                    {
+                                        "id": "call_emit_actor_step",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "emit_actor_step",
+                                            "arguments": json.dumps(
+                                                {
+                                                    "reasoning_text": "Inspect the current group with a multiplex walk.",
+                                                    "tool_action": {
+                                                        "tool_name": "rwr_multiplex",
+                                                        "arguments": {
+                                                            "seeds": ["ENSG1", "ENSG2"],
+                                                            "top_k": 5,
+                                                        },
+                                                    },
+                                                }
+                                            ),
+                                        },
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                }
+            ]
+        )
+
+        actor_candidates = generator.generate_actor_candidates(
+            context,
+            task_row=task_row,
+            step_index=0,
+            n_act=1,
+            seed=5,
+        )
+
+        self.assertEqual(generator.api_mode, "chat_completions")
+        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr_multiplex")
+        self.assertIn("multiplex restart walk", actor_candidates[0]["reasoning_text"])
+        self.assertEqual(len(generator.session.requests), 2)
+        first_request = generator.session.requests[0]["json"]
+        second_request = generator.session.requests[1]["json"]
+        self.assertTrue(generator.session.requests[0]["url"].endswith("/chat/completions"))
+        self.assertEqual(first_request["chat_template_kwargs"], {"enable_thinking": False})
+        self.assertEqual(first_request["guided_json"]["required"], ["reasoning_text"])
+        self.assertEqual(first_request["reasoning_effort"], "low")
+        self.assertNotIn("tools", first_request)
+        self.assertTrue(generator.session.requests[1]["url"].endswith("/chat/completions"))
+        self.assertEqual(second_request["chat_template_kwargs"], {"enable_thinking": False})
+        self.assertIn("tools", second_request)
+        self.assertEqual(second_request["tools"][0]["function"]["name"], "emit_actor_step")
+        self.assertEqual(second_request["tool_choice"]["function"]["name"], "emit_actor_step")
+        self.assertEqual(second_request["tools"][0]["function"]["parameters"]["required"], ["tool_action"])
+        self.assertNotIn("guided_json", second_request)
+        self.assertNotIn("reasoning_effort", second_request)
+        self.assertIn("draft_reasoning_text", second_request["messages"][1]["content"])
+
+    def test_openai_candidate_generator_disables_hidden_thinking_for_gpt_oss_verifier_chat(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+        actor_candidate = {
+            "reasoning_text": "A restart walk is the cheapest grounded expansion move.",
+            "tool_action": {
+                "tool_name": "rwr_multiplex",
+                "arguments": {"seeds": ["ENSG1", "ENSG2"], "top_k": 5},
+            },
+            "generator_errors": [],
+        }
+        actor_step = ActorStep(
+            reasoning_text=actor_candidate["reasoning_text"],
+            tool_action=ToolAction(
+                tool_name="rwr_multiplex",
+                arguments={"seeds": ["ENSG1", "ENSG2"], "top_k": 5},
+                call_id="call_1",
+            ),
+        )
+        generator = OpenAICompatibleCandidateGenerator(
+            ModelGeneratorConfig(
+                api_base="http://unused",
+                api_mode="chat_completions",
+                model_name="gpt-oss-20b-bf16",
+            )
+        )
+        generator.session = _RecordingSession(
+            [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "tool_calls",
+                            "message": {
+                                "tool_calls": [
+                                    {
+                                        "id": "call_emit_verifier_update",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "emit_verifier_update",
+                                            "arguments": json.dumps(
+                                                {
+                                                    "updated_interpretation": {
+                                                        "mechanistic_claim": "The visible evidence supports one coherent module.",
+                                                        "main_evidence": "The restart walk pulled ENSG3 close to the seed genes.",
+                                                        "uncertainty": "",
+                                                        "next_subgoal": "",
+                                                    },
+                                                    "updated_state": {
+                                                        "relationship_status": "validated_group",
+                                                        "predicted_gene_ids": ["ENSG1", "ENSG2", "ENSG3"],
+                                                        "mechanistic_labels": [],
+                                                        "continuation_decision": "stop",
+                                                        "verifier_notes": "Accepted the grounded expansion.",
+                                                    },
+                                                }
+                                            ),
+                                        },
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                }
+            ]
+        )
+
+        verifier_candidates = generator.generate_verifier_candidates(
+            context,
+            task_row=task_row,
+            actor_candidate=actor_candidate,
+            actor_step=actor_step,
+            observation=None,
+            step_index=0,
+            n_ver=1,
+            seed=11,
+        )
+
+        self.assertEqual(verifier_candidates[0]["payload"]["updated_state"]["relationship_status"], "validated_group")
+        first_request = generator.session.requests[0]["json"]
+        self.assertEqual(first_request["chat_template_kwargs"], {"enable_thinking": False})
+        self.assertEqual(first_request["tool_choice"]["function"]["name"], "emit_verifier_update")
+        self.assertNotIn("reasoning_effort", first_request)
+
+    def test_openai_candidate_generator_falls_back_to_chat_when_responses_returns_blank(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+        generator = OpenAICompatibleCandidateGenerator(
+            ModelGeneratorConfig(
+                api_base="http://unused",
+                api_mode="responses",
+                model_name="gpt-oss-120b-bf16",
+            )
+        )
+        generator.session = _RecordingSession(
+            [
+                {
+                    "id": "resp_actor_blank",
+                    "status": "completed",
+                    "output": [],
+                },
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "stop",
+                            "message": {
+                                "content": json.dumps(
+                                    {
+                                        "reasoning_text": "Inspect the current group with a multiplex walk.",
+                                        "tool_action": {
+                                            "tool_name": "rwr_multiplex",
+                                            "arguments": {
+                                                "seeds": ["ENSG1", "ENSG2"],
+                                                "top_k": 5,
+                                            },
+                                        },
+                                    }
+                                ),
+                            },
+                        }
+                    ]
+                },
+            ]
+        )
+
+        actor_candidates = generator.generate_actor_candidates(
+            context,
+            task_row=task_row,
+            step_index=0,
+            n_act=1,
+            seed=5,
+        )
+
+        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr_multiplex")
+        self.assertTrue(generator.session.requests[0]["url"].endswith("/responses"))
+        self.assertTrue(generator.session.requests[1]["url"].endswith("/chat/completions"))
 
     def test_model_backed_generation_fails_when_no_usable_model_candidates_exist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

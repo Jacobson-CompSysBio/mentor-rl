@@ -80,6 +80,8 @@ DEFAULT_STORE_DIR = REPO_ROOT / "data" / "humannet_multiplex_store"
 DEFAULT_PROGRESS_FILENAME = "progress.json"
 DEFAULT_GENERATOR_API_BASE = "http://127.0.0.1:8000/v1"
 DEFAULT_GENERATOR_API_KEY_ENV = "OPENAI_API_KEY"
+STRUCTURED_OUTPUT_MAX_TOKENS = 768
+DEFAULT_ACTOR_RATIONALE_MAX_TOKENS = 2048
 TRAJECTORY_STAGES = (
     ("load_tasks", "Load canonical CORUM tasks"),
     ("initialize_runtime", "Initialize deterministic runtime"),
@@ -130,6 +132,15 @@ Allowed tools:
 
 Output schema:
 {"reasoning_text": "...", "tool_action": null or {"tool_name": "...", "arguments": {...}}}
+"""
+
+ACTOR_RATIONALE_SYSTEM_PROMPT = """You are writing the visible actor rationale for the next MENTOR-RL step before the tool is chosen.
+Use only the visible task inputs, current interpretation, and current visible state.
+Explain what uncertainty matters most right now and what kind of next action would best reduce it.
+Do not mention hidden chain-of-thought, invisible labels, or tool results that have not been observed yet.
+If the visible evidence is already enough, explain why no further tool call is needed.
+Write 2 to 5 grounded sentences.
+Return exactly one JSON object that matches the provided schema.
 """
 
 VERIFIER_SYSTEM_PROMPT = """You are the verifier policy for MENTOR-RL.
@@ -340,6 +351,10 @@ def _message_has_visible_output(message: dict[str, Any]) -> bool:
     return isinstance(tool_calls, list) and bool(tool_calls)
 
 
+def _choice_has_visible_output(choice: dict[str, Any]) -> bool:
+    return _message_has_visible_output(_safe_dict(choice.get("message")))
+
+
 def _response_truncated_before_visible_output(
     payload: dict[str, Any],
     *,
@@ -452,38 +467,164 @@ def _named_function_tool_choice(function_name: str) -> dict[str, Any]:
     }
 
 
-def _actor_output_tool() -> dict[str, Any]:
+def _actor_output_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "reasoning_text": {"type": "string"},
+            "tool_action": _actor_tool_action_schema(),
+        },
+        "required": ["reasoning_text", "tool_action"],
+        "additionalProperties": False,
+    }
+
+
+def _actor_tool_action_schema() -> dict[str, Any]:
+    return {
+        "anyOf": [
+            {"type": "null"},
+            {
+                "type": "object",
+                "properties": {
+                    "tool_name": {
+                        "type": "string",
+                        "enum": list(RUNTIME_TOOL_NAMES),
+                    },
+                    "arguments": {
+                        "type": "object",
+                        "additionalProperties": True,
+                    },
+                },
+                "required": ["tool_name", "arguments"],
+                "additionalProperties": False,
+            },
+        ]
+    }
+
+
+def _actor_action_only_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "tool_action": _actor_tool_action_schema(),
+        },
+        "required": ["tool_action"],
+        "additionalProperties": False,
+    }
+
+
+def _actor_reasoning_text_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "reasoning_text": {"type": "string"},
+        },
+        "required": ["reasoning_text"],
+        "additionalProperties": False,
+    }
+
+
+def _verifier_output_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "updated_interpretation": {
+                "type": "object",
+                "properties": {
+                    "mechanistic_claim": {"type": "string"},
+                    "main_evidence": {"type": "string"},
+                    "uncertainty": {"type": "string"},
+                    "next_subgoal": {"type": "string"},
+                },
+                "required": [
+                    "mechanistic_claim",
+                    "main_evidence",
+                    "uncertainty",
+                    "next_subgoal",
+                ],
+                "additionalProperties": False,
+            },
+            "updated_state": {
+                "type": "object",
+                "properties": {
+                    "relationship_status": {
+                        "type": "string",
+                        "enum": [status.value for status in RelationshipStatus],
+                    },
+                    "predicted_gene_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "mechanistic_labels": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "label_source": {
+                                    "type": "string",
+                                    "enum": [source.value for source in LabelSource],
+                                },
+                                "label_name": {"type": "string"},
+                                "label_id": {"type": ["string", "null"]},
+                            },
+                            "required": ["label_source", "label_name", "label_id"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "continuation_decision": {
+                        "type": "string",
+                        "enum": [state.value for state in ContinuationState],
+                    },
+                    "verifier_notes": {"type": "string"},
+                },
+                "required": [
+                    "relationship_status",
+                    "predicted_gene_ids",
+                    "mechanistic_labels",
+                    "continuation_decision",
+                    "verifier_notes",
+                ],
+                "additionalProperties": False,
+            },
+        },
+        "required": ["updated_interpretation", "updated_state"],
+        "additionalProperties": False,
+    }
+
+
+def _responses_function_tool_from_chat_tool(tool: dict[str, Any]) -> dict[str, Any]:
+    function_payload = _safe_dict(tool.get("function"))
+    return {
+        "type": "function",
+        "name": _safe_text(function_payload.get("name")),
+        "description": _safe_text(function_payload.get("description")),
+        "parameters": _safe_dict(function_payload.get("parameters")),
+        "strict": True,
+    }
+
+
+def _responses_json_schema_text_config(
+    *,
+    name: str,
+    description: str,
+    schema: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "format": {
+            "type": "json_schema",
+            "name": name,
+            "description": description,
+            "schema": schema,
+            "strict": True,
+        }
+    }
+
+
+def _actor_output_tool(parameters: dict[str, Any] | None = None) -> dict[str, Any]:
     return _named_function_tool(
         function_name=ACTOR_OUTPUT_TOOL_NAME,
         description="Emit the actor policy decision for the next MENTOR-RL step.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "reasoning_text": {"type": "string"},
-                "tool_action": {
-                    "anyOf": [
-                        {"type": "null"},
-                        {
-                            "type": "object",
-                            "properties": {
-                                "tool_name": {
-                                    "type": "string",
-                                    "enum": list(RUNTIME_TOOL_NAMES),
-                                },
-                                "arguments": {
-                                    "type": "object",
-                                    "additionalProperties": True,
-                                },
-                            },
-                            "required": ["tool_name", "arguments"],
-                            "additionalProperties": False,
-                        },
-                    ]
-                },
-            },
-            "required": ["reasoning_text", "tool_action"],
-            "additionalProperties": False,
-        },
+        parameters=parameters if parameters is not None else _actor_output_schema(),
     )
 
 
@@ -491,71 +632,7 @@ def _verifier_output_tool() -> dict[str, Any]:
     return _named_function_tool(
         function_name=VERIFIER_OUTPUT_TOOL_NAME,
         description="Emit the verifier policy update for the current MENTOR-RL branch.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "updated_interpretation": {
-                    "type": "object",
-                    "properties": {
-                        "mechanistic_claim": {"type": "string"},
-                        "main_evidence": {"type": "string"},
-                        "uncertainty": {"type": "string"},
-                        "next_subgoal": {"type": "string"},
-                    },
-                    "required": [
-                        "mechanistic_claim",
-                        "main_evidence",
-                        "uncertainty",
-                        "next_subgoal",
-                    ],
-                    "additionalProperties": False,
-                },
-                "updated_state": {
-                    "type": "object",
-                    "properties": {
-                        "relationship_status": {
-                            "type": "string",
-                            "enum": [status.value for status in RelationshipStatus],
-                        },
-                        "predicted_gene_ids": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                        },
-                        "mechanistic_labels": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "label_source": {
-                                        "type": "string",
-                                        "enum": [source.value for source in LabelSource],
-                                    },
-                                    "label_name": {"type": "string"},
-                                    "label_id": {"type": ["string", "null"]},
-                                },
-                                "required": ["label_source", "label_name", "label_id"],
-                                "additionalProperties": False,
-                            },
-                        },
-                        "continuation_decision": {
-                            "type": "string",
-                            "enum": [state.value for state in ContinuationState],
-                        },
-                        "verifier_notes": {"type": "string"},
-                    },
-                    "required": [
-                        "relationship_status",
-                        "predicted_gene_ids",
-                        "mechanistic_labels",
-                        "continuation_decision",
-                        "verifier_notes",
-                    ],
-                    "additionalProperties": False,
-                },
-            },
-            "required": ["updated_interpretation", "updated_state"],
-            "additionalProperties": False,
-        },
+        parameters=_verifier_output_schema(),
     )
 
 
@@ -669,6 +746,7 @@ class ModelGeneratorConfig:
     """Configuration for the model-backed trajectory candidate generator."""
 
     api_base: str = DEFAULT_GENERATOR_API_BASE
+    api_mode: str = "auto"
     model_name: str | None = None
     api_key: str | None = None
     api_key_env: str = DEFAULT_GENERATOR_API_KEY_ENV
@@ -676,7 +754,16 @@ class ModelGeneratorConfig:
     temperature: float = 0.8
     top_p: float = 0.95
     max_completion_tokens: int = 4096
+    actor_rationale_max_completion_tokens: int = DEFAULT_ACTOR_RATIONALE_MAX_TOKENS
     reasoning_effort: str = "low"
+
+    def __post_init__(self) -> None:
+        if self.api_mode not in {"auto", "chat_completions", "responses"}:
+            raise ValueError("api_mode must be one of: auto, chat_completions, responses.")
+        if self.max_completion_tokens <= 0:
+            raise ValueError("max_completion_tokens must be positive.")
+        if self.actor_rationale_max_completion_tokens <= 0:
+            raise ValueError("actor_rationale_max_completion_tokens must be positive.")
 
     def resolved_api_key(self) -> str:
         """Return the API key, falling back to an environment variable."""
@@ -687,13 +774,14 @@ class ModelGeneratorConfig:
 
 
 class OpenAICompatibleCandidateGenerator:
-    """Generate actor and verifier candidates through a chat-completions API."""
+    """Generate actor and verifier candidates through OpenAI-compatible APIs."""
 
     def __init__(self, config: ModelGeneratorConfig) -> None:
         self.config = config
         self.session: requests.Session | Any | None = None
         self._thread_local = threading.local()
         self.model_name = config.model_name or self._discover_model_name()
+        self.api_mode = self._resolve_api_mode()
 
     def _session(self) -> requests.Session | Any:
         if self.session is not None:
@@ -727,6 +815,29 @@ class OpenAICompatibleCandidateGenerator:
             raise RuntimeError("The generator API returned an invalid model id.")
         return model_name
 
+    def _resolve_api_mode(self) -> str:
+        if self.config.api_mode != "auto":
+            return self.config.api_mode
+        model_name = self.model_name.lower()
+        if "gpt-oss" in model_name:
+            # The local vLLM gpt-oss responses path frequently terminates while the
+            # model is still in the hidden reasoning channel, which yields a blank
+            # visible assistant message and fails the trajectory smoke test.
+            return "chat_completions"
+        return "chat_completions"
+
+    def _model_is_gpt_oss(self) -> bool:
+        return "gpt-oss" in self.model_name.lower()
+
+    def _prefers_named_output_tools(self) -> bool:
+        return self.api_mode == "chat_completions" and self._model_is_gpt_oss()
+
+    def _should_disable_hidden_thinking(self) -> bool:
+        return self.api_mode == "chat_completions" and self._model_is_gpt_oss()
+
+    def _should_generate_actor_rationale(self) -> bool:
+        return self.api_mode == "chat_completions" and self._model_is_gpt_oss()
+
     def _chat(
         self,
         messages: list[dict[str, str]],
@@ -734,23 +845,38 @@ class OpenAICompatibleCandidateGenerator:
         n: int,
         seed: int,
         tools: list[dict[str, Any]] | None = None,
-        tool_choice: dict[str, Any] | None = None,
+        tool_choice: dict[str, Any] | str | None = None,
+        guided_json: dict[str, Any] | None = None,
+        use_reasoning: bool = True,
+        max_completion_tokens: int | None = None,
+        disable_hidden_thinking: bool = False,
+        temperature: float | None = None,
+        top_p: float | None = None,
     ) -> list[dict[str, Any]]:
         payload = {
             "model": self.model_name,
             "messages": messages,
             "n": n,
-            "temperature": self.config.temperature,
-            "top_p": self.config.top_p,
-            "max_completion_tokens": self.config.max_completion_tokens,
-            "reasoning_effort": self.config.reasoning_effort,
+            "temperature": self.config.temperature if temperature is None else temperature,
+            "top_p": self.config.top_p if top_p is None else top_p,
+            "max_completion_tokens": (
+                max_completion_tokens
+                if max_completion_tokens is not None
+                else self.config.max_completion_tokens
+            ),
             "include_reasoning": False,
             "seed": seed,
         }
+        if use_reasoning and self.config.reasoning_effort:
+            payload["reasoning_effort"] = self.config.reasoning_effort
+        if disable_hidden_thinking and self._model_is_gpt_oss():
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
         if tools:
             payload["tools"] = tools
         if tool_choice:
             payload["tool_choice"] = tool_choice
+        if guided_json is not None:
+            payload["guided_json"] = guided_json
         response = self._session().post(
             f"{self.config.api_base.rstrip('/')}/chat/completions",
             headers=self._headers(),
@@ -788,6 +914,266 @@ class OpenAICompatibleCandidateGenerator:
             )
         return choices
 
+    def _responses_finish_reason(
+        self,
+        response_payload: dict[str, Any],
+        *,
+        tool_calls_present: bool,
+    ) -> str | None:
+        if tool_calls_present:
+            return "tool_calls"
+
+        incomplete_details = _safe_dict(response_payload.get("incomplete_details"))
+        incomplete_reason = _safe_text(incomplete_details.get("reason")).lower()
+        if incomplete_reason in {"length", "max_output_tokens", "max_completion_tokens"}:
+            return "length"
+
+        status = _safe_text(response_payload.get("status")).lower()
+        if status == "completed":
+            return "stop"
+        if status == "incomplete" and incomplete_reason:
+            return "length" if "max" in incomplete_reason else incomplete_reason
+        return None
+
+    def _responses_choice_from_payload(
+        self,
+        response_payload: dict[str, Any],
+        *,
+        index: int,
+    ) -> dict[str, Any]:
+        message: dict[str, Any] = {"role": "assistant", "tool_calls": []}
+        content_parts: list[dict[str, Any]] = []
+        reasoning_parts: list[dict[str, Any]] = []
+
+        for item in response_payload.get("output", []):
+            if not isinstance(item, dict):
+                continue
+            item_type = _safe_text(item.get("type"))
+            if item_type == "message":
+                for part in item.get("content", []):
+                    if isinstance(part, dict):
+                        content_parts.append(part)
+            elif item_type == "reasoning":
+                for part in item.get("content", []):
+                    if isinstance(part, dict):
+                        reasoning_parts.append(part)
+            elif item_type == "function_call":
+                function_name = _safe_text(item.get("name"))
+                raw_arguments = item.get("arguments")
+                arguments = raw_arguments if isinstance(raw_arguments, dict) else _safe_text(raw_arguments)
+                if function_name:
+                    message["tool_calls"].append(
+                        {
+                            "id": _safe_text(item.get("call_id")) or _safe_text(item.get("id")),
+                            "type": "function",
+                            "function": {
+                                "name": function_name,
+                                "arguments": arguments,
+                            },
+                        }
+                    )
+
+        if content_parts:
+            message["content"] = content_parts
+        if reasoning_parts:
+            message["reasoning_content"] = reasoning_parts
+
+        return {
+            "index": index,
+            "finish_reason": self._responses_finish_reason(
+                response_payload,
+                tool_calls_present=bool(message["tool_calls"]),
+            ),
+            "message": message,
+            "response_id": response_payload.get("id"),
+            "status": response_payload.get("status"),
+        }
+
+    def _responses(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        n: int,
+        tools: list[dict[str, Any]] | None = None,
+        text_config: dict[str, Any] | None = None,
+        use_reasoning: bool = True,
+        max_output_tokens: int | None = None,
+    ) -> list[dict[str, Any]]:
+        payload = {
+            "model": self.model_name,
+            "input": messages,
+            "temperature": self.config.temperature,
+            "top_p": self.config.top_p,
+            "max_output_tokens": (
+                max_output_tokens
+                if max_output_tokens is not None
+                else self.config.max_completion_tokens
+            ),
+            "parallel_tool_calls": False,
+            "store": False,
+        }
+        if use_reasoning and self.config.reasoning_effort:
+            payload["reasoning"] = {"effort": self.config.reasoning_effort}
+        if tools:
+            payload["tools"] = [
+                _responses_function_tool_from_chat_tool(tool)
+                for tool in tools
+            ]
+        if text_config is not None:
+            payload["text"] = text_config
+
+        choices: list[dict[str, Any]] = []
+        for index in range(n):
+            # vLLM Harmony only supports auto tool selection on /responses.
+            response = self._session().post(
+                f"{self.config.api_base.rstrip('/')}/responses",
+                headers=self._headers(),
+                json=payload,
+                timeout=self.config.request_timeout_seconds,
+            )
+            response.raise_for_status()
+            response_payload = response.json()
+            if not isinstance(response_payload, dict):
+                response_payload = {"output": [], "status": None, "raw_response": response_payload}
+            choices.append(self._responses_choice_from_payload(response_payload, index=index))
+
+        if not choices:
+            choices.append(
+                {
+                    "index": None,
+                    "finish_reason": None,
+                    "message": {
+                        "content": _json_dumps_compact({"error": "responses_api_returned_no_choices"}),
+                    },
+                }
+            )
+        return choices
+
+    def _generate_choices(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        n: int,
+        seed: int,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: dict[str, Any] | str | None = None,
+        guided_json: dict[str, Any] | None = None,
+        text_config: dict[str, Any] | None = None,
+        disable_hidden_thinking: bool = False,
+    ) -> list[dict[str, Any]]:
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        structured_max_tokens = min(self.config.max_completion_tokens, STRUCTURED_OUTPUT_MAX_TOKENS)
+        if self.api_mode == "responses":
+            choices = self._responses(
+                messages=messages,
+                n=n,
+                tools=tools,
+                text_config=text_config,
+                use_reasoning=False,
+                max_output_tokens=structured_max_tokens,
+            )
+            fallback_guided_json = guided_json
+            if fallback_guided_json is None and text_config is not None:
+                fallback_guided_json = _safe_dict(_safe_dict(text_config.get("format")).get("schema"))
+            if fallback_guided_json:
+                for index, choice in enumerate(choices):
+                    if _choice_has_visible_output(choice):
+                        continue
+                    fallback_choices = self._chat(
+                        messages,
+                        n=1,
+                        seed=seed + index,
+                        tools=tools,
+                        tool_choice=tool_choice,
+                        guided_json=fallback_guided_json,
+                        use_reasoning=False,
+                        max_completion_tokens=structured_max_tokens,
+                        disable_hidden_thinking=disable_hidden_thinking,
+                    )
+                    fallback_choice = fallback_choices[0]
+                    if _choice_has_visible_output(fallback_choice):
+                        fallback_choice["fallback_backend"] = "chat_completions"
+                        fallback_choice["fallback_trigger"] = "responses_blank_visible_output"
+                        choices[index] = fallback_choice
+            return choices
+
+        return self._chat(
+            messages,
+            n=n,
+            seed=seed,
+            tools=tools,
+            tool_choice=tool_choice,
+            guided_json=guided_json,
+            use_reasoning=False,
+            max_completion_tokens=structured_max_tokens,
+            disable_hidden_thinking=disable_hidden_thinking,
+        )
+
+    def _generate_actor_reasoning(
+        self,
+        context: SharedPrefixContext,
+        *,
+        task_row: dict[str, Any],
+        step_index: int,
+        seed: int,
+    ) -> tuple[str, list[str]]:
+        user_prompt = json.dumps(
+            {
+                "task_row": {
+                    "task_id": task_row["task_id"],
+                    "task_type": task_row["task_type"],
+                    "difficulty": task_row.get("difficulty"),
+                    "evidence_mode": task_row.get("evidence_mode"),
+                },
+                "query_text": context.query_text,
+                "visible_inputs": context.user_evidence,
+                "interpretation": context.interpretation.to_dict(),
+                "state": context.state.to_dict(),
+                "step_index": step_index,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        choice = self._chat(
+            messages=[
+                {"role": "system", "content": ACTOR_RATIONALE_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            n=1,
+            seed=seed,
+            guided_json=_actor_reasoning_text_schema(),
+            use_reasoning=True,
+            max_completion_tokens=self.config.actor_rationale_max_completion_tokens,
+            disable_hidden_thinking=self._should_disable_hidden_thinking(),
+        )[0]
+        try:
+            payload, payload_errors = _named_tool_arguments_from_choice(
+                choice,
+                expected_tool_name="",
+                prefix="actor_rationale",
+            )
+        except Exception as error:
+            return "", [f"actor_rationale_json_parse_error: {error}"]
+
+        errors = list(payload_errors)
+        response_error = _response_truncated_before_visible_output(
+            payload,
+            prefix="actor_rationale",
+        )
+        if response_error:
+            errors.append(response_error)
+
+        reasoning_text = _safe_text(payload.get("reasoning_text")).strip()
+        if not reasoning_text:
+            reasoning_text = _safe_text(payload.get("reasoning_content")).strip()
+        if not reasoning_text:
+            errors.append("actor_rationale_text_missing")
+        return reasoning_text, _unique(errors)
+
     def generate_actor_candidates(
         self,
         context: SharedPrefixContext,
@@ -814,24 +1200,104 @@ class OpenAICompatibleCandidateGenerator:
             indent=2,
             sort_keys=True,
         )
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    ACTOR_SYSTEM_PROMPT
-                    + f"\nReturn the final decision by calling `{ACTOR_OUTPUT_TOOL_NAME}`."
-                ),
-            },
-            {"role": "user", "content": user_prompt},
-        ]
+        actor_schema = _actor_output_schema()
+        uses_preface_reasoning = self._should_generate_actor_rationale()
+        if self.api_mode == "responses":
+            system_prompt = (
+                ACTOR_SYSTEM_PROMPT
+                + "\nDo not emit analysis or commentary."
+                + "\nPut the entire reply in the final answer as exactly one JSON object that matches the provided schema."
+            )
+            tools = None
+            tool_choice = None
+            guided_json = None
+            text_config = _responses_json_schema_text_config(
+                name=ACTOR_OUTPUT_TOOL_NAME,
+                description="Emit the actor policy decision for the next MENTOR-RL step.",
+                schema=actor_schema,
+            )
+        elif self._prefers_named_output_tools():
+            actor_schema = _actor_action_only_schema()
+            system_prompt = (
+                ACTOR_SYSTEM_PROMPT
+                + "\nIgnore the generic JSON-object instruction above for this pass."
+                + "\nA visible actor rationale is provided separately and comes first."
+                + "\nUse that rationale as context for the tool decision."
+                + "\nThis pass only chooses the next runtime tool action."
+                + "\nDo not emit analysis, commentary, or hidden chain-of-thought."
+                + f"\nCall `{ACTOR_OUTPUT_TOOL_NAME}` immediately with arguments that match its schema."
+                + "\nIf no runtime tool is needed, set tool_action to null."
+            )
+            tools = [_actor_output_tool(parameters=actor_schema)]
+            tool_choice = _named_function_tool_choice(ACTOR_OUTPUT_TOOL_NAME)
+            guided_json = None
+            text_config = None
+        else:
+            system_prompt = (
+                ACTOR_SYSTEM_PROMPT
+                + "\nReturn exactly one JSON object that matches the provided schema."
+            )
+            tools = None
+            tool_choice = None
+            guided_json = actor_schema
+            text_config = None
         candidates: list[dict[str, Any]] = []
-        for choice in self._chat(
-            messages,
-            n=n_act,
-            seed=seed,
-            tools=[_actor_output_tool()],
-            tool_choice=_named_function_tool_choice(ACTOR_OUTPUT_TOOL_NAME),
-        ):
+        if uses_preface_reasoning:
+            candidate_inputs: list[tuple[str, list[str], dict[str, Any]]] = []
+            for choice_index in range(n_act):
+                reasoning_text, rationale_errors = self._generate_actor_reasoning(
+                    context,
+                    task_row=task_row,
+                    step_index=step_index,
+                    seed=seed + choice_index,
+                )
+                action_user_prompt = json.dumps(
+                    {
+                        "task_row": {
+                            "task_id": task_row["task_id"],
+                            "task_type": task_row["task_type"],
+                            "difficulty": task_row.get("difficulty"),
+                            "evidence_mode": task_row.get("evidence_mode"),
+                        },
+                        "query_text": context.query_text,
+                        "visible_inputs": context.user_evidence,
+                        "interpretation": context.interpretation.to_dict(),
+                        "state": context.state.to_dict(),
+                        "draft_reasoning_text": reasoning_text,
+                        "step_index": step_index,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                choice = self._generate_choices(
+                    system_prompt=system_prompt,
+                    user_prompt=action_user_prompt,
+                    n=1,
+                    seed=seed + 10000 + choice_index,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    guided_json=guided_json,
+                    text_config=text_config,
+                    disable_hidden_thinking=self._should_disable_hidden_thinking(),
+                )[0]
+                candidate_inputs.append((reasoning_text, rationale_errors, choice))
+        else:
+            candidate_inputs = [
+                ("", [], choice)
+                for choice in self._generate_choices(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    n=n_act,
+                    seed=seed,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    guided_json=guided_json,
+                    text_config=text_config,
+                    disable_hidden_thinking=self._should_disable_hidden_thinking(),
+                )
+            ]
+
+        for reasoning_text, rationale_errors, choice in candidate_inputs:
             raw_text = _json_dumps_compact(choice)
             try:
                 payload, tool_errors = _named_tool_arguments_from_choice(
@@ -840,21 +1306,33 @@ class OpenAICompatibleCandidateGenerator:
                     prefix="actor",
                 )
                 normalized_payload, payload_errors = _normalize_actor_payload(payload)
+                candidate_reasoning_text = reasoning_text or normalized_payload["reasoning_text"]
+                generator_errors = list(tool_errors)
+                if uses_preface_reasoning and candidate_reasoning_text:
+                    payload_errors = [
+                        error
+                        for error in payload_errors
+                        if error != "actor_reasoning_and_tool_action_blank"
+                    ]
+                generator_errors.extend(payload_errors)
+                generator_errors.extend(rationale_errors)
                 candidates.append(
                     {
-                        "reasoning_text": normalized_payload["reasoning_text"],
+                        "reasoning_text": candidate_reasoning_text,
                         "tool_action": normalized_payload["tool_action"],
                         "raw_text": raw_text,
-                        "generator_errors": _unique(tool_errors + payload_errors),
+                        "generator_errors": _unique(generator_errors),
                     }
                 )
             except Exception as error:
                 candidates.append(
                     {
-                        "reasoning_text": "",
+                        "reasoning_text": reasoning_text,
                         "tool_action": None,
                         "raw_text": raw_text,
-                        "generator_errors": [f"actor_json_parse_error: {error}"],
+                        "generator_errors": _unique(
+                            list(rationale_errors) + [f"actor_json_parse_error: {error}"]
+                        ),
                     }
                 )
         return candidates
@@ -893,23 +1371,51 @@ class OpenAICompatibleCandidateGenerator:
             indent=2,
             sort_keys=True,
         )
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    VERIFIER_SYSTEM_PROMPT
-                    + f"\nReturn the final update by calling `{VERIFIER_OUTPUT_TOOL_NAME}`."
-                ),
-            },
-            {"role": "user", "content": user_prompt},
-        ]
+        if self.api_mode == "responses":
+            system_prompt = (
+                VERIFIER_SYSTEM_PROMPT
+                + "\nDo not emit analysis or commentary."
+                + "\nPut the entire reply in the final answer as exactly one JSON object that matches the provided schema."
+            )
+            tools = None
+            tool_choice = None
+            guided_json = None
+            text_config = _responses_json_schema_text_config(
+                name=VERIFIER_OUTPUT_TOOL_NAME,
+                description="Emit the verifier policy update for the current MENTOR-RL branch.",
+                schema=_verifier_output_schema(),
+            )
+        elif self._prefers_named_output_tools():
+            system_prompt = (
+                VERIFIER_SYSTEM_PROMPT
+                + "\nIgnore the generic JSON-object instruction above for this pass."
+                + "\nDo not emit analysis, commentary, or hidden chain-of-thought."
+                + f"\nCall `{VERIFIER_OUTPUT_TOOL_NAME}` immediately with arguments that match its schema."
+            )
+            tools = [_verifier_output_tool()]
+            tool_choice = _named_function_tool_choice(VERIFIER_OUTPUT_TOOL_NAME)
+            guided_json = None
+            text_config = None
+        else:
+            system_prompt = (
+                VERIFIER_SYSTEM_PROMPT
+                + "\nReturn exactly one JSON object that matches the provided schema."
+            )
+            tools = None
+            tool_choice = None
+            guided_json = _verifier_output_schema()
+            text_config = None
         candidates: list[dict[str, Any]] = []
-        for choice in self._chat(
-            messages,
+        for choice in self._generate_choices(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
             n=n_ver,
             seed=seed,
-            tools=[_verifier_output_tool()],
-            tool_choice=_named_function_tool_choice(VERIFIER_OUTPUT_TOOL_NAME),
+            tools=tools,
+            tool_choice=tool_choice,
+            guided_json=guided_json,
+            text_config=text_config,
+            disable_hidden_thinking=self._should_disable_hidden_thinking(),
         ):
             raw_text = _json_dumps_compact(choice)
             try:
@@ -2474,9 +2980,20 @@ def generate_trajectories(
             "generator": {
                 "candidate_source": config.candidate_source,
                 "api_base": model_generator_config.api_base if model_generator_config else None,
-                "model_name": candidate_generator.model_name if candidate_generator else None,
+                "configured_api_mode": (
+                    model_generator_config.api_mode if model_generator_config else None
+                ),
+                "resolved_api_mode": (
+                    getattr(candidate_generator, "api_mode", None) if candidate_generator else None
+                ),
+                "model_name": getattr(candidate_generator, "model_name", None) if candidate_generator else None,
                 "max_completion_tokens": (
                     model_generator_config.max_completion_tokens if model_generator_config else None
+                ),
+                "actor_rationale_max_completion_tokens": (
+                    model_generator_config.actor_rationale_max_completion_tokens
+                    if model_generator_config
+                    else None
                 ),
                 "request_timeout_seconds": (
                     model_generator_config.request_timeout_seconds if model_generator_config else None
@@ -2613,6 +3130,12 @@ def parse_args() -> argparse.Namespace:
         help="OpenAI-compatible API base for model-backed candidate generation.",
     )
     parser.add_argument(
+        "--generator-api-mode",
+        choices=("auto", "chat_completions", "responses"),
+        default="auto",
+        help="Generator API style. 'auto' prefers chat completions for local gpt-oss and other currently supported models.",
+    )
+    parser.add_argument(
         "--generator-model",
         type=str,
         default=None,
@@ -2649,10 +3172,16 @@ def parse_args() -> argparse.Namespace:
         help="Maximum completion tokens for actor and verifier generation calls.",
     )
     parser.add_argument(
+        "--generator-actor-rationale-max-completion-tokens",
+        type=int,
+        default=DEFAULT_ACTOR_RATIONALE_MAX_TOKENS,
+        help="Maximum completion tokens for the actor rationale follow-up pass.",
+    )
+    parser.add_argument(
         "--generator-reasoning-effort",
         choices=("low", "medium", "high"),
         default="low",
-        help="Reasoning effort sent to GPT-OSS-compatible chat completions.",
+        help="Reasoning effort sent to model-backed generation requests.",
     )
     parser.add_argument(
         "--generator-timeout-seconds",
@@ -2692,6 +3221,7 @@ def main() -> None:
     if args.candidate_source == "model_vllm":
         model_generator_config = ModelGeneratorConfig(
             api_base=args.generator_api_base,
+            api_mode=args.generator_api_mode,
             model_name=args.generator_model,
             api_key=args.generator_api_key,
             api_key_env=args.generator_api_key_env,
@@ -2699,6 +3229,7 @@ def main() -> None:
             temperature=args.generator_temperature,
             top_p=args.generator_top_p,
             max_completion_tokens=args.generator_max_completion_tokens,
+            actor_rationale_max_completion_tokens=args.generator_actor_rationale_max_completion_tokens,
             reasoning_effort=args.generator_reasoning_effort,
         )
 
