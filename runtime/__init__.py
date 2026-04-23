@@ -4,9 +4,12 @@ from .backend import CompiledRuntimeBackend, find_default_runtime_library
 from .environment import RuntimeEnvironment
 from .scoring import (
     DEFAULT_LOCAL_SCORING_CONFIG,
+    DEFAULT_TERMINAL_SCORING_CONFIG,
     ComplexMetricWeights,
     LocalScoringConfig,
+    TerminalScoringConfig,
     score_candidate_branch,
+    score_terminal_trajectory,
 )
 from .schemas import (
     KNOWN_TOOL_NAMES,
@@ -92,6 +95,7 @@ __all__ = [
     "CandidateBranch",
     "ContinuationState",
     "DEFAULT_LOCAL_SCORING_CONFIG",
+    "DEFAULT_TERMINAL_SCORING_CONFIG",
     "DEFAULT_MYGENE_FIELDS",
     "DEFAULT_RESTART_PROBABILITY",
     "DEFAULT_TOP_K",
@@ -102,6 +106,7 @@ __all__ = [
     "LabelSource",
     "LocalScoreBreakdown",
     "LocalScoringConfig",
+    "TerminalScoringConfig",
     "MechanisticLabel",
     "MultiplexIndex",
     "PreferenceDifficulty",
@@ -145,6 +150,7 @@ __all__ = [
     "rwr_multiplex",
     "save_mygene_cache",
     "score_candidate_branch",
+    "score_terminal_trajectory",
     "set_continuation_state",
     "shortest_path",
     "summarize_user_evidence",

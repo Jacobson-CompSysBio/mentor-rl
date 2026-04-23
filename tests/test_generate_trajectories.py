@@ -1,7 +1,10 @@
 import json
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import networkx as nx
 
@@ -217,6 +220,54 @@ class _RecordingSession:
         return _FakeHTTPResponse(self.responses.pop(0))
 
 
+class _FakeTokenizer:
+    def apply_chat_template(
+        self,
+        messages,
+        *,
+        tokenize=False,
+        add_generation_prompt=False,
+        **kwargs,
+    ):
+        rendered = json.dumps(
+            {
+                "messages": messages,
+                "tokenize": tokenize,
+                "add_generation_prompt": add_generation_prompt,
+                "kwargs": kwargs,
+            },
+            sort_keys=True,
+        )
+        if not add_generation_prompt:
+            return rendered
+        if kwargs.get("enable_thinking") is False:
+            return rendered + "<|start|>assistant<|channel|>final<|message|>"
+        return rendered + "<|start|>assistant"
+
+
+class _BrokenFinalChannelTokenizer:
+    def apply_chat_template(
+        self,
+        messages,
+        *,
+        tokenize=False,
+        add_generation_prompt=False,
+        **kwargs,
+    ):
+        rendered = json.dumps(
+            {
+                "messages": messages,
+                "tokenize": tokenize,
+                "add_generation_prompt": add_generation_prompt,
+                "kwargs": kwargs,
+            },
+            sort_keys=True,
+        )
+        if not add_generation_prompt:
+            return rendered
+        return rendered + "<|start|>assistant"
+
+
 class GenerateTrajectoriesTests(unittest.TestCase):
     def test_generate_trajectories_writes_expected_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -238,6 +289,9 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             self.assertTrue((out_dir / "progress.json").exists())
             self.assertTrue((out_dir / "branch_pools.jsonl").exists())
             self.assertTrue((out_dir / "trajectory_turns.jsonl").exists())
+            self.assertTrue((out_dir / "finding_records.jsonl").exists())
+            self.assertTrue((out_dir / "preference_pairs_raw.jsonl").exists())
+            self.assertTrue((out_dir / "preference_pairs.jsonl").exists())
             self.assertTrue((out_dir / "final_summaries.jsonl").exists())
 
             progress = json.loads((out_dir / "progress.json").read_text(encoding="utf-8"))
@@ -246,10 +300,15 @@ class GenerateTrajectoriesTests(unittest.TestCase):
 
             branch_pools = _read_jsonl(out_dir / "branch_pools.jsonl")
             trajectory_turns = _read_jsonl(out_dir / "trajectory_turns.jsonl")
+            finding_records = _read_jsonl(out_dir / "finding_records.jsonl")
+            preference_pairs_raw = _read_jsonl(out_dir / "preference_pairs_raw.jsonl")
+            preference_pairs = _read_jsonl(out_dir / "preference_pairs.jsonl")
             final_summaries = _read_jsonl(out_dir / "final_summaries.jsonl")
 
             self.assertGreaterEqual(len(branch_pools), 2)
             self.assertGreaterEqual(len(trajectory_turns), 2)
+            self.assertEqual(len(finding_records), len(trajectory_turns))
+            self.assertGreaterEqual(len(preference_pairs_raw), len(preference_pairs))
             self.assertEqual(len(final_summaries), 2)
 
             first_pool = branch_pools[0]
@@ -262,6 +321,10 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             self.assertTrue(
                 all(branch["local_score"]["normalized_score"] is not None for branch in first_pool["branches"])
             )
+            self.assertIn("terminal_reward", final_summaries[0])
+            self.assertIn("finding_count", final_summaries[0])
+            self.assertIn("terminal_schema_score", final_summaries[0])
+            self.assertEqual(manifest["artifacts"]["finding_record_count"], len(finding_records))
 
     def test_generate_trajectories_is_deterministic_for_same_seed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -294,6 +357,18 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             self.assertEqual(
                 _read_jsonl(run_a / "final_summaries.jsonl"),
                 _read_jsonl(run_b / "final_summaries.jsonl"),
+            )
+            self.assertEqual(
+                _read_jsonl(run_a / "finding_records.jsonl"),
+                _read_jsonl(run_b / "finding_records.jsonl"),
+            )
+            self.assertEqual(
+                _read_jsonl(run_a / "preference_pairs_raw.jsonl"),
+                _read_jsonl(run_b / "preference_pairs_raw.jsonl"),
+            )
+            self.assertEqual(
+                _read_jsonl(run_a / "preference_pairs.jsonl"),
+                _read_jsonl(run_b / "preference_pairs.jsonl"),
             )
 
     def test_generate_trajectories_supports_model_backed_candidates(self) -> None:
@@ -506,6 +581,230 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         )
         self.assertEqual(non_gpt_oss_generator.api_mode, "chat_completions")
 
+    def test_openai_candidate_generator_can_force_completions_for_gpt_oss(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+        generator = OpenAICompatibleCandidateGenerator(
+            ModelGeneratorConfig(
+                api_base="http://unused",
+                api_mode="completions",
+                model_name="gpt-oss-120b-bf16",
+            )
+        )
+        generator.session = _RecordingSession(
+            [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "stop",
+                            "text": json.dumps(
+                                {
+                                    "reasoning_text": "Use a restart walk to expand the current group.",
+                                    "tool_action": {
+                                        "tool_name": "rwr_multiplex",
+                                        "arguments": {
+                                            "seeds": ["ENSG1", "ENSG2"],
+                                            "top_k": 5,
+                                        },
+                                    },
+                                }
+                            ),
+                            "token_ids": [1, 2, 3],
+                        }
+                    ]
+                }
+            ]
+        )
+
+        fake_transformers = types.SimpleNamespace(
+            AutoTokenizer=types.SimpleNamespace(from_pretrained=lambda *args, **kwargs: _FakeTokenizer())
+        )
+        with patch.dict(sys.modules, {"transformers": fake_transformers}):
+            actor_candidates = generator.generate_actor_candidates(
+                context,
+                task_row=task_row,
+                step_index=0,
+                n_act=1,
+                seed=5,
+            )
+
+        self.assertEqual(generator.api_mode, "completions")
+        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr_multiplex")
+        first_request = generator.session.requests[0]["json"]
+        self.assertTrue(generator.session.requests[0]["url"].endswith("/completions"))
+        self.assertEqual(first_request["guided_json"]["required"], ["reasoning_text", "tool_action"])
+        self.assertFalse(first_request["add_special_tokens"])
+        self.assertTrue(first_request["return_token_ids"])
+        self.assertIn('"enable_thinking": false', first_request["prompt"])
+
+    def test_openai_candidate_generator_can_force_completions_for_gpt_oss_verifier(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+        actor_candidate = {
+            "reasoning_text": "A restart walk is the cheapest grounded expansion move.",
+            "tool_action": {
+                "tool_name": "rwr_multiplex",
+                "arguments": {"seeds": ["ENSG1", "ENSG2"], "top_k": 5},
+            },
+            "generator_errors": [],
+        }
+        actor_step = ActorStep(
+            reasoning_text=actor_candidate["reasoning_text"],
+            tool_action=ToolAction(
+                tool_name="rwr_multiplex",
+                arguments={"seeds": ["ENSG1", "ENSG2"], "top_k": 5},
+                call_id="call_1",
+            ),
+        )
+        generator = OpenAICompatibleCandidateGenerator(
+            ModelGeneratorConfig(
+                api_base="http://unused",
+                api_mode="completions",
+                model_name="gpt-oss-120b-bf16",
+            )
+        )
+        generator.session = _RecordingSession(
+            [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "stop",
+                            "text": json.dumps(
+                                {
+                                    "updated_interpretation": {
+                                        "mechanistic_claim": "The visible evidence supports one coherent module.",
+                                        "main_evidence": "The restart walk pulled ENSG3 close to the seed genes.",
+                                        "uncertainty": "",
+                                        "next_subgoal": "",
+                                    },
+                                    "updated_state": {
+                                        "relationship_status": "validated_group",
+                                        "predicted_gene_ids": ["ENSG1", "ENSG2", "ENSG3"],
+                                        "mechanistic_labels": [],
+                                        "continuation_decision": "stop",
+                                        "verifier_notes": "Accepted the grounded expansion.",
+                                    },
+                                }
+                            ),
+                            "token_ids": [4, 5, 6],
+                        }
+                    ]
+                }
+            ]
+        )
+
+        fake_transformers = types.SimpleNamespace(
+            AutoTokenizer=types.SimpleNamespace(from_pretrained=lambda *args, **kwargs: _FakeTokenizer())
+        )
+        with patch.dict(sys.modules, {"transformers": fake_transformers}):
+            verifier_candidates = generator.generate_verifier_candidates(
+                context,
+                task_row=task_row,
+                actor_candidate=actor_candidate,
+                actor_step=actor_step,
+                observation=None,
+                step_index=0,
+                n_ver=1,
+                seed=11,
+            )
+
+        self.assertEqual(verifier_candidates[0]["payload"]["updated_state"]["relationship_status"], "validated_group")
+        first_request = generator.session.requests[0]["json"]
+        self.assertTrue(generator.session.requests[0]["url"].endswith("/completions"))
+        self.assertEqual(first_request["guided_json"]["required"], ["updated_interpretation", "updated_state"])
+        self.assertFalse(first_request["add_special_tokens"])
+        self.assertTrue(first_request["return_token_ids"])
+        self.assertIn('"enable_thinking": false', first_request["prompt"])
+        self.assertNotIn('"task_type"', first_request["prompt"])
+        self.assertNotIn('"difficulty"', first_request["prompt"])
+        self.assertNotIn('"evidence_mode"', first_request["prompt"])
+        self.assertIn('\\"deterministic_observation\\": null', first_request["prompt"])
+
+    def test_openai_candidate_generator_fails_fast_when_gpt_oss_template_ignores_enable_thinking(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+        generator = OpenAICompatibleCandidateGenerator(
+            ModelGeneratorConfig(
+                api_base="http://unused",
+                api_mode="completions",
+                model_name="gpt-oss-120b-bf16",
+            )
+        )
+        generator.session = _RecordingSession([])
+
+        fake_transformers = types.SimpleNamespace(
+            AutoTokenizer=types.SimpleNamespace(
+                from_pretrained=lambda *args, **kwargs: _BrokenFinalChannelTokenizer()
+            )
+        )
+        with patch.dict(sys.modules, {"transformers": fake_transformers}):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                r"gpt-oss-120b-bf16.*does not appear to honor enable_thinking=False",
+            ):
+                generator.generate_actor_candidates(
+                    context,
+                    task_row=task_row,
+                    step_index=0,
+                    n_act=1,
+                    seed=5,
+                )
+
+        self.assertEqual(generator.session.requests, [])
+
+    def test_gpt_oss_120b_real_chat_template_supports_enable_thinking_for_completions(self) -> None:
+        model_path = Path(__file__).resolve().parents[2] / "models" / "gpt-oss-120b-bf16"
+        if not model_path.exists():
+            self.skipTest(f"Model path not found: {model_path}")
+
+        try:
+            import transformers  # type: ignore
+        except ImportError:
+            self.skipTest("transformers is not installed in this environment")
+
+        generator = OpenAICompatibleCandidateGenerator(
+            ModelGeneratorConfig(
+                api_base="http://unused",
+                api_mode="completions",
+                model_name=str(model_path),
+            )
+        )
+        prompt = generator._render_completion_prompt(
+            [
+                {"role": "system", "content": "Return JSON."},
+                {"role": "user", "content": "Emit one object."},
+            ],
+            disable_hidden_thinking=True,
+        )
+
+        self.assertTrue(
+            prompt.rstrip().endswith("<|start|>assistant<|channel|>final<|message|>"),
+            msg=prompt[-200:],
+        )
+
     def test_openai_candidate_generator_can_force_chat_completions(self) -> None:
         task_row = _task_rows()[0]
         interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
@@ -566,6 +865,9 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertNotIn("tool_choice", first_request)
         self.assertNotIn("reasoning_effort", first_request)
         self.assertEqual(first_request["guided_json"]["required"], ["reasoning_text", "tool_action"])
+        self.assertNotIn('"task_type"', first_request["messages"][1]["content"])
+        self.assertNotIn('"difficulty"', first_request["messages"][1]["content"])
+        self.assertNotIn('"evidence_mode"', first_request["messages"][1]["content"])
 
     def test_openai_candidate_generator_uses_named_output_tool_for_gpt_oss_chat(self) -> None:
         task_row = _task_rows()[0]
@@ -586,21 +888,6 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         )
         generator.session = _RecordingSession(
             [
-                {
-                    "choices": [
-                        {
-                            "index": 0,
-                            "finish_reason": "stop",
-                            "message": {
-                                "content": json.dumps(
-                                    {
-                                        "reasoning_text": "The visible seed set is still incomplete, so a multiplex restart walk is the cheapest grounded way to look for a coherent expansion before making a stronger claim."
-                                    }
-                                ),
-                            },
-                        }
-                    ]
-                },
                 {
                     "choices": [
                         {
@@ -645,24 +932,24 @@ class GenerateTrajectoriesTests(unittest.TestCase):
 
         self.assertEqual(generator.api_mode, "chat_completions")
         self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr_multiplex")
-        self.assertIn("multiplex restart walk", actor_candidates[0]["reasoning_text"])
-        self.assertEqual(len(generator.session.requests), 2)
+        self.assertIn("multiplex walk", actor_candidates[0]["reasoning_text"])
+        self.assertEqual(len(generator.session.requests), 1)
         first_request = generator.session.requests[0]["json"]
-        second_request = generator.session.requests[1]["json"]
         self.assertTrue(generator.session.requests[0]["url"].endswith("/chat/completions"))
         self.assertEqual(first_request["chat_template_kwargs"], {"enable_thinking": False})
-        self.assertEqual(first_request["guided_json"]["required"], ["reasoning_text"])
-        self.assertEqual(first_request["reasoning_effort"], "low")
-        self.assertNotIn("tools", first_request)
-        self.assertTrue(generator.session.requests[1]["url"].endswith("/chat/completions"))
-        self.assertEqual(second_request["chat_template_kwargs"], {"enable_thinking": False})
-        self.assertIn("tools", second_request)
-        self.assertEqual(second_request["tools"][0]["function"]["name"], "emit_actor_step")
-        self.assertEqual(second_request["tool_choice"]["function"]["name"], "emit_actor_step")
-        self.assertEqual(second_request["tools"][0]["function"]["parameters"]["required"], ["tool_action"])
-        self.assertNotIn("guided_json", second_request)
-        self.assertNotIn("reasoning_effort", second_request)
-        self.assertIn("draft_reasoning_text", second_request["messages"][1]["content"])
+        self.assertIn("tools", first_request)
+        self.assertEqual(first_request["tools"][0]["function"]["name"], "emit_actor_step")
+        self.assertEqual(first_request["tool_choice"]["function"]["name"], "emit_actor_step")
+        self.assertEqual(
+            first_request["tools"][0]["function"]["parameters"]["required"],
+            ["reasoning_text", "tool_action"],
+        )
+        self.assertNotIn("guided_json", first_request)
+        self.assertNotIn("reasoning_effort", first_request)
+        self.assertNotIn("draft_reasoning_text", first_request["messages"][1]["content"])
+        self.assertNotIn('"task_type"', first_request["messages"][1]["content"])
+        self.assertNotIn('"difficulty"', first_request["messages"][1]["content"])
+        self.assertNotIn('"evidence_mode"', first_request["messages"][1]["content"])
 
     def test_openai_candidate_generator_disables_hidden_thinking_for_gpt_oss_verifier_chat(self) -> None:
         task_row = _task_rows()[0]
@@ -754,6 +1041,10 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertEqual(first_request["chat_template_kwargs"], {"enable_thinking": False})
         self.assertEqual(first_request["tool_choice"]["function"]["name"], "emit_verifier_update")
         self.assertNotIn("reasoning_effort", first_request)
+        self.assertIn('"deterministic_observation": null', first_request["messages"][1]["content"])
+        self.assertNotIn('"task_type"', first_request["messages"][1]["content"])
+        self.assertNotIn('"difficulty"', first_request["messages"][1]["content"])
+        self.assertNotIn('"evidence_mode"', first_request["messages"][1]["content"])
 
     def test_openai_candidate_generator_falls_back_to_chat_when_responses_returns_blank(self) -> None:
         task_row = _task_rows()[0]

@@ -1,6 +1,6 @@
 import unittest
 
-from runtime.scoring import score_candidate_branch
+from runtime.scoring import score_candidate_branch, score_terminal_trajectory
 from runtime.schemas import (
     ActorStep,
     CandidateBranch,
@@ -11,6 +11,7 @@ from runtime.schemas import (
     LocalScoreBreakdown,
     MechanisticLabel,
     RelationshipStatus,
+    TerminationReason,
     ToolAction,
     ToolObservation,
     ToolObservationStatus,
@@ -218,8 +219,76 @@ class RuntimeScoringTests(unittest.TestCase):
 
         self.assertEqual(score.schema_score, 1.0)
         self.assertGreater(score.complex_membership_delta, 0.0)
-        self.assertEqual(score.score_metadata["complex"]["none_score_post"]["predicted_gene_count"], 0)
-        self.assertEqual(score.score_metadata["relationship_status_post"], "insufficient_support")
+
+    def test_terminal_score_rewards_positive_recovery_and_records_termination(self) -> None:
+        _, initial_state = initialize_state_from_corum_task(_recovery_task(), max_budget=4)
+        final_state = replace_predicted_groups(
+            initial_state,
+            predicted_groups=[
+                GeneGroup(
+                    group_id="group_0",
+                    gene_ids=["ENSG_CREBBP", "ENSG_EP300", "ENSG_KAT2B", "ENSG_NCOA3"],
+                    gene_symbols=["CREBBP", "EP300", "KAT2B", "NCOA3"],
+                    rationale="Recovered the full group before stopping.",
+                )
+            ],
+            relationship_status=RelationshipStatus.VALIDATED_GROUP,
+        )
+        final_state = replace_mechanistic_labels(
+            final_state,
+            [
+                MechanisticLabel(
+                    label_source=LabelSource.GO,
+                    label_id="GO:0004402",
+                    label_name="histone acetyltransferase activity",
+                    evidence_ids=[],
+                )
+            ],
+        )
+        final_state.continuation_state = ContinuationState.STOP
+        final_state.termination_reason = TerminationReason.MODEL_STOP
+
+        score = score_terminal_trajectory(
+            _recovery_task(),
+            initial_state,
+            final_state,
+            step_count=2,
+            max_steps=4,
+        )
+
+        self.assertEqual(score["schema_score"], 1.0)
+        self.assertGreater(score["absolute_complex_score"], 0.0)
+        self.assertGreater(score["complex_delta"], 0.0)
+        self.assertGreater(score["absolute_mechanistic_score"], 0.0)
+        self.assertGreater(score["terminal_reward"], 0.0)
+
+    def test_terminal_score_handles_none_task_abstention(self) -> None:
+        _, initial_state = initialize_state_from_corum_task(_none_task(), max_budget=4)
+        final_state = replace_predicted_groups(
+            initial_state,
+            predicted_groups=[],
+            relationship_status=RelationshipStatus.INSUFFICIENT_SUPPORT,
+        )
+        final_state.continuation_state = ContinuationState.STOP
+        final_state.termination_reason = TerminationReason.MODEL_STOP
+
+        score = score_terminal_trajectory(
+            _none_task(),
+            initial_state,
+            final_state,
+            step_count=1,
+            max_steps=4,
+        )
+
+        self.assertEqual(score["schema_score"], 1.0)
+        self.assertGreater(score["absolute_complex_score"], 0.0)
+        self.assertGreaterEqual(score["complex_delta"], 0.0)
+        self.assertEqual(score["metadata"]["complex"]["expected_relationship"], "insufficient_support")
+        self.assertEqual(score["metadata"]["complex"]["final"]["predicted_gene_count"], 0)
+        self.assertEqual(
+            score["metadata"]["schema"]["termination_reason"],
+            TerminationReason.MODEL_STOP.value,
+        )
 
     def test_duplicate_empty_tool_call_increases_efficiency_penalty(self) -> None:
         interpretation, prior_state = initialize_state_from_corum_task(_recovery_task(), max_budget=4)

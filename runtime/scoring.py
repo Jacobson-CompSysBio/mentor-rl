@@ -19,6 +19,7 @@ from typing import Any, Iterable
 
 from .schemas import (
     CandidateBranch,
+    ContinuationState,
     LocalScoreBreakdown,
     MechanisticLabel,
     RelationshipStatus,
@@ -103,6 +104,39 @@ class LocalScoringConfig:
 
 
 DEFAULT_LOCAL_SCORING_CONFIG = LocalScoringConfig()
+
+
+@dataclass(frozen=True)
+class TerminalScoringConfig:
+    """Weights for scoring a completed trajectory against hidden supervision."""
+
+    schema_weight: float = 1.0
+    absolute_complex_weight: float = 1.0
+    complex_delta_weight: float = 1.0
+    absolute_mechanism_weight: float = 1.0
+    mechanism_delta_weight: float = 1.0
+    efficiency_weight: float = 1.0
+    local_config: LocalScoringConfig = field(default_factory=LocalScoringConfig)
+
+    def __post_init__(self) -> None:
+        numeric_fields = (
+            "schema_weight",
+            "absolute_complex_weight",
+            "complex_delta_weight",
+            "absolute_mechanism_weight",
+            "mechanism_delta_weight",
+            "efficiency_weight",
+        )
+        for field_name in numeric_fields:
+            value = getattr(self, field_name)
+            if value < 0:
+                raise ValueError(f"{field_name} must be non-negative.")
+
+    def complex_weights_for_task(self, task_type: TaskType) -> ComplexMetricWeights:
+        return self.local_config.complex_weights_for_task(task_type)
+
+
+DEFAULT_TERMINAL_SCORING_CONFIG = TerminalScoringConfig()
 
 
 def _fail(message: str) -> None:
@@ -546,9 +580,156 @@ def score_candidate_branch(
     )
 
 
+def _terminal_schema_score(final_state: StructuredState) -> tuple[float, dict[str, Any]]:
+    schema_valid = True
+    schema_errors: list[str] = []
+    try:
+        StructuredState.from_dict(final_state.to_dict())
+    except SchemaValidationError as error:
+        schema_valid = False
+        schema_errors.append(str(error))
+    termination_recorded = (
+        final_state.continuation_state == ContinuationState.STOP
+        and final_state.termination_reason is not None
+    )
+    return (
+        1.0 if schema_valid and termination_recorded else 0.0,
+        {
+            "schema_valid": schema_valid,
+            "schema_errors": schema_errors,
+            "termination_recorded": termination_recorded,
+            "termination_reason": (
+                final_state.termination_reason.value
+                if final_state.termination_reason is not None
+                else None
+            ),
+        },
+    )
+
+
+def score_terminal_trajectory(
+    task_row: dict[str, Any],
+    initial_state: StructuredState,
+    final_state: StructuredState,
+    *,
+    step_count: int,
+    max_steps: int,
+    config: TerminalScoringConfig = DEFAULT_TERMINAL_SCORING_CONFIG,
+) -> dict[str, Any]:
+    """Score one completed trajectory using the proposal's terminal reward."""
+
+    task_row = _require_mapping("task_row", task_row)
+    if not isinstance(initial_state, StructuredState):
+        _fail("initial_state must be a StructuredState instance.")
+    if not isinstance(final_state, StructuredState):
+        _fail("final_state must be a StructuredState instance.")
+    _require_positive_int("max_steps", max_steps)
+    if not isinstance(step_count, int) or step_count < 0:
+        _fail("step_count must be a non-negative int.")
+
+    task_type = TaskType(task_row["task_type"])
+    hidden_target = _require_mapping("hidden_target", task_row["hidden_target"])
+    if task_type == TaskType.NONE:
+        expected_relationship = RelationshipStatus(hidden_target["relationship_status"])
+        initial_complex_score, initial_complex_metadata = _none_state_score(
+            initial_state,
+            expected_relationship=expected_relationship,
+            config=config.local_config,
+        )
+        final_complex_score, final_complex_metadata = _none_state_score(
+            final_state,
+            expected_relationship=expected_relationship,
+            config=config.local_config,
+        )
+        complex_metadata: dict[str, Any] = {
+            "expected_relationship": expected_relationship.value,
+            "initial": initial_complex_metadata,
+            "final": final_complex_metadata,
+            "none_relationship_weight": config.local_config.none_relationship_weight,
+            "none_abstention_weight": config.local_config.none_abstention_weight,
+        }
+    else:
+        target_gene_ids = hidden_target.get("target_gene_ids")
+        if not isinstance(target_gene_ids, list) or not target_gene_ids:
+            _fail("Positive tasks must include a non-empty hidden_target.target_gene_ids list.")
+        weights = config.complex_weights_for_task(task_type)
+        initial_match = _best_group_match(initial_state, target_gene_ids, weights)
+        final_match = _best_group_match(final_state, target_gene_ids, weights)
+        initial_complex_score = float(initial_match["score"])
+        final_complex_score = float(final_match["score"])
+        complex_metadata = {
+            "target_gene_ids": list(target_gene_ids),
+            "initial_best_group": initial_match,
+            "final_best_group": final_match,
+            "jaccard_weight": weights.jaccard,
+            "precision_weight": weights.precision,
+            "recall_weight": weights.recall,
+        }
+
+    complex_delta = final_complex_score - initial_complex_score
+
+    canonical_targets = _canonical_label_targets(task_row.get("mechanism_labels"))
+    initial_mechanistic = _mechanistic_accuracy(initial_state.mechanistic_labels, canonical_targets)
+    final_mechanistic = _mechanistic_accuracy(final_state.mechanistic_labels, canonical_targets)
+    initial_mechanistic_score = float(initial_mechanistic["accuracy"])
+    final_mechanistic_score = float(final_mechanistic["accuracy"])
+    mechanistic_delta = final_mechanistic_score - initial_mechanistic_score
+
+    schema_score, schema_metadata = _terminal_schema_score(final_state)
+    total_tool_calls = max(0, final_state.total_tool_call_count - initial_state.total_tool_call_count)
+    invalid_tool_calls = max(0, final_state.invalid_tool_call_count - initial_state.invalid_tool_call_count)
+    invalid_ratio = _safe_divide(invalid_tool_calls, total_tool_calls)
+    step_fraction = min(_safe_divide(step_count, max_steps), 1.0)
+    efficiency_penalty = (
+        config.local_config.step_penalty_lambda * step_fraction
+        + config.local_config.invalid_call_penalty_lambda * invalid_ratio
+    )
+
+    terminal_reward = (
+        config.schema_weight * schema_score
+        + config.absolute_complex_weight * final_complex_score
+        + config.complex_delta_weight * complex_delta
+        + config.absolute_mechanism_weight * final_mechanistic_score
+        + config.mechanism_delta_weight * mechanistic_delta
+        - config.efficiency_weight * efficiency_penalty
+    )
+
+    return {
+        "schema_score": schema_score,
+        "absolute_complex_score": final_complex_score,
+        "complex_delta": complex_delta,
+        "absolute_mechanistic_score": final_mechanistic_score,
+        "mechanistic_delta": mechanistic_delta,
+        "efficiency_penalty": efficiency_penalty,
+        "terminal_reward": terminal_reward,
+        "metadata": {
+            "task_type": task_type.value,
+            "step_count": step_count,
+            "max_steps": max_steps,
+            "schema": schema_metadata,
+            "complex": complex_metadata,
+            "mechanistic": {
+                "initial": initial_mechanistic,
+                "final": final_mechanistic,
+            },
+            "efficiency": {
+                "step_fraction": step_fraction,
+                "total_tool_calls": total_tool_calls,
+                "invalid_tool_calls": invalid_tool_calls,
+                "invalid_ratio": invalid_ratio,
+                "step_penalty_lambda": config.local_config.step_penalty_lambda,
+                "invalid_call_penalty_lambda": config.local_config.invalid_call_penalty_lambda,
+            },
+        },
+    }
+
+
 __all__ = [
     "ComplexMetricWeights",
     "DEFAULT_LOCAL_SCORING_CONFIG",
+    "DEFAULT_TERMINAL_SCORING_CONFIG",
     "LocalScoringConfig",
+    "TerminalScoringConfig",
     "score_candidate_branch",
+    "score_terminal_trajectory",
 ]

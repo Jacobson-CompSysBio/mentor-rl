@@ -52,9 +52,12 @@ from runtime import (
     LabelSource,
     LocalScoreBreakdown,
     MechanisticLabel,
+    PreferenceDifficulty,
+    PreferencePair,
     RelationshipStatus,
     RuntimeEnvironment,
     SharedPrefixContext,
+    TaskType,
     TerminationReason,
     ToolAction,
     ToolObservation,
@@ -70,6 +73,7 @@ from runtime import (
     replace_mechanistic_labels,
     replace_predicted_groups,
     score_candidate_branch,
+    score_terminal_trajectory,
     set_continuation_state,
 )
 
@@ -82,6 +86,8 @@ DEFAULT_GENERATOR_API_BASE = "http://127.0.0.1:8000/v1"
 DEFAULT_GENERATOR_API_KEY_ENV = "OPENAI_API_KEY"
 STRUCTURED_OUTPUT_MAX_TOKENS = 768
 DEFAULT_ACTOR_RATIONALE_MAX_TOKENS = 2048
+DEFAULT_PREFERENCE_PAIR_MARGIN = 0.10
+GPT_OSS_FINAL_CHANNEL_PREFIX = "<|start|>assistant<|channel|>final<|message|>"
 TRAJECTORY_STAGES = (
     ("load_tasks", "Load canonical CORUM tasks"),
     ("initialize_runtime", "Initialize deterministic runtime"),
@@ -287,6 +293,57 @@ def _safe_text(value: Any) -> str:
     return value if isinstance(value, str) else ""
 
 
+def _actor_prompt_payload(
+    context: SharedPrefixContext,
+    *,
+    step_index: int,
+) -> dict[str, Any]:
+    state_payload = context.state.to_dict()
+    user_anchors_payload = _safe_dict(state_payload.get("user_anchors"))
+    user_anchors_payload.pop("evidence_mode", None)
+    user_anchors_payload.pop("source_task_id", None)
+    state_payload["user_anchors"] = user_anchors_payload
+    return {
+        "query_text": context.query_text,
+        "visible_inputs": context.user_evidence,
+        "interpretation": context.interpretation.to_dict(),
+        "state": state_payload,
+        "step_index": step_index,
+    }
+
+
+def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dict[str, Any] | None:
+    if observation is None or observation.status != ToolObservationStatus.SUCCESS:
+        return None
+    return observation.to_dict()
+
+
+def _verifier_prompt_payload(
+    context: SharedPrefixContext,
+    *,
+    actor_step: ActorStep,
+    observation: ToolObservation | None,
+    step_index: int,
+) -> dict[str, Any]:
+    prior_state_payload = context.state.to_dict()
+    user_anchors_payload = _safe_dict(prior_state_payload.get("user_anchors"))
+    user_anchors_payload.pop("evidence_mode", None)
+    user_anchors_payload.pop("source_task_id", None)
+    prior_state_payload["user_anchors"] = user_anchors_payload
+    return {
+        "query_text": context.query_text,
+        "visible_inputs": context.user_evidence,
+        "prior_interpretation": context.interpretation.to_dict(),
+        "prior_state": prior_state_payload,
+        "actor_output": {
+            "reasoning_text": actor_step.reasoning_text,
+            "tool_action": actor_step.tool_action.to_dict() if actor_step.tool_action else None,
+        },
+        "deterministic_observation": _observation_for_verifier_prompt(observation),
+        "step_index": step_index,
+    }
+
+
 def _json_dumps_compact(value: Any) -> str:
     return json.dumps(value, ensure_ascii=True, sort_keys=True)
 
@@ -415,6 +472,7 @@ def _named_tool_arguments_from_choice(
     *,
     expected_tool_name: str,
     prefix: str,
+    require_tool_call: bool = False,
 ) -> tuple[dict[str, Any], list[str]]:
     message = _safe_dict(choice.get("message"))
     errors: list[str] = []
@@ -433,6 +491,8 @@ def _named_tool_arguments_from_choice(
             else {}
         )
     else:
+        if require_tool_call:
+            errors.append(f"{prefix}_tool_call_missing")
         content_text = _message_content_to_text(message.get("content"))
         payload = _parse_model_json(content_text) if content_text else {}
 
@@ -758,8 +818,10 @@ class ModelGeneratorConfig:
     reasoning_effort: str = "low"
 
     def __post_init__(self) -> None:
-        if self.api_mode not in {"auto", "chat_completions", "responses"}:
-            raise ValueError("api_mode must be one of: auto, chat_completions, responses.")
+        if self.api_mode not in {"auto", "chat_completions", "responses", "completions"}:
+            raise ValueError(
+                "api_mode must be one of: auto, chat_completions, responses, completions."
+            )
         if self.max_completion_tokens <= 0:
             raise ValueError("max_completion_tokens must be positive.")
         if self.actor_rationale_max_completion_tokens <= 0:
@@ -820,9 +882,6 @@ class OpenAICompatibleCandidateGenerator:
             return self.config.api_mode
         model_name = self.model_name.lower()
         if "gpt-oss" in model_name:
-            # The local vLLM gpt-oss responses path frequently terminates while the
-            # model is still in the hidden reasoning channel, which yields a blank
-            # visible assistant message and fails the trajectory smoke test.
             return "chat_completions"
         return "chat_completions"
 
@@ -833,10 +892,56 @@ class OpenAICompatibleCandidateGenerator:
         return self.api_mode == "chat_completions" and self._model_is_gpt_oss()
 
     def _should_disable_hidden_thinking(self) -> bool:
-        return self.api_mode == "chat_completions" and self._model_is_gpt_oss()
+        return self.api_mode in {"chat_completions", "completions"} and self._model_is_gpt_oss()
 
     def _should_generate_actor_rationale(self) -> bool:
-        return self.api_mode == "chat_completions" and self._model_is_gpt_oss()
+        return False
+
+    def _prompt_tokenizer(self) -> Any:
+        thread_tokenizer = getattr(self._thread_local, "tokenizer", None)
+        if thread_tokenizer is None:
+            from transformers import AutoTokenizer
+
+            thread_tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            self._thread_local.tokenizer = thread_tokenizer
+        return thread_tokenizer
+
+    def _render_completion_prompt(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        disable_hidden_thinking: bool,
+    ) -> str:
+        tokenizer = self._prompt_tokenizer()
+        chat_template_kwargs: dict[str, Any] = {}
+        if disable_hidden_thinking and self._model_is_gpt_oss():
+            chat_template_kwargs["enable_thinking"] = False
+        prompt = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            **chat_template_kwargs,
+        )
+        if not isinstance(prompt, str) or not prompt:
+            raise RuntimeError("The completion prompt renderer returned an empty prompt.")
+        return prompt
+
+    def _assert_gpt_oss_completion_prompt_contract(
+        self,
+        prompt: str,
+        *,
+        disable_hidden_thinking: bool,
+    ) -> None:
+        if not (disable_hidden_thinking and self._model_is_gpt_oss()):
+            return
+        if prompt.rstrip().endswith(GPT_OSS_FINAL_CHANNEL_PREFIX):
+            return
+        raise RuntimeError(
+            "The gpt-oss chat template for "
+            f"{self.model_name!r} does not appear to honor enable_thinking=False. "
+            "Expected the rendered completions prompt to end with "
+            f"{GPT_OSS_FINAL_CHANNEL_PREFIX!r}."
+        )
 
     def _chat(
         self,
@@ -1049,6 +1154,91 @@ class OpenAICompatibleCandidateGenerator:
             )
         return choices
 
+    def _completions(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        n: int,
+        seed: int,
+        guided_json: dict[str, Any] | None = None,
+        max_completion_tokens: int | None = None,
+        disable_hidden_thinking: bool = False,
+        temperature: float | None = None,
+        top_p: float | None = None,
+    ) -> list[dict[str, Any]]:
+        prompt = self._render_completion_prompt(
+            messages,
+            disable_hidden_thinking=disable_hidden_thinking,
+        )
+        self._assert_gpt_oss_completion_prompt_contract(
+            prompt,
+            disable_hidden_thinking=disable_hidden_thinking,
+        )
+        payload = {
+            "model": self.model_name,
+            "prompt": prompt,
+            "n": n,
+            "temperature": self.config.temperature if temperature is None else temperature,
+            "top_p": self.config.top_p if top_p is None else top_p,
+            "max_tokens": (
+                max_completion_tokens
+                if max_completion_tokens is not None
+                else self.config.max_completion_tokens
+            ),
+            "seed": seed,
+            "add_special_tokens": False,
+            "return_token_ids": True,
+        }
+        if guided_json is not None:
+            payload["guided_json"] = guided_json
+        response = self._session().post(
+            f"{self.config.api_base.rstrip('/')}/completions",
+            headers=self._headers(),
+            json=payload,
+            timeout=self.config.request_timeout_seconds,
+        )
+        response.raise_for_status()
+        response_payload = response.json()
+        choices: list[dict[str, Any]] = []
+        for choice in response_payload.get("choices", []):
+            if not isinstance(choice, dict):
+                choices.append(
+                    {
+                        "index": None,
+                        "finish_reason": None,
+                        "message": {"content": _json_dumps_compact({"choice": choice})},
+                    }
+                )
+                continue
+            choices.append(
+                {
+                    "index": choice.get("index"),
+                    "finish_reason": choice.get("finish_reason"),
+                    "message": {
+                        "role": "assistant",
+                        "content": _safe_text(choice.get("text")),
+                    },
+                    "token_ids": choice.get("token_ids"),
+                    "prompt_token_ids": choice.get("prompt_token_ids"),
+                }
+            )
+        if not choices:
+            choices.append(
+                {
+                    "index": None,
+                    "finish_reason": None,
+                    "message": {
+                        "content": _json_dumps_compact(
+                            {
+                                "error": "completions_api_returned_no_choices",
+                                "response_keys": sorted(response_payload),
+                            }
+                        )
+                    },
+                }
+            )
+        return choices
+
     def _generate_choices(
         self,
         *,
@@ -1100,6 +1290,23 @@ class OpenAICompatibleCandidateGenerator:
                         fallback_choice["fallback_trigger"] = "responses_blank_visible_output"
                         choices[index] = fallback_choice
             return choices
+
+        if self.api_mode == "completions":
+            if tools or tool_choice:
+                raise ValueError("The completions backend does not support tool calls.")
+            completion_guided_json = guided_json
+            if completion_guided_json is None and text_config is not None:
+                completion_guided_json = _safe_dict(
+                    _safe_dict(text_config.get("format")).get("schema")
+                )
+            return self._completions(
+                messages=messages,
+                n=n,
+                seed=seed,
+                guided_json=completion_guided_json,
+                max_completion_tokens=structured_max_tokens,
+                disable_hidden_thinking=disable_hidden_thinking,
+            )
 
         return self._chat(
             messages,
@@ -1183,25 +1390,16 @@ class OpenAICompatibleCandidateGenerator:
         n_act: int,
         seed: int,
     ) -> list[dict[str, Any]]:
+        del task_row
         user_prompt = json.dumps(
-            {
-                "task_row": {
-                    "task_id": task_row["task_id"],
-                    "task_type": task_row["task_type"],
-                    "difficulty": task_row.get("difficulty"),
-                    "evidence_mode": task_row.get("evidence_mode"),
-                },
-                "query_text": context.query_text,
-                "visible_inputs": context.user_evidence,
-                "interpretation": context.interpretation.to_dict(),
-                "state": context.state.to_dict(),
-                "step_index": step_index,
-            },
+            _actor_prompt_payload(
+                context,
+                step_index=step_index,
+            ),
             indent=2,
             sort_keys=True,
         )
         actor_schema = _actor_output_schema()
-        uses_preface_reasoning = self._should_generate_actor_rationale()
         if self.api_mode == "responses":
             system_prompt = (
                 ACTOR_SYSTEM_PROMPT
@@ -1217,13 +1415,8 @@ class OpenAICompatibleCandidateGenerator:
                 schema=actor_schema,
             )
         elif self._prefers_named_output_tools():
-            actor_schema = _actor_action_only_schema()
             system_prompt = (
                 ACTOR_SYSTEM_PROMPT
-                + "\nIgnore the generic JSON-object instruction above for this pass."
-                + "\nA visible actor rationale is provided separately and comes first."
-                + "\nUse that rationale as context for the tool decision."
-                + "\nThis pass only chooses the next runtime tool action."
                 + "\nDo not emit analysis, commentary, or hidden chain-of-thought."
                 + f"\nCall `{ACTOR_OUTPUT_TOOL_NAME}` immediately with arguments that match its schema."
                 + "\nIf no runtime tool is needed, set tool_action to null."
@@ -1242,80 +1435,28 @@ class OpenAICompatibleCandidateGenerator:
             guided_json = actor_schema
             text_config = None
         candidates: list[dict[str, Any]] = []
-        if uses_preface_reasoning:
-            candidate_inputs: list[tuple[str, list[str], dict[str, Any]]] = []
-            for choice_index in range(n_act):
-                reasoning_text, rationale_errors = self._generate_actor_reasoning(
-                    context,
-                    task_row=task_row,
-                    step_index=step_index,
-                    seed=seed + choice_index,
-                )
-                action_user_prompt = json.dumps(
-                    {
-                        "task_row": {
-                            "task_id": task_row["task_id"],
-                            "task_type": task_row["task_type"],
-                            "difficulty": task_row.get("difficulty"),
-                            "evidence_mode": task_row.get("evidence_mode"),
-                        },
-                        "query_text": context.query_text,
-                        "visible_inputs": context.user_evidence,
-                        "interpretation": context.interpretation.to_dict(),
-                        "state": context.state.to_dict(),
-                        "draft_reasoning_text": reasoning_text,
-                        "step_index": step_index,
-                    },
-                    indent=2,
-                    sort_keys=True,
-                )
-                choice = self._generate_choices(
-                    system_prompt=system_prompt,
-                    user_prompt=action_user_prompt,
-                    n=1,
-                    seed=seed + 10000 + choice_index,
-                    tools=tools,
-                    tool_choice=tool_choice,
-                    guided_json=guided_json,
-                    text_config=text_config,
-                    disable_hidden_thinking=self._should_disable_hidden_thinking(),
-                )[0]
-                candidate_inputs.append((reasoning_text, rationale_errors, choice))
-        else:
-            candidate_inputs = [
-                ("", [], choice)
-                for choice in self._generate_choices(
-                    system_prompt=system_prompt,
-                    user_prompt=user_prompt,
-                    n=n_act,
-                    seed=seed,
-                    tools=tools,
-                    tool_choice=tool_choice,
-                    guided_json=guided_json,
-                    text_config=text_config,
-                    disable_hidden_thinking=self._should_disable_hidden_thinking(),
-                )
-            ]
-
-        for reasoning_text, rationale_errors, choice in candidate_inputs:
+        for choice in self._generate_choices(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            n=n_act,
+            seed=seed,
+            tools=tools,
+            tool_choice=tool_choice,
+            guided_json=guided_json,
+            text_config=text_config,
+            disable_hidden_thinking=self._should_disable_hidden_thinking(),
+        ):
             raw_text = _json_dumps_compact(choice)
             try:
                 payload, tool_errors = _named_tool_arguments_from_choice(
                     choice,
                     expected_tool_name=ACTOR_OUTPUT_TOOL_NAME,
                     prefix="actor",
+                    require_tool_call=self._prefers_named_output_tools(),
                 )
                 normalized_payload, payload_errors = _normalize_actor_payload(payload)
-                candidate_reasoning_text = reasoning_text or normalized_payload["reasoning_text"]
-                generator_errors = list(tool_errors)
-                if uses_preface_reasoning and candidate_reasoning_text:
-                    payload_errors = [
-                        error
-                        for error in payload_errors
-                        if error != "actor_reasoning_and_tool_action_blank"
-                    ]
-                generator_errors.extend(payload_errors)
-                generator_errors.extend(rationale_errors)
+                candidate_reasoning_text = normalized_payload["reasoning_text"]
+                generator_errors = list(tool_errors) + payload_errors
                 candidates.append(
                     {
                         "reasoning_text": candidate_reasoning_text,
@@ -1327,12 +1468,10 @@ class OpenAICompatibleCandidateGenerator:
             except Exception as error:
                 candidates.append(
                     {
-                        "reasoning_text": reasoning_text,
+                        "reasoning_text": "",
                         "tool_action": None,
                         "raw_text": raw_text,
-                        "generator_errors": _unique(
-                            list(rationale_errors) + [f"actor_json_parse_error: {error}"]
-                        ),
+                        "generator_errors": [f"actor_json_parse_error: {error}"],
                     }
                 )
         return candidates
@@ -1349,25 +1488,14 @@ class OpenAICompatibleCandidateGenerator:
         n_ver: int,
         seed: int,
     ) -> list[dict[str, Any]]:
+        del task_row
         user_prompt = json.dumps(
-            {
-                "task_row": {
-                    "task_id": task_row["task_id"],
-                    "task_type": task_row["task_type"],
-                    "difficulty": task_row.get("difficulty"),
-                    "evidence_mode": task_row.get("evidence_mode"),
-                },
-                "query_text": context.query_text,
-                "visible_inputs": context.user_evidence,
-                "prior_interpretation": context.interpretation.to_dict(),
-                "prior_state": context.state.to_dict(),
-                "actor_output": {
-                    "reasoning_text": actor_step.reasoning_text,
-                    "tool_action": actor_step.tool_action.to_dict() if actor_step.tool_action else None,
-                },
-                "deterministic_observation": observation.to_dict() if observation else None,
-                "step_index": step_index,
-            },
+            _verifier_prompt_payload(
+                context,
+                actor_step=actor_step,
+                observation=observation,
+                step_index=step_index,
+            ),
             indent=2,
             sort_keys=True,
         )
@@ -1388,7 +1516,6 @@ class OpenAICompatibleCandidateGenerator:
         elif self._prefers_named_output_tools():
             system_prompt = (
                 VERIFIER_SYSTEM_PROMPT
-                + "\nIgnore the generic JSON-object instruction above for this pass."
                 + "\nDo not emit analysis, commentary, or hidden chain-of-thought."
                 + f"\nCall `{VERIFIER_OUTPUT_TOOL_NAME}` immediately with arguments that match its schema."
             )
@@ -1423,6 +1550,7 @@ class OpenAICompatibleCandidateGenerator:
                     choice,
                     expected_tool_name=VERIFIER_OUTPUT_TOOL_NAME,
                     prefix="verifier",
+                    require_tool_call=self._prefers_named_output_tools(),
                 )
                 candidates.append(
                     {
@@ -1899,25 +2027,185 @@ def _render_finding_text(branch: CandidateBranch) -> str:
     return f"[{relationship}] score={score:.4f} {summary}"
 
 
+def _build_finding_record(
+    *,
+    task_row: dict[str, Any],
+    trajectory_id: str,
+    trajectory_seed: int,
+    step_index: int,
+    context: SharedPrefixContext,
+    branch: CandidateBranch,
+    finding_text: str,
+) -> dict[str, Any]:
+    tool_action = branch.actor_step.tool_action
+    observation = branch.observation
+    return {
+        "finding_id": f"{trajectory_id}.step{step_index}.finding",
+        "trajectory_id": trajectory_id,
+        "trajectory_seed": trajectory_seed,
+        "source_task_id": task_row["task_id"],
+        "task_type": task_row["task_type"],
+        "difficulty": task_row.get("difficulty"),
+        "evidence_mode": task_row.get("evidence_mode"),
+        "step_index": step_index,
+        "shared_prefix_context": context.to_dict(),
+        "chosen_branch_id": branch.branch_id,
+        "finding_text": finding_text,
+        "actor_reasoning_text": branch.actor_step.reasoning_text,
+        "tool_provenance": {
+            "tool_name": tool_action.tool_name if tool_action is not None else None,
+            "arguments": tool_action.arguments if tool_action is not None else None,
+            "call_id": tool_action.call_id if tool_action is not None else None,
+            "observation_status": observation.status.value if observation is not None else None,
+            "observation": observation.to_dict() if observation is not None else None,
+        },
+        "updated_interpretation": branch.verifier_step.updated_interpretation.to_dict(),
+        "updated_state": branch.verifier_step.updated_state.to_dict(),
+    }
+
+
+def _mine_preference_pairs(
+    *,
+    task_row: dict[str, Any],
+    trajectory_id: str,
+    trajectory_seed: int,
+    step_index: int,
+    context: SharedPrefixContext,
+    branches: list[CandidateBranch],
+    chosen_branch: CandidateBranch,
+    score_margin: float,
+) -> list[PreferencePair]:
+    if not branches:
+        return []
+
+    chosen_normalized = float(chosen_branch.local_score.normalized_score or 0.0)
+    ordered_rejected = sorted(
+        (
+            branch
+            for branch in branches
+            if branch.branch_id != chosen_branch.branch_id
+            and (chosen_normalized - float(branch.local_score.normalized_score or 0.0)) >= score_margin
+        ),
+        key=lambda branch: (
+            float(branch.local_score.normalized_score or 0.0),
+            branch.local_score.total_score,
+            branch.branch_id,
+        ),
+    )
+    if not ordered_rejected:
+        return []
+
+    difficulty_targets = [
+        (PreferenceDifficulty.EASY, ordered_rejected[0]),
+        (PreferenceDifficulty.MEDIUM, ordered_rejected[len(ordered_rejected) // 2]),
+        (PreferenceDifficulty.HARD, ordered_rejected[-1]),
+    ]
+    pairs: list[PreferencePair] = []
+    seen_branch_ids: set[str] = set()
+    for difficulty_bin, rejected_branch in difficulty_targets:
+        if rejected_branch.branch_id in seen_branch_ids:
+            continue
+        seen_branch_ids.add(rejected_branch.branch_id)
+        rejected_normalized = float(rejected_branch.local_score.normalized_score or 0.0)
+        pair = PreferencePair(
+            pair_id=(
+                f"{trajectory_id}.step{step_index}.pref."
+                f"{difficulty_bin.value}.{rejected_branch.branch_id}"
+            ),
+            context=SharedPrefixContext.from_dict(context.to_dict()),
+            chosen=CandidateBranch.from_dict(chosen_branch.to_dict()),
+            rejected=CandidateBranch.from_dict(rejected_branch.to_dict()),
+            task_type=TaskType(task_row["task_type"]),
+            difficulty_bin=difficulty_bin,
+            decision_step=step_index,
+            raw_score_chosen=chosen_branch.local_score.total_score,
+            raw_score_rejected=rejected_branch.local_score.total_score,
+            normalized_score_chosen=chosen_normalized,
+            normalized_score_rejected=rejected_normalized,
+            score_margin=chosen_normalized - rejected_normalized,
+            source_task_id=task_row["task_id"],
+            trajectory_id=trajectory_id,
+            trajectory_seed=trajectory_seed,
+            evidence_mode=task_row.get("evidence_mode"),
+            provenance={
+                "candidate_count": len(branches),
+                "selected_branch_id": chosen_branch.branch_id,
+                "score_margin_threshold": score_margin,
+                "difficulty": task_row.get("difficulty"),
+            },
+        )
+        pairs.append(pair)
+    return pairs
+
+
+def _balance_preference_pairs(pairs: list[PreferencePair]) -> list[PreferencePair]:
+    if not pairs:
+        return []
+
+    buckets: dict[tuple[str, str], list[PreferencePair]] = {}
+    for pair in pairs:
+        key = (pair.task_type.value, pair.difficulty_bin.value)
+        buckets.setdefault(key, []).append(pair)
+
+    min_bucket_size = min(len(bucket) for bucket in buckets.values())
+    balanced: list[PreferencePair] = []
+    for key in sorted(buckets):
+        bucket = sorted(
+            buckets[key],
+            key=lambda pair: (
+                pair.source_task_id,
+                pair.trajectory_seed,
+                pair.decision_step,
+                pair.pair_id,
+            ),
+        )
+        balanced.extend(bucket[:min_bucket_size])
+
+    return sorted(
+        balanced,
+        key=lambda pair: (
+            pair.source_task_id,
+            pair.trajectory_seed,
+            pair.decision_step,
+            pair.difficulty_bin.value,
+            pair.pair_id,
+        ),
+    )
+
+
 def _render_final_summary(
     task_row: dict[str, Any],
     interpretation: Interpretation,
     state: Any,
+    findings: list[str],
 ) -> str:
     predicted_gene_ids = _flatten_predicted_gene_ids(state)
-    if state.relationship_status == RelationshipStatus.INSUFFICIENT_SUPPORT:
-        return "Final decision: no single shared mechanism is supported."
-    if state.mechanistic_labels:
-        label_name = state.mechanistic_labels[0].label_name
-        return (
-            f"Final decision: {state.relationship_status.value}. "
-            f"Predicted genes={predicted_gene_ids}. "
-            f"Top label={label_name}."
-        )
+    claim = interpretation.mechanistic_claim.strip()
+    if not claim:
+        if state.relationship_status == RelationshipStatus.INSUFFICIENT_SUPPORT:
+            claim = "No single shared mechanism is supported."
+        elif state.mechanistic_labels:
+            claim = f"The best supported mechanism is {state.mechanistic_labels[0].label_name}."
+        else:
+            claim = (
+                f"The current best hypothesis is {state.relationship_status.value} "
+                f"for genes {predicted_gene_ids}."
+            )
+
+    supporting_findings = "; ".join(finding.strip() for finding in findings if finding.strip())
+    if not supporting_findings:
+        supporting_findings = interpretation.main_evidence.strip() or "No intermediate findings were recorded."
+
+    stopping_condition = (
+        state.termination_reason.value
+        if state.termination_reason is not None
+        else state.continuation_state.value
+    )
     return (
-        f"Final decision: {state.relationship_status.value}. "
-        f"Predicted genes={predicted_gene_ids}. "
-        f"Query={task_row['query_text']}"
+        f"Claim: {claim} "
+        f"Supporting findings: {supporting_findings} "
+        f"Stopping condition: {stopping_condition}. "
+        f"Query: {task_row['query_text']}"
     )
 
 
@@ -2431,6 +2719,7 @@ class TrajectoryGenerationConfig:
     seed: int = 0
     candidate_source: str = "heuristic"
     allow_model_fallback: bool = False
+    preference_pair_margin: float = DEFAULT_PREFERENCE_PAIR_MARGIN
 
     def __post_init__(self) -> None:
         if self.max_steps <= 0:
@@ -2443,6 +2732,8 @@ class TrajectoryGenerationConfig:
             raise ValueError("task_concurrency must be positive.")
         if self.candidate_source not in {"heuristic", "model_vllm"}:
             raise ValueError("candidate_source must be one of: heuristic, model_vllm.")
+        if self.preference_pair_margin < 0:
+            raise ValueError("preference_pair_margin must be non-negative.")
 
 
 class ProgressTracker:
@@ -2539,10 +2830,13 @@ def generate_task_trajectory(
 
     symbol_lookup = _gene_symbol_lookup(task_row)
     interpretation, state = initialize_state_from_corum_task(task_row, max_budget=config.max_steps)
+    initial_state = clone_state(state)
     prior_actions: list[ToolAction] = []
 
     branch_pools: list[dict[str, Any]] = []
     trajectory_turns: list[TrajectoryTurn] = []
+    finding_records: list[dict[str, Any]] = []
+    preference_pairs_raw: list[PreferencePair] = []
     selected_branch_ids: list[str] = []
 
     for step_index in range(config.max_steps):
@@ -2771,6 +3065,18 @@ def generate_task_trajectory(
 
         _normalize_branch_pool(branches)
         selected_branch = _select_best_branch(branches)
+        preference_pairs_raw.extend(
+            _mine_preference_pairs(
+                task_row=task_row,
+                trajectory_id=trajectory_id,
+                trajectory_seed=trajectory_seed,
+                step_index=step_index,
+                context=context,
+                branches=branches,
+                chosen_branch=selected_branch,
+                score_margin=config.preference_pair_margin,
+            )
+        )
         selected_branch_ids.append(selected_branch.branch_id)
 
         branch_pools.append(
@@ -2787,6 +3093,7 @@ def generate_task_trajectory(
             }
         )
 
+        finding_text = _render_finding_text(selected_branch)
         turn = TrajectoryTurn(
             trajectory_id=trajectory_id,
             step_index=step_index,
@@ -2794,24 +3101,50 @@ def generate_task_trajectory(
             prior_state=clone_state(state),
             branch=selected_branch,
             selected=True,
-            finding_text=_render_finding_text(selected_branch),
+            finding_text=finding_text,
         )
         trajectory_turns.append(turn)
+        finding_records.append(
+            _build_finding_record(
+                task_row=task_row,
+                trajectory_id=trajectory_id,
+                trajectory_seed=trajectory_seed,
+                step_index=step_index,
+                context=context,
+                branch=selected_branch,
+                finding_text=finding_text,
+            )
+        )
 
         interpretation = clone_interpretation(selected_branch.verifier_step.updated_interpretation)
         state = clone_state(selected_branch.verifier_step.updated_state)
         if selected_branch.actor_step.tool_action is not None:
             prior_actions.append(selected_branch.actor_step.tool_action)
 
+    terminal_score = score_terminal_trajectory(
+        task_row,
+        initial_state,
+        state,
+        step_count=len(trajectory_turns),
+        max_steps=config.max_steps,
+    )
     return {
         "trajectory_id": trajectory_id,
         "task_row": task_row,
         "turns": trajectory_turns,
         "branch_pools": branch_pools,
+        "finding_records": finding_records,
+        "preference_pairs_raw": preference_pairs_raw,
         "final_interpretation": interpretation,
         "final_state": state,
         "selected_branch_ids": selected_branch_ids,
-        "rendered_summary": _render_final_summary(task_row, interpretation, state),
+        "terminal_score": terminal_score,
+        "rendered_summary": _render_final_summary(
+            task_row,
+            interpretation,
+            state,
+            [record["finding_text"] for record in finding_records],
+        ),
     }
 
 
@@ -2833,12 +3166,16 @@ def generate_trajectories(
 
     branch_pool_path = out_dir / "branch_pools.jsonl"
     trajectory_turns_path = out_dir / "trajectory_turns.jsonl"
+    finding_records_path = out_dir / "finding_records.jsonl"
+    preference_pairs_raw_path = out_dir / "preference_pairs_raw.jsonl"
+    preference_pairs_path = out_dir / "preference_pairs.jsonl"
     final_summaries_path = out_dir / "final_summaries.jsonl"
     manifest_path = out_dir / "manifest.json"
 
     total_steps = 0
     total_branch_pools = 0
     total_branches = 0
+    raw_preference_pairs: list[PreferencePair] = []
     if config.candidate_source == "model_vllm" and candidate_generator is None:
         if model_generator_config is None:
             raise ValueError("model_generator_config is required when candidate_source=model_vllm.")
@@ -2874,6 +3211,8 @@ def generate_trajectories(
 
         with branch_pool_path.open("w", encoding="utf-8") as branch_pool_handle, \
             trajectory_turns_path.open("w", encoding="utf-8") as turns_handle, \
+            finding_records_path.open("w", encoding="utf-8") as findings_handle, \
+            preference_pairs_raw_path.open("w", encoding="utf-8") as raw_pairs_handle, \
             final_summaries_path.open("w", encoding="utf-8") as summaries_handle:
 
             def _generate_single_task(task_entry: tuple[int, dict[str, Any]]) -> tuple[int, int, dict[str, Any]]:
@@ -2917,6 +3256,15 @@ def generate_trajectories(
                         _write_jsonl_line(turns_handle, row)
                         total_steps += 1
 
+                    for finding_record in generated["finding_records"]:
+                        _write_jsonl_line(findings_handle, finding_record)
+
+                    for preference_pair in generated["preference_pairs_raw"]:
+                        raw_preference_pairs.append(preference_pair)
+                        _write_jsonl_line(raw_pairs_handle, preference_pair.to_dict())
+
+                    terminal_score = generated["terminal_score"]
+
                     _write_jsonl_line(
                         summaries_handle,
                         {
@@ -2931,6 +3279,15 @@ def generate_trajectories(
                             "rendered_summary": generated["rendered_summary"],
                             "final_interpretation": generated["final_interpretation"].to_dict(),
                             "final_state": generated["final_state"].to_dict(),
+                            "finding_count": len(generated["finding_records"]),
+                            "terminal_schema_score": terminal_score["schema_score"],
+                            "terminal_absolute_complex_score": terminal_score["absolute_complex_score"],
+                            "terminal_complex_delta_score": terminal_score["complex_delta"],
+                            "terminal_absolute_mechanistic_score": terminal_score["absolute_mechanistic_score"],
+                            "terminal_mechanistic_delta_score": terminal_score["mechanistic_delta"],
+                            "terminal_efficiency_penalty": terminal_score["efficiency_penalty"],
+                            "terminal_reward": terminal_score["terminal_reward"],
+                            "terminal_score_metadata": terminal_score["metadata"],
                         },
                     )
 
@@ -2950,6 +3307,11 @@ def generate_trajectories(
                 if executor_context is not None:
                     executor_context.shutdown(wait=True)
 
+        balanced_preference_pairs = _balance_preference_pairs(raw_preference_pairs)
+        with preference_pairs_path.open("w", encoding="utf-8") as preference_pairs_handle:
+            for preference_pair in balanced_preference_pairs:
+                _write_jsonl_line(preference_pairs_handle, preference_pair.to_dict())
+
         progress_tracker.start_stage(
             "write_manifest",
             message="Writing trajectory manifest.",
@@ -2958,6 +3320,8 @@ def generate_trajectories(
                 "total_steps": total_steps,
                 "total_branch_pools": total_branch_pools,
                 "total_branches": total_branches,
+                "total_preference_pairs_raw": len(raw_preference_pairs),
+                "total_preference_pairs": len(balanced_preference_pairs),
             },
         )
 
@@ -2976,6 +3340,7 @@ def generate_trajectories(
                 "task_concurrency": config.task_concurrency,
                 "seed": config.seed,
                 "allow_model_fallback": config.allow_model_fallback,
+                "preference_pair_margin": config.preference_pair_margin,
             },
             "generator": {
                 "candidate_source": config.candidate_source,
@@ -3004,9 +3369,17 @@ def generate_trajectories(
             },
             "task_selection": task_selection or {},
             "runtime": environment.describe(),
+            "artifacts": {
+                "finding_record_count": total_steps,
+                "preference_pair_raw_count": len(raw_preference_pairs),
+                "preference_pair_count": len(balanced_preference_pairs),
+            },
             "outputs": {
                 "branch_pools": str(branch_pool_path),
                 "trajectory_turns": str(trajectory_turns_path),
+                "finding_records": str(finding_records_path),
+                "preference_pairs_raw": str(preference_pairs_raw_path),
+                "preference_pairs": str(preference_pairs_path),
                 "final_summaries": str(final_summaries_path),
             },
         }
@@ -3021,6 +3394,8 @@ def generate_trajectories(
                 "total_steps": total_steps,
                 "total_branch_pools": total_branch_pools,
                 "total_branches": total_branches,
+                "total_preference_pairs_raw": len(raw_preference_pairs),
+                "total_preference_pairs": len(balanced_preference_pairs),
             },
         )
         return manifest
@@ -3124,6 +3499,12 @@ def parse_args() -> argparse.Namespace:
         help="Allow model_vllm runs to fall back to heuristic templates when no usable model candidate is produced.",
     )
     parser.add_argument(
+        "--preference-pair-margin",
+        type=float,
+        default=DEFAULT_PREFERENCE_PAIR_MARGIN,
+        help="Minimum normalized-score margin required to keep a dispreferred branch in DPO pair mining.",
+    )
+    parser.add_argument(
         "--generator-api-base",
         type=str,
         default=DEFAULT_GENERATOR_API_BASE,
@@ -3131,9 +3512,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--generator-api-mode",
-        choices=("auto", "chat_completions", "responses"),
+        choices=("auto", "chat_completions", "responses", "completions"),
         default="auto",
-        help="Generator API style. 'auto' prefers chat completions for local gpt-oss and other currently supported models.",
+        help="Generator API style. 'auto' uses chat completions for currently supported models, including gpt-oss.",
     )
     parser.add_argument(
         "--generator-model",
@@ -3216,6 +3597,7 @@ def main() -> None:
         seed=args.seed,
         candidate_source=args.candidate_source,
         allow_model_fallback=args.allow_model_fallback,
+        preference_pair_margin=args.preference_pair_margin,
     )
     model_generator_config = None
     if args.candidate_source == "model_vllm":
