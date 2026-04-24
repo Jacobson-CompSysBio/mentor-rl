@@ -562,7 +562,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertEqual(second_request["text"]["format"]["type"], "json_schema")
         self.assertEqual(second_request["text"]["format"]["name"], "emit_verifier_update")
 
-    def test_openai_candidate_generator_auto_mode_prefers_chat_completions_for_gpt_oss(self) -> None:
+    def test_openai_candidate_generator_auto_mode_prefers_completions_for_gpt_oss(self) -> None:
         generator = OpenAICompatibleCandidateGenerator(
             ModelGeneratorConfig(
                 api_base="http://unused",
@@ -570,7 +570,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                 model_name="gpt-oss-120b-bf16",
             )
         )
-        self.assertEqual(generator.api_mode, "chat_completions")
+        self.assertEqual(generator.api_mode, "completions")
 
         non_gpt_oss_generator = OpenAICompatibleCandidateGenerator(
             ModelGeneratorConfig(
@@ -950,6 +950,84 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertNotIn('"task_type"', first_request["messages"][1]["content"])
         self.assertNotIn('"difficulty"', first_request["messages"][1]["content"])
         self.assertNotIn('"evidence_mode"', first_request["messages"][1]["content"])
+
+    def test_gpt_oss_chat_falls_back_to_completions_when_response_is_blank(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+        generator = OpenAICompatibleCandidateGenerator(
+            ModelGeneratorConfig(
+                api_base="http://unused",
+                api_mode="chat_completions",
+                model_name="gpt-oss-20b-bf16",
+            )
+        )
+        generator.session = _RecordingSession(
+            [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "length",
+                            "message": {
+                                "content": None,
+                                "reasoning_content": None,
+                                "tool_calls": [],
+                            },
+                        }
+                    ]
+                },
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "stop",
+                            "text": json.dumps(
+                                {
+                                    "reasoning_text": "Inspect the current group with a multiplex walk.",
+                                    "tool_action": {
+                                        "tool_name": "rwr_multiplex",
+                                        "arguments": {
+                                            "seeds": ["ENSG1", "ENSG2"],
+                                            "top_k": 5,
+                                        },
+                                    },
+                                }
+                            ),
+                            "token_ids": [7, 8, 9],
+                        }
+                    ]
+                },
+            ]
+        )
+
+        fake_transformers = types.SimpleNamespace(
+            AutoTokenizer=types.SimpleNamespace(from_pretrained=lambda *args, **kwargs: _FakeTokenizer())
+        )
+        with patch.dict(sys.modules, {"transformers": fake_transformers}):
+            actor_candidates = generator.generate_actor_candidates(
+                context,
+                task_row=task_row,
+                step_index=0,
+                n_act=1,
+                seed=5,
+            )
+
+        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr_multiplex")
+        self.assertEqual(actor_candidates[0]["generator_errors"], [])
+        self.assertEqual(len(generator.session.requests), 2)
+        self.assertTrue(generator.session.requests[0]["url"].endswith("/chat/completions"))
+        self.assertTrue(generator.session.requests[1]["url"].endswith("/completions"))
+        fallback_request = generator.session.requests[1]["json"]
+        self.assertEqual(fallback_request["guided_json"]["required"], ["reasoning_text", "tool_action"])
+        self.assertIn('"enable_thinking": false', fallback_request["prompt"])
+        self.assertIn("chat_completions_blank_visible_output", actor_candidates[0]["raw_text"])
 
     def test_openai_candidate_generator_disables_hidden_thinking_for_gpt_oss_verifier_chat(self) -> None:
         task_row = _task_rows()[0]

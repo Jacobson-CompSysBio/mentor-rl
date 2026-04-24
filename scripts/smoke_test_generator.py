@@ -22,6 +22,7 @@ from scripts.generate_trajectories import (
     DEFAULT_GENERATOR_API_BASE,
     DEFAULT_GENERATOR_API_KEY_ENV,
     DEFAULT_STORE_DIR,
+    STRUCTURED_OUTPUT_MAX_TOKENS,
     DEFAULT_TASKS_PATH,
     ModelGeneratorConfig,
     OpenAICompatibleCandidateGenerator,
@@ -145,7 +146,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--generator-api-key-env", type=str, default=DEFAULT_GENERATOR_API_KEY_ENV)
     parser.add_argument("--generator-temperature", type=float, default=0.2)
     parser.add_argument("--generator-top-p", type=float, default=0.95)
-    parser.add_argument("--generator-max-completion-tokens", type=int, default=768)
+    parser.add_argument(
+        "--generator-max-completion-tokens",
+        type=int,
+        default=STRUCTURED_OUTPUT_MAX_TOKENS,
+    )
     parser.add_argument(
         "--generator-actor-rationale-max-completion-tokens",
         type=int,

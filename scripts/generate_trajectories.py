@@ -84,7 +84,7 @@ DEFAULT_STORE_DIR = REPO_ROOT / "data" / "humannet_multiplex_store"
 DEFAULT_PROGRESS_FILENAME = "progress.json"
 DEFAULT_GENERATOR_API_BASE = "http://127.0.0.1:8000/v1"
 DEFAULT_GENERATOR_API_KEY_ENV = "OPENAI_API_KEY"
-STRUCTURED_OUTPUT_MAX_TOKENS = 768
+STRUCTURED_OUTPUT_MAX_TOKENS = 2048
 DEFAULT_ACTOR_RATIONALE_MAX_TOKENS = 2048
 DEFAULT_PREFERENCE_PAIR_MARGIN = 0.10
 GPT_OSS_FINAL_CHANNEL_PREFIX = "<|start|>assistant<|channel|>final<|message|>"
@@ -882,7 +882,7 @@ class OpenAICompatibleCandidateGenerator:
             return self.config.api_mode
         model_name = self.model_name.lower()
         if "gpt-oss" in model_name:
-            return "chat_completions"
+            return "completions"
         return "chat_completions"
 
     def _model_is_gpt_oss(self) -> bool:
@@ -1308,7 +1308,7 @@ class OpenAICompatibleCandidateGenerator:
                 disable_hidden_thinking=disable_hidden_thinking,
             )
 
-        return self._chat(
+        choices = self._chat(
             messages,
             n=n,
             seed=seed,
@@ -1319,6 +1319,35 @@ class OpenAICompatibleCandidateGenerator:
             max_completion_tokens=structured_max_tokens,
             disable_hidden_thinking=disable_hidden_thinking,
         )
+        if self._model_is_gpt_oss():
+            fallback_guided_json = guided_json
+            if fallback_guided_json is None and tools:
+                first_tool = tools[0] if len(tools) == 1 else {}
+                fallback_guided_json = _safe_dict(
+                    _safe_dict(first_tool.get("function")).get("parameters")
+                )
+            if fallback_guided_json:
+                for index, choice in enumerate(choices):
+                    if _choice_has_visible_output(choice):
+                        continue
+                    try:
+                        fallback_choices = self._completions(
+                            messages=messages,
+                            n=1,
+                            seed=seed + index,
+                            guided_json=fallback_guided_json,
+                            max_completion_tokens=structured_max_tokens,
+                            disable_hidden_thinking=disable_hidden_thinking,
+                        )
+                    except Exception as error:
+                        choice["fallback_error"] = f"completions_fallback_failed: {error}"
+                        continue
+                    fallback_choice = fallback_choices[0]
+                    if _choice_has_visible_output(fallback_choice):
+                        fallback_choice["fallback_backend"] = "completions"
+                        fallback_choice["fallback_trigger"] = "chat_completions_blank_visible_output"
+                        choices[index] = fallback_choice
+        return choices
 
     def _generate_actor_reasoning(
         self,
@@ -1452,7 +1481,10 @@ class OpenAICompatibleCandidateGenerator:
                     choice,
                     expected_tool_name=ACTOR_OUTPUT_TOOL_NAME,
                     prefix="actor",
-                    require_tool_call=self._prefers_named_output_tools(),
+                    require_tool_call=(
+                        self._prefers_named_output_tools()
+                        and choice.get("fallback_backend") != "completions"
+                    ),
                 )
                 normalized_payload, payload_errors = _normalize_actor_payload(payload)
                 candidate_reasoning_text = normalized_payload["reasoning_text"]
@@ -1550,7 +1582,10 @@ class OpenAICompatibleCandidateGenerator:
                     choice,
                     expected_tool_name=VERIFIER_OUTPUT_TOOL_NAME,
                     prefix="verifier",
-                    require_tool_call=self._prefers_named_output_tools(),
+                    require_tool_call=(
+                        self._prefers_named_output_tools()
+                        and choice.get("fallback_backend") != "completions"
+                    ),
                 )
                 candidates.append(
                     {
@@ -3514,7 +3549,7 @@ def parse_args() -> argparse.Namespace:
         "--generator-api-mode",
         choices=("auto", "chat_completions", "responses", "completions"),
         default="auto",
-        help="Generator API style. 'auto' uses chat completions for currently supported models, including gpt-oss.",
+        help="Generator API style. 'auto' uses completions for gpt-oss and chat completions otherwise.",
     )
     parser.add_argument(
         "--generator-model",
