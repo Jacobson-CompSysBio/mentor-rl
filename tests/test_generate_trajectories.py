@@ -408,7 +408,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "task_concurrency must be positive"):
             TrajectoryGenerationConfig(task_concurrency=0)
 
-    def test_openai_candidate_generator_requests_structured_json_outputs_on_responses(self) -> None:
+    def test_openai_candidate_generator_uses_native_runtime_tools_on_responses_actor(self) -> None:
         task_row = _task_rows()[0]
         interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
         context = SharedPrefixContext(
@@ -445,20 +445,20 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                             "content": [
                                 {
                                     "type": "output_text",
-                                    "text": json.dumps(
-                                        {
-                                            "reasoning_text": "Inspect the current group with a multiplex walk.",
-                                            "tool_action": {
-                                                "tool_name": "rwr_multiplex",
-                                                "arguments": {
-                                                    "seeds": ["ENSG1", "ENSG2"],
-                                                    "top_k": 5,
-                                                },
-                                            },
-                                        }
-                                    ),
+                                    "text": "Inspect the current group with a multiplex walk.",
                                 }
                             ],
+                        },
+                        {
+                            "type": "function_call",
+                            "name": "rwr_multiplex",
+                            "arguments": json.dumps(
+                                {
+                                    "seeds": ["ENSG1", "ENSG2"],
+                                    "top_k": 5,
+                                }
+                            ),
+                            "call_id": "call_rwr",
                         },
                     ],
                 },
@@ -523,11 +523,11 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertEqual(actor_candidates[0]["tool_action"]["arguments"]["top_k"], 5)
         first_request = generator.session.requests[0]["json"]
         self.assertTrue(generator.session.requests[0]["url"].endswith("/responses"))
-        self.assertNotIn("tools", first_request)
+        self.assertIn("tools", first_request)
+        self.assertEqual(first_request["tools"][0]["name"], "query_mygene")
         self.assertNotIn("tool_choice", first_request)
         self.assertNotIn("reasoning", first_request)
-        self.assertEqual(first_request["text"]["format"]["type"], "json_schema")
-        self.assertEqual(first_request["text"]["format"]["name"], "emit_actor_step")
+        self.assertNotIn("text", first_request)
         self.assertEqual(first_request["input"][0]["role"], "system")
         self.assertEqual(first_request["input"][1]["role"], "user")
 
@@ -605,17 +605,10 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                         {
                             "index": 0,
                             "finish_reason": "stop",
-                            "text": json.dumps(
-                                {
-                                    "reasoning_text": "Use a restart walk to expand the current group.",
-                                    "tool_action": {
-                                        "tool_name": "rwr_multiplex",
-                                        "arguments": {
-                                            "seeds": ["ENSG1", "ENSG2"],
-                                            "top_k": 5,
-                                        },
-                                    },
-                                }
+                            "text": (
+                                "Use a restart walk to expand the current group.\n"
+                                'TOOL_ACTION: {"tool_name": "rwr_multiplex", '
+                                '"arguments": {"seeds": ["ENSG1", "ENSG2"], "top_k": 5}}'
                             ),
                             "token_ids": [1, 2, 3],
                         }
@@ -638,9 +631,10 @@ class GenerateTrajectoriesTests(unittest.TestCase):
 
         self.assertEqual(generator.api_mode, "completions")
         self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr_multiplex")
+        self.assertIn("restart walk", actor_candidates[0]["reasoning_text"])
         first_request = generator.session.requests[0]["json"]
         self.assertTrue(generator.session.requests[0]["url"].endswith("/completions"))
-        self.assertEqual(first_request["guided_json"]["required"], ["reasoning_text", "tool_action"])
+        self.assertNotIn("guided_json", first_request)
         self.assertFalse(first_request["add_special_tokens"])
         self.assertTrue(first_request["return_token_ids"])
         self.assertIn('"enable_thinking": false', first_request["prompt"])
@@ -830,18 +824,22 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                             "index": 0,
                             "finish_reason": "stop",
                             "message": {
-                                "content": json.dumps(
+                                "content": "Inspect the current group with a multiplex walk.",
+                                "tool_calls": [
                                     {
-                                        "reasoning_text": "Inspect the current group with a multiplex walk.",
-                                        "tool_action": {
-                                            "tool_name": "rwr_multiplex",
-                                            "arguments": {
-                                                "seeds": ["ENSG1", "ENSG2"],
-                                                "top_k": 5,
-                                            },
+                                        "id": "call_rwr",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "rwr_multiplex",
+                                            "arguments": json.dumps(
+                                                {
+                                                    "seeds": ["ENSG1", "ENSG2"],
+                                                    "top_k": 5,
+                                                }
+                                            ),
                                         },
                                     }
-                                ),
+                                ],
                             }
                         }
                     ]
@@ -861,15 +859,60 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr_multiplex")
         first_request = generator.session.requests[0]["json"]
         self.assertTrue(generator.session.requests[0]["url"].endswith("/chat/completions"))
-        self.assertNotIn("tools", first_request)
-        self.assertNotIn("tool_choice", first_request)
+        self.assertIn("tools", first_request)
+        self.assertEqual(first_request["tool_choice"], "auto")
         self.assertNotIn("reasoning_effort", first_request)
-        self.assertEqual(first_request["guided_json"]["required"], ["reasoning_text", "tool_action"])
+        self.assertNotIn("guided_json", first_request)
         self.assertNotIn('"task_type"', first_request["messages"][1]["content"])
         self.assertNotIn('"difficulty"', first_request["messages"][1]["content"])
         self.assertNotIn('"evidence_mode"', first_request["messages"][1]["content"])
 
-    def test_openai_candidate_generator_uses_named_output_tool_for_gpt_oss_chat(self) -> None:
+    def test_openai_candidate_generator_accepts_freeform_actor_text_without_tool(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+        generator = OpenAICompatibleCandidateGenerator(
+            ModelGeneratorConfig(
+                api_base="http://unused",
+                api_mode="chat_completions",
+                model_name="llama-3.1-70b-instruct",
+            )
+        )
+        generator.session = _RecordingSession(
+            [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "stop",
+                            "message": {
+                                "content": "The visible context is enough to ask the verifier to summarize.",
+                            },
+                        }
+                    ]
+                }
+            ]
+        )
+
+        actor_candidates = generator.generate_actor_candidates(
+            context,
+            task_row=task_row,
+            step_index=0,
+            n_act=1,
+            seed=5,
+        )
+
+        self.assertIn("visible context", actor_candidates[0]["reasoning_text"])
+        self.assertIsNone(actor_candidates[0]["tool_action"])
+        self.assertEqual(actor_candidates[0]["generator_errors"], [])
+
+    def test_openai_candidate_generator_uses_runtime_tool_for_gpt_oss_chat(self) -> None:
         task_row = _task_rows()[0]
         interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
         context = SharedPrefixContext(
@@ -894,22 +937,17 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                             "index": 0,
                             "finish_reason": "tool_calls",
                             "message": {
+                                "content": "Inspect the current group with a multiplex walk.",
                                 "tool_calls": [
                                     {
-                                        "id": "call_emit_actor_step",
+                                        "id": "call_rwr",
                                         "type": "function",
                                         "function": {
-                                            "name": "emit_actor_step",
+                                            "name": "rwr_multiplex",
                                             "arguments": json.dumps(
                                                 {
-                                                    "reasoning_text": "Inspect the current group with a multiplex walk.",
-                                                    "tool_action": {
-                                                        "tool_name": "rwr_multiplex",
-                                                        "arguments": {
-                                                            "seeds": ["ENSG1", "ENSG2"],
-                                                            "top_k": 5,
-                                                        },
-                                                    },
+                                                    "seeds": ["ENSG1", "ENSG2"],
+                                                    "top_k": 5,
                                                 }
                                             ),
                                         },
@@ -938,12 +976,8 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertTrue(generator.session.requests[0]["url"].endswith("/chat/completions"))
         self.assertEqual(first_request["chat_template_kwargs"], {"enable_thinking": False})
         self.assertIn("tools", first_request)
-        self.assertEqual(first_request["tools"][0]["function"]["name"], "emit_actor_step")
-        self.assertEqual(first_request["tool_choice"]["function"]["name"], "emit_actor_step")
-        self.assertEqual(
-            first_request["tools"][0]["function"]["parameters"]["required"],
-            ["reasoning_text", "tool_action"],
-        )
+        self.assertEqual(first_request["tools"][3]["function"]["name"], "rwr_multiplex")
+        self.assertEqual(first_request["tool_choice"], "auto")
         self.assertNotIn("guided_json", first_request)
         self.assertNotIn("reasoning_effort", first_request)
         self.assertNotIn("draft_reasoning_text", first_request["messages"][1]["content"])
@@ -988,17 +1022,10 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                         {
                             "index": 0,
                             "finish_reason": "stop",
-                            "text": json.dumps(
-                                {
-                                    "reasoning_text": "Inspect the current group with a multiplex walk.",
-                                    "tool_action": {
-                                        "tool_name": "rwr_multiplex",
-                                        "arguments": {
-                                            "seeds": ["ENSG1", "ENSG2"],
-                                            "top_k": 5,
-                                        },
-                                    },
-                                }
+                            "text": (
+                                "Inspect the current group with a multiplex walk.\n"
+                                'TOOL_ACTION: {"tool_name": "rwr_multiplex", '
+                                '"arguments": {"seeds": ["ENSG1", "ENSG2"], "top_k": 5}}'
                             ),
                             "token_ids": [7, 8, 9],
                         }
@@ -1025,7 +1052,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertTrue(generator.session.requests[0]["url"].endswith("/chat/completions"))
         self.assertTrue(generator.session.requests[1]["url"].endswith("/completions"))
         fallback_request = generator.session.requests[1]["json"]
-        self.assertEqual(fallback_request["guided_json"]["required"], ["reasoning_text", "tool_action"])
+        self.assertNotIn("guided_json", fallback_request)
         self.assertIn('"enable_thinking": false', fallback_request["prompt"])
         self.assertIn("chat_completions_blank_visible_output", actor_candidates[0]["raw_text"])
 
@@ -1154,18 +1181,22 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                             "index": 0,
                             "finish_reason": "stop",
                             "message": {
-                                "content": json.dumps(
+                                "content": "Inspect the current group with a multiplex walk.",
+                                "tool_calls": [
                                     {
-                                        "reasoning_text": "Inspect the current group with a multiplex walk.",
-                                        "tool_action": {
-                                            "tool_name": "rwr_multiplex",
-                                            "arguments": {
-                                                "seeds": ["ENSG1", "ENSG2"],
-                                                "top_k": 5,
-                                            },
+                                        "id": "call_rwr",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "rwr_multiplex",
+                                            "arguments": json.dumps(
+                                                {
+                                                    "seeds": ["ENSG1", "ENSG2"],
+                                                    "top_k": 5,
+                                                }
+                                            ),
                                         },
                                     }
-                                ),
+                                ],
                             },
                         }
                     ]
@@ -1184,6 +1215,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr_multiplex")
         self.assertTrue(generator.session.requests[0]["url"].endswith("/responses"))
         self.assertTrue(generator.session.requests[1]["url"].endswith("/chat/completions"))
+        self.assertIn("tools", generator.session.requests[1]["json"])
 
     def test_model_backed_generation_fails_when_no_usable_model_candidates_exist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

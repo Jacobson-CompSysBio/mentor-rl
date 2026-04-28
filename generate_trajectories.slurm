@@ -6,7 +6,8 @@
 #SBATCH -p batch
 #SBATCH -q debug
 #SBATCH -C nvme
-#SBATCH --ntasks-per-node=8
+#SBATCH --ntasks=1
+#SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=8
 #SBATCH -o logs/%x-%j.out
 #SBATCH -e logs/%x-%j.err
@@ -21,15 +22,14 @@ log() {
 module load craype-accel-amd-gfx90a
 module load rocm/6.3.1
 
-source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
-source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
-
 REPO_ROOT="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl"
 MODELS_ROOT="${MODELS_ROOT:-/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models}"
-MODEL_PATH_INPUT="${MODEL_PATH:-gpt-oss-20b-bf16}"
+MODEL_PATH_INPUT="${MODEL_PATH:-gpt-oss-120b}"
 TASKS_PATH="${TASKS_PATH:-${REPO_ROOT}/data/corum_corpus/tasks.train.jsonl}"
 STORE_DIR="${STORE_DIR:-${REPO_ROOT}/data/humannet_multiplex_store}"
 ENCODINGS_SHARED_DIR="${ENCODINGS_SHARED_DIR:-${REPO_ROOT}/data/tiktoken_encodings}"
+SCRATCH="${SCRATCH:-/lustre/orion/syb114/scratch/${USER}}"
+SIF="${SIF:-${SCRATCH}/containers/vllm0141rocm72.sif}"
 
 abspath_dir() {
   local path="$1"
@@ -73,13 +73,20 @@ infer_default_tensor_parallel_size() {
     *"llama-3.2-1b"*|*"llama_3.2_1b"*)
       echo "1"
       ;;
-    *"gpt-oss-20b"*|*"gpt_oss_20b"*)
-      echo "2"
-      ;;
     *)
       echo "8"
       ;;
   esac
+}
+
+infer_default_max_model_len() {
+  local model_name
+  model_name="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  if [[ "${model_name}" == *"gpt-oss"* ]]; then
+    echo "8192"
+  else
+    echo "16384"
+  fi
 }
 
 if ! MODEL_PATH="$(resolve_model_path "${MODEL_PATH_INPUT}")"; then
@@ -96,6 +103,12 @@ MODEL_BASENAME="$(basename "${MODEL_PATH}")"
 MODEL_SLUG="$(slugify_model_name "${MODEL_BASENAME}")"
 MODEL_USES_TIKTOKEN="$(infer_model_uses_tiktoken "${MODEL_BASENAME}")"
 OUT_DIR="${OUT_DIR:-${REPO_ROOT}/data/corum_trajectories/${MODEL_SLUG}_job_${SLURM_JOB_ID}}"
+
+if [[ ! -f "${SIF}" ]]; then
+  log "Missing vLLM Apptainer image: ${SIF}"
+  log "Set SIF=/path/to/vllm0141rocm72.sif or copy the working smoke-test image into ${SCRATCH}/containers."
+  exit 1
+fi
 
 MAX_TASKS="${MAX_TASKS:-8}"
 TASK_SHARD_INDEX="${TASK_SHARD_INDEX:-0}"
@@ -127,8 +140,8 @@ RAY_DASHBOARD_PORT="${RAY_DASHBOARD_PORT:-8265}"
 VLLM_HTTP_PORT="${VLLM_HTTP_PORT:-51001}"
 TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-$(infer_default_tensor_parallel_size "${MODEL_BASENAME}")}"
 PIPELINE_PARALLEL_SIZE="${PIPELINE_PARALLEL_SIZE:-1}"
-GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.92}"
-MAX_MODEL_LEN="${MAX_MODEL_LEN:-16384}"
+GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.90}"
+MAX_MODEL_LEN="${MAX_MODEL_LEN:-$(infer_default_max_model_len "${MODEL_BASENAME}")}"
 MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-${MAX_MODEL_LEN}}"
 MAX_NUM_SEQS="${MAX_NUM_SEQS:-64}"
 ENABLE_CHUNKED_PREFILL="${ENABLE_CHUNKED_PREFILL:-0}"
@@ -141,10 +154,11 @@ LOCAL_NVME_ROOT="${LOCAL_NVME_ROOT:-/mnt/bb/${USER}/${SLURM_JOB_ID}}"
 LOCAL_ENCODINGS_DIR="${LOCAL_NVME_ROOT}/tiktoken_encodings"
 VLLM_LOAD_FORMAT="${VLLM_LOAD_FORMAT:-safetensors}"
 VLLM_SAFETENSORS_LOAD_STRATEGY="${VLLM_SAFETENSORS_LOAD_STRATEGY:-eager}"
-VLLM_USE_V1="${VLLM_USE_V1:-0}"
+VLLM_USE_V1="${VLLM_USE_V1:-1}"
+VLLM_WORKER_MULTIPROC_METHOD="${VLLM_WORKER_MULTIPROC_METHOD:-spawn}"
 VLLM_ROCM_USE_AITER="${VLLM_ROCM_USE_AITER:-0}"
 VLLM_USE_TRITON_FLASH_ATTN="${VLLM_USE_TRITON_FLASH_ATTN:-0}"
-VLLM_ENFORCE_EAGER="${VLLM_ENFORCE_EAGER:-1}"
+VLLM_ENFORCE_EAGER="${VLLM_ENFORCE_EAGER:-0}"
 VLLM_HEALTH_MAX_WAIT_SECONDS="${VLLM_HEALTH_MAX_WAIT_SECONDS:-5400}"
 VLLM_HEALTH_POLL_SECONDS="${VLLM_HEALTH_POLL_SECONDS:-10}"
 DISTRIBUTED_EXECUTOR_BACKEND="${DISTRIBUTED_EXECUTOR_BACKEND:-auto}"
@@ -166,6 +180,22 @@ if [[ -z "${HEAD_IP}" ]]; then
   log "Failed to resolve head node HSN IP for ${HEAD_NODE}"
   exit 1
 fi
+
+export all_proxy=socks://proxy.ccs.ornl.gov:3128/
+export ftp_proxy=ftp://proxy.ccs.ornl.gov:3128/
+export http_proxy=http://proxy.ccs.ornl.gov:3128/
+export https_proxy=http://proxy.ccs.ornl.gov:3128/
+export no_proxy='localhost,127.0.0.0/8,*.ccs.ornl.gov'
+export HF_HOME="${HF_HOME:-${SCRATCH}/hf_cache}"
+export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
+export HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-1}"
+export MIOPEN_USER_DB_PATH="/tmp/miopen-cache-${SLURM_JOB_ID}"
+export MIOPEN_CUSTOM_CACHE_DIR="${MIOPEN_USER_DB_PATH}"
+rm -rf "${MIOPEN_USER_DB_PATH}"
+mkdir -p "${MIOPEN_USER_DB_PATH}"
+export APPTAINERENV_TRITON_CACHE_DIR="/tmp/triton-${SLURM_JOB_ID}/cache/"
+export APPTAINER_BINDPATH="${APPTAINER_BINDPATH:-${SCRATCH},/lustre/orion/syb111,/lustre/orion/syb114,/mnt/bb}"
+export SAFETENSORS_FAST_GPU="${SAFETENSORS_FAST_GPU:-1}"
 
 ensure_encoding_file() {
   local target_path="$1"
@@ -243,6 +273,7 @@ log "MODEL_PATH=${MODEL_PATH}"
 log "MODEL_BASENAME=${MODEL_BASENAME}"
 log "MODEL_SLUG=${MODEL_SLUG}"
 log "MODEL_USES_TIKTOKEN=${MODEL_USES_TIKTOKEN}"
+log "SIF=${SIF}"
 log "SERVE_MODEL_PATH=${SERVE_MODEL_PATH}"
 log "SERVE_ENCODINGS_DIR=${SERVE_ENCODINGS_DIR}"
 log "TASKS_PATH=${TASKS_PATH}"
@@ -272,6 +303,7 @@ log "ENABLE_PREFIX_CACHING=${ENABLE_PREFIX_CACHING}"
 log "KV_CACHE_DTYPE=${KV_CACHE_DTYPE}"
 log "VLLM_ENFORCE_EAGER=${VLLM_ENFORCE_EAGER}"
 log "VLLM_USE_V1=${VLLM_USE_V1}"
+log "VLLM_WORKER_MULTIPROC_METHOD=${VLLM_WORKER_MULTIPROC_METHOD}"
 log "VLLM_ROCM_USE_AITER=${VLLM_ROCM_USE_AITER}"
 log "VLLM_USE_TRITON_FLASH_ATTN=${VLLM_USE_TRITON_FLASH_ATTN}"
 log "EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND=${EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND}"
@@ -294,6 +326,7 @@ export RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
 export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1
 export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
 export VLLM_USE_V1
+export VLLM_WORKER_MULTIPROC_METHOD
 export VLLM_USE_RAY_COMPILED_DAG=0
 export VLLM_USE_RAY_SPMD_WORKER=0
 export VLLM_ROCM_USE_AITER
@@ -308,7 +341,7 @@ export GLOO_SOCKET_IFNAME=hsn0
 export GLOO_SOCKET_FAMILY=AF_INET
 export GLOO_IPV6=0
 export VLLM_HOST_IF=hsn0
-export VLLM_CARRY_OVER_ENV_VARS="NCCL_SOCKET_IFNAME,NCCL_SOCKET_FAMILY,NCCL_IB_DISABLE,NCCL_CROSS_NIC,NCCL_SOCKET_NTHREADS,NCCL_NSOCKS_PERTHREAD,GLOO_SOCKET_IFNAME,GLOO_SOCKET_FAMILY,GLOO_IPV6,VLLM_USE_V1,VLLM_USE_RAY_COMPILED_DAG,VLLM_USE_RAY_SPMD_WORKER,VLLM_HOST_IF,VLLM_ROCM_USE_AITER,VLLM_USE_TRITON_FLASH_ATTN"
+export VLLM_CARRY_OVER_ENV_VARS="NCCL_SOCKET_IFNAME,NCCL_SOCKET_FAMILY,NCCL_IB_DISABLE,NCCL_CROSS_NIC,NCCL_SOCKET_NTHREADS,NCCL_NSOCKS_PERTHREAD,GLOO_SOCKET_IFNAME,GLOO_SOCKET_FAMILY,GLOO_IPV6,VLLM_USE_V1,VLLM_WORKER_MULTIPROC_METHOD,VLLM_USE_RAY_COMPILED_DAG,VLLM_USE_RAY_SPMD_WORKER,VLLM_HOST_IF,VLLM_ROCM_USE_AITER,VLLM_USE_TRITON_FLASH_ATTN,SAFETENSORS_FAST_GPU"
 
 if [[ "${EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND}" == "ray" ]]; then
   log "Starting Ray head on ${HEAD_NODE}"
@@ -387,42 +420,55 @@ if [[ "${CALCULATE_KV_SCALES}" == "1" ]]; then
   VLLM_CALCULATE_KV_SCALES_FLAG="--calculate-kv-scales"
 fi
 
+APPTAINER_CMD=(apptainer exec --fakeroot --writable-tmpfs "${SIF}")
+SERVER_LOG="${OUT_DIR}/vllm_server.log"
+VLLM_SERVE_ARGS=(
+  vllm serve "${SERVE_MODEL_PATH}"
+  --host 0.0.0.0
+  --port "${VLLM_HTTP_PORT}"
+  --tensor-parallel-size "${TENSOR_PARALLEL_SIZE}"
+  --max-model-len "${MAX_MODEL_LEN}"
+  --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}"
+  --max-num-seqs "${MAX_NUM_SEQS}"
+  --max-num-batched-tokens "${MAX_NUM_BATCHED_TOKENS}"
+)
+
+if [[ "${MODEL_USES_TIKTOKEN}" != "1" ]]; then
+  VLLM_SERVE_ARGS+=(
+    --distributed-executor-backend "${EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND}"
+    --pipeline-parallel-size "${PIPELINE_PARALLEL_SIZE}"
+    --dtype bfloat16
+    --tokenizer "${SERVE_MODEL_PATH}"
+    --load-format "${VLLM_LOAD_FORMAT}"
+    --safetensors-load-strategy "${VLLM_SAFETENSORS_LOAD_STRATEGY}"
+    --kv-cache-dtype "${KV_CACHE_DTYPE}"
+    --tool-call-parser openai
+    --enable-auto-tool-choice
+    --disable-custom-all-reduce
+    ${VLLM_ENABLE_CHUNKED_PREFILL_FLAG}
+    ${VLLM_ENABLE_PREFIX_CACHING_FLAG}
+  )
+  if [[ -n "${VLLM_CALCULATE_KV_SCALES_FLAG}" ]]; then
+    VLLM_SERVE_ARGS+=("${VLLM_CALCULATE_KV_SCALES_FLAG}")
+  fi
+  if [[ -n "${VLLM_ENFORCE_EAGER_FLAG}" ]]; then
+    VLLM_SERVE_ARGS+=("${VLLM_ENFORCE_EAGER_FLAG}")
+  fi
+fi
+
 log "Starting vLLM on ${HEAD_NODE}"
-srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
-  bash --noprofile --norc -c "
-    set -euo pipefail
-    source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
-    source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
-    export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-    export HIP_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES}
-    unset ROCR_VISIBLE_DEVICES || true
-    if [[ '${MODEL_USES_TIKTOKEN}' == '1' ]]; then
-      export TIKTOKEN_ENCODINGS_BASE='${SERVE_ENCODINGS_DIR}'
-    fi
-    export VLLM_HOST_IP=${HEAD_IP}
-    vllm serve '${SERVE_MODEL_PATH}' \
-      --host 0.0.0.0 \
-      --port ${VLLM_HTTP_PORT} \
-      --distributed-executor-backend ${EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND} \
-      --tensor-parallel-size ${TENSOR_PARALLEL_SIZE} \
-      --pipeline-parallel-size ${PIPELINE_PARALLEL_SIZE} \
-      --dtype bfloat16 \
-      --tokenizer '${SERVE_MODEL_PATH}' \
-      --load-format ${VLLM_LOAD_FORMAT} \
-      --safetensors-load-strategy ${VLLM_SAFETENSORS_LOAD_STRATEGY} \
-      --max-model-len ${MAX_MODEL_LEN} \
-      --max-num-batched-tokens ${MAX_NUM_BATCHED_TOKENS} \
-      --max-num-seqs ${MAX_NUM_SEQS} \
-      --kv-cache-dtype ${KV_CACHE_DTYPE} \
-      --tool-call-parser openai \
-      --enable-auto-tool-choice \
-      --disable-custom-all-reduce \
-      --gpu-memory-utilization ${GPU_MEMORY_UTILIZATION} \
-      ${VLLM_ENABLE_CHUNKED_PREFILL_FLAG} \
-      ${VLLM_ENABLE_PREFIX_CACHING_FLAG} \
-      ${VLLM_CALCULATE_KV_SCALES_FLAG} \
-      ${VLLM_ENFORCE_EAGER_FLAG}
-  " &
+/usr/bin/time -v srun --overlap -N1 -n1 -c56 -G8 -w "${HEAD_NODE}" \
+  --ntasks-per-node=1 --gpu-bind=closest --export=ALL \
+  env -u CONDA_PREFIX -u CONDA_DEFAULT_ENV -u PYTHONPATH -u PYTHONHOME \
+  -u LD_LIBRARY_PATH -u ROCM_PATH -u ROCM_HOME -u HIP_PATH \
+  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  VLLM_HOST_IP="${HEAD_IP}" TIKTOKEN_ENCODINGS_BASE="${SERVE_ENCODINGS_DIR}" \
+  "${APPTAINER_CMD[@]}" \
+  "${VLLM_SERVE_ARGS[@]}" \
+  >"${SERVER_LOG}" 2>&1 &
+SERVER_PID=$!
+
+unset all_proxy ftp_proxy http_proxy https_proxy no_proxy
 
 log "Waiting for vLLM to become healthy at http://${HEAD_IP}:${VLLM_HTTP_PORT}"
 HEALTH_READY=0
@@ -435,12 +481,19 @@ for attempt in $(seq 1 "${MAX_HEALTH_ATTEMPTS}"); do
   if (( attempt % 6 == 0 )); then
     ELAPSED_SECONDS=$(( attempt * VLLM_HEALTH_POLL_SECONDS ))
     log "vLLM is still loading after ${ELAPSED_SECONDS}s."
+    tail -20 "${SERVER_LOG}" || true
+  fi
+  if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
+    log "vLLM server exited before becoming healthy."
+    tail -200 "${SERVER_LOG}" || true
+    exit 1
   fi
   sleep "${VLLM_HEALTH_POLL_SECONDS}"
 done
 
 if [[ "${HEALTH_READY}" != "1" ]]; then
   log "vLLM did not become healthy within ${VLLM_HEALTH_MAX_WAIT_SECONDS}s."
+  tail -200 "${SERVER_LOG}" || true
   exit 1
 fi
 
@@ -450,7 +503,7 @@ if ! curl -sf "http://${HEAD_IP}:${VLLM_HTTP_PORT}/v1/models" | tee "${OUT_DIR}/
 fi
 
 SERVED_MODEL_ID="$(
-  python - <<PY
+  python3 - <<PY
 import json
 from pathlib import Path
 payload = json.loads(Path(${OUT_DIR@Q} + "/served_models.json").read_text())

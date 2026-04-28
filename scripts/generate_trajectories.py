@@ -27,6 +27,7 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os
+import re
 import sys
 import threading
 from dataclasses import dataclass
@@ -112,13 +113,15 @@ Evidence modes:
 - full: seed genes, graph query specification, context text, and structured annotations are visible
 
 Actor rules:
-- Return exactly one JSON object and nothing else.
-- Choose at most one next tool call.
+- Write a concise, visible ReAct-style reasoning step.
+- Choose at most one next runtime tool call.
 - Use only visible evidence and deterministic runtime observations.
 - Never assume access to hidden targets or labels that were not shown.
 - Use canonical Ensembl gene ids when you reference genes in tool arguments.
 - Prefer the cheapest action that is most likely to reduce uncertainty.
-- If current visible evidence is already enough, return "tool_action": null.
+- If current visible evidence is already enough, do not call a tool.
+- Do not update relationship status, predicted groups, mechanistic labels, or
+  other structured state fields. The verifier owns that structured update.
 
 Tool guidance:
 - query_mygene: look up identifiers or metadata for one gene or alias string
@@ -136,8 +139,10 @@ Allowed tools:
 - rwr_monoplex: {"seeds": [str], "layer": str, "top_k": int optional}
 - induce_subgraph: {"genes": [str], "layers": [str] optional}
 
-Output schema:
-{"reasoning_text": "...", "tool_action": null or {"tool_name": "...", "arguments": {...}}}
+If the serving backend supports tool calls, use a native tool call for the
+action. If it does not, write the reasoning normally and optionally end with one
+machine-readable line:
+TOOL_ACTION: {"tool_name": "...", "arguments": {...}}
 """
 
 ACTOR_RATIONALE_SYSTEM_PROMPT = """You are writing the visible actor rationale for the next MENTOR-RL step before the tool is chosen.
@@ -218,6 +223,9 @@ RUNTIME_TOOL_NAMES = (
     "rwr_multiplex",
     "rwr_monoplex",
     "induce_subgraph",
+)
+TOOL_ACTION_LINE_RE = re.compile(
+    r"(?im)^\s*(?:TOOL_ACTION|ACTION)\s*:\s*(?P<payload>\{.*\})\s*$"
 )
 
 
@@ -696,6 +704,144 @@ def _verifier_output_tool() -> dict[str, Any]:
     )
 
 
+def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
+    if tool_name == "query_mygene":
+        return {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "fields": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_neighbors":
+        return {
+            "type": "object",
+            "properties": {
+                "gene": {"type": "string"},
+                "layers": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["gene"],
+            "additionalProperties": False,
+        }
+    if tool_name == "shortest_path":
+        return {
+            "type": "object",
+            "properties": {
+                "source": {"type": "string"},
+                "target": {"type": "string"},
+                "layer": {"type": "string"},
+            },
+            "required": ["source", "target"],
+            "additionalProperties": False,
+        }
+    if tool_name == "rwr_multiplex":
+        return {
+            "type": "object",
+            "properties": {
+                "seeds": {"type": "array", "items": {"type": "string"}},
+                "top_k": {"type": "integer", "minimum": 1},
+            },
+            "required": ["seeds"],
+            "additionalProperties": False,
+        }
+    if tool_name == "rwr_monoplex":
+        return {
+            "type": "object",
+            "properties": {
+                "seeds": {"type": "array", "items": {"type": "string"}},
+                "layer": {"type": "string"},
+                "top_k": {"type": "integer", "minimum": 1},
+            },
+            "required": ["seeds", "layer"],
+            "additionalProperties": False,
+        }
+    if tool_name == "induce_subgraph":
+        return {
+            "type": "object",
+            "properties": {
+                "genes": {"type": "array", "items": {"type": "string"}},
+                "layers": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["genes"],
+            "additionalProperties": False,
+        }
+    raise ValueError(f"Unknown runtime tool: {tool_name}")
+
+
+def _runtime_tool_description(tool_name: str) -> str:
+    descriptions = {
+        "query_mygene": "Retrieve gene identifier and metadata information for one query string.",
+        "get_neighbors": "Retrieve direct graph neighbors for one gene.",
+        "shortest_path": "Compute a shortest path between two genes.",
+        "rwr_multiplex": "Rank genes by random walk with restart across the multiplex.",
+        "rwr_monoplex": "Rank genes by random walk with restart on one named layer.",
+        "induce_subgraph": "Inspect the subgraph induced by a queried gene set.",
+    }
+    return descriptions[tool_name]
+
+
+def _runtime_tools() -> list[dict[str, Any]]:
+    return [
+        _named_function_tool(
+            function_name=tool_name,
+            description=_runtime_tool_description(tool_name),
+            parameters=_runtime_tool_parameters(tool_name),
+        )
+        for tool_name in RUNTIME_TOOL_NAMES
+    ]
+
+
+def _normalize_runtime_tool_action(
+    payload: dict[str, Any] | None,
+    *,
+    prefix: str = "actor",
+) -> tuple[dict[str, Any] | None, list[str]]:
+    errors: list[str] = []
+    if payload is None:
+        return None, errors
+    if not isinstance(payload, dict):
+        return None, [f"{prefix}_tool_action_not_a_dict"]
+
+    tool_name = payload.get("tool_name")
+    arguments = payload.get("arguments")
+    if not isinstance(tool_name, str) or not tool_name:
+        return None, [f"{prefix}_tool_name_missing_or_invalid"]
+    if tool_name not in RUNTIME_TOOL_NAMES:
+        return None, [f"{prefix}_tool_name_unknown"]
+    if arguments is None:
+        arguments = {}
+    if not isinstance(arguments, dict):
+        errors.append(f"{prefix}_tool_arguments_not_a_dict")
+        arguments = {}
+    return {"tool_name": tool_name, "arguments": arguments}, errors
+
+
+def _extract_tool_action_from_text(text: str) -> tuple[dict[str, Any] | None, list[str]]:
+    if not isinstance(text, str) or not text.strip():
+        return None, []
+
+    for match in TOOL_ACTION_LINE_RE.finditer(text):
+        raw_payload = match.group("payload")
+        try:
+            payload = json.loads(raw_payload)
+        except Exception as error:
+            return None, [f"actor_tool_action_json_parse_error: {error}"]
+        return _normalize_runtime_tool_action(payload)
+
+    try:
+        payload = _parse_model_json(text)
+    except Exception:
+        return None, []
+
+    if "tool_action" in payload:
+        return _normalize_runtime_tool_action(payload.get("tool_action"))
+    if "tool_name" in payload:
+        return _normalize_runtime_tool_action(payload)
+    return None, []
+
+
 def _normalize_actor_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     errors: list[str] = []
 
@@ -715,7 +861,6 @@ def _normalize_actor_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], l
         if isinstance(reasoning_content, str):
             reasoning_text = reasoning_content
 
-    saw_tool_action = "tool_action" in payload or "tool_calls" in payload
     tool_action = payload.get("tool_action")
     if "tool_calls" in payload:
         tool_action, tool_call_errors = _function_call_from_tool_calls(
@@ -723,12 +868,61 @@ def _normalize_actor_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], l
             prefix="actor",
         )
         errors.extend(tool_call_errors)
-    elif tool_action is not None and not isinstance(tool_action, dict):
-        tool_action = None
-        errors.append("actor_tool_action_not_a_dict")
+    tool_action, tool_action_errors = _normalize_runtime_tool_action(tool_action)
+    errors.extend(tool_action_errors)
 
-    if not saw_tool_action:
-        errors.append("actor_tool_action_missing")
+    if not reasoning_text and tool_action is None:
+        errors.append("actor_reasoning_and_tool_action_blank")
+
+    return {"reasoning_text": reasoning_text, "tool_action": tool_action}, errors
+
+
+def _actor_candidate_from_choice(choice: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    message = _safe_dict(choice.get("message"))
+    errors: list[str] = []
+
+    response_error = _response_truncated_before_visible_output(choice, prefix="actor")
+    if response_error:
+        errors.append(response_error)
+
+    content_text = _message_content_to_text(message.get("content"))
+    reasoning_content = _message_content_to_text(message.get("reasoning_content"))
+    reasoning_text = content_text or reasoning_content
+
+    tool_action = None
+    tool_calls = message.get("tool_calls")
+    if isinstance(tool_calls, list) and tool_calls:
+        function_call, tool_call_errors = _function_call_from_tool_calls(
+            tool_calls,
+            prefix="actor",
+        )
+        errors.extend(tool_call_errors)
+        if function_call and function_call.get("tool_name") == ACTOR_OUTPUT_TOOL_NAME:
+            legacy_payload = _safe_dict(function_call.get("arguments"))
+            normalized, normalize_errors = _normalize_actor_payload(legacy_payload)
+            errors.extend(normalize_errors)
+            if not reasoning_text:
+                reasoning_text = normalized["reasoning_text"]
+            tool_action = normalized["tool_action"]
+        else:
+            tool_action, normalize_errors = _normalize_runtime_tool_action(function_call)
+            errors.extend(normalize_errors)
+
+    if tool_action is None and content_text:
+        parsed_tool_action, parse_errors = _extract_tool_action_from_text(content_text)
+        errors.extend(parse_errors)
+        if parsed_tool_action is not None:
+            tool_action = parsed_tool_action
+            try:
+                legacy_payload = _parse_model_json(content_text)
+            except Exception:
+                legacy_payload = {}
+            if (
+                isinstance(legacy_payload, dict)
+                and isinstance(legacy_payload.get("reasoning_text"), str)
+                and content_text.strip().startswith("{")
+            ):
+                reasoning_text = legacy_payload["reasoning_text"]
 
     if not reasoning_text and tool_action is None:
         errors.append("actor_reasoning_and_tool_action_blank")
@@ -770,14 +964,24 @@ def _has_error_prefix(errors: Iterable[str], prefixes: tuple[str, ...]) -> bool:
 def _actor_candidate_is_usable(actor_step: ActorStep, errors: Iterable[str]) -> bool:
     fatal_errors = {
         "actor_response_truncated_before_visible_output",
-        "actor_tool_action_missing",
         "actor_tool_action_not_a_dict",
         "actor_tool_name_missing_or_invalid",
+        "actor_tool_name_unknown",
         "actor_reasoning_and_tool_action_blank",
+        "repeated_character_collapse",
+        "repeated_token_collapse",
+        "whitespace_only_output",
     }
     if any(error in fatal_errors for error in errors):
         return False
-    if _has_error_prefix(errors, ("actor_json_parse_error:", "actor_tool_call_")):
+    if _has_error_prefix(
+        errors,
+        (
+            "actor_json_parse_error:",
+            "actor_tool_action_json_parse_error:",
+            "actor_tool_call_",
+        ),
+    ):
         return False
     return bool(actor_step.reasoning_text.strip()) or actor_step.tool_action is not None
 
@@ -1269,26 +1473,25 @@ class OpenAICompatibleCandidateGenerator:
             fallback_guided_json = guided_json
             if fallback_guided_json is None and text_config is not None:
                 fallback_guided_json = _safe_dict(_safe_dict(text_config.get("format")).get("schema"))
-            if fallback_guided_json:
-                for index, choice in enumerate(choices):
-                    if _choice_has_visible_output(choice):
-                        continue
-                    fallback_choices = self._chat(
-                        messages,
-                        n=1,
-                        seed=seed + index,
-                        tools=tools,
-                        tool_choice=tool_choice,
-                        guided_json=fallback_guided_json,
-                        use_reasoning=False,
-                        max_completion_tokens=structured_max_tokens,
-                        disable_hidden_thinking=disable_hidden_thinking,
-                    )
-                    fallback_choice = fallback_choices[0]
-                    if _choice_has_visible_output(fallback_choice):
-                        fallback_choice["fallback_backend"] = "chat_completions"
-                        fallback_choice["fallback_trigger"] = "responses_blank_visible_output"
-                        choices[index] = fallback_choice
+            for index, choice in enumerate(choices):
+                if _choice_has_visible_output(choice):
+                    continue
+                fallback_choices = self._chat(
+                    messages,
+                    n=1,
+                    seed=seed + index,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    guided_json=fallback_guided_json,
+                    use_reasoning=False,
+                    max_completion_tokens=structured_max_tokens,
+                    disable_hidden_thinking=disable_hidden_thinking,
+                )
+                fallback_choice = fallback_choices[0]
+                if _choice_has_visible_output(fallback_choice):
+                    fallback_choice["fallback_backend"] = "chat_completions"
+                    fallback_choice["fallback_trigger"] = "responses_blank_visible_output"
+                    choices[index] = fallback_choice
             return choices
 
         if self.api_mode == "completions":
@@ -1326,27 +1529,28 @@ class OpenAICompatibleCandidateGenerator:
                 fallback_guided_json = _safe_dict(
                     _safe_dict(first_tool.get("function")).get("parameters")
                 )
-            if fallback_guided_json:
-                for index, choice in enumerate(choices):
-                    if _choice_has_visible_output(choice):
-                        continue
-                    try:
-                        fallback_choices = self._completions(
-                            messages=messages,
-                            n=1,
-                            seed=seed + index,
-                            guided_json=fallback_guided_json,
-                            max_completion_tokens=structured_max_tokens,
-                            disable_hidden_thinking=disable_hidden_thinking,
-                        )
-                    except Exception as error:
-                        choice["fallback_error"] = f"completions_fallback_failed: {error}"
-                        continue
-                    fallback_choice = fallback_choices[0]
-                    if _choice_has_visible_output(fallback_choice):
-                        fallback_choice["fallback_backend"] = "completions"
-                        fallback_choice["fallback_trigger"] = "chat_completions_blank_visible_output"
-                        choices[index] = fallback_choice
+            if tools and len(tools) != 1:
+                fallback_guided_json = guided_json
+            for index, choice in enumerate(choices):
+                if _choice_has_visible_output(choice):
+                    continue
+                try:
+                    fallback_choices = self._completions(
+                        messages=messages,
+                        n=1,
+                        seed=seed + index,
+                        guided_json=fallback_guided_json,
+                        max_completion_tokens=structured_max_tokens,
+                        disable_hidden_thinking=disable_hidden_thinking,
+                    )
+                except Exception as error:
+                    choice["fallback_error"] = f"completions_fallback_failed: {error}"
+                    continue
+                fallback_choice = fallback_choices[0]
+                if _choice_has_visible_output(fallback_choice):
+                    fallback_choice["fallback_backend"] = "completions"
+                    fallback_choice["fallback_trigger"] = "chat_completions_blank_visible_output"
+                    choices[index] = fallback_choice
         return choices
 
     def _generate_actor_reasoning(
@@ -1428,40 +1632,32 @@ class OpenAICompatibleCandidateGenerator:
             indent=2,
             sort_keys=True,
         )
-        actor_schema = _actor_output_schema()
         if self.api_mode == "responses":
             system_prompt = (
                 ACTOR_SYSTEM_PROMPT
-                + "\nDo not emit analysis or commentary."
-                + "\nPut the entire reply in the final answer as exactly one JSON object that matches the provided schema."
+                + "\nKeep the visible reasoning concise. Use at most one native runtime tool call."
             )
-            tools = None
+            tools = _runtime_tools()
             tool_choice = None
             guided_json = None
-            text_config = _responses_json_schema_text_config(
-                name=ACTOR_OUTPUT_TOOL_NAME,
-                description="Emit the actor policy decision for the next MENTOR-RL step.",
-                schema=actor_schema,
-            )
-        elif self._prefers_named_output_tools():
+            text_config = None
+        elif self.api_mode == "chat_completions":
             system_prompt = (
                 ACTOR_SYSTEM_PROMPT
-                + "\nDo not emit analysis, commentary, or hidden chain-of-thought."
-                + f"\nCall `{ACTOR_OUTPUT_TOOL_NAME}` immediately with arguments that match its schema."
-                + "\nIf no runtime tool is needed, set tool_action to null."
+                + "\nKeep the visible reasoning concise. Use at most one native runtime tool call."
             )
-            tools = [_actor_output_tool(parameters=actor_schema)]
-            tool_choice = _named_function_tool_choice(ACTOR_OUTPUT_TOOL_NAME)
+            tools = _runtime_tools()
+            tool_choice = "auto"
             guided_json = None
             text_config = None
         else:
             system_prompt = (
                 ACTOR_SYSTEM_PROMPT
-                + "\nReturn exactly one JSON object that matches the provided schema."
+                + "\nWrite free-form reasoning. If a tool is needed, end with one TOOL_ACTION line."
             )
             tools = None
             tool_choice = None
-            guided_json = actor_schema
+            guided_json = None
             text_config = None
         candidates: list[dict[str, Any]] = []
         for choice in self._generate_choices(
@@ -1477,24 +1673,14 @@ class OpenAICompatibleCandidateGenerator:
         ):
             raw_text = _json_dumps_compact(choice)
             try:
-                payload, tool_errors = _named_tool_arguments_from_choice(
-                    choice,
-                    expected_tool_name=ACTOR_OUTPUT_TOOL_NAME,
-                    prefix="actor",
-                    require_tool_call=(
-                        self._prefers_named_output_tools()
-                        and choice.get("fallback_backend") != "completions"
-                    ),
-                )
-                normalized_payload, payload_errors = _normalize_actor_payload(payload)
+                normalized_payload, payload_errors = _actor_candidate_from_choice(choice)
                 candidate_reasoning_text = normalized_payload["reasoning_text"]
-                generator_errors = list(tool_errors) + payload_errors
                 candidates.append(
                     {
                         "reasoning_text": candidate_reasoning_text,
                         "tool_action": normalized_payload["tool_action"],
                         "raw_text": raw_text,
-                        "generator_errors": _unique(generator_errors),
+                        "generator_errors": _unique(payload_errors),
                     }
                 )
             except Exception as error:
