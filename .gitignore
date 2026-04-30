@@ -13,3 +13,4 @@ pytorch-rocm.tar.bz2
 scout.tar.bz2
 env.tar.gz
 *.pyc   
+vllm0141rocm72.sif

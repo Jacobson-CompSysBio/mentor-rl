@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from inference import build_formatting_func, infer
+from inference import infer
 from utils.utils import * 
 
 ### SLURM VARIABLES ###
@@ -38,7 +38,7 @@ slurm_args = argparse.Namespace(nnodes=nnodes, timeout=timeout)
 class ScriptArguments:
     model_path: str = field(metadata={"help": "Hugging Face model ID from the Hub"})
     dataset_path: str = field(default="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/data/qa_pairs.json", metadata={"help": "Local dataset path"})
-    run_inference_after_training: bool = field(default=False, metadata={"help": "Run sample inference on rank 0 after training"})
+    run_inference_after_training: bool = field(default=False, metadata={"help": "Run sample inference after training"})
     dataset_subset_size: Optional[int] = field(default=None, metadata={"help": "Number of samples to use from the dataset for training. If None, uses the full dataset."})
 
 @dataclass
@@ -113,11 +113,6 @@ def main():
     # load dataset
     dataset = load_dataset("json", data_files=script_args.dataset_path, split="train")
 
-    # Add system prompt if it doesn't exist
-    SYSTEM_PROMPT = (
-        "You are a helpful biological chatbot. You will be given a biological question; "
-        "return the correct answer."
-    )
     if "system" not in dataset.column_names:
         dataset = dataset.map(lambda x: {"system": SYSTEM_PROMPT})
 
@@ -130,16 +125,16 @@ def main():
     if rank == 0:
         print(f"Dataset shuffled with seed: {training_args.seed}.")
 
-    # create inf ds before sharding
+    # create inf ds before training
     if script_args.run_inference_after_training:
         sample_size = min(20, len(dataset))
         inf_ds = dataset.select(range(sample_size))
-        inf_format = build_formatting_func(tokenizer, train=False)  
+        inf_ds = inf_ds.add_column("_sample_idx", list(range(sample_size)))
+        inf_format = build_formatting_func(tokenizer, train=False)
 
     if world_size > 1:
         if rank == 0:
-            print(f"Sharding dataset for Rank {rank} of {world_size}.")
-        dataset = dataset.shard(num_shards=world_size, index=rank)
+            print(f"Using distributed sampler across {world_size} ranks.")
     
     ############    
     # TRAINING #
@@ -175,17 +170,32 @@ def main():
         ###########################
         if rank == 0:
             print("Running post-training inference...")
-        post_outputs = infer(
+        post_records = infer(
             trainer.model,
             tokenizer,
             inf_format,
             inf_ds,
-            trainer.accelerator
+            trainer.accelerator,
+            return_indices=True,
         )
-        # Gather outputs from all ranks and truncate to actual sample count (removes padding duplicates)
-        all_outputs = gather_object(post_outputs)[:len(inf_ds)]
+        gathered_records = list(flatten_gathered_objects(gather_object(post_records)))
+        predictions_by_index = {}
+        for record in gathered_records:
+            if not isinstance(record, dict):
+                continue
+            idx = int(record["idx"])
+            if 0 <= idx < len(inf_ds) and idx not in predictions_by_index:
+                predictions_by_index[idx] = record["prediction"]
+
+        missing = [idx for idx in range(len(inf_ds)) if idx not in predictions_by_index]
+        if missing and rank == 0:
+            print(f"[WARNING] Missing post-training predictions for sample indices: {missing}")
+
+        ordered_indices = sorted(predictions_by_index)
+        all_outputs = [predictions_by_index[idx] for idx in ordered_indices]
+        answers = [inf_ds[idx]["answer"] for idx in ordered_indices]
         
-        post_score = check_accuracy(all_outputs, list(inf_ds["answer"]))
+        post_score = check_accuracy(all_outputs, answers)
         if isinstance(post_score, list):
             post_score = np.mean(post_score)
  
@@ -198,11 +208,13 @@ def main():
                 has_system = "system" in inf_ds.column_names
                 if has_system:
                     table = wandb.Table(columns=["system", "question", "answer", "prediction"])
-                    for example, pred in zip(inf_ds, all_outputs):
+                    for idx, pred in zip(ordered_indices, all_outputs):
+                        example = inf_ds[idx]
                         table.add_data(example["system"], example["question"], example["answer"], pred)
                 else:
                     table = wandb.Table(columns=["question", "answer", "prediction"])
-                    for example, pred in zip(inf_ds, all_outputs):
+                    for idx, pred in zip(ordered_indices, all_outputs):
+                        example = inf_ds[idx]
                         table.add_data(example["question"], example["answer"], pred)
                 trainer.log(
                     {

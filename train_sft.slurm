@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=inference_debug
+#SBATCH --job-name=sft_120b
 #SBATCH -A SYB114
 #SBATCH -N 4
 #SBATCH -t 24:00:00
@@ -65,7 +65,7 @@ mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE"
 
 # --- STAGE 1: Stage Data to Local SSD on Each Node ---
 srun --kill-on-bad-exit=1 --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
-  echo '--- Staging on node: $(hostname) ---'
+  echo '--- Staging on node: '\$(hostname)' ---'
 
   mkdir -p ${LOCAL_SSD_PATH} ${LOCAL_MODEL_DIR} ${LOCAL_ENV_DIR} ${LOCAL_DATA_DIR} ${LOCAL_CONFIG_DIR}
 
@@ -82,11 +82,11 @@ srun --kill-on-bad-exit=1 --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
 
   mkdir -p ${LOCAL_SSD_PATH}/hf_cache
 
-echo '--- Staging on $(hostname) complete ---'
+  echo '--- Staging on '\$(hostname)' complete ---'
 "
 echo "--- Staging complete on all nodes ---"
 
-# --- STAGE 2: Run Pre-Training Inference and Training ---
+# --- STAGE 2: Run Training ---
 echo "--- Preparing distributed environment ---"
 MASTER_ADDR="$(ip -4 addr show hsn0 | awk '/inet /{print $2}' | cut -d/ -f1 | head -n 1)"
 if [ -z "${MASTER_ADDR}" ]; then
@@ -119,31 +119,13 @@ export DS_ACCELERATOR=cuda
 export LOCAL_CACHE_BASE="${LOCAL_SSD_PATH}/caches"
 mkdir -p "${LOCAL_CACHE_BASE}"
 
-# Optional: keep HIP allocator log quiet (unrelated warning you saw)
-export PYTORCH_HIP_ALLOC_CONF="expandable_segments:False"
+# Optional: keep allocator behavior explicit for PyTorch on ROCm.
+export PYTORCH_ALLOC_CONF="expandable_segments:False"
 
 # wandb
 export https_proxy=http://proxy.ccs.ornl.gov:3128
 export http_proxy=$https_proxy
 export WANDB_HTTP_TIMEOUT=90
-
-echo "--- Launching pre-training inference baseline ---"
-srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
-
-  export RANK=$SLURM_PROCID
-  export WORLD_SIZE=$SLURM_NTASKS
-  export LOCAL_RANK=$SLURM_LOCALID
-
-  export AMDSMI_GPU_METRICS_CACHE_MS=5000
-  if [ "${SLURM_LOCALID}" != "0" ]; then export WANDB_MODE=disabled; fi
-
-  python \
-    "'${SLURM_SUBMIT_DIR}'"/scripts/inference.py \
-      --model_path="'${LOCAL_MODEL_DIR}'" \
-      --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
-      --seed=900913 \
-      --sample_size=20
-'
 
 echo "--- Launching Distributed Training with RCCL Plugin ---"
 srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
@@ -153,7 +135,7 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
   export LOCAL_RANK=$SLURM_LOCALID
 
   export AMDSMI_GPU_METRICS_CACHE_MS=5000
-  if [ "${SLURM_LOCALID}" != "0" ]; then export WANDB_MODE=disabled; fi
+  if [ "${SLURM_PROCID}" != "0" ]; then export WANDB_MODE=disabled; fi
 
   # --- Launch the training ---
   python \

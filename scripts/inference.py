@@ -8,42 +8,37 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from datasets import load_dataset
-from accelerate import Accelerator, DeepSpeedPlugin, PartialState
+from accelerate import Accelerator, DeepSpeedPlugin
+from accelerate.utils import gather_object
 from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer, HfArgumentParser
+from transformers.integrations import HfDeepSpeedConfig
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from utils.utils import check_accuracy
+from utils.utils import build_formatting_func, check_accuracy, flatten_gathered_objects
 
 
 def _collate_single(examples):
-    """
-    Unwrap a single example from the dataloader list.
-    """
     return examples[0]
 
 
-def build_formatting_func(tokenizer, train=True):
-    system_prompt = (
-        "You are a helpful biological chatbot. You will be given a biological question; "
-        "return the correct answer."
-    )
+def _load_deepspeed_config(config_path: Optional[str] = None):
+    if config_path is None:
+        local_cfg_dir = os.getenv("LOCAL_CONFIG_DIR")
+        if local_cfg_dir is None:
+            raise RuntimeError("LOCAL_CONFIG_DIR must be set when --deepspeed_config is not provided.")
+        config_path = os.path.join(local_cfg_dir, "ds_zero3_inference.json")
 
-    def _fmt(example):
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": example["question"]},
-            {"role": "assistant", "content": example["answer"]},
-        ] if train else [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": example["question"]},
-        ]
-        if train:
-            return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
-        return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    with open(config_path) as f:
+        return json.load(f)
 
-    return _fmt
+
+def _create_inference_accelerator(config_path: Optional[str] = None):
+    ds_infer_cfg = _load_deepspeed_config(config_path)
+    hf_ds_config = HfDeepSpeedConfig(ds_infer_cfg)
+    ds_inference_plugin = DeepSpeedPlugin(hf_ds_config=ds_infer_cfg)
+    return Accelerator(deepspeed_plugin=ds_inference_plugin), hf_ds_config
 
 
 def infer(
@@ -55,15 +50,12 @@ def infer(
     max_new_tokens=50,
     temperature=0.7,
     top_p=0.9,
+    return_indices=False,
+    prepare_model=False,
 ):
     if accelerator is None:
-        local_cfg_dir = os.getenv("LOCAL_CONFIG_DIR")
-        if local_cfg_dir is None:
-            raise RuntimeError("LOCAL_CONFIG_DIR must be set to use the default inference accelerator.")
-        with open(os.path.join(local_cfg_dir, "ds_zero3_inference.json")) as f:
-            ds_infer_cfg = json.load(f)
-        ds_inference_plugin = DeepSpeedPlugin(hf_ds_config=ds_infer_cfg)
-        inference_accelerator = Accelerator(deepspeed_plugin=ds_inference_plugin)
+        inference_accelerator, _ = _create_inference_accelerator()
+        prepare_model = True
     else:
         inference_accelerator = accelerator
     inference_accelerator.print("Accelerator loaded.")
@@ -80,7 +72,7 @@ def infer(
     )
 
     # accelerator.prepare model for distributed inference
-    if accelerator is None:
+    if prepare_model:
         inference_model, dataloader = inference_accelerator.prepare(inference_model, dataloader)
     else:
         dataloader = inference_accelerator.prepare(dataloader)
@@ -89,7 +81,7 @@ def infer(
     with torch.no_grad():
         for _, example in enumerate(dataloader):
             formatted = format_fn(example)
-            inputs = tokenizer(formatted, return_tensors="pt").to(inference_model.device)
+            inputs = tokenizer(formatted, return_tensors="pt").to(inference_accelerator.device)
             input_len = inputs["input_ids"].shape[1]
 
             output = inference_model.generate(
@@ -104,9 +96,13 @@ def infer(
 
             new_ids = output[0][input_len:]
             text = tokenizer.decode(new_ids, skip_special_tokens=True)
-            results.append(text)
+            if return_indices:
+                results.append({"idx": int(example["_sample_idx"]), "prediction": text})
+            else:
+                results.append(text)
 
     # clear memory, free cache
+    inference_accelerator.wait_for_everyone()
     del inference_model, dataloader, inference_accelerator
     torch.cuda.empty_cache()
     return results
@@ -143,10 +139,18 @@ class InferenceArguments:
         default=0.9,
         metadata={"help": "Top-p nucleus sampling value for generation."},
     )
+    deepspeed_config: Optional[str] = field(
+        default=None,
+        metadata={"help": "Path to the DeepSpeed ZeRO-3 inference config."},
+    )
+    output_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Optional JSON path for rank 0 to write inference outputs and score."},
+    )
 
 def run_inference(args: InferenceArguments):
-    state = PartialState()
-    rank = state.process_index
+    accelerator, ds_config_ref = _create_inference_accelerator(args.deepspeed_config)
+    rank = accelerator.process_index
 
     tokenizer = AutoTokenizer.from_pretrained(args.model_path)
 
@@ -173,46 +177,72 @@ def run_inference(args: InferenceArguments):
 
     sample_size = min(args.sample_size, len(dataset))
     inf_ds = dataset.select(range(sample_size))
+    inf_ds = inf_ds.add_column("_sample_idx", list(range(sample_size)))
 
     model = AutoModelForCausalLM.from_pretrained(
         args.model_path,
         dtype=torch.bfloat16,
         attn_implementation="eager",
     )
-    model.gradient_checkpointing_enable()
-    model.use_cache = False
-    model.config.use_cache = False
+    model.config.use_cache = True
     model.config.output_attentions = False
     model.config.output_hidden_states = False
 
-    outputs = infer(
+    local_records = infer(
         model,
         tokenizer,
         format_fn,
         inf_ds,
+        accelerator=accelerator,
         max_new_tokens=args.max_new_tokens,
         temperature=args.temperature,
         top_p=args.top_p,
+        return_indices=True,
+        prepare_model=True,
     )
 
-    score = check_accuracy(outputs, list(inf_ds["answer"]))
+    gathered_records = list(flatten_gathered_objects(gather_object(local_records)))
+    predictions_by_index = {}
+    for record in gathered_records:
+        if not isinstance(record, dict):
+            continue
+        idx = int(record["idx"])
+        if 0 <= idx < sample_size and idx not in predictions_by_index:
+            predictions_by_index[idx] = record["prediction"]
+
+    missing = [idx for idx in range(sample_size) if idx not in predictions_by_index]
+    if missing and rank == 0:
+        print(f"[WARNING] Missing predictions for sample indices: {missing}")
+
+    ordered_indices = sorted(predictions_by_index)
+    outputs = [predictions_by_index[idx] for idx in ordered_indices]
+    answers = [inf_ds[idx]["answer"] for idx in ordered_indices]
+
+    score = check_accuracy(outputs, answers)
     if isinstance(score, list):
         score = np.mean(score)
 
+    _ = ds_config_ref
     return outputs, score
 
 
 def main():
     parser = HfArgumentParser((InferenceArguments,))
     script_args = parser.parse_args_into_dataclasses()[0]
-    state = PartialState()
-    rank = state.process_index
+    rank = int(os.environ.get("RANK", "0"))
 
     outputs, score = run_inference(script_args)
 
     if rank == 0:
         print(f"Inference complete. Average Score={score:.2%}")
         print("Outputs:", outputs)
+        if script_args.output_path is not None:
+            output_dir = os.path.dirname(script_args.output_path)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+            with open(script_args.output_path, "w") as f:
+                json.dump({"score": float(score), "outputs": outputs}, f, indent=2)
+            print(f"Inference results written to {script_args.output_path}")
 
 
 if __name__ == "__main__":
