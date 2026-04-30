@@ -46,6 +46,15 @@ class RuntimeToolsTests(unittest.TestCase):
         self.assertEqual(result.payload["layers"][0]["layer_name"], "ppi")
         self.assertEqual(result.payload["layers"][1]["layer_name"], "coexp")
 
+    def test_get_neighbors_treats_all_layer_alias_as_all_layers(self) -> None:
+        index = build_multiplex_index(_build_test_multiplex())
+
+        result = get_neighbors(index, "ENSG1", layers=["all"])
+
+        self.assertFalse(result.is_empty)
+        self.assertEqual(result.payload["unique_neighbors"], ["ENSG2", "ENSG3"])
+        self.assertEqual(result.provenance["queried_layers"], ["ppi", "coexp"])
+
     def test_induce_subgraph_only_keeps_requested_nodes_and_edges(self) -> None:
         index = build_multiplex_index(_build_test_multiplex())
 
@@ -56,6 +65,15 @@ class RuntimeToolsTests(unittest.TestCase):
         self.assertEqual(result.payload["combined_edge_count"], 1)
         self.assertEqual(result.payload["layers"][0]["edge_count"], 1)
         self.assertEqual(result.payload["layers"][1]["edge_count"], 0)
+
+    def test_induce_subgraph_treats_empty_layers_as_all_layers(self) -> None:
+        index = build_multiplex_index(_build_test_multiplex())
+
+        result = induce_subgraph(index, ["ENSG1", "ENSG2", "ENSG3"], layers=[])
+
+        self.assertFalse(result.is_empty)
+        self.assertEqual(result.payload["combined_edge_count"], 3)
+        self.assertEqual(result.provenance["queried_layers"], ["ppi", "coexp"])
 
     def test_shortest_path_can_use_aggregate_graph(self) -> None:
         index = build_multiplex_index(_build_test_multiplex())

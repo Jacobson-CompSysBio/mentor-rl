@@ -39,7 +39,7 @@ from .tools import (
     rwr_multiplex,
     shortest_path,
 )
-from .validators import is_duplicate_tool_action, validate_tool_action
+from .validators import is_duplicate_tool_action, normalize_tool_action, validate_tool_action
 
 
 class RuntimeEnvironment:
@@ -112,6 +112,7 @@ class RuntimeEnvironment:
     ) -> ToolObservation:
         """Validate and execute one tool call."""
 
+        tool_action = normalize_tool_action(tool_action)
         validation = validate_tool_action(
             tool_action,
             state=state,

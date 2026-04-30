@@ -40,93 +40,6 @@ By training a transformer-based agent with reinforcement learning across tool-us
 
 We make four contributions. First, we formalize mechanistic graph exploration as a sequential decision process with a single policy operating in two modes: an actor that proposes reasoning and tool calls, and a verifier that updates a structured hypothesis and emits a continuation decision. Second, we construct a CORUM-grounded training corpus that supports four task cases: partial group completion, mechanism explanation, noisy group refinement, and recognition of no shared mechanism. Third, we design a deterministic, schema-grounded reward system over structured state transitions, enabling reproducible scoring without proprietary judges at the step level during preference optimization and the trajectory level for policy gradient optimization. Fourth, we propose a staged training pipeline, including warm-start SFT, DPO on shared-prefix trajectory branches, and GRPO for long-horizon exploration. We pair this with a curriculum that scales task difficulty, noise, and trajectory length. We will release the training environment, CORUM split indices, evaluation harness, and trained checkpoints, and we will benchmark against frontier and open models under both empirical and blind expert-preference evaluation.
 
-\section{Background and Related Work}
-Transition paragraph
-\subsection{Biological Networks and Mechanistic Ground Truth}
-\subsubsection{Systems Biology and Mechanistic Discovery}
-\begin{itemize}
-    \item \cite{barabasi2004network}
-    \item \cite{barabasi2011network}
-    \item \cite{ideker2012differential}
-    \item "Uncovering disease-disease relationships through the incomplete interactome")
-    \item "From molecular to modular cell biology"
-\end{itemize}
-
-\subsubsection{Curated Ground Truth: CORUM and Protein Complexes}
-\begin{itemize}
-    \item \cite{tsitsiridis2023corum}
-    \item Giurgiu et al. 2019 (CORUM 3.0 update
-    \item BioGRID (Oughtred et al. 2021)
-    \item Reactome (Gillespie et al. 2022)
-\end{itemize}
-
-\subsubsection{Network Construction and Exploration on Multiplexes}
-\begin{itemize}
-    \item \cite{basu2018iterative}
-    \item \cite{cliff2019high}
-    \item \cite{kohler2008walking}
-    \item \cite{cowen2017network}
-    \item De Domenico et al. 2013 (Nature Comm, multiplex network framework
-    \item Mucha et al. 2010 (Science, multilayer community detection) for multiplex foundations
-    \item \cite{newman2004finding, blondel2008fast} 
-    \item \cite{kipf2016semi, velivckovic2017graph} 
-\end{itemize}
-
-\subsection{Tool-Using Language Models for Scientific Reasoning}
-\subsubsection{Transformer Reasoning with Tool Use}
-\begin{itemize}
-    \item \cite{wei2022chain}
-    \item \cite{kojima2022large}
-    \item \cite{wang2022self}
-    \item \cite{schick2023toolformer}, 
-    \item ReAct \cite{yao2022react}
-    \item PAL \cite{gao2023pal}
-    \item Gorilla \cite{patil2024gorilla}
-    \item Yao et al. 2023 Tree-of-Thoughts
-    \item Shinn et al. 2023 Reflexion
-\end{itemize}
-
-\subsubsection{Agentic Architectures with Verification}
-\begin{itemize}
-    \item Madaan et al. 2023 Self-Refine
-    \item Shinn et al. 2023 Reflexion
-    \item Asai et al. 2023 Self-RAG
-    \item Eubiota \cite{eubiota}
-\end{itemize}
-
-\subsubsection{Agentic Gene Set Interpretation}
-\begin{itemize}
-    \item Eubiota \cite{eubiota}
-    \item Mentor-ia \cite{mentor-ia}
-    \item GeneAgent (Wang et al. 2024 if applicable),
-    \item GenePT (Chen \& Zou 2024) 
-\end{itemize}
-
-\subsection{Reinforcement Learning for Long-Horizon Tool-Use}
-\subsubsection{Preference Optimization}
-\begin{itemize}
-    \item Christiano et al. 2017 (RLHF original)
-    \item Ouyang et al. 2022 (InstructGPT)
-    \item Rafailov et al. 2023 DPO
-    \item Azar et al. 2024 IPO (DPO theoretical critique)
-    \item Hong et al. 2024 ORPO
-\end{itemize}
-
-\subsubsection{Policy Gradient and Group-Relative Methods}
-\begin{itemize}
-    \item Schulman et al. 2017 PPO
-    \item Shao et al. 2024 GRPO
-    \item DeepSeek-R1 2025 
-\end{itemize}
-
-\subsubsection{RL for Tool-Augmented Agents}
-\begin{itemize}
-    \item RL for Tool-Augmented Agents — Putta et al. 2024
-    \item Agent-Q, Qin et al. 2024
-    \item ToolLLM, Singh et al. 2024 Beyond Human Data
-\end{itemize}
-
-
 
 \section{Proposed Methodology}\label{sec:methods}
 Our methodology has five components. Sections \ref{sec:agent_loop} and \ref{sec:task} formalize the iterative exploration loop and the mechanistic interpretation task. Sections \ref{sec:data} and \ref{sec:trajectory} describe dataset construction and environment design. Sections \ref{sec:rewards}, \ref{sec:training}, and \ref{sec:curriculum} define the training pipeline, reward functions, and curriculum. Finally, Section \ref{sec:eval} describes evaluation and benchmarking.
@@ -551,6 +464,29 @@ We store each preference pair $(x_t, c_t^+, c_t^-)$ along with its difficulty bi
 
 \subsubsection{Mechanistic Rendering and Training Outputs}
 Each selected trajectory is logged as a sequence of turn records, from which we render short per-step findings and a final mechanistic summary. These artifacts are then converted into SFT trajectory examples, evidence-to-finding records, and DPO preference pairs for the downstream training pipeline. Additionally, scored trajectories can be utilized for policy gradient optimization, such as PPO or GRPO.
+
+\subsubsection{Plain-Language Map of the Trajectory Generation Artifacts}
+The trajectory generator produces several files because each file answers a different debugging or training question. In simple terms, a trajectory run works as follows.
+
+\begin{itemize}
+    \item \textbf{Task row.} A task row is one biological problem sampled from the CORUM corpus. It stores the visible seed genes, the hidden target complex used for scoring, the task type, and the evidence mode. The model sees only the visible inputs, not the hidden target.
+    \item \textbf{Evidence mode.} The evidence mode controls what the model is allowed to see. \texttt{minimal} shows only seed genes, \texttt{graph} shows seed genes and a graph query specification, \texttt{contextual} adds free-text context, and \texttt{full} adds graph, context, and structured annotations.
+    \item \textbf{Initial interpretation and state.} The run begins with an empty human-readable interpretation and a structured state initialized from the visible task inputs. The structured state stores the current predicted group, relationship status, evidence log, mechanistic labels, tool counters, and remaining step budget.
+    \item \textbf{Actor.} The actor writes the next reasoning step and may choose one tool call. The actor should use canonical gene identifiers. For graph tools, it should omit the \texttt{layers} or \texttt{layer} argument when it wants all layers; it should not write \texttt{all}, an empty list, or \texttt{null}. The runtime also normalizes these common all-layer spellings to the omitted form before validation and execution.
+    \item \textbf{Runtime tool call.} If the actor asks for a tool, the runtime validates the tool name, arguments, genes, requested layers, budget, and duplicate-call status. Valid graph calls are executed against the deterministic multiplex runtime. Invalid calls are logged as invalid observations and penalized.
+    \item \textbf{Observation.} An observation is the structured result of a tool call. For graph tools it can contain neighbors, paths, ranked random-walk results, or induced-subgraph edges with provenance. If no tool is called, the observation is empty by design.
+    \item \textbf{Verifier.} The verifier reads the actor step and observation, then updates the interpretation and structured state. It decides whether to continue, revise, or stop. The verifier owns structured fields such as relationship status, predicted groups, mechanistic labels, and remaining uncertainty.
+    \item \textbf{Candidate branch.} One candidate branch is one possible next step: actor reasoning, optional tool action, optional observation, verifier update, and local score. A model-backed run samples several actor candidates and several verifier candidates for the same shared prefix.
+    \item \textbf{Branch pool.} A branch pool is the full set of candidate branches for one trajectory step. \texttt{branch\_pools.jsonl} is the best file for debugging why the generator selected one continuation over another, because it contains both chosen and rejected candidates.
+    \item \textbf{Local score.} Each branch receives a deterministic score from schema validity, complex-membership improvement, mechanistic-label improvement, and efficiency. This score is used to rank branches, mine DPO pairs, and select the continuation branch.
+    \item \textbf{Selected trajectory turn.} The highest-scoring branch becomes the next logged turn. \texttt{trajectory\_turns.jsonl} contains only this selected path, so it is easier to read than the full branch pools but does not show all rejected alternatives.
+    \item \textbf{Finding record.} Each selected turn is converted into a short finding. \texttt{finding\_records.jsonl} is useful for checking whether the trajectory is producing concise, evidence-grounded intermediate statements.
+    \item \textbf{Final summary.} At the end of each trajectory, the selected turns and findings are rendered into one final mechanistic summary. \texttt{final\_summaries.jsonl} is the easiest file for quick human inspection of the final answer and terminal structured state.
+    \item \textbf{Preference pairs.} Branches that share the same prefix are compared to make DPO pairs. \texttt{preference\_pairs\_raw.jsonl} stores the mined pairs before balancing and filtering. \texttt{preference\_pairs.jsonl} stores the final training pairs.
+    \item \textbf{Run metadata.} \texttt{manifest.json} records the run configuration, model endpoint, task selection, and artifact counts. \texttt{progress.json} records completion state and high-level metrics. \texttt{served\_models.json} records the vLLM model id used by the run. \texttt{vllm\_server.log} records server startup, warnings, and request throughput.
+\end{itemize}
+
+The most useful manual inspection order is usually: first read \texttt{progress.json}, then \texttt{manifest.json}, then \texttt{final\_summaries.jsonl}, then \texttt{preference\_pairs.jsonl}. If something looks wrong, inspect the matching step in \texttt{trajectory\_turns.jsonl} and finally the full candidate set in \texttt{branch\_pools.jsonl}.
 
 \subsection{Training Pipeline}\label{sec:training}
 We propose a training pipeline that closely aligns with standard model post-training pipelines. First, we utilize supervised fine-tuning for general biological knowledge and tool calling. We continue training with DPO on stepwise interpretation tree comparisons. Finally, we promote novel exploration over long-horizon tasks with policy gradient optimization.

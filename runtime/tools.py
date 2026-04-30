@@ -149,11 +149,23 @@ def _unique_preserving_order(values: list[str]) -> list[str]:
     return unique_values
 
 
-def _resolve_layer_names(index: MultiplexIndex, layers: list[str] | None = None) -> list[str]:
+_ALL_LAYER_ALIASES = {"all", "*", "all_layers", "all layers", "multiplex"}
+
+
+def _is_all_layer_alias(value: Any) -> bool:
+    return isinstance(value, str) and value.strip().lower() in _ALL_LAYER_ALIASES
+
+
+def _resolve_layer_names(index: MultiplexIndex, layers: list[str] | str | None = None) -> list[str]:
     if layers is None:
         return list(index.layer_names)
+    if isinstance(layers, list) and (not layers or all(_is_all_layer_alias(layer) for layer in layers)):
+        return list(index.layer_names)
+    if _is_all_layer_alias(layers):
+        return list(index.layer_names)
 
-    resolved = _unique_preserving_order([str(layer) for layer in layers])
+    layer_values = [layers] if isinstance(layers, str) else layers
+    resolved = _unique_preserving_order([str(layer) for layer in layer_values])
     unknown = [layer for layer in resolved if layer not in index.layer_graphs]
     if unknown:
         raise ToolExecutionError("Unknown layers requested: " + ", ".join(sorted(unknown)) + ".")

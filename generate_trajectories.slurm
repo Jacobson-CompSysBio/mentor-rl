@@ -29,7 +29,7 @@ TASKS_PATH="${TASKS_PATH:-${REPO_ROOT}/data/corum_corpus/tasks.train.jsonl}"
 STORE_DIR="${STORE_DIR:-${REPO_ROOT}/data/humannet_multiplex_store}"
 ENCODINGS_SHARED_DIR="${ENCODINGS_SHARED_DIR:-${REPO_ROOT}/data/tiktoken_encodings}"
 SCRATCH="${SCRATCH:-/lustre/orion/syb114/scratch/${USER}}"
-SIF="${SIF:-${SCRATCH}/containers/vllm0141rocm72.sif}"
+SIF="${SIF:-/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/vllm0141rocm72.sif}"
 
 abspath_dir() {
   local path="$1"
@@ -196,6 +196,18 @@ mkdir -p "${MIOPEN_USER_DB_PATH}"
 export APPTAINERENV_TRITON_CACHE_DIR="/tmp/triton-${SLURM_JOB_ID}/cache/"
 export APPTAINER_BINDPATH="${APPTAINER_BINDPATH:-${SCRATCH},/lustre/orion/syb111,/lustre/orion/syb114,/mnt/bb}"
 export SAFETENSORS_FAST_GPU="${SAFETENSORS_FAST_GPU:-1}"
+
+if ! command -v apptainer >/dev/null 2>&1; then
+  log "apptainer is not available on PATH."
+  exit 1
+fi
+
+log "Validating vLLM Apptainer image: ${SIF}"
+if ! apptainer exec --fakeroot --writable-tmpfs "${SIF}" /bin/sh -lc 'command -v vllm >/dev/null'; then
+  log "Failed to start the vLLM Apptainer image: ${SIF}"
+  log "The image may be truncated or corrupt. Recopy it before staging the model."
+  exit 1
+fi
 
 ensure_encoding_file() {
   local target_path="$1"

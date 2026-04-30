@@ -72,6 +72,51 @@ def _is_string_list(value: Any, *, allow_empty: bool = False) -> bool:
     return all(_is_non_empty_string(item) for item in value)
 
 
+_ALL_LAYER_ALIASES = {"all", "*", "all_layers", "all layers", "multiplex"}
+
+
+def _is_all_layer_alias(value: Any) -> bool:
+    return isinstance(value, str) and value.strip().lower() in _ALL_LAYER_ALIASES
+
+
+def _is_all_layer_list(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, list):
+        return not value or all(_is_all_layer_alias(item) for item in value)
+    return _is_all_layer_alias(value)
+
+
+def normalize_tool_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Return canonical tool arguments for common all-layer spellings.
+
+    Graph tools use an omitted layer field to mean "query all layers". Model
+    outputs often spell that as `["all"]`, `[]`, or `null`; normalize those
+    aliases before validation, duplicate detection, execution, and scoring.
+    """
+
+    normalized = dict(arguments)
+    if tool_name in {"get_neighbors", "induce_subgraph"}:
+        if "layers" in normalized and _is_all_layer_list(normalized["layers"]):
+            normalized.pop("layers")
+    elif tool_name == "shortest_path":
+        if "layer" in normalized and _is_all_layer_alias(normalized["layer"]):
+            normalized.pop("layer")
+    return normalized
+
+
+def normalize_tool_action(tool_action: ToolAction) -> ToolAction:
+    """Return a tool action with canonicalized arguments."""
+
+    if not isinstance(tool_action, ToolAction):
+        raise SchemaValidationError("tool_action must be a ToolAction instance.")
+    return ToolAction(
+        tool_name=tool_action.tool_name,
+        arguments=normalize_tool_arguments(tool_action.tool_name, tool_action.arguments),
+        call_id=tool_action.call_id,
+    )
+
+
 def _reject_unknown_arguments(
     arguments: dict[str, Any],
     *,
@@ -101,7 +146,7 @@ def validate_tool_action_schema(tool_action: ToolAction) -> ValidationResult:
         return base
 
     result = validate_tool_name(tool_action.tool_name)
-    arguments = tool_action.arguments
+    arguments = normalize_tool_arguments(tool_action.tool_name, tool_action.arguments)
 
     if tool_action.tool_name == "query_mygene":
         result.extend(_reject_unknown_arguments(arguments, allowed={"query", "fields"}))
@@ -173,7 +218,7 @@ def validate_tool_action_semantics(
         if state.remaining_budget <= 0:
             result.add_error("Tool calls are not valid when the remaining budget is 0.")
 
-    arguments = tool_action.arguments
+    arguments = normalize_tool_arguments(tool_action.tool_name, tool_action.arguments)
 
     gene_fields = []
     layer_fields = []
@@ -237,7 +282,7 @@ def tool_action_fingerprint(tool_action: ToolAction) -> str:
     return json.dumps(
         {
             "tool_name": tool_action.tool_name,
-            "arguments": tool_action.arguments,
+            "arguments": normalize_tool_arguments(tool_action.tool_name, tool_action.arguments),
         },
         sort_keys=True,
     )
@@ -309,6 +354,8 @@ def validate_preference_pair(pair: PreferencePair) -> ValidationResult:
 __all__ = [
     "ValidationResult",
     "is_duplicate_tool_action",
+    "normalize_tool_action",
+    "normalize_tool_arguments",
     "tool_action_fingerprint",
     "validate_candidate_branch",
     "validate_preference_pair",

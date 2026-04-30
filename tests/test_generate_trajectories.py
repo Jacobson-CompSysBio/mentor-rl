@@ -14,6 +14,7 @@ from scripts.generate_trajectories import (
     ModelGeneratorConfig,
     OpenAICompatibleCandidateGenerator,
     TrajectoryGenerationConfig,
+    _normalize_runtime_tool_action,
     generate_trajectories,
 )
 from utils.multiplex import Multiplex
@@ -269,6 +270,20 @@ class _BrokenFinalChannelTokenizer:
 
 
 class GenerateTrajectoriesTests(unittest.TestCase):
+    def test_model_tool_action_normalization_removes_all_layer_alias(self) -> None:
+        tool_action, errors = _normalize_runtime_tool_action(
+            {
+                "tool_name": "induce_subgraph",
+                "arguments": {"genes": ["ENSG1", "ENSG2"], "layers": ["all"]},
+            }
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(
+            tool_action,
+            {"tool_name": "induce_subgraph", "arguments": {"genes": ["ENSG1", "ENSG2"]}},
+        )
+
     def test_generate_trajectories_writes_expected_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "trajectories"

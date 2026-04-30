@@ -101,6 +101,19 @@ class RuntimeEnvironmentTests(unittest.TestCase):
         self.assertEqual(observation.payload["unique_neighbors"], ["ENSG2"])
         self.assertEqual(observation.provenance["runtime_version"], "mentor-rl-runtime-v1")
 
+    def test_execute_normalizes_all_layer_alias(self) -> None:
+        environment = _build_environment()
+        action = ToolAction(
+            tool_name="get_neighbors",
+            arguments={"gene": "ENSG1", "layers": ["all"]},
+            call_id="call_neighbors",
+        )
+
+        observation = environment.execute(action)
+
+        self.assertEqual(observation.status, ToolObservationStatus.SUCCESS)
+        self.assertEqual(observation.provenance["queried_layers"], ["ppi", "tf"])
+
     def test_execute_empty_path_returns_empty_observation(self) -> None:
         environment = _build_environment()
         action = ToolAction(

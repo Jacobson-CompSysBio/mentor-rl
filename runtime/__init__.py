@@ -76,6 +76,8 @@ from .tools import (
 from .validators import (
     ValidationResult,
     is_duplicate_tool_action,
+    normalize_tool_action,
+    normalize_tool_arguments,
     tool_action_fingerprint,
     validate_candidate_branch,
     validate_preference_pair,
@@ -142,6 +144,8 @@ __all__ = [
     "load_mygene_cache",
     "make_initial_interpretation",
     "build_multiplex_index",
+    "normalize_tool_action",
+    "normalize_tool_arguments",
     "query_mygene",
     "record_tool_call",
     "replace_mechanistic_labels",

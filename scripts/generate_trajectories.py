@@ -70,6 +70,7 @@ from runtime import (
     clone_state,
     decrement_budget,
     initialize_state_from_corum_task,
+    normalize_tool_arguments,
     record_tool_call,
     replace_mechanistic_labels,
     replace_predicted_groups,
@@ -120,6 +121,8 @@ Actor rules:
 - Use canonical Ensembl gene ids when you reference genes in tool arguments.
 - Prefer the cheapest action that is most likely to reduce uncertainty.
 - If current visible evidence is already enough, do not call a tool.
+- To query all graph layers, omit the `layers` or `layer` argument entirely.
+  Never write "all", [], or null for layer selection.
 - Do not update relationship status, predicted groups, mechanistic labels, or
   other structured state fields. The verifier owns that structured update.
 
@@ -133,11 +136,11 @@ Tool guidance:
 
 Allowed tools:
 - query_mygene: {"query": str, "fields": [str] optional}
-- get_neighbors: {"gene": str, "layers": [str] optional}
-- shortest_path: {"source": str, "target": str, "layer": str optional}
+- get_neighbors: {"gene": str, "layers": [real layer name] optional; omit for all layers}
+- shortest_path: {"source": str, "target": str, "layer": real layer name optional; omit for all layers}
 - rwr_multiplex: {"seeds": [str], "top_k": int optional}
-- rwr_monoplex: {"seeds": [str], "layer": str, "top_k": int optional}
-- induce_subgraph: {"genes": [str], "layers": [str] optional}
+- rwr_monoplex: {"seeds": [str], "layer": real layer name required, "top_k": int optional}
+- induce_subgraph: {"genes": [str], "layers": [real layer name] optional; omit for all layers}
 
 If the serving backend supports tool calls, use a native tool call for the
 action. If it does not, write the reasoning normally and optionally end with one
@@ -720,7 +723,12 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
             "type": "object",
             "properties": {
                 "gene": {"type": "string"},
-                "layers": {"type": "array", "items": {"type": "string"}},
+                "layers": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                    "description": "Optional concrete layer names. Omit this field to query all layers; do not use 'all'.",
+                },
             },
             "required": ["gene"],
             "additionalProperties": False,
@@ -731,7 +739,10 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
             "properties": {
                 "source": {"type": "string"},
                 "target": {"type": "string"},
-                "layer": {"type": "string"},
+                "layer": {
+                    "type": "string",
+                    "description": "Optional concrete layer name. Omit this field to query all layers; do not use 'all'.",
+                },
             },
             "required": ["source", "target"],
             "additionalProperties": False,
@@ -751,7 +762,10 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
             "type": "object",
             "properties": {
                 "seeds": {"type": "array", "items": {"type": "string"}},
-                "layer": {"type": "string"},
+                "layer": {
+                    "type": "string",
+                    "description": "A concrete layer name. Use rwr_multiplex instead when querying across all layers.",
+                },
                 "top_k": {"type": "integer", "minimum": 1},
             },
             "required": ["seeds", "layer"],
@@ -762,7 +776,12 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
             "type": "object",
             "properties": {
                 "genes": {"type": "array", "items": {"type": "string"}},
-                "layers": {"type": "array", "items": {"type": "string"}},
+                "layers": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                    "description": "Optional concrete layer names. Omit this field to query all layers; do not use 'all'.",
+                },
             },
             "required": ["genes"],
             "additionalProperties": False,
@@ -815,6 +834,7 @@ def _normalize_runtime_tool_action(
     if not isinstance(arguments, dict):
         errors.append(f"{prefix}_tool_arguments_not_a_dict")
         arguments = {}
+    arguments = normalize_tool_arguments(tool_name, arguments)
     return {"tool_name": tool_name, "arguments": arguments}, errors
 
 

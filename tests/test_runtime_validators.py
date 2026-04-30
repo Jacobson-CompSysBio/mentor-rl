@@ -18,6 +18,7 @@ from runtime.schemas import (
 from runtime.state import initialize_state_from_corum_task
 from runtime.validators import (
     is_duplicate_tool_action,
+    normalize_tool_arguments,
     tool_action_fingerprint,
     validate_candidate_branch,
     validate_preference_pair,
@@ -97,6 +98,41 @@ class RuntimeValidatorTests(unittest.TestCase):
         self.assertTrue(result.valid)
         self.assertEqual(result.errors, [])
 
+    def test_all_layer_aliases_are_validated_as_omitted_layers(self) -> None:
+        action = ToolAction(
+            tool_name="get_neighbors",
+            arguments={"gene": "ENSG00000068024", "layers": ["all"]},
+            call_id="call_1",
+        )
+
+        result = validate_tool_action_semantics(
+            action,
+            available_gene_ids={"ENSG00000068024"},
+            available_layers={"ppi"},
+        )
+
+        self.assertTrue(result.valid)
+        self.assertEqual(
+            normalize_tool_arguments(action.tool_name, action.arguments),
+            {"gene": "ENSG00000068024"},
+        )
+
+    def test_empty_and_null_layers_are_validated_as_omitted_layers(self) -> None:
+        for layers in ([], None):
+            with self.subTest(layers=layers):
+                action = ToolAction(
+                    tool_name="induce_subgraph",
+                    arguments={
+                        "genes": ["ENSG00000068024", "ENSG00000113916"],
+                        "layers": layers,
+                    },
+                    call_id="call_1",
+                )
+
+                result = validate_tool_action_schema(action)
+
+                self.assertTrue(result.valid)
+
     def test_validate_tool_action_schema_rejects_bad_arguments(self) -> None:
         action = ToolAction(
             tool_name="get_neighbors",
@@ -138,6 +174,21 @@ class RuntimeValidatorTests(unittest.TestCase):
         action_b = ToolAction(
             tool_name="induce_subgraph",
             arguments={"genes": ["ENSG1", "ENSG2"], "layers": ["ppi"]},
+            call_id="call_2",
+        )
+
+        self.assertEqual(tool_action_fingerprint(action_a), tool_action_fingerprint(action_b))
+        self.assertTrue(is_duplicate_tool_action(action_b, [action_a]))
+
+    def test_duplicate_tool_detection_normalizes_all_layer_aliases(self) -> None:
+        action_a = ToolAction(
+            tool_name="induce_subgraph",
+            arguments={"genes": ["ENSG1", "ENSG2"]},
+            call_id="call_1",
+        )
+        action_b = ToolAction(
+            tool_name="induce_subgraph",
+            arguments={"genes": ["ENSG1", "ENSG2"], "layers": ["all"]},
             call_id="call_2",
         )
 
