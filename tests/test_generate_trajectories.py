@@ -14,7 +14,10 @@ from scripts.generate_trajectories import (
     ModelGeneratorConfig,
     OpenAICompatibleCandidateGenerator,
     TrajectoryGenerationConfig,
+    _actor_prompt_payload,
+    _build_actor_step_from_model_candidate,
     _normalize_runtime_tool_action,
+    _verifier_prompt_payload,
     generate_trajectories,
 )
 from utils.multiplex import Multiplex
@@ -91,6 +94,20 @@ def _task_rows() -> list[dict]:
 def _read_jsonl(path: Path) -> list[dict]:
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+
+
+def _collect_json_keys(value) -> set[str]:
+    if isinstance(value, dict):
+        keys = set(value)
+        for item in value.values():
+            keys.update(_collect_json_keys(item))
+        return keys
+    if isinstance(value, list):
+        keys = set()
+        for item in value:
+            keys.update(_collect_json_keys(item))
+        return keys
+    return set()
 
 
 class _FakeModelGenerator:
@@ -284,6 +301,93 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             {"tool_name": "induce_subgraph", "arguments": {"genes": ["ENSG1", "ENSG2"]}},
         )
 
+    def test_model_prompt_payloads_do_not_include_corum_ground_truth_metadata(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+        actor_payload = _actor_prompt_payload(context, step_index=0)
+        verifier_payload = _verifier_prompt_payload(
+            context,
+            actor_step=ActorStep(reasoning_text="Probe the graph.", tool_action=None),
+            observation=None,
+            step_index=0,
+        )
+
+        blocked_keys = {
+            "difficulty",
+            "evidence_mode",
+            "hidden_target",
+            "mechanism_labels",
+            "source_task_id",
+            "target_gene_ids",
+            "target_gene_symbols",
+            "task_id",
+            "task_type",
+        }
+        self.assertTrue(blocked_keys.isdisjoint(_collect_json_keys(actor_payload)))
+        self.assertTrue(blocked_keys.isdisjoint(_collect_json_keys(verifier_payload)))
+
+    def test_actor_rationale_prompt_does_not_include_corum_ground_truth_metadata(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+        generator = OpenAICompatibleCandidateGenerator(
+            ModelGeneratorConfig(
+                api_base="http://unused",
+                api_mode="chat_completions",
+                model_name="llama-3.1-70b-instruct",
+            )
+        )
+        captured: dict[str, str] = {}
+
+        def fake_chat(**kwargs):
+            captured["user_prompt"] = kwargs["messages"][1]["content"]
+            return [
+                {
+                    "message": {"content": '{"reasoning_text":"Probe the visible graph."}'},
+                    "finish_reason": "stop",
+                }
+            ]
+
+        generator._chat = fake_chat
+        reasoning_text, errors = generator._generate_actor_reasoning(
+            context,
+            task_row=task_row,
+            step_index=0,
+            seed=5,
+        )
+
+        blocked_keys = {
+            "difficulty",
+            "evidence_mode",
+            "hidden_target",
+            "mechanism_labels",
+            "source_task_id",
+            "target_gene_ids",
+            "target_gene_symbols",
+            "task_id",
+            "task_row",
+            "task_type",
+        }
+        self.assertEqual(reasoning_text, "Probe the visible graph.")
+        self.assertEqual(errors, [])
+        prompt_payload = json.loads(captured["user_prompt"])
+        self.assertTrue(blocked_keys.isdisjoint(_collect_json_keys(prompt_payload)))
+        self.assertNotIn("ENSG3", captured["user_prompt"])
+        self.assertNotIn("toy process", captured["user_prompt"])
+
     def test_generate_trajectories_writes_expected_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "trajectories"
@@ -339,7 +443,80 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             self.assertIn("terminal_reward", final_summaries[0])
             self.assertIn("finding_count", final_summaries[0])
             self.assertIn("terminal_schema_score", final_summaries[0])
+            blocked_artifact_keys = {
+                "terminal_score_metadata",
+                "raw_actor_response",
+                "raw_verifier_response",
+                "token_ids",
+                "prompt_token_ids",
+            }
+            for artifact_rows in (
+                branch_pools,
+                trajectory_turns,
+                finding_records,
+                preference_pairs_raw,
+                preference_pairs,
+                final_summaries,
+            ):
+                for row in artifact_rows:
+                    self.assertTrue(blocked_artifact_keys.isdisjoint(_collect_json_keys(row)))
             self.assertEqual(manifest["artifacts"]["finding_record_count"], len(finding_records))
+
+    def test_model_trajectory_artifacts_exclude_raw_model_payloads(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "trajectories"
+            generate_trajectories(
+                task_rows=_task_rows(),
+                out_dir=out_dir,
+                environment=_build_environment(),
+                config=TrajectoryGenerationConfig(
+                    candidate_source="model_vllm",
+                    max_steps=3,
+                    n_act=1,
+                    n_ver=1,
+                    seed=7,
+                ),
+                candidate_generator=_FakeModelGenerator(),
+            )
+
+            blocked_artifact_keys = {
+                "terminal_score_metadata",
+                "raw_actor_response",
+                "raw_verifier_response",
+                "token_ids",
+                "prompt_token_ids",
+            }
+            for filename in (
+                "branch_pools.jsonl",
+                "trajectory_turns.jsonl",
+                "finding_records.jsonl",
+                "preference_pairs_raw.jsonl",
+                "preference_pairs.jsonl",
+                "final_summaries.jsonl",
+            ):
+                for row in _read_jsonl(out_dir / filename):
+                    self.assertTrue(blocked_artifact_keys.isdisjoint(_collect_json_keys(row)))
+
+    def test_model_actor_step_normalizes_all_layer_alias_before_storage(self) -> None:
+        actor_step, errors = _build_actor_step_from_model_candidate(
+            {
+                "reasoning_text": "Inspect all available graph layers.",
+                "tool_action": {
+                    "tool_name": "induce_subgraph",
+                    "arguments": {
+                        "genes": ["ENSG1", "ENSG2"],
+                        "layers": ["all"],
+                    },
+                },
+            },
+            trajectory_id="trajectory",
+            step_index=0,
+            actor_index=0,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertIsNotNone(actor_step.tool_action)
+        self.assertEqual(actor_step.tool_action.arguments, {"genes": ["ENSG1", "ENSG2"]})
 
     def test_generate_trajectories_is_deterministic_for_same_seed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -651,7 +828,9 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertTrue(generator.session.requests[0]["url"].endswith("/completions"))
         self.assertNotIn("guided_json", first_request)
         self.assertFalse(first_request["add_special_tokens"])
-        self.assertTrue(first_request["return_token_ids"])
+        self.assertNotIn("return_token_ids", first_request)
+        self.assertNotIn("token_ids", actor_candidates[0]["raw_text"])
+        self.assertNotIn("prompt_token_ids", actor_candidates[0]["raw_text"])
         self.assertIn('"enable_thinking": false', first_request["prompt"])
 
     def test_openai_candidate_generator_can_force_completions_for_gpt_oss_verifier(self) -> None:
@@ -738,7 +917,9 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertTrue(generator.session.requests[0]["url"].endswith("/completions"))
         self.assertEqual(first_request["guided_json"]["required"], ["updated_interpretation", "updated_state"])
         self.assertFalse(first_request["add_special_tokens"])
-        self.assertTrue(first_request["return_token_ids"])
+        self.assertNotIn("return_token_ids", first_request)
+        self.assertNotIn("token_ids", verifier_candidates[0]["raw_text"])
+        self.assertNotIn("prompt_token_ids", verifier_candidates[0]["raw_text"])
         self.assertIn('"enable_thinking": false', first_request["prompt"])
         self.assertNotIn('"task_type"', first_request["prompt"])
         self.assertNotIn('"difficulty"', first_request["prompt"])
@@ -1068,6 +1249,9 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertTrue(generator.session.requests[1]["url"].endswith("/completions"))
         fallback_request = generator.session.requests[1]["json"]
         self.assertNotIn("guided_json", fallback_request)
+        self.assertNotIn("return_token_ids", fallback_request)
+        self.assertNotIn("token_ids", actor_candidates[0]["raw_text"])
+        self.assertNotIn("prompt_token_ids", actor_candidates[0]["raw_text"])
         self.assertIn('"enable_thinking": false', fallback_request["prompt"])
         self.assertIn("chat_completions_blank_visible_output", actor_candidates[0]["raw_text"])
 

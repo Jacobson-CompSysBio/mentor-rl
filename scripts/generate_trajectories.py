@@ -230,6 +230,7 @@ RUNTIME_TOOL_NAMES = (
 TOOL_ACTION_LINE_RE = re.compile(
     r"(?im)^\s*(?:TOOL_ACTION|ACTION)\s*:\s*(?P<payload>\{.*\})\s*$"
 )
+RAW_GENERATION_PAYLOAD_KEYS = {"token_ids", "prompt_token_ids"}
 
 
 def utc_now_iso() -> str:
@@ -302,6 +303,20 @@ def _safe_dict(value: Any) -> dict[str, Any]:
 
 def _safe_text(value: Any) -> str:
     return value if isinstance(value, str) else ""
+
+
+def _strip_raw_generation_payload(value: Any) -> Any:
+    """Drop endpoint token payloads before retaining model response diagnostics."""
+
+    if isinstance(value, dict):
+        return {
+            key: _strip_raw_generation_payload(item)
+            for key, item in value.items()
+            if key not in RAW_GENERATION_PAYLOAD_KEYS
+        }
+    if isinstance(value, list):
+        return [_strip_raw_generation_payload(item) for item in value]
+    return value
 
 
 def _actor_prompt_payload(
@@ -1411,7 +1426,6 @@ class OpenAICompatibleCandidateGenerator:
             ),
             "seed": seed,
             "add_special_tokens": False,
-            "return_token_ids": True,
         }
         if guided_json is not None:
             payload["guided_json"] = guided_json
@@ -1442,8 +1456,6 @@ class OpenAICompatibleCandidateGenerator:
                         "role": "assistant",
                         "content": _safe_text(choice.get("text")),
                     },
-                    "token_ids": choice.get("token_ids"),
-                    "prompt_token_ids": choice.get("prompt_token_ids"),
                 }
             )
         if not choices:
@@ -1581,20 +1593,12 @@ class OpenAICompatibleCandidateGenerator:
         step_index: int,
         seed: int,
     ) -> tuple[str, list[str]]:
+        del task_row
         user_prompt = json.dumps(
-            {
-                "task_row": {
-                    "task_id": task_row["task_id"],
-                    "task_type": task_row["task_type"],
-                    "difficulty": task_row.get("difficulty"),
-                    "evidence_mode": task_row.get("evidence_mode"),
-                },
-                "query_text": context.query_text,
-                "visible_inputs": context.user_evidence,
-                "interpretation": context.interpretation.to_dict(),
-                "state": context.state.to_dict(),
-                "step_index": step_index,
-            },
+            _actor_prompt_payload(
+                context,
+                step_index=step_index,
+            ),
             indent=2,
             sort_keys=True,
         )
@@ -1691,7 +1695,7 @@ class OpenAICompatibleCandidateGenerator:
             text_config=text_config,
             disable_hidden_thinking=self._should_disable_hidden_thinking(),
         ):
-            raw_text = _json_dumps_compact(choice)
+            raw_text = _json_dumps_compact(_strip_raw_generation_payload(choice))
             try:
                 normalized_payload, payload_errors = _actor_candidate_from_choice(choice)
                 candidate_reasoning_text = normalized_payload["reasoning_text"]
@@ -1782,7 +1786,7 @@ class OpenAICompatibleCandidateGenerator:
             text_config=text_config,
             disable_hidden_thinking=self._should_disable_hidden_thinking(),
         ):
-            raw_text = _json_dumps_compact(choice)
+            raw_text = _json_dumps_compact(_strip_raw_generation_payload(choice))
             try:
                 payload, payload_errors = _named_tool_arguments_from_choice(
                     choice,
@@ -2599,9 +2603,10 @@ def _build_actor_step_from_model_candidate(
             if not isinstance(tool_name, str) or not tool_name:
                 errors.append("actor_tool_name_missing_or_invalid")
             else:
+                arguments = normalize_tool_arguments(tool_name, _safe_dict(arguments))
                 tool_action = ToolAction(
                     tool_name=tool_name,
-                    arguments=_safe_dict(arguments),
+                    arguments=arguments,
                     call_id=f"{trajectory_id}.step{step_index}.model_actor{actor_index}",
                 )
 
@@ -2762,7 +2767,6 @@ def _build_branch_from_model_output(
             "step_index": step_index,
             "task_type": task_row["task_type"],
             "generator_errors": errors,
-            "raw_verifier_response": verifier_candidate.get("raw_text", ""),
         },
     )
 
@@ -3122,7 +3126,6 @@ def generate_task_trajectory(
                             "phase": "actor",
                             "actor_index": actor_index,
                             "generator_errors": actor_generation_errors,
-                            "raw_actor_response": actor_candidate.get("raw_text", ""),
                         }
                     )
                     continue
@@ -3156,8 +3159,6 @@ def generate_task_trajectory(
                                 "actor_index": actor_index,
                                 "verifier_index": verifier_index,
                                 "generator_errors": branch_generation_errors,
-                                "raw_actor_response": actor_candidate.get("raw_text", ""),
-                                "raw_verifier_response": verifier_candidate.get("raw_text", ""),
                             }
                         )
                         continue
@@ -3173,7 +3174,6 @@ def generate_task_trajectory(
                         symbol_lookup=symbol_lookup,
                         generator_errors=actor_generation_errors,
                     )
-                    branch.metadata["raw_actor_response"] = actor_candidate.get("raw_text", "")
                     branch = _score_branch(
                         task_row,
                         state,
@@ -3528,7 +3528,6 @@ def generate_trajectories(
                             "terminal_mechanistic_delta_score": terminal_score["mechanistic_delta"],
                             "terminal_efficiency_penalty": terminal_score["efficiency_penalty"],
                             "terminal_reward": terminal_score["terminal_reward"],
-                            "terminal_score_metadata": terminal_score["metadata"],
                         },
                     )
 
