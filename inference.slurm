@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=inference_only
 #SBATCH -A SYB114
-#SBATCH -N 2
-#SBATCH -t 00:15:00
+#SBATCH -N 4
+#SBATCH -t 02:00:00
 #SBATCH -p batch
-#SBATCH -q debug
+##SBATCH -q debug
 #SBATCH -C nvme
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
@@ -39,7 +39,7 @@ echo "Job ID: $SLURM_JOB_ID"
 echo "Node List: $SLURM_JOB_NODELIST"
 
 # --- Define Paths ---
-MODEL_NAME="gpt-oss-20b-bf16"
+MODEL_NAME="gpt-oss-120b-bf16"
 
 export LOCAL_SSD_PATH="/mnt/bb/${USER}/job_${SLURM_JOB_ID}"
 export LOCAL_ENV_DIR="${LOCAL_SSD_PATH}/venv"
@@ -64,7 +64,7 @@ mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE"
 
 # --- STAGE 1: Stage Data to Local SSD on Each Node ---
 srun --kill-on-bad-exit=1 --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
-  echo '--- Staging on node: $(hostname) ---'
+  echo '--- Staging on node: '\$(hostname)' ---'
 
   mkdir -p ${LOCAL_SSD_PATH} ${LOCAL_MODEL_DIR} ${LOCAL_ENV_DIR} ${LOCAL_DATA_DIR} ${LOCAL_CONFIG_DIR}
 
@@ -81,13 +81,17 @@ srun --kill-on-bad-exit=1 --ntasks=$SLURM_NNODES --ntasks-per-node=1 bash -c "
 
   mkdir -p ${LOCAL_SSD_PATH}/hf_cache
 
-  echo '--- Staging on $(hostname) complete ---'
+  echo '--- Staging on '\$(hostname)' complete ---'
 "
 echo "--- Staging complete on all nodes ---"
 
 # --- STAGE 2: Run Inference ---
 echo "--- Preparing distributed environment ---"
-export MASTER_ADDR=$(hostname -i)
+MASTER_ADDR="$(ip -4 addr show hsn0 | awk '/inet /{print $2}' | cut -d/ -f1 | head -n 1)"
+if [ -z "${MASTER_ADDR}" ]; then
+  MASTER_ADDR="$(hostname -I | awk '{print $1}')"
+fi
+export MASTER_ADDR
 export MASTER_PORT=29500
 
 # rccl settings
@@ -114,8 +118,10 @@ export DS_ACCELERATOR=cuda
 export LOCAL_CACHE_BASE="${LOCAL_SSD_PATH}/caches"
 mkdir -p "${LOCAL_CACHE_BASE}"
 
-# Optional: keep HIP allocator log quiet (unrelated warning you saw)
-export PYTORCH_HIP_ALLOC_CONF="expandable_segments:False"
+# Optional: keep allocator behavior explicit for PyTorch on ROCm.
+export PYTORCH_ALLOC_CONF="expandable_segments:False"
+
+INFERENCE_OUTPUT_PATH="${SLURM_SUBMIT_DIR}/logs/inference_${MODEL_NAME}_${SLURM_JOB_ID}.json"
 
 srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
 
@@ -129,8 +135,10 @@ srun --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
     "'${SLURM_SUBMIT_DIR}'"/scripts/inference.py \
       --model_path="'${LOCAL_MODEL_DIR}'" \
       --dataset_path="'${LOCAL_DATA_DIR}'/qa_pairs.json" \
+      --deepspeed_config="'${LOCAL_CONFIG_DIR}'/ds_zero3_inference.json" \
       --seed=900913 \
-      --sample_size=20
+      --sample_size=20 \
+      --output_path="'${INFERENCE_OUTPUT_PATH}'"
 '
 
 # --- STAGE 3: Cleanup ---

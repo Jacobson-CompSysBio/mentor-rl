@@ -5,6 +5,35 @@ import string
 import torch.distributed as dist
 from transformers import HfArgumentParser
 
+SYSTEM_PROMPT = (
+    "You are a helpful biological chatbot. You will be given a biological question; "
+    "return the correct answer."
+)
+
+def build_formatting_func(tokenizer, train=True):
+    def _fmt(example):
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": example["question"]},
+        ]
+        if train:
+            messages.append({"role": "assistant", "content": example["answer"]})
+
+        return tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=not train,
+        )
+
+    return _fmt
+
+def flatten_gathered_objects(values):
+    for value in values:
+        if isinstance(value, list):
+            yield from flatten_gathered_objects(value)
+        else:
+            yield value
+
 ### RUN NAME
 def make_run_name(script_args, peft_args, training_args, slurm_args):
     
