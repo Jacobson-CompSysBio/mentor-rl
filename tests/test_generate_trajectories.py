@@ -8,7 +8,14 @@ from unittest.mock import patch
 
 import networkx as nx
 
-from runtime import ActorStep, SharedPrefixContext, ToolAction, initialize_state_from_corum_task
+from runtime import (
+    ActorStep,
+    SharedPrefixContext,
+    ToolAction,
+    ToolObservation,
+    ToolObservationStatus,
+    initialize_state_from_corum_task,
+)
 from runtime.environment import RuntimeEnvironment
 from scripts.generate_trajectories import (
     ModelGeneratorConfig,
@@ -17,6 +24,7 @@ from scripts.generate_trajectories import (
     _actor_prompt_payload,
     _build_actor_step_from_model_candidate,
     _normalize_runtime_tool_action,
+    _observation_for_verifier_prompt,
     _verifier_prompt_payload,
     generate_trajectories,
 )
@@ -332,6 +340,53 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         }
         self.assertTrue(blocked_keys.isdisjoint(_collect_json_keys(actor_payload)))
         self.assertTrue(blocked_keys.isdisjoint(_collect_json_keys(verifier_payload)))
+        self.assertNotIn("user_anchors", actor_payload["state"])
+        self.assertNotIn("user_anchors", verifier_payload["prior_state"])
+
+    def test_verifier_prompt_compacts_large_tool_observations(self) -> None:
+        layers = []
+        unique_neighbors = []
+        for layer_index in range(60):
+            neighbors = [
+                f"ENSG_LAYER_{layer_index}_{neighbor_index}"
+                for neighbor_index in range(30)
+            ]
+            unique_neighbors.extend(neighbors)
+            layers.append(
+                {
+                    "layer_name": f"layer_{layer_index}",
+                    "neighbors": neighbors,
+                    "neighbor_count": len(neighbors),
+                }
+            )
+
+        observation = ToolObservation(
+            status=ToolObservationStatus.SUCCESS,
+            provenance={
+                "tool_name": "get_neighbors",
+                "queried_layers": [f"layer_{index}" for index in range(60)],
+            },
+            call_id="call_big_neighbors",
+            payload={
+                "query_gene_id": "ENSG1",
+                "layers": layers,
+                "unique_neighbors": unique_neighbors,
+                "unique_neighbor_count": len(unique_neighbors),
+            },
+        )
+
+        compact = _observation_for_verifier_prompt(observation)
+
+        self.assertIsNotNone(compact)
+        assert compact is not None
+        self.assertEqual(compact["provenance"]["queried_layers_count"], 60)
+        self.assertEqual(len(compact["provenance"]["queried_layers_sample"]), 12)
+        self.assertEqual(compact["payload"]["unique_neighbor_count"], len(unique_neighbors))
+        self.assertEqual(len(compact["payload"]["unique_neighbors_sample"]), 20)
+        self.assertEqual(len(compact["payload"]["layers_with_neighbors_sample"]), 12)
+        self.assertNotIn("layers", compact["payload"])
+        self.assertNotIn("unique_neighbors", compact["payload"])
+        self.assertLess(len(json.dumps(compact, sort_keys=True)), 7000)
 
     def test_actor_rationale_prompt_does_not_include_corum_ground_truth_metadata(self) -> None:
         task_row = _task_rows()[0]

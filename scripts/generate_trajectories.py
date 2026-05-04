@@ -90,6 +90,12 @@ STRUCTURED_OUTPUT_MAX_TOKENS = 2048
 DEFAULT_ACTOR_RATIONALE_MAX_TOKENS = 2048
 DEFAULT_PREFERENCE_PAIR_MARGIN = 0.10
 GPT_OSS_FINAL_CHANNEL_PREFIX = "<|start|>assistant<|channel|>final<|message|>"
+PROMPT_TEXT_MAX_CHARS = 700
+PROMPT_ACTOR_REASONING_MAX_CHARS = 1200
+PROMPT_LIST_PREVIEW_LIMIT = 20
+PROMPT_LAYER_PREVIEW_LIMIT = 12
+PROMPT_EDGE_PREVIEW_LIMIT = 32
+PROMPT_MYGENE_PREVIEW_LIMIT = 5
 TRAJECTORY_STAGES = (
     ("load_tasks", "Load canonical CORUM tasks"),
     ("initialize_runtime", "Initialize deterministic runtime"),
@@ -319,20 +325,88 @@ def _strip_raw_generation_payload(value: Any) -> Any:
     return value
 
 
+def _truncate_prompt_text(value: Any, *, max_chars: int = PROMPT_TEXT_MAX_CHARS) -> str:
+    text = _safe_text(value)
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars].rstrip() + "... [truncated]"
+
+
+def _preview_list(values: Any, *, limit: int = PROMPT_LIST_PREVIEW_LIMIT) -> list[Any]:
+    if not isinstance(values, list):
+        return []
+    return values[:limit]
+
+
+def _compact_layer_list_payload(
+    values: Any,
+    *,
+    count_key: str,
+    sample_key: str,
+    limit: int = PROMPT_LAYER_PREVIEW_LIMIT,
+) -> dict[str, Any]:
+    if not isinstance(values, list):
+        return {count_key: 0, sample_key: []}
+    return {count_key: len(values), sample_key: values[:limit]}
+
+
+def _compact_provenance_for_prompt(provenance: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    for key, value in provenance.items():
+        if key in {"queried_layers", "active_layers"}:
+            compact.update(
+                _compact_layer_list_payload(
+                    value,
+                    count_key=f"{key}_count",
+                    sample_key=f"{key}_sample",
+                )
+            )
+        elif isinstance(value, str):
+            compact[key] = _truncate_prompt_text(value, max_chars=240)
+        elif isinstance(value, list):
+            compact[f"{key}_count"] = len(value)
+            compact[f"{key}_sample"] = value[:PROMPT_LIST_PREVIEW_LIMIT]
+        else:
+            compact[key] = value
+    return compact
+
+
+def _state_payload_for_model_prompt(state: Any) -> dict[str, Any]:
+    state_payload = state.to_dict()
+    state_payload.pop("user_anchors", None)
+
+    for group in state_payload.get("predicted_groups", []):
+        if isinstance(group, dict):
+            group["rationale"] = _truncate_prompt_text(group.get("rationale"), max_chars=280)
+
+    for record in state_payload.get("evidence_log", []):
+        if not isinstance(record, dict):
+            continue
+        record["summary"] = _truncate_prompt_text(record.get("summary"), max_chars=280)
+        provenance = record.get("provenance")
+        if isinstance(provenance, dict):
+            record["provenance"] = _compact_provenance_for_prompt(provenance)
+
+    return state_payload
+
+
+def _interpretation_payload_for_model_prompt(interpretation: Interpretation) -> dict[str, Any]:
+    payload = interpretation.to_dict()
+    for key in ("mechanistic_claim", "main_evidence", "uncertainty", "next_subgoal"):
+        payload[key] = _truncate_prompt_text(payload.get(key))
+    return payload
+
+
 def _actor_prompt_payload(
     context: SharedPrefixContext,
     *,
     step_index: int,
 ) -> dict[str, Any]:
-    state_payload = context.state.to_dict()
-    user_anchors_payload = _safe_dict(state_payload.get("user_anchors"))
-    user_anchors_payload.pop("evidence_mode", None)
-    user_anchors_payload.pop("source_task_id", None)
-    state_payload["user_anchors"] = user_anchors_payload
+    state_payload = _state_payload_for_model_prompt(context.state)
     return {
         "query_text": context.query_text,
         "visible_inputs": context.user_evidence,
-        "interpretation": context.interpretation.to_dict(),
+        "interpretation": _interpretation_payload_for_model_prompt(context.interpretation),
         "state": state_payload,
         "step_index": step_index,
     }
@@ -341,7 +415,113 @@ def _actor_prompt_payload(
 def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dict[str, Any] | None:
     if observation is None or observation.status != ToolObservationStatus.SUCCESS:
         return None
-    return observation.to_dict()
+
+    payload = observation.payload or {}
+    provenance = observation.provenance or {}
+    tool_name = _safe_text(provenance.get("tool_name"))
+    summary, supporting_gene_ids = _summarize_observation(observation)
+    compact_payload: dict[str, Any]
+
+    if tool_name == "get_neighbors":
+        layers = payload.get("layers", [])
+        layer_summaries: list[dict[str, Any]] = []
+        for layer_payload in (layers if isinstance(layers, list) else []):
+            if not isinstance(layer_payload, dict):
+                continue
+            neighbor_count = int(layer_payload.get("neighbor_count", 0) or 0)
+            if neighbor_count <= 0:
+                continue
+            layer_summaries.append(
+                {
+                    "layer_name": layer_payload.get("layer_name"),
+                    "neighbor_count": neighbor_count,
+                    "neighbors_sample": _preview_list(layer_payload.get("neighbors"), limit=8),
+                }
+            )
+            if len(layer_summaries) >= PROMPT_LAYER_PREVIEW_LIMIT:
+                break
+        compact_payload = {
+            "query_gene_id": payload.get("query_gene_id"),
+            "unique_neighbor_count": payload.get("unique_neighbor_count", 0),
+            "unique_neighbors_sample": _preview_list(payload.get("unique_neighbors")),
+            "layers_with_neighbors_sample": layer_summaries,
+        }
+    elif tool_name == "induce_subgraph":
+        edge_samples: list[dict[str, Any]] = []
+        layers_with_edges: list[dict[str, Any]] = []
+        layers = payload.get("layers", [])
+        for layer_payload in (layers if isinstance(layers, list) else []):
+            if not isinstance(layer_payload, dict):
+                continue
+            edge_count = int(layer_payload.get("edge_count", 0) or 0)
+            if edge_count <= 0:
+                continue
+            edges = _preview_list(
+                layer_payload.get("edges"),
+                limit=max(0, PROMPT_EDGE_PREVIEW_LIMIT - len(edge_samples)),
+            )
+            edge_samples.extend(edge for edge in edges if isinstance(edge, dict))
+            layers_with_edges.append(
+                {
+                    "layer_name": layer_payload.get("layer_name"),
+                    "edge_count": edge_count,
+                    "present_gene_ids": _preview_list(layer_payload.get("present_gene_ids")),
+                }
+            )
+            if len(layers_with_edges) >= PROMPT_LAYER_PREVIEW_LIMIT or len(edge_samples) >= PROMPT_EDGE_PREVIEW_LIMIT:
+                break
+        compact_payload = {
+            "query_gene_ids": _preview_list(payload.get("query_gene_ids")),
+            "present_gene_ids": _preview_list(payload.get("present_gene_ids")),
+            "missing_gene_ids": _preview_list(payload.get("missing_gene_ids")),
+            "combined_edge_count": payload.get("combined_edge_count", 0),
+            "layers_with_edges_sample": layers_with_edges,
+            "edge_sample": edge_samples,
+        }
+    elif tool_name == "shortest_path":
+        compact_payload = {
+            "source_gene_id": payload.get("source_gene_id"),
+            "target_gene_id": payload.get("target_gene_id"),
+            "path_gene_ids": _preview_list(payload.get("path_gene_ids")),
+            "hop_count": payload.get("hop_count"),
+            "layer_name": payload.get("layer_name"),
+        }
+    elif tool_name in {"rwr_multiplex", "rwr_monoplex"}:
+        compact_payload = {
+            "seed_gene_ids": _preview_list(payload.get("seed_gene_ids")),
+            "active_seed_gene_ids": _preview_list(payload.get("active_seed_gene_ids")),
+            "top_k": payload.get("top_k"),
+            "results": _preview_list(payload.get("results")),
+        }
+        if "layer_name" in payload:
+            compact_payload["layer_name"] = payload.get("layer_name")
+        if "active_layers" in payload:
+            compact_payload.update(
+                _compact_layer_list_payload(
+                    payload.get("active_layers"),
+                    count_key="active_layer_count",
+                    sample_key="active_layers_sample",
+                )
+            )
+    elif tool_name == "query_mygene":
+        compact_payload = {
+            "query": payload.get("query"),
+            "requested_fields": _preview_list(payload.get("requested_fields")),
+            "result_count": payload.get("result_count", 0),
+            "results": _preview_list(payload.get("results"), limit=PROMPT_MYGENE_PREVIEW_LIMIT),
+        }
+    else:
+        compact_payload = {}
+
+    return {
+        "status": observation.status.value,
+        "tool_name": tool_name,
+        "call_id": observation.call_id,
+        "summary": summary,
+        "supporting_gene_ids_sample": supporting_gene_ids[:PROMPT_LIST_PREVIEW_LIMIT],
+        "provenance": _compact_provenance_for_prompt(provenance),
+        "payload": compact_payload,
+    }
 
 
 def _verifier_prompt_payload(
@@ -351,18 +531,17 @@ def _verifier_prompt_payload(
     observation: ToolObservation | None,
     step_index: int,
 ) -> dict[str, Any]:
-    prior_state_payload = context.state.to_dict()
-    user_anchors_payload = _safe_dict(prior_state_payload.get("user_anchors"))
-    user_anchors_payload.pop("evidence_mode", None)
-    user_anchors_payload.pop("source_task_id", None)
-    prior_state_payload["user_anchors"] = user_anchors_payload
+    prior_state_payload = _state_payload_for_model_prompt(context.state)
     return {
         "query_text": context.query_text,
         "visible_inputs": context.user_evidence,
-        "prior_interpretation": context.interpretation.to_dict(),
+        "prior_interpretation": _interpretation_payload_for_model_prompt(context.interpretation),
         "prior_state": prior_state_payload,
         "actor_output": {
-            "reasoning_text": actor_step.reasoning_text,
+            "reasoning_text": _truncate_prompt_text(
+                actor_step.reasoning_text,
+                max_chars=PROMPT_ACTOR_REASONING_MAX_CHARS,
+            ),
             "tool_action": actor_step.tool_action.to_dict() if actor_step.tool_action else None,
         },
         "deterministic_observation": _observation_for_verifier_prompt(observation),
@@ -372,6 +551,15 @@ def _verifier_prompt_payload(
 
 def _json_dumps_compact(value: Any) -> str:
     return json.dumps(value, ensure_ascii=True, sort_keys=True)
+
+
+def _request_error_raw_text(error_kind: str, error: Exception) -> str:
+    return _json_dumps_compact(
+        {
+            "error": error_kind,
+            "message": _truncate_prompt_text(str(error), max_chars=1200),
+        }
+    )
 
 
 def _message_content_to_text(content: Any) -> str:
@@ -861,7 +1049,7 @@ def _extract_tool_action_from_text(text: str) -> tuple[dict[str, Any] | None, li
         raw_payload = match.group("payload")
         try:
             payload = json.loads(raw_payload)
-        except Exception as error:
+        except requests.RequestException as error:
             return None, [f"actor_tool_action_json_parse_error: {error}"]
         return _normalize_runtime_tool_action(payload)
 
@@ -1100,13 +1288,25 @@ class OpenAICompatibleCandidateGenerator:
             "Content-Type": "application/json",
         }
 
+    def _raise_for_status(self, response: requests.Response) -> None:
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as error:
+            body = _safe_text(getattr(response, "text", "")).strip()
+            if len(body) > 2000:
+                body = body[:2000].rstrip() + "... [truncated]"
+            message = str(error)
+            if body:
+                message = f"{message}; response_body={body}"
+            raise requests.HTTPError(message, response=response) from error
+
     def _discover_model_name(self) -> str:
         response = self._session().get(
             f"{self.config.api_base.rstrip('/')}/models",
             headers=self._headers(),
             timeout=self.config.request_timeout_seconds,
         )
-        response.raise_for_status()
+        self._raise_for_status(response)
         payload = response.json()
         data = payload.get("data", [])
         if not data:
@@ -1227,7 +1427,7 @@ class OpenAICompatibleCandidateGenerator:
             json=payload,
             timeout=self.config.request_timeout_seconds,
         )
-        response.raise_for_status()
+        self._raise_for_status(response)
         response_payload = response.json()
         choices: list[dict[str, Any]] = []
         for choice in response_payload.get("choices", []):
@@ -1375,7 +1575,7 @@ class OpenAICompatibleCandidateGenerator:
                 json=payload,
                 timeout=self.config.request_timeout_seconds,
             )
-            response.raise_for_status()
+            self._raise_for_status(response)
             response_payload = response.json()
             if not isinstance(response_payload, dict):
                 response_payload = {"output": [], "status": None, "raw_response": response_payload}
@@ -1435,7 +1635,7 @@ class OpenAICompatibleCandidateGenerator:
             json=payload,
             timeout=self.config.request_timeout_seconds,
         )
-        response.raise_for_status()
+        self._raise_for_status(response)
         response_payload = response.json()
         choices: list[dict[str, Any]] = []
         for choice in response_payload.get("choices", []):
@@ -1684,17 +1884,29 @@ class OpenAICompatibleCandidateGenerator:
             guided_json = None
             text_config = None
         candidates: list[dict[str, Any]] = []
-        for choice in self._generate_choices(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            n=n_act,
-            seed=seed,
-            tools=tools,
-            tool_choice=tool_choice,
-            guided_json=guided_json,
-            text_config=text_config,
-            disable_hidden_thinking=self._should_disable_hidden_thinking(),
-        ):
+        try:
+            choices = self._generate_choices(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                n=n_act,
+                seed=seed,
+                tools=tools,
+                tool_choice=tool_choice,
+                guided_json=guided_json,
+                text_config=text_config,
+                disable_hidden_thinking=self._should_disable_hidden_thinking(),
+            )
+        except requests.RequestException as error:
+            return [
+                {
+                    "reasoning_text": "",
+                    "tool_action": None,
+                    "raw_text": _request_error_raw_text("actor_request_failed", error),
+                    "generator_errors": [f"actor_request_failed: {error}"],
+                }
+            ]
+
+        for choice in choices:
             raw_text = _json_dumps_compact(_strip_raw_generation_payload(choice))
             try:
                 normalized_payload, payload_errors = _actor_candidate_from_choice(choice)
@@ -1775,17 +1987,29 @@ class OpenAICompatibleCandidateGenerator:
             guided_json = _verifier_output_schema()
             text_config = None
         candidates: list[dict[str, Any]] = []
-        for choice in self._generate_choices(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            n=n_ver,
-            seed=seed,
-            tools=tools,
-            tool_choice=tool_choice,
-            guided_json=guided_json,
-            text_config=text_config,
-            disable_hidden_thinking=self._should_disable_hidden_thinking(),
-        ):
+        try:
+            choices = self._generate_choices(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                n=n_ver,
+                seed=seed,
+                tools=tools,
+                tool_choice=tool_choice,
+                guided_json=guided_json,
+                text_config=text_config,
+                disable_hidden_thinking=self._should_disable_hidden_thinking(),
+            )
+        except requests.RequestException as error:
+            return [
+                {
+                    "payload": {},
+                    "raw_text": _request_error_raw_text("verifier_request_failed", error),
+                    "generator_errors": list(actor_candidate.get("generator_errors", []))
+                    + [f"verifier_request_failed: {error}"],
+                }
+            ]
+
+        for choice in choices:
             raw_text = _json_dumps_compact(_strip_raw_generation_payload(choice))
             try:
                 payload, payload_errors = _named_tool_arguments_from_choice(

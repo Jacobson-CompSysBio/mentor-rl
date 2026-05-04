@@ -128,6 +128,7 @@ RUN_SMOKE_TEST="${RUN_SMOKE_TEST:-1}"
 SMOKE_TEST_ONLY="${SMOKE_TEST_ONLY:-0}"
 SMOKE_TASK_INDEX="${SMOKE_TASK_INDEX:-0}"
 SMOKE_TASK_ID="${SMOKE_TASK_ID:-}"
+SMOKE_TASK_IDS="${SMOKE_TASK_IDS:-}"
 SMOKE_SEED="${SMOKE_SEED:-0}"
 SMOKE_N_ACT="${SMOKE_N_ACT:-1}"
 SMOKE_GENERATOR_TEMPERATURE="${SMOKE_GENERATOR_TEMPERATURE:-0.2}"
@@ -300,6 +301,7 @@ log "GENERATOR_TIMEOUT_SECONDS=${GENERATOR_TIMEOUT_SECONDS}"
 log "RUN_SMOKE_TEST=${RUN_SMOKE_TEST}"
 log "SMOKE_TEST_ONLY=${SMOKE_TEST_ONLY}"
 log "SMOKE_TASK_INDEX=${SMOKE_TASK_INDEX}"
+log "SMOKE_TASK_IDS=${SMOKE_TASK_IDS}"
 log "SMOKE_GENERATOR_TEMPERATURE=${SMOKE_GENERATOR_TEMPERATURE}"
 log "SMOKE_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS=${SMOKE_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS}"
 log "SMOKE_TASK_ID=${SMOKE_TASK_ID}"
@@ -524,43 +526,156 @@ PY
 )"
 log "SERVED_MODEL_ID=${SERVED_MODEL_ID}"
 
+RUN_FREEZE_PATH="${OUT_DIR}/run_freeze.json"
+python3 - <<PY
+import json
+import os
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
+
+repo_root = Path(${REPO_ROOT@Q})
+
+def git(args):
+    try:
+        return subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except Exception:
+        return None
+
+payload = {
+    "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    "repo": {
+        "root": str(repo_root),
+        "git_sha": git(["rev-parse", "HEAD"]),
+        "git_status_short": git(["status", "--short"]),
+    },
+    "slurm": {
+        "job_id": os.environ.get("SLURM_JOB_ID"),
+        "job_name": os.environ.get("SLURM_JOB_NAME"),
+        "node_list": os.environ.get("SLURM_JOB_NODELIST"),
+        "node_count": os.environ.get("SLURM_NNODES"),
+        "partition": os.environ.get("SLURM_JOB_PARTITION"),
+    },
+    "model": {
+        "model_path_input": ${MODEL_PATH_INPUT@Q},
+        "model_path": ${MODEL_PATH@Q},
+        "model_basename": ${MODEL_BASENAME@Q},
+        "model_slug": ${MODEL_SLUG@Q},
+        "model_uses_tiktoken": ${MODEL_USES_TIKTOKEN@Q},
+        "serve_model_path": ${SERVE_MODEL_PATH@Q},
+        "served_model_id": ${SERVED_MODEL_ID@Q},
+    },
+    "task_selection": {
+        "tasks_path": ${TASKS_PATH@Q},
+        "max_tasks": ${MAX_TASKS@Q},
+        "task_shard_index": ${TASK_SHARD_INDEX@Q},
+        "task_shard_count": ${TASK_SHARD_COUNT@Q},
+    },
+    "generation": {
+        "max_steps": ${MAX_STEPS@Q},
+        "n_act": ${N_ACT@Q},
+        "n_ver": ${N_VER@Q},
+        "task_concurrency": ${TASK_CONCURRENCY@Q},
+        "generator_api_mode": ${GENERATOR_API_MODE@Q},
+        "generator_temperature": ${GENERATOR_TEMPERATURE@Q},
+        "generator_top_p": ${GENERATOR_TOP_P@Q},
+        "generator_max_completion_tokens": ${GENERATOR_MAX_COMPLETION_TOKENS@Q},
+        "generator_actor_rationale_max_completion_tokens": ${GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS@Q},
+        "generator_reasoning_effort": ${GENERATOR_REASONING_EFFORT@Q},
+        "generator_timeout_seconds": ${GENERATOR_TIMEOUT_SECONDS@Q},
+    },
+    "smoke": {
+        "run_smoke_test": ${RUN_SMOKE_TEST@Q},
+        "smoke_test_only": ${SMOKE_TEST_ONLY@Q},
+        "smoke_task_index": ${SMOKE_TASK_INDEX@Q},
+        "smoke_task_id": ${SMOKE_TASK_ID@Q},
+        "smoke_task_ids": ${SMOKE_TASK_IDS@Q},
+        "smoke_n_act": ${SMOKE_N_ACT@Q},
+        "smoke_seed": ${SMOKE_SEED@Q},
+    },
+    "vllm": {
+        "head_node": ${HEAD_NODE@Q},
+        "head_ip": ${HEAD_IP@Q},
+        "http_port": ${VLLM_HTTP_PORT@Q},
+        "tensor_parallel_size": ${TENSOR_PARALLEL_SIZE@Q},
+        "pipeline_parallel_size": ${PIPELINE_PARALLEL_SIZE@Q},
+        "max_model_len": ${MAX_MODEL_LEN@Q},
+        "max_num_batched_tokens": ${MAX_NUM_BATCHED_TOKENS@Q},
+        "max_num_seqs": ${MAX_NUM_SEQS@Q},
+        "gpu_memory_utilization": ${GPU_MEMORY_UTILIZATION@Q},
+        "effective_distributed_executor_backend": ${EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND@Q},
+        "enable_chunked_prefill": ${ENABLE_CHUNKED_PREFILL@Q},
+        "enable_prefix_caching": ${ENABLE_PREFIX_CACHING@Q},
+    },
+}
+
+Path(${RUN_FREEZE_PATH@Q}).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+PY
+log "Wrote run freeze metadata: ${RUN_FREEZE_PATH}"
+
 if [[ "${RUN_SMOKE_TEST}" == "1" ]]; then
-  log "Running preflight generator smoke test"
-  SMOKE_TASK_FLAGS=()
-  if [[ -n "${SMOKE_TASK_ID}" ]]; then
-    SMOKE_TASK_FLAGS+=(--task-id "${SMOKE_TASK_ID}")
+  SMOKE_TASK_DESCRIPTORS=()
+  if [[ -n "${SMOKE_TASK_IDS}" ]]; then
+    IFS=',' read -r -a REQUESTED_SMOKE_TASK_IDS <<< "${SMOKE_TASK_IDS}"
+    for RAW_SMOKE_TASK_ID in "${REQUESTED_SMOKE_TASK_IDS[@]}"; do
+      TRIMMED_SMOKE_TASK_ID="${RAW_SMOKE_TASK_ID#"${RAW_SMOKE_TASK_ID%%[![:space:]]*}"}"
+      TRIMMED_SMOKE_TASK_ID="${TRIMMED_SMOKE_TASK_ID%"${TRIMMED_SMOKE_TASK_ID##*[![:space:]]}"}"
+      if [[ -n "${TRIMMED_SMOKE_TASK_ID}" ]]; then
+        SMOKE_TASK_DESCRIPTORS+=("id:${TRIMMED_SMOKE_TASK_ID}")
+      fi
+    done
+  elif [[ -n "${SMOKE_TASK_ID}" ]]; then
+    SMOKE_TASK_DESCRIPTORS+=("id:${SMOKE_TASK_ID}")
   else
-    SMOKE_TASK_FLAGS+=(--task-index "${SMOKE_TASK_INDEX}")
+    SMOKE_TASK_DESCRIPTORS+=("index:${SMOKE_TASK_INDEX}")
   fi
 
-  if ! srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
-    bash --noprofile --norc -c "
-      set -euo pipefail
-      source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
-      source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
-      export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-      export HIP_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES}
-      unset ROCR_VISIBLE_DEVICES || true
-      cd '${REPO_ROOT}'
-      export PYTHONPATH='${REPO_ROOT}':\${PYTHONPATH:-}
-      python scripts/smoke_test_generator.py \
-        --tasks-path '${TASKS_PATH}' \
-        --store-dir '${STORE_DIR}' \
-        --generator-api-base 'http://${HEAD_IP}:${VLLM_HTTP_PORT}/v1' \
-        --generator-model '${SERVED_MODEL_ID}' \
-        --generator-api-mode ${GENERATOR_API_MODE} \
-        --n-act ${SMOKE_N_ACT} \
-        --n-ver 1 \
-        --seed ${SMOKE_SEED} \
-        --generator-temperature ${SMOKE_GENERATOR_TEMPERATURE} \
-        --generator-max-completion-tokens ${SMOKE_MAX_COMPLETION_TOKENS} \
-        --generator-actor-rationale-max-completion-tokens ${SMOKE_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS} \
-        --generator-reasoning-effort ${SMOKE_REASONING_EFFORT} \
-        ${SMOKE_TASK_FLAGS[*]@Q}
-    "; then
-    log "Preflight generator smoke test failed. See the candidate dump above for the raw response and generator errors."
-    exit 1
-  fi
+  for SMOKE_DESCRIPTOR in "${SMOKE_TASK_DESCRIPTORS[@]}"; do
+    SMOKE_SELECTOR="${SMOKE_DESCRIPTOR%%:*}"
+    SMOKE_VALUE="${SMOKE_DESCRIPTOR#*:}"
+    SMOKE_TASK_FLAGS=()
+    if [[ "${SMOKE_SELECTOR}" == "id" ]]; then
+      SMOKE_TASK_FLAGS+=(--task-id "${SMOKE_VALUE}")
+      log "Running preflight generator smoke test for task id: ${SMOKE_VALUE}"
+    else
+      SMOKE_TASK_FLAGS+=(--task-index "${SMOKE_VALUE}")
+      log "Running preflight generator smoke test for task index: ${SMOKE_VALUE}"
+    fi
+
+    if ! srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
+      bash --noprofile --norc -c "
+        set -euo pipefail
+        source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
+        source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
+        export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+        export HIP_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES}
+        unset ROCR_VISIBLE_DEVICES || true
+        cd '${REPO_ROOT}'
+        export PYTHONPATH='${REPO_ROOT}':\${PYTHONPATH:-}
+        python scripts/smoke_test_generator.py \
+          --tasks-path '${TASKS_PATH}' \
+          --store-dir '${STORE_DIR}' \
+          --generator-api-base 'http://${HEAD_IP}:${VLLM_HTTP_PORT}/v1' \
+          --generator-model '${SERVED_MODEL_ID}' \
+          --generator-api-mode ${GENERATOR_API_MODE} \
+          --n-act ${SMOKE_N_ACT} \
+          --n-ver 1 \
+          --seed ${SMOKE_SEED} \
+          --generator-temperature ${SMOKE_GENERATOR_TEMPERATURE} \
+          --generator-max-completion-tokens ${SMOKE_MAX_COMPLETION_TOKENS} \
+          --generator-actor-rationale-max-completion-tokens ${SMOKE_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS} \
+          --generator-reasoning-effort ${SMOKE_REASONING_EFFORT} \
+          ${SMOKE_TASK_FLAGS[*]@Q}
+      "; then
+      log "Preflight generator smoke test failed. See the candidate dump above for the raw response and generator errors."
+      exit 1
+    fi
+  done
 
   if [[ "${SMOKE_TEST_ONLY}" == "1" ]]; then
     log "Smoke test finished successfully; exiting because SMOKE_TEST_ONLY=1."
@@ -585,6 +700,7 @@ srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
       --store-dir '${STORE_DIR}' \
       --candidate-source model_vllm \
       --generator-api-base 'http://${HEAD_IP}:${VLLM_HTTP_PORT}/v1' \
+      --generator-model '${SERVED_MODEL_ID}' \
       --generator-api-mode ${GENERATOR_API_MODE} \
       --generator-temperature ${GENERATOR_TEMPERATURE} \
       --generator-top-p ${GENERATOR_TOP_P} \
