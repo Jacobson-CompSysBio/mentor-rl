@@ -25,6 +25,7 @@ from scripts.generate_trajectories import (
     _build_actor_step_from_model_candidate,
     _normalize_runtime_tool_action,
     _observation_for_verifier_prompt,
+    _runtime_tool_parameters,
     _verifier_prompt_payload,
     generate_trajectories,
 )
@@ -121,8 +122,8 @@ def _collect_json_keys(value) -> set[str]:
 class _FakeModelGenerator:
     model_name = "gpt-oss-120b-bf16"
 
-    def generate_actor_candidates(self, context, *, task_row, step_index, n_act, seed):
-        del context, n_act, seed
+    def generate_actor_candidates(self, context, *, task_row, step_index, n_act, seed, environment=None):
+        del context, n_act, seed, environment
         if task_row["task_type"] == "recovery":
             return [
                 {
@@ -193,8 +194,8 @@ class _FakeModelGenerator:
 class _UnusableModelGenerator:
     model_name = "gpt-oss-120b-bf16"
 
-    def generate_actor_candidates(self, context, *, task_row, step_index, n_act, seed):
-        del context, task_row, step_index, n_act, seed
+    def generate_actor_candidates(self, context, *, task_row, step_index, n_act, seed, environment=None):
+        del context, task_row, step_index, n_act, seed, environment
         return [
             {
                 "reasoning_text": "",
@@ -211,6 +212,91 @@ class _UnusableModelGenerator:
     def generate_verifier_candidates(self, context, *, task_row, actor_candidate, actor_step, observation, step_index, n_ver, seed):
         del context, task_row, actor_candidate, actor_step, observation, step_index, n_ver, seed
         raise AssertionError("Verifier generation should not run when the actor candidate is unusable.")
+
+
+class _InvalidToolModelGenerator:
+    model_name = "gpt-oss-120b-bf16"
+
+    def generate_actor_candidates(self, context, *, task_row, step_index, n_act, seed, environment=None):
+        del context, task_row, step_index, n_act, seed, environment
+        return [
+            {
+                "reasoning_text": "Probe a gene that is not present in the runtime graph.",
+                "tool_action": {
+                    "tool_name": "get_neighbors",
+                    "arguments": {"gene": "ENSG_MISSING"},
+                },
+                "raw_text": '{"reasoning_text":"Probe missing gene","tool_action":{"tool_name":"get_neighbors","arguments":{"gene":"ENSG_MISSING"}}}',
+                "generator_errors": [],
+            }
+        ]
+
+    def generate_verifier_candidates(self, context, *, task_row, actor_candidate, actor_step, observation, step_index, n_ver, seed):
+        del context, task_row, actor_candidate, actor_step, observation, step_index, n_ver, seed
+        raise AssertionError("Verifier generation should not run for a semantically invalid actor tool.")
+
+
+class _InvalidVerifierThenValidGenerator:
+    model_name = "gpt-oss-120b-bf16"
+
+    def generate_actor_candidates(self, context, *, task_row, step_index, n_act, seed, environment=None):
+        del context, task_row, step_index, n_act, seed, environment
+        return [
+            {
+                "reasoning_text": "Expand the current group with a restart walk.",
+                "tool_action": {
+                    "tool_name": "rwr_multiplex",
+                    "arguments": {"seeds": ["ENSG1", "ENSG2"], "top_k": 5},
+                },
+                "raw_text": '{"reasoning_text":"Expand","tool_action":{"tool_name":"rwr_multiplex","arguments":{"seeds":["ENSG1","ENSG2"],"top_k":5}}}',
+                "generator_errors": [],
+            }
+        ]
+
+    def generate_verifier_candidates(self, context, *, task_row, actor_candidate, actor_step, observation, step_index, n_ver, seed):
+        del context, task_row, actor_candidate, actor_step, observation, step_index, n_ver, seed
+        return [
+            {
+                "payload": {
+                    "updated_interpretation": {
+                        "mechanistic_claim": "The evidence supports a shared module.",
+                        "main_evidence": "The restart walk ranks ENSG3 with the seeds.",
+                        "uncertainty": "",
+                        "next_subgoal": "",
+                    },
+                    "updated_state": {
+                        "relationship_status": "validated_group",
+                        "predicted_gene_ids": ["ENSG1", "ENSG2", "ENSG3"],
+                        "mechanistic_labels": [{"label_source": "go"}],
+                        "continuation_decision": "stop",
+                        "verifier_notes": "This verifier payload has an invalid label.",
+                    },
+                },
+                "raw_text": '{"updated_state":{"mechanistic_labels":[{"label_source":"go"}]}}',
+                "generator_errors": [],
+            },
+            {
+                "payload": {
+                    "updated_interpretation": {
+                        "mechanistic_claim": "The evidence supports a shared module.",
+                        "main_evidence": "The restart walk ranks ENSG3 with the seeds.",
+                        "uncertainty": "",
+                        "next_subgoal": "",
+                    },
+                    "updated_state": {
+                        "relationship_status": "validated_group",
+                        "predicted_gene_ids": ["ENSG1", "ENSG2", "ENSG3"],
+                        "mechanistic_labels": [
+                            {"label_source": "go", "label_name": "toy process", "label_id": "GO:0000001"}
+                        ],
+                        "continuation_decision": "stop",
+                        "verifier_notes": "Accepted the grounded expansion.",
+                    },
+                },
+                "raw_text": '{"updated_state":{"mechanistic_labels":[{"label_source":"go","label_name":"toy process","label_id":"GO:0000001"}]}}',
+                "generator_errors": [],
+            },
+        ]
 
 
 class _FakeHTTPResponse:
@@ -342,6 +428,40 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertTrue(blocked_keys.isdisjoint(_collect_json_keys(verifier_payload)))
         self.assertNotIn("user_anchors", actor_payload["state"])
         self.assertNotIn("user_anchors", verifier_payload["prior_state"])
+
+    def test_actor_prompt_payload_includes_tool_argument_reference(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+
+        actor_payload = _actor_prompt_payload(
+            context,
+            step_index=0,
+            environment=_build_environment(),
+        )
+
+        reference = actor_payload["tool_argument_reference"]
+        self.assertIn("ENSG1", reference["candidate_gene_ids"])
+        self.assertIn("ENSG2", reference["candidate_gene_ids"])
+        self.assertEqual(reference["unavailable_candidate_gene_ids"], [])
+        self.assertIn("ppi", reference["available_layer_names"])
+        self.assertIn("shortest_path source and target", " ".join(reference["rules"]))
+
+    def test_runtime_tool_schemas_document_strict_argument_shapes(self) -> None:
+        shortest_path_schema = _runtime_tool_parameters("shortest_path")
+        self.assertEqual(shortest_path_schema["properties"]["source"]["minLength"], 1)
+        self.assertEqual(shortest_path_schema["properties"]["target"]["minLength"], 1)
+        self.assertIn("Never pass an array", shortest_path_schema["properties"]["source"]["description"])
+
+        induce_subgraph_schema = _runtime_tool_parameters("induce_subgraph")
+        self.assertEqual(induce_subgraph_schema["properties"]["genes"]["minItems"], 1)
+        self.assertEqual(induce_subgraph_schema["properties"]["layers"]["minItems"], 1)
 
     def test_verifier_prompt_compacts_large_tool_observations(self) -> None:
         layers = []
@@ -572,6 +692,28 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertIsNotNone(actor_step.tool_action)
         self.assertEqual(actor_step.tool_action.arguments, {"genes": ["ENSG1", "ENSG2"]})
+
+    def test_model_actor_step_normalizes_null_shortest_path_layer_before_storage(self) -> None:
+        actor_step, errors = _build_actor_step_from_model_candidate(
+            {
+                "reasoning_text": "Check connectivity across all available graph layers.",
+                "tool_action": {
+                    "tool_name": "shortest_path",
+                    "arguments": {
+                        "source": "ENSG1",
+                        "target": "ENSG2",
+                        "layer": None,
+                    },
+                },
+            },
+            trajectory_id="trajectory",
+            step_index=0,
+            actor_index=0,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertIsNotNone(actor_step.tool_action)
+        self.assertEqual(actor_step.tool_action.arguments, {"source": "ENSG1", "target": "ENSG2"})
 
     def test_generate_trajectories_is_deterministic_for_same_seed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1489,6 +1631,49 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                     model_generator_config=ModelGeneratorConfig(api_base="http://unused"),
                     candidate_generator=_UnusableModelGenerator(),
                 )
+
+    def test_model_backed_generation_rejects_semantically_invalid_actor_tool(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "invalid_tool_model_run"
+            with self.assertRaisesRegex(RuntimeError, "actor_tool_semantics_invalid"):
+                generate_trajectories(
+                    task_rows=_task_rows()[:1],
+                    out_dir=out_dir,
+                    environment=_build_environment(),
+                    config=TrajectoryGenerationConfig(
+                        max_steps=3,
+                        n_act=1,
+                        n_ver=1,
+                        seed=3,
+                        candidate_source="model_vllm",
+                    ),
+                    model_generator_config=ModelGeneratorConfig(api_base="http://unused"),
+                    candidate_generator=_InvalidToolModelGenerator(),
+                )
+
+    def test_model_backed_generation_skips_invalid_verifier_branches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "invalid_verifier_model_run"
+            generate_trajectories(
+                task_rows=_task_rows()[:1],
+                out_dir=out_dir,
+                environment=_build_environment(),
+                config=TrajectoryGenerationConfig(
+                    max_steps=3,
+                    n_act=1,
+                    n_ver=2,
+                    seed=3,
+                    candidate_source="model_vllm",
+                ),
+                model_generator_config=ModelGeneratorConfig(api_base="http://unused"),
+                candidate_generator=_InvalidVerifierThenValidGenerator(),
+            )
+
+            branch_pools = _read_jsonl(out_dir / "branch_pools.jsonl")
+            self.assertEqual(len(branch_pools[0]["branches"]), 1)
+            retained_branch = branch_pools[0]["branches"][0]
+            self.assertEqual(retained_branch["metadata"]["generator_errors"], [])
+            self.assertTrue(retained_branch["local_score"]["score_metadata"]["schema_valid"])
 
     def test_model_backed_generation_can_opt_in_to_heuristic_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

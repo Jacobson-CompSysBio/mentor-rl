@@ -133,6 +133,27 @@ class RuntimeValidatorTests(unittest.TestCase):
 
                 self.assertTrue(result.valid)
 
+    def test_empty_and_null_shortest_path_layers_are_validated_as_omitted_layer(self) -> None:
+        for layer in ([], None, ["all"], "all"):
+            with self.subTest(layer=layer):
+                action = ToolAction(
+                    tool_name="shortest_path",
+                    arguments={
+                        "source": "ENSG00000068024",
+                        "target": "ENSG00000113916",
+                        "layer": layer,
+                    },
+                    call_id="call_1",
+                )
+
+                result = validate_tool_action_schema(action)
+
+                self.assertTrue(result.valid)
+                self.assertEqual(
+                    normalize_tool_arguments(action.tool_name, action.arguments),
+                    {"source": "ENSG00000068024", "target": "ENSG00000113916"},
+                )
+
     def test_validate_tool_action_schema_rejects_bad_arguments(self) -> None:
         action = ToolAction(
             tool_name="get_neighbors",

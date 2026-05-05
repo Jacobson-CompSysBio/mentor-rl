@@ -100,7 +100,7 @@ def normalize_tool_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[
         if "layers" in normalized and _is_all_layer_list(normalized["layers"]):
             normalized.pop("layers")
     elif tool_name == "shortest_path":
-        if "layer" in normalized and _is_all_layer_alias(normalized["layer"]):
+        if "layer" in normalized and _is_all_layer_list(normalized["layer"]):
             normalized.pop("layer")
     return normalized
 

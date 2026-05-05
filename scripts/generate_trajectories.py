@@ -77,6 +77,8 @@ from runtime import (
     score_candidate_branch,
     score_terminal_trajectory,
     set_continuation_state,
+    validate_candidate_branch,
+    validate_tool_action_semantics,
 )
 
 
@@ -96,6 +98,8 @@ PROMPT_LIST_PREVIEW_LIMIT = 20
 PROMPT_LAYER_PREVIEW_LIMIT = 12
 PROMPT_EDGE_PREVIEW_LIMIT = 32
 PROMPT_MYGENE_PREVIEW_LIMIT = 5
+PROMPT_TOOL_REFERENCE_GENE_LIMIT = 40
+PROMPT_TOOL_REFERENCE_LAYER_LIMIT = 40
 TRAJECTORY_STAGES = (
     ("load_tasks", "Load canonical CORUM tasks"),
     ("initialize_runtime", "Initialize deterministic runtime"),
@@ -125,10 +129,15 @@ Actor rules:
 - Use only visible evidence and deterministic runtime observations.
 - Never assume access to hidden targets or labels that were not shown.
 - Use canonical Ensembl gene ids when you reference genes in tool arguments.
+- For graph tool arguments, choose gene ids from the provided
+  tool_argument_reference candidate_gene_ids or from exact ids returned by a
+  previous successful tool observation. Do not invent new ENSG ids.
 - Prefer the cheapest action that is most likely to reduce uncertainty.
 - If current visible evidence is already enough, do not call a tool.
 - To query all graph layers, omit the `layers` or `layer` argument entirely.
   Never write "all", [], or null for layer selection.
+- For shortest_path, source and target must each be one string id, never a
+  list, tuple, comma-separated string, or missing value.
 - Do not update relationship status, predicted groups, mechanistic labels, or
   other structured state fields. The verifier owns that structured update.
 
@@ -397,10 +406,83 @@ def _interpretation_payload_for_model_prompt(interpretation: Interpretation) -> 
     return payload
 
 
+def _append_unique_strings(target: list[str], values: Iterable[Any]) -> None:
+    seen = set(target)
+    for value in values:
+        if isinstance(value, str) and value and value not in seen:
+            target.append(value)
+            seen.add(value)
+
+
+def _candidate_gene_ids_for_tool_reference(context: SharedPrefixContext) -> list[str]:
+    gene_ids: list[str] = []
+    visible_inputs = context.user_evidence if isinstance(context.user_evidence, dict) else {}
+    _append_unique_strings(gene_ids, _safe_list_of_strings(visible_inputs.get("seed_gene_ids")))
+    _append_unique_strings(gene_ids, _flatten_predicted_gene_ids(context.state))
+
+    for evidence_record in context.state.evidence_log:
+        _append_unique_strings(gene_ids, evidence_record.supporting_gene_ids)
+    return gene_ids
+
+
+def _tool_argument_reference_payload(
+    context: SharedPrefixContext,
+    *,
+    environment: RuntimeEnvironment | None = None,
+) -> dict[str, Any]:
+    candidate_gene_ids = _candidate_gene_ids_for_tool_reference(context)
+    if environment is not None:
+        graph_candidate_gene_ids = [
+            gene_id for gene_id in candidate_gene_ids if gene_id in environment.available_gene_ids
+        ]
+        unavailable_candidate_gene_ids = [
+            gene_id for gene_id in candidate_gene_ids if gene_id not in environment.available_gene_ids
+        ]
+        available_layers = sorted(environment.available_layers)
+    else:
+        graph_candidate_gene_ids = candidate_gene_ids
+        unavailable_candidate_gene_ids = []
+        available_layers = []
+
+    return {
+        "rules": [
+            "Graph tools require canonical Ensembl gene id strings, not symbols.",
+            "Use candidate_gene_ids for gene/source/target/seeds/genes unless a prior successful tool observation returned another exact id.",
+            "Use query_mygene first when only a gene symbol, alias, or non-Ensembl id is available.",
+            "For all graph layers, omit layer/layers entirely; do not pass null, [], 'all', or '*' values.",
+            "shortest_path source and target must each be one non-empty string id.",
+            "get_neighbors gene must be one non-empty string id.",
+            "induce_subgraph genes and RWR seeds must be non-empty arrays of string ids.",
+        ],
+        "argument_shapes": {
+            "query_mygene": {"query": "string", "fields": "optional non-empty string array"},
+            "get_neighbors": {"gene": "string", "layers": "optional non-empty layer-name array"},
+            "shortest_path": {
+                "source": "string",
+                "target": "string",
+                "layer": "optional layer-name string",
+            },
+            "rwr_multiplex": {"seeds": "non-empty string array", "top_k": "optional positive integer"},
+            "rwr_monoplex": {
+                "seeds": "non-empty string array",
+                "layer": "required layer-name string",
+                "top_k": "optional positive integer",
+            },
+            "induce_subgraph": {"genes": "non-empty string array", "layers": "optional non-empty layer-name array"},
+        },
+        "candidate_gene_ids": graph_candidate_gene_ids[:PROMPT_TOOL_REFERENCE_GENE_LIMIT],
+        "candidate_gene_id_count": len(graph_candidate_gene_ids),
+        "unavailable_candidate_gene_ids": unavailable_candidate_gene_ids[:PROMPT_TOOL_REFERENCE_GENE_LIMIT],
+        "available_layer_names": available_layers[:PROMPT_TOOL_REFERENCE_LAYER_LIMIT],
+        "available_layer_count": len(available_layers),
+    }
+
+
 def _actor_prompt_payload(
     context: SharedPrefixContext,
     *,
     step_index: int,
+    environment: RuntimeEnvironment | None = None,
 ) -> dict[str, Any]:
     state_payload = _state_payload_for_model_prompt(context.state)
     return {
@@ -409,6 +491,10 @@ def _actor_prompt_payload(
         "interpretation": _interpretation_payload_for_model_prompt(context.interpretation),
         "state": state_payload,
         "step_index": step_index,
+        "tool_argument_reference": _tool_argument_reference_payload(
+            context,
+            environment=environment,
+        ),
     }
 
 
@@ -915,8 +1001,17 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
-                "query": {"type": "string"},
-                "fields": {"type": "array", "items": {"type": "string"}},
+                "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "One gene symbol, alias, or Ensembl id to resolve.",
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Optional metadata fields to request.",
+                },
             },
             "required": ["query"],
             "additionalProperties": False,
@@ -925,10 +1020,14 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
-                "gene": {"type": "string"},
+                "gene": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "One canonical Ensembl gene id from the visible candidate_gene_ids or a prior successful tool observation.",
+                },
                 "layers": {
                     "type": "array",
-                    "items": {"type": "string"},
+                    "items": {"type": "string", "minLength": 1},
                     "minItems": 1,
                     "description": "Optional concrete layer names. Omit this field to query all layers; do not use 'all'.",
                 },
@@ -940,10 +1039,19 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
-                "source": {"type": "string"},
-                "target": {"type": "string"},
+                "source": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "One canonical Ensembl gene id string. Never pass an array or comma-separated list.",
+                },
+                "target": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "One canonical Ensembl gene id string. Never pass an array or comma-separated list.",
+                },
                 "layer": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "Optional concrete layer name. Omit this field to query all layers; do not use 'all'.",
                 },
             },
@@ -954,7 +1062,12 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
-                "seeds": {"type": "array", "items": {"type": "string"}},
+                "seeds": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Canonical Ensembl gene id strings from candidate_gene_ids or prior successful tool observations.",
+                },
                 "top_k": {"type": "integer", "minimum": 1},
             },
             "required": ["seeds"],
@@ -964,9 +1077,15 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
-                "seeds": {"type": "array", "items": {"type": "string"}},
+                "seeds": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Canonical Ensembl gene id strings from candidate_gene_ids or prior successful tool observations.",
+                },
                 "layer": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "A concrete layer name. Use rwr_multiplex instead when querying across all layers.",
                 },
                 "top_k": {"type": "integer", "minimum": 1},
@@ -978,10 +1097,15 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
-                "genes": {"type": "array", "items": {"type": "string"}},
+                "genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Canonical Ensembl gene id strings from candidate_gene_ids or prior successful tool observations.",
+                },
                 "layers": {
                     "type": "array",
-                    "items": {"type": "string"},
+                    "items": {"type": "string", "minLength": 1},
                     "minItems": 1,
                     "description": "Optional concrete layer names. Omit this field to query all layers; do not use 'all'.",
                 },
@@ -1201,6 +1325,7 @@ def _actor_candidate_is_usable(actor_step: ActorStep, errors: Iterable[str]) -> 
         errors,
         (
             "actor_json_parse_error:",
+            "actor_tool_semantics_invalid:",
             "actor_tool_action_json_parse_error:",
             "actor_tool_call_",
         ),
@@ -1792,12 +1917,14 @@ class OpenAICompatibleCandidateGenerator:
         task_row: dict[str, Any],
         step_index: int,
         seed: int,
+        environment: RuntimeEnvironment | None = None,
     ) -> tuple[str, list[str]]:
         del task_row
         user_prompt = json.dumps(
             _actor_prompt_payload(
                 context,
                 step_index=step_index,
+                environment=environment,
             ),
             indent=2,
             sort_keys=True,
@@ -1846,12 +1973,14 @@ class OpenAICompatibleCandidateGenerator:
         step_index: int,
         n_act: int,
         seed: int,
+        environment: RuntimeEnvironment | None = None,
     ) -> list[dict[str, Any]]:
         del task_row
         user_prompt = json.dumps(
             _actor_prompt_payload(
                 context,
                 step_index=step_index,
+                environment=environment,
             ),
             indent=2,
             sort_keys=True,
@@ -2546,6 +2675,8 @@ def _mine_preference_pairs(
 ) -> list[PreferencePair]:
     if not branches:
         return []
+    if not _branch_is_usable_for_selection(chosen_branch):
+        return []
 
     chosen_normalized = float(chosen_branch.local_score.normalized_score or 0.0)
     ordered_rejected = sorted(
@@ -2553,6 +2684,7 @@ def _mine_preference_pairs(
             branch
             for branch in branches
             if branch.branch_id != chosen_branch.branch_id
+            and _branch_is_usable_for_selection(branch)
             and (chosen_normalized - float(branch.local_score.normalized_score or 0.0)) >= score_margin
         ),
         key=lambda branch: (
@@ -2598,6 +2730,9 @@ def _mine_preference_pairs(
             evidence_mode=task_row.get("evidence_mode"),
             provenance={
                 "candidate_count": len(branches),
+                "valid_candidate_count": sum(
+                    1 for branch in branches if _branch_is_usable_for_selection(branch)
+                ),
                 "selected_branch_id": chosen_branch.branch_id,
                 "score_margin_threshold": score_margin,
                 "difficulty": task_row.get("difficulty"),
@@ -3147,6 +3282,28 @@ def _score_branch(
     return branch
 
 
+def _branch_selection_errors(branch: CandidateBranch) -> list[str]:
+    """Return errors that make a branch unsafe for selection or DPO mining."""
+
+    errors: list[str] = []
+    validation = validate_candidate_branch(branch)
+    errors.extend(validation.errors)
+
+    score_metadata = branch.local_score.score_metadata
+    if isinstance(score_metadata, dict) and score_metadata.get("schema_valid") is False:
+        schema_errors = score_metadata.get("schema_errors")
+        if isinstance(schema_errors, list):
+            errors.extend(str(error) for error in schema_errors if error)
+        else:
+            errors.append("local_score_schema_invalid")
+
+    return _unique(errors)
+
+
+def _branch_is_usable_for_selection(branch: CandidateBranch) -> bool:
+    return not _branch_selection_errors(branch)
+
+
 def _normalize_branch_pool(branches: list[CandidateBranch]) -> None:
     if not branches:
         return
@@ -3166,9 +3323,17 @@ def _normalize_branch_pool(branches: list[CandidateBranch]) -> None:
         branch.local_score.normalized_score = float(normalized_score)
 
 
-def _select_best_branch(branches: list[CandidateBranch]) -> CandidateBranch:
+def _select_best_branch(branches: list[CandidateBranch], *, require_valid: bool = False) -> CandidateBranch:
+    if not branches:
+        raise RuntimeError("No branches are available for selection.")
+
+    valid_branches = [branch for branch in branches if _branch_is_usable_for_selection(branch)]
+    if require_valid and not valid_branches:
+        raise RuntimeError("No schema-valid branches are available for selection.")
+
+    selectable_branches = valid_branches or branches
     return sorted(
-        branches,
+        selectable_branches,
         key=lambda branch: (
             -(branch.local_score.normalized_score or 0.0),
             -branch.local_score.total_score,
@@ -3332,6 +3497,7 @@ def generate_task_trajectory(
                 step_index=step_index,
                 n_act=config.n_act,
                 seed=trajectory_seed + step_index,
+                environment=environment,
             )
             for actor_index, actor_candidate in enumerate(actor_candidates):
                 actor_step, actor_errors = _build_actor_step_from_model_candidate(
@@ -3343,6 +3509,21 @@ def generate_task_trajectory(
                 actor_generation_errors = _unique(
                     actor_errors + list(actor_candidate.get("generator_errors", []))
                 )
+                if actor_step.tool_action is not None:
+                    actor_tool_validation = validate_tool_action_semantics(
+                        actor_step.tool_action,
+                        state=state,
+                        available_gene_ids=environment.available_gene_ids,
+                        available_layers=environment.available_layers,
+                    )
+                    if not actor_tool_validation.valid:
+                        actor_generation_errors = _unique(
+                            actor_generation_errors
+                            + [
+                                f"actor_tool_semantics_invalid: {error}"
+                                for error in actor_tool_validation.errors
+                            ]
+                        )
                 if not _actor_candidate_is_usable(actor_step, actor_generation_errors):
                     rejected_model_errors.extend(actor_generation_errors)
                     rejected_model_candidates.append(
@@ -3407,6 +3588,19 @@ def generate_task_trajectory(
                         prior_actions=prior_actions,
                         environment=environment,
                     )
+                    branch_validation_errors = _branch_selection_errors(branch)
+                    if branch_validation_errors and not config.allow_model_fallback:
+                        rejected_model_errors.extend(branch_validation_errors)
+                        rejected_model_candidates.append(
+                            {
+                                "phase": "branch_validation",
+                                "actor_index": actor_index,
+                                "verifier_index": verifier_index,
+                                "branch_id": branch_id,
+                                "generator_errors": branch_validation_errors,
+                            }
+                        )
+                        continue
                     branches.append(branch)
             if not branches:
                 rejected_model_errors = _unique(
@@ -3529,7 +3723,10 @@ def generate_task_trajectory(
                     branches.append(branch)
 
         _normalize_branch_pool(branches)
-        selected_branch = _select_best_branch(branches)
+        selected_branch = _select_best_branch(
+            branches,
+            require_valid=config.candidate_source == "model_vllm" and not config.allow_model_fallback,
+        )
         preference_pairs_raw.extend(
             _mine_preference_pairs(
                 task_row=task_row,

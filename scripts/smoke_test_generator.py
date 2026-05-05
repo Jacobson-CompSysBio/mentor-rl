@@ -210,6 +210,7 @@ def main() -> None:
             step_index=args.step_index,
             n_act=args.n_act,
             seed=args.seed,
+            environment=environment,
         )
     except requests.exceptions.RequestException as error:
         raise SystemExit(
