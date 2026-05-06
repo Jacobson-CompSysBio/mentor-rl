@@ -10,8 +10,8 @@ paths rather than a packaged pip install.
 ## Repo Layout
 
 - `scripts/`: primary entry points for corpus building, trajectory generation, inference, and training
-- `runtime/`: shared runtime/state/validation/scoring types used by the generator
-- `cpp_runtime/`: lower-level runtime components
+- `runtime/`: shared deterministic runtime/state/validation/scoring types used by the generator
+- `cpp_runtime/`: lower-level runtime components in C++
 - `data/`: canonical CORUM corpora, generated trajectories, caches, and related artifacts
 - `tests/`: unit and integration tests
 - `generate_trajectories.slurm`, `train_sft.slurm`, `train_grpo.slurm`: cluster launchers
@@ -59,14 +59,17 @@ SMOKE_TASK_IDS="$(paste -sd, data/corum_corpus/tasks.verification_smoke_ids.txt)
 SMOKE_TEST_ONLY=1 \
 sbatch generate_trajectories.slurm
 
-python scripts/audit_trajectory_run.py --run-dir data/corum_trajectories/<run>
+python scripts/audit_trajectory_run.py --run-dir data/corum_trajectories/<run> --dpo-pair-gate
 python scripts/dpo_pair_loader_smoke.py --pairs-path data/corum_trajectories/<run>/preference_pairs.jsonl
 ```
 
 The Slurm launcher writes `run_freeze.json` into each output directory and pins
 the generator to the discovered served model id. Set `TASKS_PATH` to the pilot
 JSONL and run once with `TASK_CONCURRENCY=1`, then repeat with the intended
-production concurrency before scaling.
+production concurrency before scaling. For DPO-only runs, high branch-pool tie
+rates are diagnostic as long as balanced preference pairs have valid margins;
+the audit's `--dpo-pair-gate` keeps pair/schema/backend checks strict while
+downgrading tie-rate findings to warnings.
 
 ### 3. Train an SFT model
 

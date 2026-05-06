@@ -161,6 +161,11 @@ def parse_args() -> argparse.Namespace:
         choices=("low", "medium", "high"),
         default="low",
     )
+    parser.add_argument(
+        "--actor-sampling-strategy",
+        choices=("batch", "verbalized"),
+        default="batch",
+    )
     parser.add_argument("--generator-timeout-seconds", type=int, default=600)
     parser.add_argument("--n-act", type=int, default=1)
     parser.add_argument("--n-ver", type=int, default=1)
@@ -198,6 +203,7 @@ def main() -> None:
             max_completion_tokens=args.generator_max_completion_tokens,
             actor_rationale_max_completion_tokens=args.generator_actor_rationale_max_completion_tokens,
             reasoning_effort=args.generator_reasoning_effort,
+            actor_sampling_strategy=args.actor_sampling_strategy,
         )
     )
     prior_actions = []

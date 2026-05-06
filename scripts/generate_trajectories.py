@@ -100,6 +100,41 @@ PROMPT_EDGE_PREVIEW_LIMIT = 32
 PROMPT_MYGENE_PREVIEW_LIMIT = 5
 PROMPT_TOOL_REFERENCE_GENE_LIMIT = 40
 PROMPT_TOOL_REFERENCE_LAYER_LIMIT = 40
+ACTOR_SAMPLING_STRATEGIES = ("batch", "verbalized")
+ACTOR_DIVERSITY_DIRECTIVES = (
+    {
+        "name": "best_direct_decision",
+        "instruction": (
+            "Choose the best direct next action. If visible evidence is already enough, "
+            "prefer no tool call and explain the decision."
+        ),
+        "preferred_tools": [],
+    },
+    {
+        "name": "subgraph_coherence_probe",
+        "instruction": (
+            "Explore candidate-group coherence. Prefer induce_subgraph over the current "
+            "candidate gene set when at least two valid genes are available."
+        ),
+        "preferred_tools": ["induce_subgraph"],
+    },
+    {
+        "name": "pair_connectivity_probe",
+        "instruction": (
+            "Explore pairwise connectivity. Prefer shortest_path between two informative "
+            "valid genes when at least two valid genes are available."
+        ),
+        "preferred_tools": ["shortest_path"],
+    },
+    {
+        "name": "neighborhood_or_expansion_probe",
+        "instruction": (
+            "Explore local neighborhood or expansion evidence. Prefer get_neighbors for "
+            "explanation/none checks, and rwr_multiplex for recovery/refinement expansion."
+        ),
+        "preferred_tools": ["get_neighbors", "rwr_multiplex"],
+    },
+)
 TRAJECTORY_STAGES = (
     ("load_tasks", "Load canonical CORUM tasks"),
     ("initialize_runtime", "Initialize deterministic runtime"),
@@ -478,14 +513,36 @@ def _tool_argument_reference_payload(
     }
 
 
+def _actor_sampling_directive_payload(
+    *,
+    sample_index: int,
+    task_type: str | None,
+) -> dict[str, Any]:
+    directive = ACTOR_DIVERSITY_DIRECTIVES[sample_index % len(ACTOR_DIVERSITY_DIRECTIVES)]
+    return {
+        "strategy": "verbalized",
+        "sample_index": sample_index,
+        "task_type": task_type,
+        "directive_name": directive["name"],
+        "instruction": directive["instruction"],
+        "preferred_tools": directive["preferred_tools"],
+        "rules": [
+            "Follow this directive only when it is valid for the current state and available candidate_gene_ids.",
+            "If the preferred tool is invalid or unhelpful, choose the best valid alternative.",
+            "Do not copy another sample's action merely for consistency; this sample is meant to explore a distinct plausible branch.",
+        ],
+    }
+
+
 def _actor_prompt_payload(
     context: SharedPrefixContext,
     *,
     step_index: int,
     environment: RuntimeEnvironment | None = None,
+    actor_sampling_directive: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     state_payload = _state_payload_for_model_prompt(context.state)
-    return {
+    payload = {
         "query_text": context.query_text,
         "visible_inputs": context.user_evidence,
         "interpretation": _interpretation_payload_for_model_prompt(context.interpretation),
@@ -496,6 +553,9 @@ def _actor_prompt_payload(
             environment=environment,
         ),
     }
+    if actor_sampling_directive is not None:
+        payload["actor_sampling_directive"] = actor_sampling_directive
+    return payload
 
 
 def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dict[str, Any] | None:
@@ -1368,12 +1428,16 @@ class ModelGeneratorConfig:
     max_completion_tokens: int = 4096
     actor_rationale_max_completion_tokens: int = DEFAULT_ACTOR_RATIONALE_MAX_TOKENS
     reasoning_effort: str = "low"
+    actor_sampling_strategy: str = "batch"
 
     def __post_init__(self) -> None:
         if self.api_mode not in {"auto", "chat_completions", "responses", "completions"}:
             raise ValueError(
                 "api_mode must be one of: auto, chat_completions, responses, completions."
             )
+        if self.actor_sampling_strategy not in ACTOR_SAMPLING_STRATEGIES:
+            allowed = ", ".join(ACTOR_SAMPLING_STRATEGIES)
+            raise ValueError(f"actor_sampling_strategy must be one of: {allowed}.")
         if self.max_completion_tokens <= 0:
             raise ValueError("max_completion_tokens must be positive.")
         if self.actor_rationale_max_completion_tokens <= 0:
@@ -1975,16 +2039,6 @@ class OpenAICompatibleCandidateGenerator:
         seed: int,
         environment: RuntimeEnvironment | None = None,
     ) -> list[dict[str, Any]]:
-        del task_row
-        user_prompt = json.dumps(
-            _actor_prompt_payload(
-                context,
-                step_index=step_index,
-                environment=environment,
-            ),
-            indent=2,
-            sort_keys=True,
-        )
         if self.api_mode == "responses":
             system_prompt = (
                 ACTOR_SYSTEM_PROMPT
@@ -2012,40 +2066,100 @@ class OpenAICompatibleCandidateGenerator:
             tool_choice = None
             guided_json = None
             text_config = None
-        candidates: list[dict[str, Any]] = []
-        try:
-            choices = self._generate_choices(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                n=n_act,
-                seed=seed,
-                tools=tools,
-                tool_choice=tool_choice,
-                guided_json=guided_json,
-                text_config=text_config,
-                disable_hidden_thinking=self._should_disable_hidden_thinking(),
+
+        def build_user_prompt(sample_index: int | None = None) -> str:
+            directive = None
+            if sample_index is not None:
+                directive = _actor_sampling_directive_payload(
+                    sample_index=sample_index,
+                    task_type=task_row.get("task_type"),
+                )
+            return json.dumps(
+                _actor_prompt_payload(
+                    context,
+                    step_index=step_index,
+                    environment=environment,
+                    actor_sampling_directive=directive,
+                ),
+                indent=2,
+                sort_keys=True,
             )
-        except requests.RequestException as error:
-            return [
-                {
-                    "reasoning_text": "",
-                    "tool_action": None,
-                    "raw_text": _request_error_raw_text("actor_request_failed", error),
-                    "generator_errors": [f"actor_request_failed: {error}"],
-                }
-            ]
+
+        candidates: list[dict[str, Any]] = []
+        if self.config.actor_sampling_strategy == "verbalized" and n_act > 1:
+            choices: list[dict[str, Any]] = []
+            for sample_index in range(n_act):
+                try:
+                    sample_choices = self._generate_choices(
+                        system_prompt=system_prompt,
+                        user_prompt=build_user_prompt(sample_index),
+                        n=1,
+                        seed=seed + sample_index,
+                        tools=tools,
+                        tool_choice=tool_choice,
+                        guided_json=guided_json,
+                        text_config=text_config,
+                        disable_hidden_thinking=self._should_disable_hidden_thinking(),
+                    )
+                except requests.RequestException as error:
+                    choices.append(
+                        {
+                            "finish_reason": None,
+                            "message": {
+                                "content": _request_error_raw_text("actor_request_failed", error),
+                            },
+                            "actor_sampling_directive": _actor_sampling_directive_payload(
+                                sample_index=sample_index,
+                                task_type=task_row.get("task_type"),
+                            ),
+                            "actor_request_error": f"actor_request_failed: {error}",
+                        }
+                    )
+                    continue
+                for choice in sample_choices:
+                    choice["actor_sampling_directive"] = _actor_sampling_directive_payload(
+                        sample_index=sample_index,
+                        task_type=task_row.get("task_type"),
+                    )
+                choices.extend(sample_choices[:1])
+        else:
+            try:
+                choices = self._generate_choices(
+                    system_prompt=system_prompt,
+                    user_prompt=build_user_prompt(),
+                    n=n_act,
+                    seed=seed,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    guided_json=guided_json,
+                    text_config=text_config,
+                    disable_hidden_thinking=self._should_disable_hidden_thinking(),
+                )
+            except requests.RequestException as error:
+                return [
+                    {
+                        "reasoning_text": "",
+                        "tool_action": None,
+                        "raw_text": _request_error_raw_text("actor_request_failed", error),
+                        "generator_errors": [f"actor_request_failed: {error}"],
+                    }
+                ]
 
         for choice in choices:
             raw_text = _json_dumps_compact(_strip_raw_generation_payload(choice))
             try:
                 normalized_payload, payload_errors = _actor_candidate_from_choice(choice)
                 candidate_reasoning_text = normalized_payload["reasoning_text"]
+                request_error = choice.get("actor_request_error")
+                if isinstance(request_error, str) and request_error:
+                    payload_errors.append(request_error)
                 candidates.append(
                     {
                         "reasoning_text": candidate_reasoning_text,
                         "tool_action": normalized_payload["tool_action"],
                         "raw_text": raw_text,
                         "generator_errors": _unique(payload_errors),
+                        "actor_sampling_directive": choice.get("actor_sampling_directive"),
                     }
                 )
             except Exception as error:
@@ -2055,6 +2169,7 @@ class OpenAICompatibleCandidateGenerator:
                         "tool_action": None,
                         "raw_text": raw_text,
                         "generator_errors": [f"actor_json_parse_error: {error}"],
+                        "actor_sampling_directive": choice.get("actor_sampling_directive"),
                     }
                 )
         return candidates
@@ -3579,6 +3694,10 @@ def generate_task_trajectory(
                         symbol_lookup=symbol_lookup,
                         generator_errors=actor_generation_errors,
                     )
+                    if actor_candidate.get("actor_sampling_directive") is not None:
+                        branch.metadata["actor_sampling_directive"] = actor_candidate[
+                            "actor_sampling_directive"
+                        ]
                     branch = _score_branch(
                         task_row,
                         state,
@@ -4027,6 +4146,9 @@ def generate_trajectories(
                 "reasoning_effort": (
                     model_generator_config.reasoning_effort if model_generator_config else None
                 ),
+                "actor_sampling_strategy": (
+                    model_generator_config.actor_sampling_strategy if model_generator_config else None
+                ),
             },
             "task_selection": task_selection or {},
             "runtime": environment.describe(),
@@ -4226,6 +4348,15 @@ def parse_args() -> argparse.Namespace:
         help="Reasoning effort sent to model-backed generation requests.",
     )
     parser.add_argument(
+        "--actor-sampling-strategy",
+        choices=ACTOR_SAMPLING_STRATEGIES,
+        default="batch",
+        help=(
+            "Actor sampling mode. 'batch' requests n_act samples from one prompt; "
+            "'verbalized' requests each actor sample with a distinct exploration directive."
+        ),
+    )
+    parser.add_argument(
         "--generator-timeout-seconds",
         type=int,
         default=3600,
@@ -4274,6 +4405,7 @@ def main() -> None:
             max_completion_tokens=args.generator_max_completion_tokens,
             actor_rationale_max_completion_tokens=args.generator_actor_rationale_max_completion_tokens,
             reasoning_effort=args.generator_reasoning_effort,
+            actor_sampling_strategy=args.actor_sampling_strategy,
         )
 
     if args.store_dir is not None:

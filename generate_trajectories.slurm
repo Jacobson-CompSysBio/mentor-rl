@@ -2,9 +2,9 @@
 #SBATCH --job-name=mentor-traj-gen
 #SBATCH -A SYB114
 #SBATCH -N 1
-#SBATCH -t 02:00:00
-#SBATCH -p batch
-#SBATCH -q debug
+#SBATCH -t 06:00:00
+#SBATCH -p extended
+##SBATCH -q debug
 #SBATCH -C nvme
 #SBATCH --ntasks=1
 #SBATCH --ntasks-per-node=1
@@ -123,6 +123,7 @@ GENERATOR_MAX_COMPLETION_TOKENS="${GENERATOR_MAX_COMPLETION_TOKENS:-4096}"
 GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS="${GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS:-2048}"
 GENERATOR_API_MODE="${GENERATOR_API_MODE:-auto}"
 GENERATOR_REASONING_EFFORT="${GENERATOR_REASONING_EFFORT:-medium}"
+ACTOR_SAMPLING_STRATEGY="${ACTOR_SAMPLING_STRATEGY:-batch}"
 GENERATOR_TIMEOUT_SECONDS="${GENERATOR_TIMEOUT_SECONDS:-3600}"
 RUN_SMOKE_TEST="${RUN_SMOKE_TEST:-1}"
 SMOKE_TEST_ONLY="${SMOKE_TEST_ONLY:-0}"
@@ -135,6 +136,7 @@ SMOKE_GENERATOR_TEMPERATURE="${SMOKE_GENERATOR_TEMPERATURE:-0.2}"
 SMOKE_MAX_COMPLETION_TOKENS="${SMOKE_MAX_COMPLETION_TOKENS:-2048}"
 SMOKE_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS="${SMOKE_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS:-2048}"
 SMOKE_REASONING_EFFORT="${SMOKE_REASONING_EFFORT:-low}"
+SMOKE_ACTOR_SAMPLING_STRATEGY="${SMOKE_ACTOR_SAMPLING_STRATEGY:-${ACTOR_SAMPLING_STRATEGY}}"
 
 RAY_PORT="${RAY_PORT:-6379}"
 RAY_DASHBOARD_PORT="${RAY_DASHBOARD_PORT:-8265}"
@@ -297,6 +299,7 @@ log "TASK_CONCURRENCY=${TASK_CONCURRENCY}"
 log "GENERATOR_API_MODE=${GENERATOR_API_MODE}"
 log "GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS=${GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS}"
 log "GENERATOR_REASONING_EFFORT=${GENERATOR_REASONING_EFFORT}"
+log "ACTOR_SAMPLING_STRATEGY=${ACTOR_SAMPLING_STRATEGY}"
 log "GENERATOR_TIMEOUT_SECONDS=${GENERATOR_TIMEOUT_SECONDS}"
 log "RUN_SMOKE_TEST=${RUN_SMOKE_TEST}"
 log "SMOKE_TEST_ONLY=${SMOKE_TEST_ONLY}"
@@ -304,6 +307,7 @@ log "SMOKE_TASK_INDEX=${SMOKE_TASK_INDEX}"
 log "SMOKE_TASK_IDS=${SMOKE_TASK_IDS}"
 log "SMOKE_GENERATOR_TEMPERATURE=${SMOKE_GENERATOR_TEMPERATURE}"
 log "SMOKE_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS=${SMOKE_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS}"
+log "SMOKE_ACTOR_SAMPLING_STRATEGY=${SMOKE_ACTOR_SAMPLING_STRATEGY}"
 log "SMOKE_TASK_ID=${SMOKE_TASK_ID}"
 log "SMOKE_N_ACT=${SMOKE_N_ACT}"
 log "SMOKE_SEED=${SMOKE_SEED}"
@@ -587,6 +591,7 @@ payload = {
         "generator_max_completion_tokens": ${GENERATOR_MAX_COMPLETION_TOKENS@Q},
         "generator_actor_rationale_max_completion_tokens": ${GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS@Q},
         "generator_reasoning_effort": ${GENERATOR_REASONING_EFFORT@Q},
+        "actor_sampling_strategy": ${ACTOR_SAMPLING_STRATEGY@Q},
         "generator_timeout_seconds": ${GENERATOR_TIMEOUT_SECONDS@Q},
     },
     "smoke": {
@@ -597,6 +602,7 @@ payload = {
         "smoke_task_ids": ${SMOKE_TASK_IDS@Q},
         "smoke_n_act": ${SMOKE_N_ACT@Q},
         "smoke_seed": ${SMOKE_SEED@Q},
+        "smoke_actor_sampling_strategy": ${SMOKE_ACTOR_SAMPLING_STRATEGY@Q},
     },
     "vllm": {
         "head_node": ${HEAD_NODE@Q},
@@ -670,6 +676,7 @@ if [[ "${RUN_SMOKE_TEST}" == "1" ]]; then
           --generator-max-completion-tokens ${SMOKE_MAX_COMPLETION_TOKENS} \
           --generator-actor-rationale-max-completion-tokens ${SMOKE_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS} \
           --generator-reasoning-effort ${SMOKE_REASONING_EFFORT} \
+          --actor-sampling-strategy ${SMOKE_ACTOR_SAMPLING_STRATEGY} \
           ${SMOKE_TASK_FLAGS[*]@Q}
       "; then
       log "Preflight generator smoke test failed. See the candidate dump above for the raw response and generator errors."
@@ -707,6 +714,7 @@ srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
       --generator-max-completion-tokens ${GENERATOR_MAX_COMPLETION_TOKENS} \
       --generator-actor-rationale-max-completion-tokens ${GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS} \
       --generator-reasoning-effort ${GENERATOR_REASONING_EFFORT} \
+      --actor-sampling-strategy ${ACTOR_SAMPLING_STRATEGY} \
       --generator-timeout-seconds ${GENERATOR_TIMEOUT_SECONDS} \
       --max-tasks ${MAX_TASKS} \
       --task-shard-index ${TASK_SHARD_INDEX} \

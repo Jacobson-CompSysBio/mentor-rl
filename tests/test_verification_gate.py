@@ -104,6 +104,34 @@ class VerificationGateTests(unittest.TestCase):
             self.assertTrue(report.ok, [finding.to_dict() for finding in report.findings])
             self.assertEqual(report.metrics["final_summary_count"], 2)
 
+    def test_audit_can_downgrade_tie_rate_for_dpo_pair_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "run"
+            _generate_small_run(out_dir)
+
+            report = audit_run(
+                out_dir,
+                AuditConfig(
+                    max_all_tie_rate=-1.0,
+                    max_top_tie_rate=1.0,
+                    tie_rate_severity="warning",
+                    min_balanced_pair_bins=0,
+                    require_pairs=False,
+                    required_task_types=("recovery", "none"),
+                    required_evidence_modes=("contextual",),
+                ),
+            )
+
+            self.assertTrue(report.ok, [finding.to_dict() for finding in report.findings])
+            self.assertTrue(any(finding.code == "all_tie_rate_high" for finding in report.findings))
+            self.assertTrue(
+                all(
+                    finding.severity == "warning"
+                    for finding in report.findings
+                    if finding.code == "all_tie_rate_high"
+                )
+            )
+
     def test_audit_rejects_hidden_supervision_leak(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "run"

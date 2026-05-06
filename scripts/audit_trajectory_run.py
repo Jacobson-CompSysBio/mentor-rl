@@ -74,6 +74,7 @@ class AuditConfig:
     preference_pair_margin: float = 0.10
     max_all_tie_rate: float = 0.20
     max_top_tie_rate: float = 1.00
+    tie_rate_severity: str = "error"
     max_generator_error_rate: float = 0.0
     min_balanced_pair_bins: int = 6
     require_completed: bool = True
@@ -407,9 +408,17 @@ def _audit_branch_pools(rows: list[dict[str, Any]], report: AuditReport, config:
     if branch_pool_count == 0:
         report.error("no_branch_pools", "No branch pools were produced.", artifact="branch_pools.jsonl")
     if all_tie_rate > config.max_all_tie_rate:
-        report.error("all_tie_rate_high", f"All-tie branch-pool rate {all_tie_rate:.3f} exceeds {config.max_all_tie_rate:.3f}.")
+        message = f"All-tie branch-pool rate {all_tie_rate:.3f} exceeds {config.max_all_tie_rate:.3f}."
+        if config.tie_rate_severity == "warning":
+            report.warning("all_tie_rate_high", message)
+        elif config.tie_rate_severity != "ignore":
+            report.error("all_tie_rate_high", message)
     if top_tie_rate > config.max_top_tie_rate:
-        report.error("top_tie_rate_high", f"Top-score tie rate {top_tie_rate:.3f} exceeds {config.max_top_tie_rate:.3f}.")
+        message = f"Top-score tie rate {top_tie_rate:.3f} exceeds {config.max_top_tie_rate:.3f}."
+        if config.tie_rate_severity == "warning":
+            report.warning("top_tie_rate_high", message)
+        elif config.tie_rate_severity != "ignore":
+            report.error("top_tie_rate_high", message)
     if generator_error_rate > config.max_generator_error_rate:
         report.error("generator_error_rate_high", f"Generator error rate {generator_error_rate:.3f} exceeds {config.max_generator_error_rate:.3f}.")
     if fallback_branch_count:
@@ -643,6 +652,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--preference-pair-margin", type=float, default=0.10)
     parser.add_argument("--max-all-tie-rate", type=float, default=0.20)
     parser.add_argument("--max-top-tie-rate", type=float, default=1.0)
+    parser.add_argument(
+        "--tie-rate-severity",
+        choices=("error", "warning", "ignore"),
+        default="error",
+        help=(
+            "How to handle all/top tie-rate threshold findings. Use 'warning' "
+            "for DPO-pair gates where tied pools are excluded by score-margin mining."
+        ),
+    )
     parser.add_argument("--max-generator-error-rate", type=float, default=0.0)
     parser.add_argument("--min-balanced-pair-bins", type=int, default=6)
     parser.add_argument(
@@ -659,6 +677,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--allow-incomplete", action="store_true", help="Do not fail solely because progress.json is not completed.")
     parser.add_argument("--allow-empty-pairs", action="store_true", help="Do not fail solely because preference_pairs.jsonl is empty.")
+    parser.add_argument(
+        "--dpo-pair-gate",
+        action="store_true",
+        help="Audit for DPO pair usability: keep pair/schema/backend checks strict, but downgrade high tie-rate findings to warnings.",
+    )
     parser.add_argument("--json", action="store_true", help="Emit the full audit report as JSON.")
     return parser
 
@@ -708,10 +731,12 @@ def _print_human(report: AuditReport) -> None:
 
 def main() -> None:
     args = _build_arg_parser().parse_args()
+    tie_rate_severity = "warning" if args.dpo_pair_gate else args.tie_rate_severity
     config = AuditConfig(
         preference_pair_margin=args.preference_pair_margin,
         max_all_tie_rate=args.max_all_tie_rate,
         max_top_tie_rate=args.max_top_tie_rate,
+        tie_rate_severity=tie_rate_severity,
         max_generator_error_rate=args.max_generator_error_rate,
         min_balanced_pair_bins=args.min_balanced_pair_bins,
         require_completed=not args.allow_incomplete,

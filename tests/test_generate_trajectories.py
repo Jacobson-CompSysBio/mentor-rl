@@ -463,6 +463,75 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertEqual(induce_subgraph_schema["properties"]["genes"]["minItems"], 1)
         self.assertEqual(induce_subgraph_schema["properties"]["layers"]["minItems"], 1)
 
+    def test_actor_verbalized_sampling_uses_distinct_prompt_directives(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+        generator = OpenAICompatibleCandidateGenerator(
+            ModelGeneratorConfig(
+                api_base="http://unused",
+                api_mode="chat_completions",
+                model_name="llama-3.1-70b-instruct",
+                actor_sampling_strategy="verbalized",
+            )
+        )
+        generator.session = _RecordingSession(
+            [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "stop",
+                            "message": {"content": "Use the current visible evidence directly."},
+                        }
+                    ]
+                },
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "stop",
+                            "message": {"content": "Probe the induced subgraph for coherence."},
+                        }
+                    ]
+                },
+            ]
+        )
+
+        actor_candidates = generator.generate_actor_candidates(
+            context,
+            task_row=task_row,
+            step_index=0,
+            n_act=2,
+            seed=5,
+            environment=_build_environment(),
+        )
+
+        self.assertEqual(len(actor_candidates), 2)
+        self.assertEqual(len(generator.session.requests), 2)
+        prompts = [request["json"]["messages"][1]["content"] for request in generator.session.requests]
+        self.assertIn('"actor_sampling_directive"', prompts[0])
+        self.assertIn('"best_direct_decision"', prompts[0])
+        self.assertIn('"subgraph_coherence_probe"', prompts[1])
+        self.assertEqual(
+            actor_candidates[0]["actor_sampling_directive"]["directive_name"],
+            "best_direct_decision",
+        )
+        self.assertEqual(
+            actor_candidates[1]["actor_sampling_directive"]["directive_name"],
+            "subgraph_coherence_probe",
+        )
+
+    def test_actor_sampling_strategy_must_be_known(self) -> None:
+        with self.assertRaisesRegex(ValueError, "actor_sampling_strategy"):
+            ModelGeneratorConfig(actor_sampling_strategy="unknown")
+
     def test_verifier_prompt_compacts_large_tool_observations(self) -> None:
         layers = []
         unique_neighbors = []
