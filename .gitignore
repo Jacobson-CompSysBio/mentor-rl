@@ -1,5 +1,6 @@
 .env
 .deepspeed_env
+**/shared_memory
 **/slurm/
 **/data
 **/logs/
