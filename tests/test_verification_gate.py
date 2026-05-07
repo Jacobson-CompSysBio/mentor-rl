@@ -132,6 +132,30 @@ class VerificationGateTests(unittest.TestCase):
                 )
             )
 
+    def test_audit_reports_large_scale_pair_quality_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "run"
+            _generate_small_run(out_dir)
+
+            report = audit_run(
+                out_dir,
+                AuditConfig(
+                    max_all_tie_rate=1.0,
+                    max_top_tie_rate=1.0,
+                    min_balanced_pair_bins=0,
+                    require_pairs=False,
+                    required_task_types=("recovery", "none"),
+                    required_evidence_modes=("contextual",),
+                    max_selected_no_tool_rate=-1.0,
+                    max_mechanism_label_only_pair_rate=-1.0,
+                ),
+            )
+
+            self.assertFalse(report.ok)
+            self.assertIn("selected_no_tool_rate", report.metrics)
+            self.assertIn("preference_pair_category_counts", report.metrics)
+            self.assertTrue(any(finding.code == "selected_no_tool_rate_high" for finding in report.findings))
+
     def test_audit_rejects_hidden_supervision_leak(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "run"

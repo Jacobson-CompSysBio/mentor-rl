@@ -299,6 +299,72 @@ class _InvalidVerifierThenValidGenerator:
         ]
 
 
+class _ToolCoverageRetryGenerator:
+    model_name = "gpt-oss-120b-bf16"
+
+    def __init__(self) -> None:
+        self.force_tool_coverage_flags: list[bool] = []
+
+    def generate_actor_candidates(
+        self,
+        context,
+        *,
+        task_row,
+        step_index,
+        n_act,
+        seed,
+        environment=None,
+        force_tool_coverage=False,
+    ):
+        del context, task_row, step_index, n_act, seed, environment
+        self.force_tool_coverage_flags.append(force_tool_coverage)
+        if force_tool_coverage:
+            return [
+                {
+                    "reasoning_text": "Retry with a restart walk to recover missing members.",
+                    "tool_action": {
+                        "tool_name": "rwr_multiplex",
+                        "arguments": {"seeds": ["ENSG1", "ENSG2"], "top_k": 5},
+                    },
+                    "raw_text": "{}",
+                    "generator_errors": [],
+                }
+            ]
+        return [
+            {
+                "reasoning_text": "Stop with the visible seed pair.",
+                "tool_action": None,
+                "raw_text": "{}",
+                "generator_errors": [],
+            }
+        ]
+
+    def generate_verifier_candidates(self, context, *, task_row, actor_candidate, actor_step, observation, step_index, n_ver, seed):
+        del context, task_row, actor_candidate, observation, step_index, n_ver, seed
+        predicted_gene_ids = ["ENSG1", "ENSG2", "ENSG3"] if actor_step.tool_action is not None else ["ENSG1", "ENSG2"]
+        return [
+            {
+                "payload": {
+                    "updated_interpretation": {
+                        "mechanistic_claim": "The evidence supports one coherent module.",
+                        "main_evidence": "The branch updates the candidate group.",
+                        "uncertainty": "",
+                        "next_subgoal": "",
+                    },
+                    "updated_state": {
+                        "relationship_status": "validated_group",
+                        "predicted_gene_ids": predicted_gene_ids,
+                        "mechanistic_labels": [],
+                        "continuation_decision": "stop",
+                        "verifier_notes": "test branch",
+                    },
+                },
+                "raw_text": "{}",
+                "generator_errors": [],
+            }
+        ]
+
+
 class _FakeHTTPResponse:
     def __init__(self, payload: dict) -> None:
         self._payload = payload
@@ -517,15 +583,15 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertEqual(len(generator.session.requests), 2)
         prompts = [request["json"]["messages"][1]["content"] for request in generator.session.requests]
         self.assertIn('"actor_sampling_directive"', prompts[0])
-        self.assertIn('"best_direct_decision"', prompts[0])
-        self.assertIn('"subgraph_coherence_probe"', prompts[1])
+        self.assertIn('"recovery_rwr_expansion"', prompts[0])
+        self.assertIn('"recovery_neighbor_expansion"', prompts[1])
         self.assertEqual(
             actor_candidates[0]["actor_sampling_directive"]["directive_name"],
-            "best_direct_decision",
+            "recovery_rwr_expansion",
         )
         self.assertEqual(
             actor_candidates[1]["actor_sampling_directive"]["directive_name"],
-            "subgraph_coherence_probe",
+            "recovery_neighbor_expansion",
         )
 
     def test_actor_sampling_strategy_must_be_known(self) -> None:
@@ -1743,6 +1809,49 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             retained_branch = branch_pools[0]["branches"][0]
             self.assertEqual(retained_branch["metadata"]["generator_errors"], [])
             self.assertTrue(retained_branch["local_score"]["score_metadata"]["schema_valid"])
+
+    def test_tool_coverage_retry_and_quality_pair_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "tool_coverage_quality_run"
+            generator = _ToolCoverageRetryGenerator()
+            manifest = generate_trajectories(
+                task_rows=_task_rows()[:1],
+                out_dir=out_dir,
+                environment=_build_environment(),
+                config=TrajectoryGenerationConfig(
+                    max_steps=3,
+                    n_act=1,
+                    n_ver=1,
+                    seed=3,
+                    candidate_source="model_vllm",
+                    selection_policy="task_quality",
+                    pair_mining_strategy="quality_balanced",
+                    tool_coverage_retry_count=1,
+                ),
+                model_generator_config=ModelGeneratorConfig(api_base="http://unused"),
+                candidate_generator=generator,
+            )
+
+            self.assertEqual(generator.force_tool_coverage_flags, [False, True])
+            self.assertEqual(manifest["config"]["selection_policy"], "task_quality")
+            self.assertEqual(manifest["config"]["pair_mining_strategy"], "quality_balanced")
+            branch_pools = _read_jsonl(out_dir / "branch_pools.jsonl")
+            selected = next(
+                branch
+                for branch in branch_pools[0]["branches"]
+                if branch["branch_id"] == branch_pools[0]["selected_branch_id"]
+            )
+            self.assertEqual(selected["actor_step"]["tool_action"]["tool_name"], "rwr_multiplex")
+            self.assertEqual(selected["metadata"]["selection_policy"], "task_quality")
+
+            preference_pairs_raw = _read_jsonl(out_dir / "preference_pairs_raw.jsonl")
+            self.assertTrue(preference_pairs_raw)
+            provenance = preference_pairs_raw[0]["provenance"]
+            self.assertEqual(provenance["pair_mining_strategy"], "quality_balanced")
+            self.assertEqual(provenance["pair_category"], "recovery_expansion")
+            self.assertEqual(provenance["chosen_tool_name"], "rwr_multiplex")
+            self.assertEqual(provenance["rejected_tool_name"], "no_tool")
+            self.assertGreater(provenance["chosen_gene_count"], provenance["rejected_gene_count"])
 
     def test_model_backed_generation_can_opt_in_to_heuristic_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

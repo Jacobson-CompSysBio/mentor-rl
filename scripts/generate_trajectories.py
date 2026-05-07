@@ -24,8 +24,10 @@ Both paths write the same branch-pool and trajectory artifacts.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 import json
+import math
 import os
 import re
 import sys
@@ -91,6 +93,7 @@ DEFAULT_GENERATOR_API_KEY_ENV = "OPENAI_API_KEY"
 STRUCTURED_OUTPUT_MAX_TOKENS = 2048
 DEFAULT_ACTOR_RATIONALE_MAX_TOKENS = 2048
 DEFAULT_PREFERENCE_PAIR_MARGIN = 0.10
+DEFAULT_SELECTION_SCORE_EPSILON = 0.02
 GPT_OSS_FINAL_CHANNEL_PREFIX = "<|start|>assistant<|channel|>final<|message|>"
 PROMPT_TEXT_MAX_CHARS = 700
 PROMPT_ACTOR_REASONING_MAX_CHARS = 1200
@@ -101,6 +104,8 @@ PROMPT_MYGENE_PREVIEW_LIMIT = 5
 PROMPT_TOOL_REFERENCE_GENE_LIMIT = 40
 PROMPT_TOOL_REFERENCE_LAYER_LIMIT = 40
 ACTOR_SAMPLING_STRATEGIES = ("batch", "verbalized")
+SELECTION_POLICIES = ("score", "task_quality")
+PAIR_MINING_STRATEGIES = ("score_margin", "quality_balanced")
 ACTOR_DIVERSITY_DIRECTIVES = (
     {
         "name": "best_direct_decision",
@@ -135,6 +140,181 @@ ACTOR_DIVERSITY_DIRECTIVES = (
         "preferred_tools": ["get_neighbors", "rwr_multiplex"],
     },
 )
+TASK_ACTOR_DIVERSITY_DIRECTIVES = {
+    "recovery": (
+        {
+            "name": "recovery_rwr_expansion",
+            "instruction": (
+                "Explore recovery expansion. Prefer rwr_multiplex from the current "
+                "seed/candidate group to identify plausible missing complex members."
+            ),
+            "preferred_tools": ["rwr_multiplex"],
+        },
+        {
+            "name": "recovery_neighbor_expansion",
+            "instruction": (
+                "Explore local expansion evidence. Prefer get_neighbors on one informative "
+                "anchor gene and look for candidate genes that could extend the group."
+            ),
+            "preferred_tools": ["get_neighbors"],
+        },
+        {
+            "name": "recovery_subgraph_validation",
+            "instruction": (
+                "Validate whether the current candidate group is coherent before stopping. "
+                "Prefer induce_subgraph when at least two valid genes are available."
+            ),
+            "preferred_tools": ["induce_subgraph"],
+        },
+        {
+            "name": "recovery_pair_connectivity",
+            "instruction": (
+                "Check pairwise graph support among informative candidate genes. Prefer "
+                "shortest_path when at least two valid genes are available."
+            ),
+            "preferred_tools": ["shortest_path"],
+        },
+        {
+            "name": "recovery_direct_decision",
+            "instruction": (
+                "Make the best direct recovery decision only if visible evidence is already "
+                "sufficient; otherwise prefer a valid expansion or validation tool."
+            ),
+            "preferred_tools": [],
+        },
+    ),
+    "refinement": (
+        {
+            "name": "refinement_subgraph_pruning",
+            "instruction": (
+                "Explore refinement evidence. Prefer induce_subgraph to identify which "
+                "members of the current candidate group are graph-supported."
+            ),
+            "preferred_tools": ["induce_subgraph"],
+        },
+        {
+            "name": "refinement_rwr_support",
+            "instruction": (
+                "Use restart-walk support to distinguish coherent members from weaker "
+                "ones. Prefer rwr_multiplex from the current candidate group."
+            ),
+            "preferred_tools": ["rwr_multiplex"],
+        },
+        {
+            "name": "refinement_pair_connectivity",
+            "instruction": (
+                "Probe whether questionable gene pairs are connected. Prefer shortest_path "
+                "between two informative valid genes."
+            ),
+            "preferred_tools": ["shortest_path"],
+        },
+        {
+            "name": "refinement_direct_decision",
+            "instruction": (
+                "Make the best direct refinement decision only if visible evidence already "
+                "supports a coherent subset."
+            ),
+            "preferred_tools": [],
+        },
+    ),
+    "none": (
+        {
+            "name": "none_subgraph_disconfirmation",
+            "instruction": (
+                "Look for disconfirming graph evidence before abstaining. Prefer "
+                "induce_subgraph over the current candidate group."
+            ),
+            "preferred_tools": ["induce_subgraph"],
+        },
+        {
+            "name": "none_pair_disconfirmation",
+            "instruction": (
+                "Test whether seed genes are connected. Prefer shortest_path when at least "
+                "two valid genes are available."
+            ),
+            "preferred_tools": ["shortest_path"],
+        },
+        {
+            "name": "none_neighbor_check",
+            "instruction": (
+                "Inspect one seed neighborhood to see whether any local support exists. "
+                "Prefer get_neighbors on one valid anchor gene."
+            ),
+            "preferred_tools": ["get_neighbors"],
+        },
+        {
+            "name": "none_abstain_if_supported",
+            "instruction": (
+                "Abstain only when the visible and observed evidence supports no single "
+                "shared mechanism."
+            ),
+            "preferred_tools": [],
+        },
+    ),
+    "explanation": (
+        {
+            "name": "explanation_annotation_decision",
+            "instruction": (
+                "Use visible annotations and context to decide the strongest shared "
+                "mechanism when they are already sufficient."
+            ),
+            "preferred_tools": [],
+        },
+        {
+            "name": "explanation_subgraph_validation",
+            "instruction": (
+                "Validate candidate-group coherence. Prefer induce_subgraph when at least "
+                "two valid genes are available."
+            ),
+            "preferred_tools": ["induce_subgraph"],
+        },
+        {
+            "name": "explanation_pair_connectivity",
+            "instruction": (
+                "Probe pairwise connectivity when graph evidence would clarify the "
+                "mechanism. Prefer shortest_path."
+            ),
+            "preferred_tools": ["shortest_path"],
+        },
+        {
+            "name": "explanation_neighbor_context",
+            "instruction": (
+                "Inspect one anchor neighborhood when local graph context could strengthen "
+                "or weaken the explanation. Prefer get_neighbors."
+            ),
+            "preferred_tools": ["get_neighbors"],
+        },
+    ),
+}
+TOOL_COVERAGE_DIRECTIVES = {
+    "recovery": {
+        "name": "tool_coverage_recovery_expansion",
+        "instruction": (
+            "This retry exists because no usable tool-backed actor candidate was observed. "
+            "Choose a valid runtime tool if any valid graph argument can be formed; prefer "
+            "rwr_multiplex for recovery expansion, then get_neighbors or induce_subgraph."
+        ),
+        "preferred_tools": ["rwr_multiplex", "get_neighbors", "induce_subgraph"],
+    },
+    "refinement": {
+        "name": "tool_coverage_refinement_probe",
+        "instruction": (
+            "This retry exists because no usable tool-backed actor candidate was observed. "
+            "Choose a valid runtime tool if any valid graph argument can be formed; prefer "
+            "induce_subgraph for pruning evidence, then rwr_multiplex or shortest_path."
+        ),
+        "preferred_tools": ["induce_subgraph", "rwr_multiplex", "shortest_path"],
+    },
+}
+PAIR_CATEGORY_PRIORITIES = {
+    "recovery_expansion": 0,
+    "tool_supported_improvement": 1,
+    "refinement_precision": 2,
+    "none_abstention": 3,
+    "score_margin": 4,
+    "mechanism_label_only": 5,
+    "conservative_stop": 6,
+}
 TRAJECTORY_STAGES = (
     ("load_tasks", "Load canonical CORUM tasks"),
     ("initialize_runtime", "Initialize deterministic runtime"),
@@ -518,7 +698,8 @@ def _actor_sampling_directive_payload(
     sample_index: int,
     task_type: str | None,
 ) -> dict[str, Any]:
-    directive = ACTOR_DIVERSITY_DIRECTIVES[sample_index % len(ACTOR_DIVERSITY_DIRECTIVES)]
+    directives = TASK_ACTOR_DIVERSITY_DIRECTIVES.get(str(task_type), ACTOR_DIVERSITY_DIRECTIVES)
+    directive = directives[sample_index % len(directives)]
     return {
         "strategy": "verbalized",
         "sample_index": sample_index,
@@ -530,6 +711,36 @@ def _actor_sampling_directive_payload(
             "Follow this directive only when it is valid for the current state and available candidate_gene_ids.",
             "If the preferred tool is invalid or unhelpful, choose the best valid alternative.",
             "Do not copy another sample's action merely for consistency; this sample is meant to explore a distinct plausible branch.",
+        ],
+    }
+
+
+def _actor_tool_coverage_directive_payload(
+    *,
+    sample_index: int,
+    task_type: str | None,
+) -> dict[str, Any]:
+    directive = TOOL_COVERAGE_DIRECTIVES.get(str(task_type))
+    if directive is None:
+        directive = {
+            "name": "tool_coverage_probe",
+            "instruction": (
+                "Choose a valid runtime tool if any valid graph argument can be formed; "
+                "otherwise explain why no tool is currently useful."
+            ),
+            "preferred_tools": ["induce_subgraph", "shortest_path", "get_neighbors"],
+        }
+    return {
+        "strategy": "tool_coverage_retry",
+        "sample_index": sample_index,
+        "task_type": task_type,
+        "directive_name": directive["name"],
+        "instruction": directive["instruction"],
+        "preferred_tools": directive["preferred_tools"],
+        "rules": [
+            "Prefer a valid runtime tool over no_tool for this retry.",
+            "Use only provided candidate_gene_ids or exact ids returned by prior successful tool observations.",
+            "If no valid tool argument can be formed, choose no_tool and explain the blocker.",
         ],
     }
 
@@ -2038,6 +2249,7 @@ class OpenAICompatibleCandidateGenerator:
         n_act: int,
         seed: int,
         environment: RuntimeEnvironment | None = None,
+        force_tool_coverage: bool = False,
     ) -> list[dict[str, Any]]:
         if self.api_mode == "responses":
             system_prompt = (
@@ -2069,7 +2281,12 @@ class OpenAICompatibleCandidateGenerator:
 
         def build_user_prompt(sample_index: int | None = None) -> str:
             directive = None
-            if sample_index is not None:
+            if force_tool_coverage and sample_index is not None:
+                directive = _actor_tool_coverage_directive_payload(
+                    sample_index=sample_index,
+                    task_type=task_row.get("task_type"),
+                )
+            elif sample_index is not None:
                 directive = _actor_sampling_directive_payload(
                     sample_index=sample_index,
                     task_type=task_row.get("task_type"),
@@ -2086,9 +2303,20 @@ class OpenAICompatibleCandidateGenerator:
             )
 
         candidates: list[dict[str, Any]] = []
-        if self.config.actor_sampling_strategy == "verbalized" and n_act > 1:
+        if force_tool_coverage or (self.config.actor_sampling_strategy == "verbalized" and n_act > 1):
             choices: list[dict[str, Any]] = []
             for sample_index in range(n_act):
+                directive_payload = (
+                    _actor_tool_coverage_directive_payload(
+                        sample_index=sample_index,
+                        task_type=task_row.get("task_type"),
+                    )
+                    if force_tool_coverage
+                    else _actor_sampling_directive_payload(
+                        sample_index=sample_index,
+                        task_type=task_row.get("task_type"),
+                    )
+                )
                 try:
                     sample_choices = self._generate_choices(
                         system_prompt=system_prompt,
@@ -2108,19 +2336,13 @@ class OpenAICompatibleCandidateGenerator:
                             "message": {
                                 "content": _request_error_raw_text("actor_request_failed", error),
                             },
-                            "actor_sampling_directive": _actor_sampling_directive_payload(
-                                sample_index=sample_index,
-                                task_type=task_row.get("task_type"),
-                            ),
+                            "actor_sampling_directive": directive_payload,
                             "actor_request_error": f"actor_request_failed: {error}",
                         }
                     )
                     continue
                 for choice in sample_choices:
-                    choice["actor_sampling_directive"] = _actor_sampling_directive_payload(
-                        sample_index=sample_index,
-                        task_type=task_row.get("task_type"),
-                    )
+                    choice["actor_sampling_directive"] = directive_payload
                 choices.extend(sample_choices[:1])
         else:
             try:
@@ -2777,6 +2999,122 @@ def _build_finding_record(
     }
 
 
+def _pair_category(
+    *,
+    task_type: str,
+    context: SharedPrefixContext,
+    chosen_branch: CandidateBranch,
+    rejected_branch: CandidateBranch,
+) -> str:
+    chosen_features = _branch_quality_features(chosen_branch, prior_state=context.state)
+    rejected_features = _branch_quality_features(rejected_branch, prior_state=context.state)
+    complex_diff = (
+        chosen_branch.local_score.complex_membership_delta
+        - rejected_branch.local_score.complex_membership_delta
+    )
+    mechanism_diff = (
+        chosen_branch.local_score.mechanistic_label_delta
+        - rejected_branch.local_score.mechanistic_label_delta
+    )
+    chosen_group_delta = int(chosen_features["group_size_delta"])
+    rejected_group_delta = int(rejected_features["group_size_delta"])
+
+    if (
+        task_type == "recovery"
+        and chosen_group_delta > 0
+        and chosen_group_delta >= rejected_group_delta
+        and complex_diff >= -1e-9
+    ):
+        return "recovery_expansion"
+    if (
+        task_type == "refinement"
+        and float(chosen_features["precision_delta"]) > float(rejected_features["precision_delta"]) + 1e-9
+    ):
+        return "refinement_precision"
+    if (
+        task_type == "none"
+        and chosen_branch.verifier_step.updated_state.relationship_status
+        == RelationshipStatus.INSUFFICIENT_SUPPORT
+    ):
+        return "none_abstention"
+    if bool(chosen_features["has_successful_tool"]) and (
+        not bool(rejected_features["has_successful_tool"]) or complex_diff > 1e-9
+    ):
+        return "tool_supported_improvement"
+    if abs(complex_diff) <= 1e-9 and mechanism_diff > 1e-9:
+        return "mechanism_label_only"
+    if (
+        task_type in {"recovery", "refinement"}
+        and chosen_features["tool_name"] == "no_tool"
+        and chosen_group_delta <= 0
+    ):
+        return "conservative_stop"
+    return "score_margin"
+
+
+def _pair_quality_provenance(
+    *,
+    task_row: dict[str, Any],
+    context: SharedPrefixContext,
+    branches: list[CandidateBranch],
+    chosen_branch: CandidateBranch,
+    rejected_branch: CandidateBranch,
+    score_margin: float,
+    pair_mining_strategy: str,
+) -> dict[str, Any]:
+    task_type = str(task_row["task_type"])
+    chosen_features = _branch_quality_features(chosen_branch, prior_state=context.state)
+    rejected_features = _branch_quality_features(rejected_branch, prior_state=context.state)
+    return {
+        "candidate_count": len(branches),
+        "valid_candidate_count": sum(1 for branch in branches if _branch_is_usable_for_selection(branch)),
+        "selected_branch_id": chosen_branch.branch_id,
+        "score_margin_threshold": score_margin,
+        "difficulty": task_row.get("difficulty"),
+        "pair_mining_strategy": pair_mining_strategy,
+        "pair_category": _pair_category(
+            task_type=task_type,
+            context=context,
+            chosen_branch=chosen_branch,
+            rejected_branch=rejected_branch,
+        ),
+        "chosen_tool_name": chosen_features["tool_name"],
+        "rejected_tool_name": rejected_features["tool_name"],
+        "chosen_has_successful_tool": chosen_features["has_successful_tool"],
+        "rejected_has_successful_tool": rejected_features["has_successful_tool"],
+        "chosen_gene_count": chosen_features["post_gene_count"],
+        "rejected_gene_count": rejected_features["post_gene_count"],
+        "chosen_group_size_delta": chosen_features["group_size_delta"],
+        "rejected_group_size_delta": rejected_features["group_size_delta"],
+        "chosen_recall_delta": chosen_features["recall_delta"],
+        "rejected_recall_delta": rejected_features["recall_delta"],
+        "chosen_precision_delta": chosen_features["precision_delta"],
+        "rejected_precision_delta": rejected_features["precision_delta"],
+        "complex_delta_diff": (
+            chosen_branch.local_score.complex_membership_delta
+            - rejected_branch.local_score.complex_membership_delta
+        ),
+        "mechanistic_delta_diff": (
+            chosen_branch.local_score.mechanistic_label_delta
+            - rejected_branch.local_score.mechanistic_label_delta
+        ),
+        "efficiency_penalty_diff": (
+            chosen_branch.local_score.efficiency_penalty
+            - rejected_branch.local_score.efficiency_penalty
+        ),
+    }
+
+
+def _preference_difficulty_for_rank(index: int, total: int) -> PreferenceDifficulty:
+    if total <= 1:
+        return PreferenceDifficulty.MEDIUM
+    if index == 0:
+        return PreferenceDifficulty.EASY
+    if index == total - 1:
+        return PreferenceDifficulty.HARD
+    return PreferenceDifficulty.MEDIUM
+
+
 def _mine_preference_pairs(
     *,
     task_row: dict[str, Any],
@@ -2787,6 +3125,7 @@ def _mine_preference_pairs(
     branches: list[CandidateBranch],
     chosen_branch: CandidateBranch,
     score_margin: float,
+    pair_mining_strategy: str = "score_margin",
 ) -> list[PreferencePair]:
     if not branches:
         return []
@@ -2811,11 +3150,17 @@ def _mine_preference_pairs(
     if not ordered_rejected:
         return []
 
-    difficulty_targets = [
-        (PreferenceDifficulty.EASY, ordered_rejected[0]),
-        (PreferenceDifficulty.MEDIUM, ordered_rejected[len(ordered_rejected) // 2]),
-        (PreferenceDifficulty.HARD, ordered_rejected[-1]),
-    ]
+    if pair_mining_strategy == "quality_balanced":
+        difficulty_targets = [
+            (_preference_difficulty_for_rank(index, len(ordered_rejected)), branch)
+            for index, branch in enumerate(ordered_rejected)
+        ]
+    else:
+        difficulty_targets = [
+            (PreferenceDifficulty.EASY, ordered_rejected[0]),
+            (PreferenceDifficulty.MEDIUM, ordered_rejected[len(ordered_rejected) // 2]),
+            (PreferenceDifficulty.HARD, ordered_rejected[-1]),
+        ]
     pairs: list[PreferencePair] = []
     seen_branch_ids: set[str] = set()
     for difficulty_bin, rejected_branch in difficulty_targets:
@@ -2843,21 +3188,92 @@ def _mine_preference_pairs(
             trajectory_id=trajectory_id,
             trajectory_seed=trajectory_seed,
             evidence_mode=task_row.get("evidence_mode"),
-            provenance={
-                "candidate_count": len(branches),
-                "valid_candidate_count": sum(
-                    1 for branch in branches if _branch_is_usable_for_selection(branch)
-                ),
-                "selected_branch_id": chosen_branch.branch_id,
-                "score_margin_threshold": score_margin,
-                "difficulty": task_row.get("difficulty"),
-            },
+            provenance=_pair_quality_provenance(
+                task_row=task_row,
+                context=context,
+                branches=branches,
+                chosen_branch=chosen_branch,
+                rejected_branch=rejected_branch,
+                score_margin=score_margin,
+                pair_mining_strategy=pair_mining_strategy,
+            ),
         )
         pairs.append(pair)
     return pairs
 
 
-def _balance_preference_pairs(pairs: list[PreferencePair]) -> list[PreferencePair]:
+def _pair_category_from_provenance(pair: PreferencePair) -> str:
+    category = pair.provenance.get("pair_category")
+    return category if isinstance(category, str) and category else "score_margin"
+
+
+def _round_robin_quality_pairs(pairs: list[PreferencePair]) -> list[PreferencePair]:
+    buckets: dict[tuple[int, str, str], list[PreferencePair]] = {}
+    for pair in sorted(
+        pairs,
+        key=lambda item: (
+            item.source_task_id,
+            item.trajectory_seed,
+            item.decision_step,
+            -item.score_margin,
+            item.pair_id,
+        ),
+    ):
+        category = _pair_category_from_provenance(pair)
+        key = (
+            PAIR_CATEGORY_PRIORITIES.get(category, PAIR_CATEGORY_PRIORITIES["score_margin"]),
+            category,
+            str(pair.evidence_mode),
+        )
+        buckets.setdefault(key, []).append(pair)
+
+    ordered: list[PreferencePair] = []
+    keys = sorted(buckets)
+    while keys:
+        next_keys: list[tuple[int, str, str]] = []
+        for key in keys:
+            bucket = buckets[key]
+            if bucket:
+                ordered.append(bucket.pop(0))
+            if bucket:
+                next_keys.append(key)
+        keys = next_keys
+    return ordered
+
+
+def _select_quality_balanced_bucket(bucket: list[PreferencePair], target_size: int) -> list[PreferencePair]:
+    if target_size <= 0:
+        return []
+    ordered = _round_robin_quality_pairs(bucket)
+    selected: list[PreferencePair] = []
+    deferred: list[PreferencePair] = []
+    weak_limit = max(1, int(math.ceil(target_size * 0.20)))
+    weak_counts: Counter[str] = Counter()
+    weak_categories = {"mechanism_label_only", "conservative_stop"}
+
+    for pair in ordered:
+        category = _pair_category_from_provenance(pair)
+        if category in weak_categories and weak_counts[category] >= weak_limit:
+            deferred.append(pair)
+            continue
+        selected.append(pair)
+        if category in weak_categories:
+            weak_counts[category] += 1
+        if len(selected) >= target_size:
+            return selected
+
+    for pair in deferred:
+        selected.append(pair)
+        if len(selected) >= target_size:
+            break
+    return selected
+
+
+def _balance_preference_pairs(
+    pairs: list[PreferencePair],
+    *,
+    pair_mining_strategy: str = "score_margin",
+) -> list[PreferencePair]:
     if not pairs:
         return []
 
@@ -2869,16 +3285,19 @@ def _balance_preference_pairs(pairs: list[PreferencePair]) -> list[PreferencePai
     min_bucket_size = min(len(bucket) for bucket in buckets.values())
     balanced: list[PreferencePair] = []
     for key in sorted(buckets):
-        bucket = sorted(
-            buckets[key],
-            key=lambda pair: (
-                pair.source_task_id,
-                pair.trajectory_seed,
-                pair.decision_step,
-                pair.pair_id,
-            ),
-        )
-        balanced.extend(bucket[:min_bucket_size])
+        if pair_mining_strategy == "quality_balanced":
+            balanced.extend(_select_quality_balanced_bucket(buckets[key], min_bucket_size))
+        else:
+            bucket = sorted(
+                buckets[key],
+                key=lambda pair: (
+                    pair.source_task_id,
+                    pair.trajectory_seed,
+                    pair.decision_step,
+                    pair.pair_id,
+                ),
+            )
+            balanced.extend(bucket[:min_bucket_size])
 
     return sorted(
         balanced,
@@ -3419,6 +3838,168 @@ def _branch_is_usable_for_selection(branch: CandidateBranch) -> bool:
     return not _branch_selection_errors(branch)
 
 
+def _branch_tool_name(branch: CandidateBranch) -> str:
+    action = branch.actor_step.tool_action
+    return action.tool_name if action is not None else "no_tool"
+
+
+def _branch_has_successful_tool(branch: CandidateBranch) -> bool:
+    return (
+        branch.actor_step.tool_action is not None
+        and branch.observation is not None
+        and branch.observation.status == ToolObservationStatus.SUCCESS
+    )
+
+
+def _predicted_gene_ids_from_state(state: Any) -> list[str]:
+    gene_ids: list[str] = []
+    for group in getattr(state, "predicted_groups", []):
+        gene_ids.extend(getattr(group, "gene_ids", []))
+    return _unique(gene_ids)
+
+
+def _branch_predicted_gene_ids(branch: CandidateBranch) -> list[str]:
+    return _predicted_gene_ids_from_state(branch.verifier_step.updated_state)
+
+
+def _complex_metric_delta(branch: CandidateBranch, metric_name: str) -> float:
+    complex_metadata = branch.local_score.score_metadata.get("complex", {})
+    if not isinstance(complex_metadata, dict):
+        return 0.0
+    pre_metrics = _safe_dict(_safe_dict(complex_metadata.get("best_group_pre")).get("metrics"))
+    post_metrics = _safe_dict(_safe_dict(complex_metadata.get("best_group_post")).get("metrics"))
+    pre_value = pre_metrics.get(metric_name, 0.0)
+    post_value = post_metrics.get(metric_name, 0.0)
+    if not isinstance(pre_value, (int, float)) or not isinstance(post_value, (int, float)):
+        return 0.0
+    return float(post_value) - float(pre_value)
+
+
+def _branch_quality_features(
+    branch: CandidateBranch,
+    *,
+    prior_state: Any,
+) -> dict[str, Any]:
+    prior_gene_ids = _predicted_gene_ids_from_state(prior_state)
+    post_gene_ids = _branch_predicted_gene_ids(branch)
+    relationship_status = branch.verifier_step.updated_state.relationship_status.value
+    tool_name = _branch_tool_name(branch)
+    return {
+        "tool_name": tool_name,
+        "has_successful_tool": _branch_has_successful_tool(branch),
+        "prior_gene_count": len(prior_gene_ids),
+        "post_gene_count": len(post_gene_ids),
+        "group_size_delta": len(post_gene_ids) - len(prior_gene_ids),
+        "complex_delta": branch.local_score.complex_membership_delta,
+        "mechanistic_delta": branch.local_score.mechanistic_label_delta,
+        "efficiency_penalty": branch.local_score.efficiency_penalty,
+        "recall_delta": _complex_metric_delta(branch, "recall"),
+        "precision_delta": _complex_metric_delta(branch, "precision"),
+        "jaccard_delta": _complex_metric_delta(branch, "jaccard"),
+        "relationship_status": relationship_status,
+        "continuation_state": branch.verifier_step.updated_state.continuation_state.value,
+    }
+
+
+def _tool_preference_rank(task_type: str, tool_name: str) -> int:
+    task_preferences = {
+        "recovery": {
+            "rwr_multiplex": 4,
+            "get_neighbors": 3,
+            "induce_subgraph": 2,
+            "shortest_path": 1,
+        },
+        "refinement": {
+            "induce_subgraph": 4,
+            "rwr_multiplex": 3,
+            "shortest_path": 2,
+            "get_neighbors": 1,
+        },
+        "none": {
+            "induce_subgraph": 3,
+            "shortest_path": 2,
+            "get_neighbors": 1,
+        },
+        "explanation": {
+            "induce_subgraph": 3,
+            "shortest_path": 2,
+            "get_neighbors": 1,
+        },
+    }
+    return task_preferences.get(task_type, {}).get(tool_name, 0)
+
+
+def _branch_task_quality_tuple(
+    branch: CandidateBranch,
+    *,
+    task_type: str,
+    prior_state: Any,
+) -> tuple[Any, ...]:
+    features = _branch_quality_features(branch, prior_state=prior_state)
+    normalized = float(branch.local_score.normalized_score or 0.0)
+    total = branch.local_score.total_score
+    status = features["relationship_status"]
+    tool_rank = _tool_preference_rank(task_type, str(features["tool_name"]))
+    successful_tool = int(bool(features["has_successful_tool"]))
+    no_tool = int(features["tool_name"] == "no_tool")
+    group_size_delta = int(features["group_size_delta"])
+    complex_delta = float(features["complex_delta"])
+    mechanism_delta = float(features["mechanistic_delta"])
+    recall_delta = float(features["recall_delta"])
+    precision_delta = float(features["precision_delta"])
+
+    if task_type == "recovery":
+        quality = (
+            complex_delta,
+            recall_delta,
+            int(group_size_delta > 0),
+            group_size_delta,
+            successful_tool,
+            tool_rank,
+            mechanism_delta,
+            -float(features["efficiency_penalty"]),
+            normalized,
+            total,
+        )
+    elif task_type == "refinement":
+        quality = (
+            precision_delta,
+            complex_delta,
+            int(group_size_delta < 0),
+            successful_tool,
+            tool_rank,
+            mechanism_delta,
+            -abs(group_size_delta),
+            -float(features["efficiency_penalty"]),
+            normalized,
+            total,
+        )
+    elif task_type == "none":
+        quality = (
+            int(status == RelationshipStatus.INSUFFICIENT_SUPPORT.value),
+            complex_delta,
+            successful_tool,
+            tool_rank,
+            -len(_branch_predicted_gene_ids(branch)),
+            -float(features["efficiency_penalty"]),
+            normalized,
+            total,
+        )
+    else:
+        quality = (
+            mechanism_delta,
+            complex_delta,
+            int(status == RelationshipStatus.VALIDATED_GROUP.value),
+            no_tool,
+            successful_tool,
+            tool_rank,
+            -float(features["efficiency_penalty"]),
+            normalized,
+            total,
+        )
+    return quality + (branch.branch_id,)
+
+
 def _normalize_branch_pool(branches: list[CandidateBranch]) -> None:
     if not branches:
         return
@@ -3438,7 +4019,15 @@ def _normalize_branch_pool(branches: list[CandidateBranch]) -> None:
         branch.local_score.normalized_score = float(normalized_score)
 
 
-def _select_best_branch(branches: list[CandidateBranch], *, require_valid: bool = False) -> CandidateBranch:
+def _select_best_branch(
+    branches: list[CandidateBranch],
+    *,
+    require_valid: bool = False,
+    task_row: dict[str, Any] | None = None,
+    prior_state: Any | None = None,
+    selection_policy: str = "score",
+    selection_score_epsilon: float = 0.0,
+) -> CandidateBranch:
     if not branches:
         raise RuntimeError("No branches are available for selection.")
 
@@ -3447,6 +4036,31 @@ def _select_best_branch(branches: list[CandidateBranch], *, require_valid: bool 
         raise RuntimeError("No schema-valid branches are available for selection.")
 
     selectable_branches = valid_branches or branches
+    if selection_policy == "task_quality" and task_row is not None and prior_state is not None:
+        max_normalized = max(float(branch.local_score.normalized_score or 0.0) for branch in selectable_branches)
+        near_top = [
+            branch
+            for branch in selectable_branches
+            if max_normalized - float(branch.local_score.normalized_score or 0.0)
+            <= selection_score_epsilon
+        ]
+        task_type = str(task_row.get("task_type", ""))
+        selected = max(
+            near_top,
+            key=lambda branch: _branch_task_quality_tuple(
+                branch,
+                task_type=task_type,
+                prior_state=prior_state,
+            ),
+        )
+        selected.metadata["selection_policy"] = selection_policy
+        selected.metadata["selection_score_epsilon"] = selection_score_epsilon
+        selected.metadata["selection_quality"] = _branch_quality_features(
+            selected,
+            prior_state=prior_state,
+        )
+        return selected
+
     return sorted(
         selectable_branches,
         key=lambda branch: (
@@ -3469,6 +4083,10 @@ class TrajectoryGenerationConfig:
     candidate_source: str = "heuristic"
     allow_model_fallback: bool = False
     preference_pair_margin: float = DEFAULT_PREFERENCE_PAIR_MARGIN
+    selection_policy: str = "score"
+    selection_score_epsilon: float = DEFAULT_SELECTION_SCORE_EPSILON
+    pair_mining_strategy: str = "score_margin"
+    tool_coverage_retry_count: int = 0
 
     def __post_init__(self) -> None:
         if self.max_steps <= 0:
@@ -3483,6 +4101,16 @@ class TrajectoryGenerationConfig:
             raise ValueError("candidate_source must be one of: heuristic, model_vllm.")
         if self.preference_pair_margin < 0:
             raise ValueError("preference_pair_margin must be non-negative.")
+        if self.selection_policy not in SELECTION_POLICIES:
+            allowed = ", ".join(SELECTION_POLICIES)
+            raise ValueError(f"selection_policy must be one of: {allowed}.")
+        if self.selection_score_epsilon < 0:
+            raise ValueError("selection_score_epsilon must be non-negative.")
+        if self.pair_mining_strategy not in PAIR_MINING_STRATEGIES:
+            allowed = ", ".join(PAIR_MINING_STRATEGIES)
+            raise ValueError(f"pair_mining_strategy must be one of: {allowed}.")
+        if self.tool_coverage_retry_count < 0:
+            raise ValueError("tool_coverage_retry_count must be non-negative.")
 
 
 class ProgressTracker:
@@ -3614,6 +4242,26 @@ def generate_task_trajectory(
                 seed=trajectory_seed + step_index,
                 environment=environment,
             )
+            if (
+                config.tool_coverage_retry_count > 0
+                and task_row["task_type"] in {"recovery", "refinement"}
+                and not any(
+                    isinstance(candidate.get("tool_action"), dict)
+                    and candidate["tool_action"].get("tool_name")
+                    for candidate in actor_candidates
+                )
+            ):
+                actor_candidates.extend(
+                    candidate_generator.generate_actor_candidates(
+                        context,
+                        task_row=task_row,
+                        step_index=step_index,
+                        n_act=config.tool_coverage_retry_count,
+                        seed=trajectory_seed + step_index + 7919,
+                        environment=environment,
+                        force_tool_coverage=True,
+                    )
+                )
             for actor_index, actor_candidate in enumerate(actor_candidates):
                 actor_step, actor_errors = _build_actor_step_from_model_candidate(
                     actor_candidate,
@@ -3845,6 +4493,10 @@ def generate_task_trajectory(
         selected_branch = _select_best_branch(
             branches,
             require_valid=config.candidate_source == "model_vllm" and not config.allow_model_fallback,
+            task_row=task_row,
+            prior_state=state,
+            selection_policy=config.selection_policy,
+            selection_score_epsilon=config.selection_score_epsilon,
         )
         preference_pairs_raw.extend(
             _mine_preference_pairs(
@@ -3856,6 +4508,7 @@ def generate_task_trajectory(
                 branches=branches,
                 chosen_branch=selected_branch,
                 score_margin=config.preference_pair_margin,
+                pair_mining_strategy=config.pair_mining_strategy,
             )
         )
         selected_branch_ids.append(selected_branch.branch_id)
@@ -4087,7 +4740,10 @@ def generate_trajectories(
                 if executor_context is not None:
                     executor_context.shutdown(wait=True)
 
-        balanced_preference_pairs = _balance_preference_pairs(raw_preference_pairs)
+        balanced_preference_pairs = _balance_preference_pairs(
+            raw_preference_pairs,
+            pair_mining_strategy=config.pair_mining_strategy,
+        )
         with preference_pairs_path.open("w", encoding="utf-8") as preference_pairs_handle:
             for preference_pair in balanced_preference_pairs:
                 _write_jsonl_line(preference_pairs_handle, preference_pair.to_dict())
@@ -4121,6 +4777,10 @@ def generate_trajectories(
                 "seed": config.seed,
                 "allow_model_fallback": config.allow_model_fallback,
                 "preference_pair_margin": config.preference_pair_margin,
+                "selection_policy": config.selection_policy,
+                "selection_score_epsilon": config.selection_score_epsilon,
+                "pair_mining_strategy": config.pair_mining_strategy,
+                "tool_coverage_retry_count": config.tool_coverage_retry_count,
             },
             "generator": {
                 "candidate_source": config.candidate_source,
@@ -4288,6 +4948,39 @@ def parse_args() -> argparse.Namespace:
         help="Minimum normalized-score margin required to keep a dispreferred branch in DPO pair mining.",
     )
     parser.add_argument(
+        "--selection-policy",
+        choices=SELECTION_POLICIES,
+        default="score",
+        help=(
+            "Branch selection policy. 'score' picks the highest local score; "
+            "'task_quality' uses task-aware tie breakers within --selection-score-epsilon."
+        ),
+    )
+    parser.add_argument(
+        "--selection-score-epsilon",
+        type=float,
+        default=DEFAULT_SELECTION_SCORE_EPSILON,
+        help="Normalized-score window for task_quality selection tie breakers.",
+    )
+    parser.add_argument(
+        "--pair-mining-strategy",
+        choices=PAIR_MINING_STRATEGIES,
+        default="score_margin",
+        help=(
+            "Preference-pair mining mode. 'quality_balanced' keeps score margins but "
+            "adds pair categories and category/evidence-aware balancing."
+        ),
+    )
+    parser.add_argument(
+        "--tool-coverage-retry-count",
+        type=int,
+        default=0,
+        help=(
+            "For recovery/refinement model runs, request this many extra tool-directed "
+            "actor candidates when the initial actor batch contains no tool action."
+        ),
+    )
+    parser.add_argument(
         "--generator-api-base",
         type=str,
         default=DEFAULT_GENERATOR_API_BASE,
@@ -4390,6 +5083,10 @@ def main() -> None:
         candidate_source=args.candidate_source,
         allow_model_fallback=args.allow_model_fallback,
         preference_pair_margin=args.preference_pair_margin,
+        selection_policy=args.selection_policy,
+        selection_score_epsilon=args.selection_score_epsilon,
+        pair_mining_strategy=args.pair_mining_strategy,
+        tool_coverage_retry_count=args.tool_coverage_retry_count,
     )
     model_generator_config = None
     if args.candidate_source == "model_vllm":
