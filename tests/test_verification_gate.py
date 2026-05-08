@@ -221,6 +221,30 @@ class VerificationGateTests(unittest.TestCase):
             },
         )
 
+    def test_select_verification_tasks_stratifies_pilot_by_difficulty(self) -> None:
+        rows = []
+        for complex_index in range(6):
+            for difficulty in ("easy", "medium", "hard"):
+                rows.append(
+                    {
+                        "task_id": f"corum_complex_{complex_index:05d}.recovery.{difficulty}.graph",
+                        "task_type": "recovery",
+                        "evidence_mode": "graph",
+                        "difficulty": difficulty,
+                    }
+                )
+
+        pilot_rows = select_pilot_rows(rows, pilot_size=6, seed=7)
+
+        difficulty_counts = {}
+        complex_ids = set()
+        for row in pilot_rows:
+            difficulty_counts[row["difficulty"]] = difficulty_counts.get(row["difficulty"], 0) + 1
+            complex_ids.add(row["task_id"].split(".", 1)[0])
+
+        self.assertEqual(difficulty_counts, {"easy": 2, "hard": 2, "medium": 2})
+        self.assertGreater(len(complex_ids), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

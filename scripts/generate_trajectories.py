@@ -94,10 +94,13 @@ STRUCTURED_OUTPUT_MAX_TOKENS = 2048
 DEFAULT_ACTOR_RATIONALE_MAX_TOKENS = 2048
 DEFAULT_PREFERENCE_PAIR_MARGIN = 0.10
 DEFAULT_SELECTION_SCORE_EPSILON = 0.02
+DEFAULT_RECOVERY_RWR_TOP_K = 50
 GPT_OSS_FINAL_CHANNEL_PREFIX = "<|start|>assistant<|channel|>final<|message|>"
 PROMPT_TEXT_MAX_CHARS = 700
 PROMPT_ACTOR_REASONING_MAX_CHARS = 1200
 PROMPT_LIST_PREVIEW_LIMIT = 20
+PROMPT_RWR_RESULT_PREVIEW_LIMIT = 30
+PROMPT_RWR_NON_SEED_PREVIEW_LIMIT = 25
 PROMPT_LAYER_PREVIEW_LIMIT = 12
 PROMPT_EDGE_PREVIEW_LIMIT = 32
 PROMPT_MYGENE_PREVIEW_LIMIT = 5
@@ -146,7 +149,8 @@ TASK_ACTOR_DIVERSITY_DIRECTIVES = {
             "name": "recovery_rwr_expansion",
             "instruction": (
                 "Explore recovery expansion. Prefer rwr_multiplex from the current "
-                "seed/candidate group to identify plausible missing complex members."
+                "seed/candidate group with top_k at least 50 to identify plausible "
+                "missing complex members beyond the seeds."
             ),
             "preferred_tools": ["rwr_multiplex"],
         },
@@ -292,7 +296,8 @@ TOOL_COVERAGE_DIRECTIVES = {
         "instruction": (
             "This retry exists because no usable tool-backed actor candidate was observed. "
             "Choose a valid runtime tool if any valid graph argument can be formed; prefer "
-            "rwr_multiplex for recovery expansion, then get_neighbors or induce_subgraph."
+            "rwr_multiplex with top_k at least 50 for recovery expansion, then "
+            "get_neighbors or induce_subgraph."
         ),
         "preferred_tools": ["rwr_multiplex", "get_neighbors", "induce_subgraph"],
     },
@@ -422,6 +427,10 @@ State update guidance:
 - predicted_gene_ids should contain the best current coherent group.
 - For explanation, the predicted group often matches the visible seed set.
 - For recovery, add genes only when the observation supports them.
+  When an RWR observation is available, explicitly evaluate the top non-seed
+  candidates before declaring the seed group complete. Add only candidates that
+  have credible visible support; otherwise explain why the non-seed candidates
+  are too weak and continue if another check could help.
 - For refinement, remove genes that look unsupported or off-module.
 - For none tasks, prefer "insufficient_support" or "multiple_groups" when one coherent mechanism is not supported.
 - If relationship_status is insufficient_support, an empty predicted_gene_ids list is acceptable.
@@ -560,6 +569,13 @@ def _preview_list(values: Any, *, limit: int = PROMPT_LIST_PREVIEW_LIMIT) -> lis
     if not isinstance(values, list):
         return []
     return values[:limit]
+
+
+def _rwr_result_gene_id(result: Any) -> str | None:
+    if not isinstance(result, dict):
+        return None
+    gene_id = result.get("gene_id")
+    return gene_id if isinstance(gene_id, str) and gene_id else None
 
 
 def _compact_layer_list_payload(
@@ -844,11 +860,39 @@ def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dic
             "layer_name": payload.get("layer_name"),
         }
     elif tool_name in {"rwr_multiplex", "rwr_monoplex"}:
+        seed_gene_ids = _safe_list_of_strings(payload.get("seed_gene_ids"))
+        seed_gene_set = set(seed_gene_ids)
+        results = payload.get("results", [])
+        result_list = results if isinstance(results, list) else []
+        non_seed_results = [
+            result
+            for result in result_list
+            if (gene_id := _rwr_result_gene_id(result)) is not None and gene_id not in seed_gene_set
+        ]
+        seed_results = [
+            result
+            for result in result_list
+            if (gene_id := _rwr_result_gene_id(result)) is not None and gene_id in seed_gene_set
+        ]
         compact_payload = {
-            "seed_gene_ids": _preview_list(payload.get("seed_gene_ids")),
+            "seed_gene_ids": _preview_list(seed_gene_ids),
             "active_seed_gene_ids": _preview_list(payload.get("active_seed_gene_ids")),
             "top_k": payload.get("top_k"),
-            "results": _preview_list(payload.get("results")),
+            "result_count": len(result_list),
+            "seed_results_sample": _preview_list(seed_results, limit=8),
+            "non_seed_result_count": len(non_seed_results),
+            "top_non_seed_results": _preview_list(
+                non_seed_results,
+                limit=PROMPT_RWR_NON_SEED_PREVIEW_LIMIT,
+            ),
+            "results": _preview_list(
+                result_list,
+                limit=PROMPT_RWR_RESULT_PREVIEW_LIMIT,
+            ),
+            "recovery_interpretation_hint": (
+                "For recovery tasks, evaluate top_non_seed_results as possible "
+                "missing complex members before deciding that the seed group is complete."
+            ),
         }
         if "layer_name" in payload:
             compact_payload["layer_name"] = payload.get("layer_name")
@@ -887,9 +931,10 @@ def _verifier_prompt_payload(
     actor_step: ActorStep,
     observation: ToolObservation | None,
     step_index: int,
+    task_type: str | None = None,
 ) -> dict[str, Any]:
     prior_state_payload = _state_payload_for_model_prompt(context.state)
-    return {
+    payload = {
         "query_text": context.query_text,
         "visible_inputs": context.user_evidence,
         "prior_interpretation": _interpretation_payload_for_model_prompt(context.interpretation),
@@ -904,6 +949,16 @@ def _verifier_prompt_payload(
         "deterministic_observation": _observation_for_verifier_prompt(observation),
         "step_index": step_index,
     }
+    if task_type == "recovery":
+        payload["task_guidance"] = {
+            "objective": "Recover missing coherent complex members beyond the current seed/candidate group.",
+            "candidate_policy": [
+                "Inspect top non-seed tool candidates before marking the seed group complete.",
+                "Add a non-seed candidate only when the visible observation gives credible support.",
+                "If no non-seed candidate is supported, explain that limitation and choose continue when another query could help.",
+            ],
+        }
+    return payload
 
 
 def _json_dumps_compact(value: Any) -> str:
@@ -2408,13 +2463,13 @@ class OpenAICompatibleCandidateGenerator:
         n_ver: int,
         seed: int,
     ) -> list[dict[str, Any]]:
-        del task_row
         user_prompt = json.dumps(
             _verifier_prompt_payload(
                 context,
                 actor_step=actor_step,
                 observation=observation,
                 step_index=step_index,
+                task_type=task_row.get("task_type"),
             ),
             indent=2,
             sort_keys=True,
@@ -3354,6 +3409,7 @@ def _actor_templates_for_step(
     trajectory_id: str,
     step_index: int,
     n_act: int,
+    recovery_rwr_top_k: int = DEFAULT_RECOVERY_RWR_TOP_K,
 ) -> list[dict[str, Any]]:
     task_type = task_row["task_type"]
     visible_inputs = task_row["visible_inputs"]
@@ -3407,7 +3463,10 @@ def _actor_templates_for_step(
                 "rwr_expand_group",
                 "Rank candidate genes from the current seed set with multiplex restart walk.",
                 tool_name="rwr_multiplex",
-                arguments={"seeds": current_gene_ids, "top_k": 10},
+                arguments={
+                    "seeds": current_gene_ids,
+                    "top_k": recovery_rwr_top_k if task_type == "recovery" else 10,
+                },
             )
 
     if len(current_gene_ids) >= 2:
@@ -3504,6 +3563,29 @@ def _build_actor_step_from_model_candidate(
                 )
 
     return ActorStep(reasoning_text=reasoning_text, tool_action=tool_action), errors
+
+
+def _apply_task_tool_defaults(
+    actor_step: ActorStep,
+    *,
+    task_type: str,
+    recovery_rwr_top_k: int,
+) -> dict[str, Any]:
+    action = actor_step.tool_action
+    if action is None:
+        return {}
+    if task_type == "recovery" and action.tool_name == "rwr_multiplex":
+        old_top_k = action.arguments.get("top_k")
+        if not isinstance(old_top_k, int) or old_top_k < recovery_rwr_top_k:
+            action.arguments["top_k"] = recovery_rwr_top_k
+            return {
+                "tool_name": action.tool_name,
+                "argument": "top_k",
+                "old_value": old_top_k,
+                "new_value": recovery_rwr_top_k,
+                "reason": "recovery_expansion_requires_broad_non_seed_candidate_search",
+            }
+    return {}
 
 
 def _build_labels_from_model_payload(payload: dict[str, Any]) -> tuple[list[MechanisticLabel], list[str]]:
@@ -4087,6 +4169,7 @@ class TrajectoryGenerationConfig:
     selection_score_epsilon: float = DEFAULT_SELECTION_SCORE_EPSILON
     pair_mining_strategy: str = "score_margin"
     tool_coverage_retry_count: int = 0
+    recovery_rwr_top_k: int = DEFAULT_RECOVERY_RWR_TOP_K
 
     def __post_init__(self) -> None:
         if self.max_steps <= 0:
@@ -4111,6 +4194,8 @@ class TrajectoryGenerationConfig:
             raise ValueError(f"pair_mining_strategy must be one of: {allowed}.")
         if self.tool_coverage_retry_count < 0:
             raise ValueError("tool_coverage_retry_count must be non-negative.")
+        if self.recovery_rwr_top_k <= 0:
+            raise ValueError("recovery_rwr_top_k must be positive.")
 
 
 class ProgressTracker:
@@ -4272,6 +4357,11 @@ def generate_task_trajectory(
                 actor_generation_errors = _unique(
                     actor_errors + list(actor_candidate.get("generator_errors", []))
                 )
+                tool_default_metadata = _apply_task_tool_defaults(
+                    actor_step,
+                    task_type=task_row["task_type"],
+                    recovery_rwr_top_k=config.recovery_rwr_top_k,
+                )
                 if actor_step.tool_action is not None:
                     actor_tool_validation = validate_tool_action_semantics(
                         actor_step.tool_action,
@@ -4346,6 +4436,8 @@ def generate_task_trajectory(
                         branch.metadata["actor_sampling_directive"] = actor_candidate[
                             "actor_sampling_directive"
                         ]
+                    if tool_default_metadata:
+                        branch.metadata["tool_argument_defaults"] = tool_default_metadata
                     branch = _score_branch(
                         task_row,
                         state,
@@ -4391,6 +4483,7 @@ def generate_task_trajectory(
                     trajectory_id=trajectory_id,
                     step_index=step_index,
                     n_act=config.n_act,
+                    recovery_rwr_top_k=config.recovery_rwr_top_k,
                 )
                 for actor_index, template in enumerate(templates):
                     actor_template_id = template["template_id"]
@@ -4443,6 +4536,7 @@ def generate_task_trajectory(
                 trajectory_id=trajectory_id,
                 step_index=step_index,
                 n_act=config.n_act,
+                recovery_rwr_top_k=config.recovery_rwr_top_k,
             )
 
             for actor_index, template in enumerate(templates):
@@ -4781,6 +4875,7 @@ def generate_trajectories(
                 "selection_score_epsilon": config.selection_score_epsilon,
                 "pair_mining_strategy": config.pair_mining_strategy,
                 "tool_coverage_retry_count": config.tool_coverage_retry_count,
+                "recovery_rwr_top_k": config.recovery_rwr_top_k,
             },
             "generator": {
                 "candidate_source": config.candidate_source,
@@ -4981,6 +5076,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--recovery-rwr-top-k",
+        type=int,
+        default=DEFAULT_RECOVERY_RWR_TOP_K,
+        help=(
+            "Minimum rwr_multiplex top_k used for recovery actor branches so the "
+            "verifier can inspect a broader non-seed candidate list."
+        ),
+    )
+    parser.add_argument(
         "--generator-api-base",
         type=str,
         default=DEFAULT_GENERATOR_API_BASE,
@@ -5087,6 +5191,7 @@ def main() -> None:
         selection_score_epsilon=args.selection_score_epsilon,
         pair_mining_strategy=args.pair_mining_strategy,
         tool_coverage_retry_count=args.tool_coverage_retry_count,
+        recovery_rwr_top_k=args.recovery_rwr_top_k,
     )
     model_generator_config = None
     if args.candidate_source == "model_vllm":

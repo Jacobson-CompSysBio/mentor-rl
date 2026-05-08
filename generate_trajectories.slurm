@@ -128,6 +128,7 @@ SELECTION_POLICY="${SELECTION_POLICY:-task_quality}"
 SELECTION_SCORE_EPSILON="${SELECTION_SCORE_EPSILON:-0.02}"
 PAIR_MINING_STRATEGY="${PAIR_MINING_STRATEGY:-quality_balanced}"
 TOOL_COVERAGE_RETRY_COUNT="${TOOL_COVERAGE_RETRY_COUNT:-2}"
+RECOVERY_RWR_TOP_K="${RECOVERY_RWR_TOP_K:-50}"
 GENERATOR_TIMEOUT_SECONDS="${GENERATOR_TIMEOUT_SECONDS:-3600}"
 RUN_SMOKE_TEST="${RUN_SMOKE_TEST:-1}"
 SMOKE_TEST_ONLY="${SMOKE_TEST_ONLY:-0}"
@@ -308,6 +309,7 @@ log "SELECTION_POLICY=${SELECTION_POLICY}"
 log "SELECTION_SCORE_EPSILON=${SELECTION_SCORE_EPSILON}"
 log "PAIR_MINING_STRATEGY=${PAIR_MINING_STRATEGY}"
 log "TOOL_COVERAGE_RETRY_COUNT=${TOOL_COVERAGE_RETRY_COUNT}"
+log "RECOVERY_RWR_TOP_K=${RECOVERY_RWR_TOP_K}"
 log "GENERATOR_TIMEOUT_SECONDS=${GENERATOR_TIMEOUT_SECONDS}"
 log "RUN_SMOKE_TEST=${RUN_SMOKE_TEST}"
 log "SMOKE_TEST_ONLY=${SMOKE_TEST_ONLY}"
@@ -604,6 +606,7 @@ payload = {
         "selection_score_epsilon": ${SELECTION_SCORE_EPSILON@Q},
         "pair_mining_strategy": ${PAIR_MINING_STRATEGY@Q},
         "tool_coverage_retry_count": ${TOOL_COVERAGE_RETRY_COUNT@Q},
+        "recovery_rwr_top_k": ${RECOVERY_RWR_TOP_K@Q},
         "generator_timeout_seconds": ${GENERATOR_TIMEOUT_SECONDS@Q},
     },
     "smoke": {
@@ -731,6 +734,7 @@ srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
       --selection-score-epsilon ${SELECTION_SCORE_EPSILON} \
       --pair-mining-strategy ${PAIR_MINING_STRATEGY} \
       --tool-coverage-retry-count ${TOOL_COVERAGE_RETRY_COUNT} \
+      --recovery-rwr-top-k ${RECOVERY_RWR_TOP_K} \
       --generator-timeout-seconds ${GENERATOR_TIMEOUT_SECONDS} \
       --max-tasks ${MAX_TASKS} \
       --task-shard-index ${TASK_SHARD_INDEX} \

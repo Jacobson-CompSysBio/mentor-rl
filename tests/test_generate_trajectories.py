@@ -643,6 +643,60 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertNotIn("unique_neighbors", compact["payload"])
         self.assertLess(len(json.dumps(compact, sort_keys=True)), 7000)
 
+    def test_verifier_prompt_highlights_rwr_non_seed_candidates(self) -> None:
+        observation = ToolObservation(
+            status=ToolObservationStatus.SUCCESS,
+            provenance={"tool_name": "rwr_multiplex", "active_layers": ["ppi"]},
+            call_id="call_rwr",
+            payload={
+                "seed_gene_ids": ["ENSG1", "ENSG2"],
+                "active_seed_gene_ids": ["ENSG1", "ENSG2"],
+                "active_layers": ["ppi"],
+                "top_k": 50,
+                "results": [
+                    {"gene_id": "ENSG1", "score": 0.30},
+                    {"gene_id": "ENSG3", "score": 0.12},
+                    {"gene_id": "ENSG2", "score": 0.11},
+                    {"gene_id": "ENSG4", "score": 0.05},
+                ],
+            },
+        )
+
+        compact = _observation_for_verifier_prompt(observation)
+
+        self.assertIsNotNone(compact)
+        assert compact is not None
+        payload = compact["payload"]
+        self.assertEqual(payload["top_k"], 50)
+        self.assertEqual(payload["non_seed_result_count"], 2)
+        self.assertEqual(
+            [result["gene_id"] for result in payload["top_non_seed_results"]],
+            ["ENSG3", "ENSG4"],
+        )
+        self.assertIn("top_non_seed_results", payload["recovery_interpretation_hint"])
+
+    def test_recovery_verifier_prompt_includes_expansion_guidance(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+
+        payload = _verifier_prompt_payload(
+            context,
+            actor_step=ActorStep(reasoning_text="Run RWR.", tool_action=None),
+            observation=None,
+            step_index=0,
+            task_type="recovery",
+        )
+
+        self.assertEqual(payload["task_guidance"]["objective"], "Recover missing coherent complex members beyond the current seed/candidate group.")
+        self.assertIn("non-seed", " ".join(payload["task_guidance"]["candidate_policy"]))
+
     def test_actor_rationale_prompt_does_not_include_corum_ground_truth_metadata(self) -> None:
         task_row = _task_rows()[0]
         interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
@@ -1842,7 +1896,12 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                 if branch["branch_id"] == branch_pools[0]["selected_branch_id"]
             )
             self.assertEqual(selected["actor_step"]["tool_action"]["tool_name"], "rwr_multiplex")
+            self.assertEqual(selected["actor_step"]["tool_action"]["arguments"]["top_k"], 50)
             self.assertEqual(selected["metadata"]["selection_policy"], "task_quality")
+            self.assertEqual(
+                selected["metadata"]["tool_argument_defaults"]["reason"],
+                "recovery_expansion_requires_broad_non_seed_candidate_search",
+            )
 
             preference_pairs_raw = _read_jsonl(out_dir / "preference_pairs_raw.jsonl")
             self.assertTrue(preference_pairs_raw)

@@ -8,6 +8,7 @@ representative set of smoke-test task ids.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -21,8 +22,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 DEFAULT_TASKS_PATH = REPO_ROOT / "data" / "corum_corpus" / "tasks.train.jsonl"
+DEFAULT_SELECTION_SEED = 42
 TASK_TYPE_ORDER = ("explanation", "recovery", "refinement", "none")
 EVIDENCE_MODE_ORDER = ("contextual", "full", "graph", "minimal")
+DIFFICULTY_ORDER = ("complete", "easy", "medium", "hard")
 COMPLEX_ID_RE = re.compile(r"corum_complex_\d+")
 
 
@@ -46,7 +49,19 @@ def _bucket_key(row: dict[str, Any]) -> tuple[str, str]:
     return str(row.get("task_type")), str(row.get("evidence_mode"))
 
 
-def _ordered_bucket_keys(rows: list[dict[str, Any]]) -> list[tuple[str, str]]:
+def _pilot_bucket_key(
+    row: dict[str, Any],
+    *,
+    stratify_by_difficulty: bool,
+) -> tuple[str, ...]:
+    task_type = str(row.get("task_type"))
+    evidence_mode = str(row.get("evidence_mode"))
+    if not stratify_by_difficulty:
+        return task_type, evidence_mode
+    return task_type, evidence_mode, str(row.get("difficulty", ""))
+
+
+def _ordered_smoke_bucket_keys(rows: list[dict[str, Any]]) -> list[tuple[str, str]]:
     present = {_bucket_key(row) for row in rows}
     ordered = [
         (task_type, evidence_mode)
@@ -58,20 +73,64 @@ def _ordered_bucket_keys(rows: list[dict[str, Any]]) -> list[tuple[str, str]]:
     return ordered
 
 
-def _group_rows(rows: list[dict[str, Any]]) -> dict[tuple[str, str], list[dict[str, Any]]]:
-    grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+def _ordered_pilot_bucket_keys(
+    rows: list[dict[str, Any]],
+    *,
+    stratify_by_difficulty: bool,
+) -> list[tuple[str, ...]]:
+    present = {
+        _pilot_bucket_key(row, stratify_by_difficulty=stratify_by_difficulty)
+        for row in rows
+    }
+    if not stratify_by_difficulty:
+        return list(_ordered_smoke_bucket_keys(rows))
+
+    ordered = [
+        (task_type, evidence_mode, difficulty)
+        for task_type in TASK_TYPE_ORDER
+        for evidence_mode in EVIDENCE_MODE_ORDER
+        for difficulty in DIFFICULTY_ORDER
+        if (task_type, evidence_mode, difficulty) in present
+    ]
+    ordered.extend(sorted(present - set(ordered)))
+    return ordered
+
+
+def _stable_selection_sort_key(row: dict[str, Any], *, seed: int) -> tuple[str, str]:
+    task_id = str(row.get("task_id"))
+    complex_id = _complex_key(task_id)
+    digest = hashlib.sha256(f"{seed}|{complex_id}|{task_id}".encode("utf-8")).hexdigest()
+    return digest, task_id
+
+
+def _group_rows(
+    rows: list[dict[str, Any]],
+    *,
+    bucket_by_difficulty: bool = False,
+    seed: int = DEFAULT_SELECTION_SEED,
+) -> dict[tuple[str, ...], list[dict[str, Any]]]:
+    grouped: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
-        grouped[_bucket_key(row)].append(row)
+        if bucket_by_difficulty:
+            key = _pilot_bucket_key(row, stratify_by_difficulty=True)
+        else:
+            key = _bucket_key(row)
+        grouped[key].append(row)
     for bucket_rows in grouped.values():
-        bucket_rows.sort(key=lambda row: (_complex_key(str(row.get("task_id"))), str(row.get("task_id"))))
+        bucket_rows.sort(key=lambda row: _stable_selection_sort_key(row, seed=seed))
     return grouped
 
 
-def select_smoke_task_ids(rows: list[dict[str, Any]], *, per_bucket: int = 1) -> list[str]:
-    grouped = _group_rows(rows)
+def select_smoke_task_ids(
+    rows: list[dict[str, Any]],
+    *,
+    per_bucket: int = 1,
+    seed: int = DEFAULT_SELECTION_SEED,
+) -> list[str]:
+    grouped = _group_rows(rows, seed=seed)
     selected: list[str] = []
     seen: set[str] = set()
-    for key in _ordered_bucket_keys(rows):
+    for key in _ordered_smoke_bucket_keys(rows):
         for row in grouped[key][:per_bucket]:
             task_id = str(row.get("task_id"))
             if task_id not in seen:
@@ -80,12 +139,22 @@ def select_smoke_task_ids(rows: list[dict[str, Any]], *, per_bucket: int = 1) ->
     return selected
 
 
-def select_pilot_rows(rows: list[dict[str, Any]], *, pilot_size: int) -> list[dict[str, Any]]:
+def select_pilot_rows(
+    rows: list[dict[str, Any]],
+    *,
+    pilot_size: int,
+    seed: int = DEFAULT_SELECTION_SEED,
+    stratify_by_difficulty: bool = True,
+) -> list[dict[str, Any]]:
     if pilot_size <= 0:
         return []
 
-    grouped = _group_rows(rows)
-    ordered_keys = _ordered_bucket_keys(rows)
+    grouped = _group_rows(
+        rows,
+        bucket_by_difficulty=stratify_by_difficulty,
+        seed=seed,
+    )
+    ordered_keys = _ordered_pilot_bucket_keys(rows, stratify_by_difficulty=stratify_by_difficulty)
     selected: list[dict[str, Any]] = []
     seen_task_ids: set[str] = set()
     bucket_offsets = {key: 0 for key in ordered_keys}
@@ -133,6 +202,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tasks-path", type=Path, default=DEFAULT_TASKS_PATH)
     parser.add_argument("--pilot-size", type=int, default=128)
     parser.add_argument("--smoke-per-bucket", type=int, default=1)
+    parser.add_argument("--seed", type=int, default=DEFAULT_SELECTION_SEED)
+    parser.add_argument(
+        "--no-pilot-difficulty-strata",
+        action="store_true",
+        help="Keep pilot stratification at task-type/evidence-mode only.",
+    )
     parser.add_argument("--pilot-out", type=Path, default=None, help="Optional path for the selected pilot task JSONL.")
     parser.add_argument("--smoke-task-ids-out", type=Path, default=None, help="Optional path for selected smoke task ids.")
     parser.add_argument("--json", action="store_true", help="Print selection metadata as JSON.")
@@ -142,8 +217,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = _build_arg_parser().parse_args()
     rows = _load_rows(args.tasks_path)
-    smoke_ids = select_smoke_task_ids(rows, per_bucket=args.smoke_per_bucket)
-    pilot_rows = select_pilot_rows(rows, pilot_size=args.pilot_size)
+    stratify_by_difficulty = not args.no_pilot_difficulty_strata
+    smoke_ids = select_smoke_task_ids(rows, per_bucket=args.smoke_per_bucket, seed=args.seed)
+    pilot_rows = select_pilot_rows(
+        rows,
+        pilot_size=args.pilot_size,
+        seed=args.seed,
+        stratify_by_difficulty=stratify_by_difficulty,
+    )
 
     if args.pilot_out is not None:
         _write_jsonl(args.pilot_out, pilot_rows)
@@ -156,14 +237,16 @@ def main() -> None:
         "smoke_task_count": len(smoke_ids),
         "smoke_task_ids": smoke_ids,
         "pilot_task_count": len(pilot_rows),
+        "selection_seed": args.seed,
+        "pilot_stratified_by_difficulty": stratify_by_difficulty,
         "pilot_bucket_counts": {},
         "pilot_out": str(args.pilot_out) if args.pilot_out else None,
         "smoke_task_ids_out": str(args.smoke_task_ids_out) if args.smoke_task_ids_out else None,
     }
     bucket_counts: dict[str, int] = defaultdict(int)
     for row in pilot_rows:
-        task_type, evidence_mode = _bucket_key(row)
-        bucket_counts[f"{task_type}/{evidence_mode}"] += 1
+        key = _pilot_bucket_key(row, stratify_by_difficulty=stratify_by_difficulty)
+        bucket_counts["/".join(key)] += 1
     summary["pilot_bucket_counts"] = dict(sorted(bucket_counts.items()))
 
     if args.json:

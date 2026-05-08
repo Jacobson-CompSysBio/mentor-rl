@@ -51,6 +51,7 @@ Before using model-backed artifacts for DPO, run the verification gate:
 
 ```bash
 python scripts/select_verification_tasks.py \
+  --seed 42 \
   --pilot-size 128 \
   --pilot-out data/corum_corpus/tasks.verification_pilot.jsonl \
   --smoke-task-ids-out data/corum_corpus/tasks.verification_smoke_ids.txt
@@ -73,16 +74,26 @@ python scripts/render_preference_pairs_review.py \
   --pairs-path data/corum_trajectories/<run>/preference_pairs.jsonl \
   --sample-size 30 \
   --out data/corum_trajectories/<run>/preference_pair_review_sample.md
+
+python scripts/audit_recovery_recoverability.py \
+  --tasks-path data/corum_corpus/tasks.verification_pilot.jsonl \
+  --top-ks 10,25,50,100 \
+  --out-jsonl data/corum_corpus/recovery_recoverability.rwr.jsonl
 ```
 
 The Slurm launcher writes `run_freeze.json` into each output directory and pins
 the generator to the discovered served model id. Set `TASKS_PATH` to the pilot
 JSONL and run once with `TASK_CONCURRENCY=1`, then repeat with the intended
-production concurrency before scaling. The launcher defaults to verbalized
-actor sampling, task-aware selection, quality-balanced pair mining, and
-tool-coverage retries for recovery/refinement tasks; override
+production concurrency before scaling. The verification selector stratifies
+pilot rows by task type, evidence mode, and difficulty, then uses a deterministic
+seeded order so small pilots do not concentrate on the earliest CORUM complexes.
+The launcher defaults to verbalized actor sampling, task-aware selection,
+quality-balanced pair mining, and tool-coverage retries for recovery/refinement
+tasks; override
 `ACTOR_SAMPLING_STRATEGY`, `SELECTION_POLICY`, `PAIR_MINING_STRATEGY`, and
-`TOOL_COVERAGE_RETRY_COUNT` only for ablations. For DPO-only runs, high
+`TOOL_COVERAGE_RETRY_COUNT` only for ablations. Recovery RWR branches default
+to `RECOVERY_RWR_TOP_K=50` so verifier prompts include a broader non-seed
+candidate list. For DPO-only runs, high
 branch-pool tie rates are diagnostic as long as balanced preference pairs have
 valid margins; the audit's `--dpo-pair-gate` keeps pair/schema/backend checks
 strict while downgrading tie-rate findings to warnings.
