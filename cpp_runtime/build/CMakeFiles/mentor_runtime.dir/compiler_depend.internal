@@ -664,6 +664,7 @@ CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.o
  /usr/include/time.h
  /usr/include/wchar.h
  /usr/include/wctype.h
+ /usr/lib64/gcc/x86_64-suse-linux/7/include/omp.h
  /usr/lib64/gcc/x86_64-suse-linux/7/include/stdarg.h
  /usr/lib64/gcc/x86_64-suse-linux/7/include/stddef.h
  /usr/lib64/gcc/x86_64-suse-linux/7/include/stdint.h
@@ -682,8 +683,10 @@ libmentor_runtime.so
  /usr/lib64/gcc/x86_64-suse-linux/7/crtendS.o
  /usr/lib64/gcc/x86_64-suse-linux/7/libgcc.a
  /usr/lib64/gcc/x86_64-suse-linux/7/libgcc_s.so
+ /usr/lib64/gcc/x86_64-suse-linux/7/libgomp.so
  /usr/lib64/gcc/x86_64-suse-linux/7/libstdc++.so
  /usr/lib64/libc_nonshared.a
+ /usr/lib64/libpthread.a
  /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/mentor_runtime.dir/src/c_api.cpp.o
  /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.o
  /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.o

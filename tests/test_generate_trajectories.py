@@ -652,7 +652,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                 "seed_gene_ids": ["ENSG1", "ENSG2"],
                 "active_seed_gene_ids": ["ENSG1", "ENSG2"],
                 "active_layers": ["ppi"],
-                "top_k": 50,
+                "top_k": 500,
                 "results": [
                     {"gene_id": "ENSG1", "score": 0.30},
                     {"gene_id": "ENSG3", "score": 0.12},
@@ -667,13 +667,14 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertIsNotNone(compact)
         assert compact is not None
         payload = compact["payload"]
-        self.assertEqual(payload["top_k"], 50)
+        self.assertEqual(payload["top_k"], 500)
         self.assertEqual(payload["non_seed_result_count"], 2)
         self.assertEqual(
             [result["gene_id"] for result in payload["top_non_seed_results"]],
             ["ENSG3", "ENSG4"],
         )
-        self.assertIn("top_non_seed_results", payload["recovery_interpretation_hint"])
+        self.assertEqual(payload["ranked_non_seed_gene_ids"], ["ENSG3", "ENSG4"])
+        self.assertIn("ranked_non_seed_gene_ids", payload["recovery_interpretation_hint"])
 
     def test_recovery_verifier_prompt_includes_expansion_guidance(self) -> None:
         task_row = _task_rows()[0]
@@ -1896,7 +1897,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                 if branch["branch_id"] == branch_pools[0]["selected_branch_id"]
             )
             self.assertEqual(selected["actor_step"]["tool_action"]["tool_name"], "rwr_multiplex")
-            self.assertEqual(selected["actor_step"]["tool_action"]["arguments"]["top_k"], 50)
+            self.assertEqual(selected["actor_step"]["tool_action"]["arguments"]["top_k"], 500)
             self.assertEqual(selected["metadata"]["selection_policy"], "task_quality")
             self.assertEqual(
                 selected["metadata"]["tool_argument_defaults"]["reason"],

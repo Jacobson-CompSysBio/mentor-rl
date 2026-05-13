@@ -94,17 +94,18 @@ STRUCTURED_OUTPUT_MAX_TOKENS = 2048
 DEFAULT_ACTOR_RATIONALE_MAX_TOKENS = 2048
 DEFAULT_PREFERENCE_PAIR_MARGIN = 0.10
 DEFAULT_SELECTION_SCORE_EPSILON = 0.02
-DEFAULT_RECOVERY_RWR_TOP_K = 50
+DEFAULT_RECOVERY_RWR_TOP_K = 500
 GPT_OSS_FINAL_CHANNEL_PREFIX = "<|start|>assistant<|channel|>final<|message|>"
 PROMPT_TEXT_MAX_CHARS = 700
 PROMPT_ACTOR_REASONING_MAX_CHARS = 1200
 PROMPT_LIST_PREVIEW_LIMIT = 20
 PROMPT_RWR_RESULT_PREVIEW_LIMIT = 30
-PROMPT_RWR_NON_SEED_PREVIEW_LIMIT = 25
+PROMPT_RWR_NON_SEED_PREVIEW_LIMIT = 40
+PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT = 250
 PROMPT_LAYER_PREVIEW_LIMIT = 12
 PROMPT_EDGE_PREVIEW_LIMIT = 32
 PROMPT_MYGENE_PREVIEW_LIMIT = 5
-PROMPT_TOOL_REFERENCE_GENE_LIMIT = 40
+PROMPT_TOOL_REFERENCE_GENE_LIMIT = 250
 PROMPT_TOOL_REFERENCE_LAYER_LIMIT = 40
 ACTOR_SAMPLING_STRATEGIES = ("batch", "verbalized")
 SELECTION_POLICIES = ("score", "task_quality")
@@ -149,7 +150,7 @@ TASK_ACTOR_DIVERSITY_DIRECTIVES = {
             "name": "recovery_rwr_expansion",
             "instruction": (
                 "Explore recovery expansion. Prefer rwr_multiplex from the current "
-                "seed/candidate group with top_k at least 50 to identify plausible "
+                "seed/candidate group with top_k at least 500 to identify plausible "
                 "missing complex members beyond the seeds."
             ),
             "preferred_tools": ["rwr_multiplex"],
@@ -296,7 +297,7 @@ TOOL_COVERAGE_DIRECTIVES = {
         "instruction": (
             "This retry exists because no usable tool-backed actor candidate was observed. "
             "Choose a valid runtime tool if any valid graph argument can be formed; prefer "
-            "rwr_multiplex with top_k at least 50 for recovery expansion, then "
+            "rwr_multiplex with top_k at least 500 for recovery expansion, then "
             "get_neighbors or induce_subgraph."
         ),
         "preferred_tools": ["rwr_multiplex", "get_neighbors", "induce_subgraph"],
@@ -881,6 +882,14 @@ def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dic
             "result_count": len(result_list),
             "seed_results_sample": _preview_list(seed_results, limit=8),
             "non_seed_result_count": len(non_seed_results),
+            "ranked_non_seed_gene_ids": _preview_list(
+                [
+                    _rwr_result_gene_id(result)
+                    for result in non_seed_results
+                    if _rwr_result_gene_id(result) is not None
+                ],
+                limit=PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT,
+            ),
             "top_non_seed_results": _preview_list(
                 non_seed_results,
                 limit=PROMPT_RWR_NON_SEED_PREVIEW_LIMIT,
@@ -890,8 +899,9 @@ def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dic
                 limit=PROMPT_RWR_RESULT_PREVIEW_LIMIT,
             ),
             "recovery_interpretation_hint": (
-                "For recovery tasks, evaluate top_non_seed_results as possible "
-                "missing complex members before deciding that the seed group is complete."
+                "For recovery tasks, ranked_non_seed_gene_ids are ordered by restart-walk support. "
+                "Evaluate them as possible missing complex members before deciding that the seed "
+                "group is complete."
             ),
         }
         if "layer_name" in payload:
@@ -953,7 +963,7 @@ def _verifier_prompt_payload(
         payload["task_guidance"] = {
             "objective": "Recover missing coherent complex members beyond the current seed/candidate group.",
             "candidate_policy": [
-                "Inspect top non-seed tool candidates before marking the seed group complete.",
+                "Inspect ranked non-seed tool candidates before marking the seed group complete.",
                 "Add a non-seed candidate only when the visible observation gives credible support.",
                 "If no non-seed candidate is supported, explain that limitation and choose continue when another query could help.",
             ],
@@ -2727,10 +2737,12 @@ def _summarize_observation(observation: ToolObservation | None) -> tuple[str, li
             path_gene_ids[:10],
         )
     if tool_name in {"rwr_multiplex", "rwr_monoplex"}:
+        seed_gene_ids = set(_safe_list_of_strings(payload.get("seed_gene_ids")))
         ranked_gene_ids = [item.get("gene_id") for item in payload.get("results", []) if item.get("gene_id")]
+        non_seed_gene_ids = [gene_id for gene_id in ranked_gene_ids if gene_id not in seed_gene_ids]
         return (
             f"Ranked {len(ranked_gene_ids)} genes from the seed set with restart walk.",
-            ranked_gene_ids[:10],
+            non_seed_gene_ids[:PROMPT_TOOL_REFERENCE_GENE_LIMIT],
         )
     if tool_name == "query_mygene":
         return (

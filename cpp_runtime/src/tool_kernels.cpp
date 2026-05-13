@@ -521,6 +521,7 @@ std::string json_rwr_multiplex(
     const auto unique_seed_ids = unique_preserving_order(seed_gene_ids);
     const auto num_nodes = store.num_genes();
     std::vector<double> aggregated_scores(num_nodes, 0.0);
+    std::vector<std::size_t> contribution_counts(num_nodes, 0U);
     std::vector<std::string> active_layers;
     std::unordered_set<std::string> active_seed_gene_ids_set;
     const auto present_seed_indices = resolve_present_gene_indices(store, unique_seed_ids);
@@ -563,19 +564,59 @@ std::string json_rwr_multiplex(
     for (std::size_t active_index = 0; active_index < active_layer_indices.size(); ++active_index) {
       const auto layer_index = active_layer_indices[active_index];
       active_layers.push_back(store.layers()[layer_index].name);
+      const auto& layer = store.layers()[layer_index];
       const auto& layer_scores = per_layer_scores[active_index];
       for (std::size_t index = 0; index < layer_scores.size(); ++index) {
+        const auto row_start = static_cast<std::size_t>(layer.indptr[index]);
+        const auto row_end = static_cast<std::size_t>(layer.indptr[index + 1]);
+        if (row_start == row_end) {
+          continue;
+        }
         aggregated_scores[index] += layer_scores[index];
+        contribution_counts[index] += 1U;
       }
     }
 
-    if (!active_layers.empty()) {
-      for (auto& score : aggregated_scores) {
-        score /= static_cast<double>(active_layers.size());
-      }
+    if (active_layers.empty()) {
+      std::ostringstream payload;
+      payload << "{\"seed_gene_ids\":" << json_string_array(unique_seed_ids)
+              << ",\"active_seed_gene_ids\":[]"
+              << ",\"active_layers\":[]"
+              << ",\"top_k\":" << top_k
+              << ",\"results\":[]}";
+
+      std::ostringstream provenance;
+      provenance << "{\"tool_name\":\"rwr_multiplex\",\"algorithm\":\"mean_personalized_pagerank_present_layers\""
+                 << ",\"restart_probability\":" << restart_probability
+                 << ",\"active_layers\":[]"
+                 << ",\"layer_count\":0}";
+      return make_ok_result(payload.str(), provenance.str(), true);
     }
 
-    const auto ranked = top_k_scores(aggregated_scores, top_k);
+    std::vector<std::pair<std::uint32_t, double>> scored_pairs;
+    scored_pairs.reserve(num_nodes);
+    for (std::size_t index = 0; index < aggregated_scores.size(); ++index) {
+      if (contribution_counts[index] == 0U) {
+        continue;
+      }
+      scored_pairs.push_back(
+          {static_cast<std::uint32_t>(index),
+           aggregated_scores[index] / static_cast<double>(contribution_counts[index])});
+    }
+
+    const auto comparator = [](const auto& left, const auto& right) {
+      if (left.second != right.second) {
+        return left.second > right.second;
+      }
+      return left.first < right.first;
+    };
+    if (scored_pairs.size() > top_k) {
+      std::partial_sort(scored_pairs.begin(), scored_pairs.begin() + top_k, scored_pairs.end(), comparator);
+      scored_pairs.resize(top_k);
+    } else {
+      std::sort(scored_pairs.begin(), scored_pairs.end(), comparator);
+    }
+    const auto& ranked = scored_pairs;
     std::vector<std::string> active_seed_gene_ids(
         active_seed_gene_ids_set.begin(), active_seed_gene_ids_set.end());
     std::sort(active_seed_gene_ids.begin(), active_seed_gene_ids.end());
@@ -588,7 +629,7 @@ std::string json_rwr_multiplex(
             << ",\"results\":" << json_ranked_results(store, ranked) << "}";
 
     std::ostringstream provenance;
-    provenance << "{\"tool_name\":\"rwr_multiplex\",\"algorithm\":\"mean_personalized_pagerank\""
+    provenance << "{\"tool_name\":\"rwr_multiplex\",\"algorithm\":\"mean_personalized_pagerank_present_layers\""
                << ",\"restart_probability\":" << restart_probability
                << ",\"active_layers\":" << json_string_array(active_layers)
                << ",\"layer_count\":" << active_layers.size() << "}";

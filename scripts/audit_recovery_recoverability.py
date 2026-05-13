@@ -26,7 +26,7 @@ from runtime.environment import RuntimeEnvironment
 
 DEFAULT_TASKS_PATH = REPO_ROOT / "data" / "corum_corpus" / "tasks.verification_pilot_64.jsonl"
 DEFAULT_STORE_DIR = REPO_ROOT / "data" / "humannet_multiplex_store"
-DEFAULT_TOP_KS = (10, 25, 50, 100)
+DEFAULT_TOP_KS = (50, 100, 250, 500, 1000)
 
 
 def _load_rows(path: Path, *, max_tasks: int | None = None) -> list[dict[str, Any]]:

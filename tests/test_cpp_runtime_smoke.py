@@ -13,6 +13,7 @@ from runtime.tools import (
     get_neighbors,
     induce_subgraph,
     shortest_path,
+    rwr_multiplex,
 )
 from scripts.build_multiplex_store import build_store
 from utils.multiplex import Multiplex
@@ -147,6 +148,11 @@ class CompiledRuntimeSmokeTests(unittest.TestCase):
             ).payload
             self.assertEqual(cpp_multi_rwr["results"][0]["gene_id"], "ENSG1")
             self.assertEqual(cpp_multi_rwr["active_layers"], ["ppi", "coexp"])
+            ref_multi_rwr = rwr_multiplex(reference_index, ["ENSG1"], top_k=4).payload
+            self.assertEqual(
+                [item["gene_id"] for item in cpp_multi_rwr["results"]],
+                [item["gene_id"] for item in ref_multi_rwr["results"]],
+            )
 
             backend.close()
 

@@ -77,7 +77,7 @@ python scripts/render_preference_pairs_review.py \
 
 python scripts/audit_recovery_recoverability.py \
   --tasks-path data/corum_corpus/tasks.verification_pilot.jsonl \
-  --top-ks 10,25,50,100 \
+  --top-ks 50,100,250,500,1000 \
   --out-jsonl data/corum_corpus/recovery_recoverability.rwr.jsonl
 ```
 
@@ -92,7 +92,7 @@ quality-balanced pair mining, and tool-coverage retries for recovery/refinement
 tasks; override
 `ACTOR_SAMPLING_STRATEGY`, `SELECTION_POLICY`, `PAIR_MINING_STRATEGY`, and
 `TOOL_COVERAGE_RETRY_COUNT` only for ablations. Recovery RWR branches default
-to `RECOVERY_RWR_TOP_K=50` so verifier prompts include a broader non-seed
+to `RECOVERY_RWR_TOP_K=500` so verifier prompts include a broader non-seed
 candidate list. For DPO-only runs, high
 branch-pool tie rates are diagnostic as long as balanced preference pairs have
 valid margins; the audit's `--dpo-pair-gate` keeps pair/schema/backend checks
