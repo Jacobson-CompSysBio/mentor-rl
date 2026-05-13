@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Generate shared-prefix trajectories from canonical CORUM tasks.
+"""Generate shared-prefix trajectories from canonical MENTOR-RL tasks.
 
 This script is the first end-to-end trajectory generator for the DPO pipeline.
 It uses the existing runtime, state, validation, and scoring layers to:
 
-1. load canonical CORUM tasks
+1. load canonical task rows
 2. initialize the visible runtime state
 3. build deterministic actor candidates
 4. execute tool calls in the runtime
@@ -71,7 +71,7 @@ from runtime import (
     clone_interpretation,
     clone_state,
     decrement_budget,
-    initialize_state_from_corum_task,
+    initialize_state_from_corum_task as initialize_state_from_task,
     normalize_tool_arguments,
     record_tool_call,
     replace_mechanistic_labels,
@@ -84,8 +84,8 @@ from runtime import (
 )
 
 
-DEFAULT_TASKS_PATH = REPO_ROOT / "data" / "corum_corpus" / "tasks.train.jsonl"
-DEFAULT_OUT_DIR = REPO_ROOT / "data" / "corum_trajectories"
+DEFAULT_TASKS_PATH = REPO_ROOT / "data" / "gw_dendrogram_corpus" / "tasks.train.jsonl"
+DEFAULT_OUT_DIR = REPO_ROOT / "data" / "gw_dendrogram_trajectories"
 DEFAULT_STORE_DIR = REPO_ROOT / "data" / "humannet_multiplex_store"
 DEFAULT_PROGRESS_FILENAME = "progress.json"
 DEFAULT_GENERATOR_API_BASE = "http://127.0.0.1:8000/v1"
@@ -322,7 +322,7 @@ PAIR_CATEGORY_PRIORITIES = {
     "conservative_stop": 6,
 }
 TRAJECTORY_STAGES = (
-    ("load_tasks", "Load canonical CORUM tasks"),
+    ("load_tasks", "Load canonical task rows"),
     ("initialize_runtime", "Initialize deterministic runtime"),
     ("generate_trajectories", "Generate shared-prefix trajectories"),
     ("write_manifest", "Write run manifest"),
@@ -4303,7 +4303,7 @@ def generate_task_trajectory(
     """Generate one deterministic trajectory and all of its branch pools."""
 
     symbol_lookup = _gene_symbol_lookup(task_row)
-    interpretation, state = initialize_state_from_corum_task(task_row, max_budget=config.max_steps)
+    interpretation, state = initialize_state_from_task(task_row, max_budget=config.max_steps)
     initial_state = clone_state(state)
     prior_actions: list[ToolAction] = []
 
@@ -4724,7 +4724,7 @@ def generate_trajectories(
     try:
         progress_tracker.start_stage(
             "load_tasks",
-            message="Loaded canonical CORUM tasks.",
+            message="Loaded canonical task rows.",
             metrics={
                 "total_tasks": len(task_rows),
                 **(task_selection or {}),
@@ -4958,12 +4958,12 @@ def generate_trajectories(
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for trajectory generation."""
 
-    parser = argparse.ArgumentParser(description="Generate shared-prefix CORUM trajectories.")
+    parser = argparse.ArgumentParser(description="Generate shared-prefix MENTOR-RL trajectories.")
     parser.add_argument(
         "--tasks-path",
         type=Path,
         default=DEFAULT_TASKS_PATH,
-        help="Path to a canonical CORUM task JSONL file.",
+        help="Path to a canonical task JSONL file.",
     )
     parser.add_argument(
         "--out-dir",

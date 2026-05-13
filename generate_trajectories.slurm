@@ -25,7 +25,7 @@ module load rocm/6.3.1
 REPO_ROOT="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl"
 MODELS_ROOT="${MODELS_ROOT:-/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models}"
 MODEL_PATH_INPUT="${MODEL_PATH:-gpt-oss-120b}"
-TASKS_PATH="${TASKS_PATH:-${REPO_ROOT}/data/corum_corpus/tasks.train.jsonl}"
+TASKS_PATH="${TASKS_PATH:-${REPO_ROOT}/data/gw_dendrogram_corpus/tasks.train.jsonl}"
 STORE_DIR="${STORE_DIR:-${REPO_ROOT}/data/humannet_multiplex_store}"
 ENCODINGS_SHARED_DIR="${ENCODINGS_SHARED_DIR:-${REPO_ROOT}/data/tiktoken_encodings}"
 SCRATCH="${SCRATCH:-/lustre/orion/syb114/scratch/${USER}}"
@@ -102,7 +102,7 @@ fi
 MODEL_BASENAME="$(basename "${MODEL_PATH}")"
 MODEL_SLUG="$(slugify_model_name "${MODEL_BASENAME}")"
 MODEL_USES_TIKTOKEN="$(infer_model_uses_tiktoken "${MODEL_BASENAME}")"
-OUT_DIR="${OUT_DIR:-${REPO_ROOT}/data/corum_trajectories/${MODEL_SLUG}_job_${SLURM_JOB_ID}}"
+OUT_DIR="${OUT_DIR:-${REPO_ROOT}/data/gw_dendrogram_trajectories/${MODEL_SLUG}_job_${SLURM_JOB_ID}}"
 
 if [[ ! -f "${SIF}" ]]; then
   log "Missing vLLM Apptainer image: ${SIF}"
@@ -174,6 +174,11 @@ DISTRIBUTED_EXECUTOR_BACKEND="${DISTRIBUTED_EXECUTOR_BACKEND:-auto}"
 mkdir -p "${REPO_ROOT}/logs"
 mkdir -p "${OUT_DIR}"
 mkdir -p "${ENCODINGS_SHARED_DIR}"
+
+MAX_TASKS_ARG=()
+if [[ -n "${MAX_TASKS}" && "${MAX_TASKS}" != "all" && "${MAX_TASKS}" != "ALL" ]]; then
+  MAX_TASKS_ARG=(--max-tasks "${MAX_TASKS}")
+fi
 
 mapfile -t NODE_LIST < <(scontrol show hostnames "${SLURM_JOB_NODELIST}")
 HEAD_NODE="${NODE_LIST[0]}"
@@ -300,6 +305,7 @@ log "TASKS_PATH=${TASKS_PATH}"
 log "OUT_DIR=${OUT_DIR}"
 log "TASK_SHARD_INDEX=${TASK_SHARD_INDEX}"
 log "TASK_SHARD_COUNT=${TASK_SHARD_COUNT}"
+log "MAX_TASKS_ARG=${MAX_TASKS_ARG[*]:-(full shard)}"
 log "TASK_CONCURRENCY=${TASK_CONCURRENCY}"
 log "GENERATOR_API_MODE=${GENERATOR_API_MODE}"
 log "GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS=${GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS}"
@@ -736,7 +742,7 @@ srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
       --tool-coverage-retry-count ${TOOL_COVERAGE_RETRY_COUNT} \
       --recovery-rwr-top-k ${RECOVERY_RWR_TOP_K} \
       --generator-timeout-seconds ${GENERATOR_TIMEOUT_SECONDS} \
-      --max-tasks ${MAX_TASKS} \
+      ${MAX_TASKS_ARG[*]@Q} \
       --task-shard-index ${TASK_SHARD_INDEX} \
       --task-shard-count ${TASK_SHARD_COUNT} \
       --max-steps ${MAX_STEPS} \
