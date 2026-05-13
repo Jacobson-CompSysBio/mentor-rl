@@ -1,14 +1,22 @@
 # Mentor-RL Current Status
 
+## Data Source Update (2026-05-13)
+
+The training-data source is changing from CORUM complexes to a genome-wide dendrogram of MENTOR-derived modules. New corpus-building work should treat dendrogram modules/subtrees as the fundamental supervised units, not curated CORUM complexes.
+
+The raw dendrogram input currently present in the repo is `data/gw_dendrogram.txt` (the `data/gw_dendrogram` datatype). It is a tab-delimited tree file with columns `node_id`, `left_id`, `right_id`, `height`, and `label`. Internal tree nodes use `label=NA`; leaf nodes use Ensembl gene IDs in `label` and `left_id=-1`, `right_id=-1`. Module/task construction should parse this tree structure and derive gene groups from dendrogram cuts or subtrees.
+
+Existing CORUM corpus and trajectory artifacts are now legacy/debug context unless explicitly regenerated or ported to the dendrogram-module data model.
+
 ## Snapshot (2026-04-30)
 
-The repo implements the main trajectory-generation path described in `shared_memory/methods_proposal.tex`: CORUM task construction, structured runtime state, deterministic graph/runtime tools, shared-prefix branch generation, scoring, preference-pair mining, and Frontier/vLLM launch plumbing.
+The repo implements the main trajectory-generation path described in `shared_memory/methods_proposal.tex`: legacy CORUM task construction, structured runtime state, deterministic graph/runtime tools, shared-prefix branch generation, scoring, preference-pair mining, and Frontier/vLLM launch plumbing.
 
-Gene overlap across corpus splits is intentional for the current evaluation framing. Splits should be read as complex/context heldout, not gene heldout. The SFT/GRPO/DPO training scripts are being handled on other branches and are not the blocker for the next trajectory-generation pass.
+Gene overlap across the legacy CORUM corpus splits was intentional for that evaluation framing. Any new dendrogram-module split policy should be redefined around tree/module heldout behavior rather than inheriting CORUM complex/context assumptions. The SFT/GRPO/DPO training scripts are being handled on other branches and are not the blocker for the next trajectory-generation pass.
 
 ## Progress
 
-- CORUM corpus is built in `data/corum_corpus/`.
+- Legacy CORUM corpus is built in `data/corum_corpus/`.
   - `4,914` retained deduplicated complexes.
   - `214,368` canonical tasks total.
   - Split counts: `171,408` train, `21,480` val, `21,480` test.
@@ -37,6 +45,7 @@ Gene overlap across corpus splits is intentional for the current evaluation fram
 
 ## Current Blockers
 
+- The dendrogram-module corpus builder has not yet replaced the legacy CORUM corpus builder in the runtime/training data path.
 - Future trajectory artifacts must exclude model-visible leakage/debug payloads.
   - `final_summaries.jsonl` should not write hidden terminal score metadata.
   - Branch pools, turns, finding records, and preference pairs should not write raw actor/verifier responses or token ID arrays.
@@ -46,14 +55,16 @@ Gene overlap across corpus splits is intentional for the current evaluation fram
 
 ## Next Steps
 
-1. Land the artifact-sanitization and all-layer normalization patch.
-2. Run the focused generator/runtime tests and compile checks.
-3. Submit a fresh small Frontier trajectory job using the patched generator.
-4. Inspect the new run's `progress.json`, `manifest.json`, `final_summaries.jsonl`, and `preference_pairs.jsonl`.
-5. If the small run is clean, scale trajectory generation before handing artifacts to downstream SFT/DPO/GRPO work on the training branches.
+1. Add a dendrogram parser/corpus builder for `data/gw_dendrogram.txt`.
+2. Define the module extraction and split policy for tree-derived training examples.
+3. Port runtime initialization/scoring assumptions from CORUM complexes to dendrogram-derived target modules.
+4. Keep the artifact-sanitization and all-layer normalization requirements when regenerating model-backed trajectories.
+5. Run a fresh small model-backed generation job only after the dendrogram-derived task path is wired in.
 
 ## Assumptions To Avoid
 
+- Do not use CORUM complexes as the fundamental supervised unit for new training data.
+- Do not flatten `data/gw_dendrogram.txt` into independent rows without preserving parent/child tree structure.
 - Do not train on old trajectory directories unless they are explicitly marked debug-only and excluded from training inputs.
 - Do not treat scalar reward/score fields as leakage by themselves; they are needed for ranking and auditability.
 - Do not block trajectory generation on generic SFT/GRPO script cleanup in this branch.
