@@ -11,19 +11,18 @@ import argparse
 import copy
 import csv
 import json
+import math
 import random
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Iterable
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-
-from runtime.backend import CompiledRuntimeBackend
 
 
 DEFAULT_DENDROGRAM_PATH = REPO_ROOT / "data" / "gw_dendrogram.txt"
@@ -39,12 +38,17 @@ POSITIVE_RELATIONSHIP_STATUS = "validated_group"
 NONE_RELATIONSHIP_STATUS = "insufficient_support"
 SCHEMA_VERSION = "gw-dendrogram-corpus-v1"
 SOURCE_NAME = "MENTOR_GW_DENDROGRAM"
-DEFAULT_RESTART_PROBABILITY = 0.35
 
-RWR_SCORE_BANDS = {
-    "easy": (None, 1e-6),
-    "medium": (1e-6, 1e-5),
-    "hard": (1e-5, 1e-4),
+DENDROGRAM_DISTANCE_PERCENTILE_BANDS = {
+    "easy": (0.0, 0.25),
+    "medium": (0.25, 0.50),
+    "hard": (0.50, 0.75),
+}
+
+DENDROGRAM_DISTANCE_FALLBACK_PERCENTILE_BANDS = {
+    "easy": (0.0, 0.25),
+    "medium": (0.25, 0.50),
+    "hard": (0.50, 0.75),
 }
 
 BUILD_STAGES = (
@@ -60,9 +64,6 @@ BUILD_STAGES = (
 )
 
 
-RwrScoreProvider = Callable[[list[str]], dict[str, float]]
-
-
 @dataclass(frozen=True)
 class DendrogramNode:
     node_id: int
@@ -74,6 +75,14 @@ class DendrogramNode:
     @property
     def is_leaf(self) -> bool:
         return self.left_id == -1 and self.right_id == -1
+
+
+@dataclass(frozen=True)
+class DendrogramDistanceIndex:
+    nodes: dict[int, DendrogramNode]
+    parent_by_node: dict[int, int]
+    subtree_genes: dict[int, list[str]]
+    candidate_gene_universe: set[str]
 
 
 @dataclass
@@ -262,36 +271,25 @@ def stratified_split_counts(size: int) -> tuple[int, int, int]:
 
 
 def load_store_gene_universe(store_dir: Path) -> list[str]:
-    backend = CompiledRuntimeBackend(store_dir=str(store_dir))
-    try:
-        summary = backend.describe()
-        return sorted(str(gene_id) for gene_id in summary["gene_ids"])
-    finally:
-        backend.close()
+    genes_path = store_dir / "genes.tsv"
+    if not genes_path.exists():
+        raise FileNotFoundError(f"HumanNet store gene table not found: {genes_path}")
 
-
-def make_compiled_rwr_score_provider(
-    *,
-    store_dir: Path,
-    top_k: int,
-    restart_probability: float = DEFAULT_RESTART_PROBABILITY,
-) -> RwrScoreProvider:
-    backend = CompiledRuntimeBackend(store_dir=str(store_dir))
-
-    def score_provider(seed_gene_ids: list[str]) -> dict[str, float]:
-        result = backend.rwr_multiplex(
-            seed_gene_ids,
-            top_k=top_k,
-            restart_probability=restart_probability,
-        )
-        return {
-            str(item["gene_id"]): float(item["score"])
-            for item in result.payload.get("results", [])
-            if isinstance(item, dict) and item.get("gene_id") is not None
-        }
-
-    setattr(score_provider, "close", backend.close)
-    return score_provider
+    gene_ids = []
+    with genes_path.open("r", encoding="utf-8", newline="") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            columns = stripped.split("\t")
+            if len(columns) == 1:
+                gene_id = columns[0]
+            elif len(columns) >= 2:
+                gene_id = columns[1]
+            else:
+                raise ValueError(f"Malformed gene row {line_number} in {genes_path}.")
+            gene_ids.append(str(gene_id))
+    return sorted(set(gene_ids))
 
 
 def parse_dendrogram(path: Path) -> dict[int, DendrogramNode]:
@@ -361,6 +359,34 @@ def compute_subtree_genes(
         if not progressed:
             raise ValueError("Could not resolve dendrogram subtree genes; check for cycles.")
     return filtered, raw_counts
+
+
+def build_parent_index(nodes: dict[int, DendrogramNode]) -> dict[int, int]:
+    parent_by_node: dict[int, int] = {}
+    for node in nodes.values():
+        if node.is_leaf:
+            continue
+        for child_id in (node.left_id, node.right_id):
+            if child_id in parent_by_node:
+                raise ValueError(f"Dendrogram child {child_id} has multiple parents.")
+            parent_by_node[child_id] = node.node_id
+    return parent_by_node
+
+
+def build_dendrogram_distance_index(
+    nodes: dict[int, DendrogramNode],
+    allowed_gene_ids: set[str],
+) -> DendrogramDistanceIndex:
+    subtree_genes, _ = compute_subtree_genes(nodes, allowed_gene_ids)
+    candidate_gene_universe = {
+        node.label for node in nodes.values() if node.is_leaf and node.label in allowed_gene_ids
+    }
+    return DendrogramDistanceIndex(
+        nodes=nodes,
+        parent_by_node=build_parent_index(nodes),
+        subtree_genes=subtree_genes,
+        candidate_gene_universe=candidate_gene_universe,
+    )
 
 
 def extract_modules(
@@ -485,11 +511,96 @@ def noise_gene_count(size: int, difficulty: str) -> int:
     raise ValueError(f"Unknown difficulty: {difficulty}.")
 
 
-def select_rwr_negative_genes(
+def dendrogram_distance_groups(
     *,
-    target_gene_ids: list[str],
-    candidate_gene_ids: Iterable[str],
-    rwr_scores: dict[str, float],
+    module: dict[str, Any],
+    distance_index: DendrogramDistanceIndex,
+    candidate_gene_ids: Iterable[str] | None = None,
+) -> list[dict[str, Any]]:
+    module_node_id = int(module["source_node_id"])
+    module_height = float(distance_index.nodes[module_node_id].height)
+    target_set = set(module["gene_ids"])
+    candidate_set = (
+        set(distance_index.candidate_gene_universe)
+        if candidate_gene_ids is None
+        else set(candidate_gene_ids)
+    ) - target_set
+    groups = []
+    current_node_id = module_node_id
+    while current_node_id in distance_index.parent_by_node:
+        parent_id = distance_index.parent_by_node[current_node_id]
+        parent = distance_index.nodes[parent_id]
+        if parent.left_id == current_node_id:
+            sibling_id = parent.right_id
+        elif parent.right_id == current_node_id:
+            sibling_id = parent.left_id
+        else:
+            raise ValueError(f"Parent index is inconsistent for node {current_node_id}.")
+        genes = [gene_id for gene_id in distance_index.subtree_genes[sibling_id] if gene_id in candidate_set]
+        if genes:
+            groups.append(
+                {
+                    "distance": max(0.0, float(parent.height) - module_height),
+                    "lca_node_id": parent_id,
+                    "gene_ids": genes,
+                }
+            )
+        current_node_id = parent_id
+    return sorted(groups, key=lambda row: (row["distance"], row["lca_node_id"]))
+
+
+def _distance_entries_for_percentile_band(
+    groups: list[dict[str, Any]],
+    percentile_range: tuple[float, float],
+) -> list[dict[str, Any]]:
+    total = sum(len(group["gene_ids"]) for group in groups)
+    if total <= 0:
+        return []
+
+    lower, upper = percentile_range
+    lower = min(max(lower, 0.0), 1.0)
+    upper = min(max(upper, 0.0), 1.0)
+    if lower > upper:
+        return []
+
+    if total == 1:
+        start_rank = 0
+        end_rank = 0 if lower <= 1.0 <= upper else -1
+    else:
+        start_rank = int(math.ceil(lower * (total - 1) - 1e-12))
+        end_rank = int(math.floor(upper * (total - 1) + 1e-12))
+    if end_rank < start_rank:
+        return []
+
+    entries = []
+    rank_offset = 0
+    for group in groups:
+        genes = list(group["gene_ids"])
+        group_start = rank_offset
+        group_end = rank_offset + len(genes) - 1
+        overlap_start = max(start_rank, group_start)
+        overlap_end = min(end_rank, group_end)
+        if overlap_start <= overlap_end:
+            for rank in range(overlap_start, overlap_end + 1):
+                gene_id = genes[rank - group_start]
+                percentile = 1.0 if total == 1 else rank / (total - 1)
+                entries.append(
+                    {
+                        "gene_id": gene_id,
+                        "distance": group["distance"],
+                        "lca_node_id": group["lca_node_id"],
+                        "percentile": percentile,
+                    }
+                )
+        rank_offset += len(genes)
+    return entries
+
+
+def select_dendrogram_negative_genes(
+    *,
+    module: dict[str, Any],
+    distance_index: DendrogramDistanceIndex,
+    candidate_gene_ids: Iterable[str] | None,
     sample_size: int,
     difficulty: str,
     seed: int,
@@ -500,22 +611,21 @@ def select_rwr_negative_genes(
     if sample_size <= 0:
         return [], {"selection_mode": "empty", "candidate_count": 0}
 
-    lower, upper = RWR_SCORE_BANDS[difficulty]
-    target_set = set(target_gene_ids)
-    candidates = sorted(set(candidate_gene_ids) - target_set)
-
-    def score(gene_id: str) -> float:
-        return float(rwr_scores.get(gene_id, 0.0))
-
-    preferred = [
-        gene_id
-        for gene_id in candidates
-        if score(gene_id) <= upper and (lower is None or score(gene_id) > lower)
-    ]
-    fallback = [gene_id for gene_id in candidates if score(gene_id) <= upper]
+    preferred_band = DENDROGRAM_DISTANCE_PERCENTILE_BANDS[difficulty]
+    fallback_band = DENDROGRAM_DISTANCE_FALLBACK_PERCENTILE_BANDS[difficulty]
+    groups = dendrogram_distance_groups(
+        module=module,
+        distance_index=distance_index,
+        candidate_gene_ids=candidate_gene_ids,
+    )
+    candidate_count = sum(len(group["gene_ids"]) for group in groups)
+    preferred_entries = _distance_entries_for_percentile_band(groups, preferred_band)
+    fallback_entries = _distance_entries_for_percentile_band(groups, fallback_band)
+    preferred_by_gene = {entry["gene_id"]: entry for entry in preferred_entries}
+    fallback_by_gene = {entry["gene_id"]: entry for entry in fallback_entries}
     selected = _sample_from_candidates(
-        preferred,
-        sample_size=min(sample_size, len(preferred)),
+        preferred_by_gene,
+        sample_size=sample_size,
         seed=seed,
         salt=f"{salt}|preferred",
         gene_to_modules=gene_to_modules,
@@ -524,32 +634,44 @@ def select_rwr_negative_genes(
     )
     selection_mode = "preferred_band"
     if len(selected) < sample_size:
-        fill = _sample_from_candidates(
-            [gene_id for gene_id in fallback if gene_id not in set(selected)],
-            sample_size=sample_size - len(selected),
+        selected = _sample_from_candidates(
+            fallback_by_gene,
+            sample_size=sample_size,
             seed=seed,
             salt=f"{salt}|fallback",
             gene_to_modules=gene_to_modules,
             conflict_free=conflict_free,
-            initial_used_modules=_memberships_for_genes(selected, gene_to_modules),
+            initial_used_modules=None,
         )
-        selected = sorted(set(selected) | set(fill))
-        selection_mode = "fallback_below_upper_cutoff"
+        selection_mode = "fallback_percentile_band"
 
     if len(selected) < sample_size:
         raise ValueError(
-            f"Not enough {difficulty} RWR-negative candidates for {salt}: "
-            f"needed {sample_size}, preferred={len(preferred)}, fallback={len(fallback)}."
+            f"Not enough {difficulty} dendrogram-distance candidates for {salt}: "
+            f"needed {sample_size}, preferred={len(preferred_entries)}, "
+            f"fallback={len(fallback_entries)}, total={candidate_count}."
         )
 
+    selected_entry_lookup = {**fallback_by_gene, **preferred_by_gene}
     return selected, {
         "selection_mode": selection_mode,
         "difficulty": difficulty,
-        "score_lower_exclusive": lower,
-        "score_upper_inclusive": upper,
-        "preferred_candidate_count": len(preferred),
-        "fallback_candidate_count": len(fallback),
-        "selected_scores": {gene_id: score(gene_id) for gene_id in selected},
+        "distance_metric": "dendrogram_lca_height_delta",
+        "distance_definition": "height(LCA(module_root, candidate_leaf)) - height(module_root)",
+        "preferred_percentile_range": list(preferred_band),
+        "fallback_percentile_range": list(fallback_band),
+        "candidate_count": candidate_count,
+        "preferred_candidate_count": len(preferred_entries),
+        "fallback_candidate_count": len(fallback_entries),
+        "selected_distances": {
+            gene_id: selected_entry_lookup[gene_id]["distance"] for gene_id in selected
+        },
+        "selected_lca_node_ids": {
+            gene_id: selected_entry_lookup[gene_id]["lca_node_id"] for gene_id in selected
+        },
+        "selected_percentiles": {
+            gene_id: selected_entry_lookup[gene_id]["percentile"] for gene_id in selected
+        },
     }
 
 
@@ -606,7 +728,7 @@ def build_task_prototypes(
     *,
     modules: list[dict[str, Any]],
     candidate_gene_universe: set[str],
-    rwr_score_provider: RwrScoreProvider,
+    distance_index: DendrogramDistanceIndex,
     seed: int,
     stats: BuildStats | None = None,
 ) -> list[dict[str, Any]]:
@@ -617,7 +739,6 @@ def build_task_prototypes(
     for index, module in enumerate(modules, start=1):
         module_id = module["module_id"]
         target_gene_ids = list(module["gene_ids"])
-        module_rwr_scores = rwr_score_provider(target_gene_ids)
 
         prototypes.append(
             {
@@ -658,10 +779,10 @@ def build_task_prototypes(
         refinement_difficulty = module["difficulty_by_task"]["refinement"]
         add_count = noise_gene_count(len(target_gene_ids), refinement_difficulty)
         try:
-            noise_gene_ids, metadata = select_rwr_negative_genes(
-                target_gene_ids=target_gene_ids,
+            noise_gene_ids, metadata = select_dendrogram_negative_genes(
+                module=module,
+                distance_index=distance_index,
                 candidate_gene_ids=candidate_gene_universe,
-                rwr_scores=module_rwr_scores,
                 sample_size=add_count,
                 difficulty=refinement_difficulty,
                 seed=seed,
@@ -677,7 +798,10 @@ def build_task_prototypes(
                     "source_module_id": module_id,
                     "input_gene_ids": sorted(set(target_gene_ids) | set(noise_gene_ids)),
                     "relationship_status": POSITIVE_RELATIONSHIP_STATUS,
-                    "sampling_metadata": {"noise_gene_ids": noise_gene_ids, "rwr_negative_sampling": metadata},
+                    "sampling_metadata": {
+                        "noise_gene_ids": noise_gene_ids,
+                        "dendrogram_negative_sampling": metadata,
+                    },
                 }
             )
         except ValueError:
@@ -685,10 +809,10 @@ def build_task_prototypes(
 
         none_difficulty = module["difficulty_by_task"]["none"]
         try:
-            none_gene_ids, metadata = select_rwr_negative_genes(
-                target_gene_ids=target_gene_ids,
+            none_gene_ids, metadata = select_dendrogram_negative_genes(
+                module=module,
+                distance_index=distance_index,
                 candidate_gene_ids=candidate_gene_universe,
-                rwr_scores=module_rwr_scores,
                 sample_size=len(target_gene_ids),
                 difficulty=none_difficulty,
                 seed=seed,
@@ -707,7 +831,7 @@ def build_task_prototypes(
                     "anchor_module_id": module_id,
                     "input_gene_ids": none_gene_ids,
                     "relationship_status": NONE_RELATIONSHIP_STATUS,
-                    "sampling_metadata": {"rwr_negative_sampling": metadata},
+                    "sampling_metadata": {"dendrogram_negative_sampling": metadata},
                 }
             )
         except ValueError:
@@ -949,7 +1073,6 @@ def build_manifest(
     prototypes: list[dict[str, Any]],
     tasks: list[dict[str, Any]],
     extraction_summary: dict[str, Any],
-    restart_probability: float,
 ) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
@@ -958,8 +1081,18 @@ def build_manifest(
         "store_dir": str(store_dir),
         "out_dir": str(out_dir),
         "seed": seed,
-        "restart_probability": restart_probability,
         "module_size_bins": {"small": [5, 10], "medium": [11, 15], "large": [16, 30]},
+        "negative_sampling": {
+            "method": "dendrogram_lca_height_delta",
+            "distance_definition": "height(LCA(module_root, candidate_leaf)) - height(module_root)",
+            "preferred_percentile_bands": DENDROGRAM_DISTANCE_PERCENTILE_BANDS,
+            "fallback_percentile_bands": DENDROGRAM_DISTANCE_FALLBACK_PERCENTILE_BANDS,
+            "difficulty_semantics": {
+                "easy": "0-25th percentile outside-module leaves after nearest-to-farthest sorting",
+                "medium": "25-50th percentile outside-module leaves after nearest-to-farthest sorting",
+                "hard": "50-75th percentile outside-module leaves after nearest-to-farthest sorting",
+            },
+        },
         "evidence_modes": list(EVIDENCE_MODES),
         "module_count": len(modules),
         "prototype_count": len(prototypes),
@@ -1007,8 +1140,6 @@ def build_gw_dendrogram_corpus(
     seed: int = 42,
     progress_path: Path | None = None,
     allowed_gene_ids: set[str] | None = None,
-    rwr_score_provider: RwrScoreProvider | None = None,
-    restart_probability: float = DEFAULT_RESTART_PROBABILITY,
 ) -> dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
     progress_path = progress_path or out_dir / "progress.json"
@@ -1019,10 +1150,8 @@ def build_gw_dendrogram_corpus(
             "store_dir": str(store_dir),
             "out_dir": str(out_dir),
             "seed": seed,
-            "restart_probability": restart_probability,
         }
     )
-    owned_score_provider = None
     stats = BuildStats()
 
     try:
@@ -1039,14 +1168,6 @@ def build_gw_dendrogram_corpus(
             metrics={"store_gene_count": len(store_gene_ids)},
         )
 
-        if rwr_score_provider is None:
-            owned_score_provider = make_compiled_rwr_score_provider(
-                store_dir=store_dir,
-                top_k=len(store_gene_ids),
-                restart_probability=restart_probability,
-            )
-            rwr_score_provider = owned_score_provider
-
         tracker.start("parse_dendrogram", unit="nodes")
         nodes = parse_dendrogram(dendrogram_path)
         tracker.update(
@@ -1058,9 +1179,8 @@ def build_gw_dendrogram_corpus(
 
         tracker.start("extract_modules", unit="modules")
         modules, extraction_summary = extract_modules(nodes, allowed_gene_ids)
-        candidate_gene_universe = {
-            node.label for node in nodes.values() if node.is_leaf and node.label in allowed_gene_ids
-        }
+        distance_index = build_dendrogram_distance_index(nodes, allowed_gene_ids)
+        candidate_gene_universe = distance_index.candidate_gene_universe
         tracker.update(
             completed=len(modules),
             total=len(modules),
@@ -1080,7 +1200,7 @@ def build_gw_dendrogram_corpus(
         prototypes = build_task_prototypes(
             modules=modules,
             candidate_gene_universe=candidate_gene_universe,
-            rwr_score_provider=rwr_score_provider,
+            distance_index=distance_index,
             seed=seed,
             stats=stats,
         )
@@ -1125,7 +1245,6 @@ def build_gw_dendrogram_corpus(
             prototypes=prototypes,
             tasks=tasks,
             extraction_summary=extraction_summary,
-            restart_probability=restart_probability,
         )
 
         tracker.start("write_outputs", total=4 + len(SPLITS), unit="files")
@@ -1159,9 +1278,6 @@ def build_gw_dendrogram_corpus(
     except Exception as error:
         tracker.fail(error)
         raise
-    finally:
-        if owned_score_provider is not None and hasattr(owned_score_provider, "close"):
-            owned_score_provider.close()
 
 
 def parse_args() -> argparse.Namespace:
@@ -1171,7 +1287,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--progress-path", type=Path, default=None)
-    parser.add_argument("--restart-probability", type=float, default=DEFAULT_RESTART_PROBABILITY)
     return parser.parse_args()
 
 
@@ -1183,7 +1298,6 @@ def main() -> None:
         out_dir=args.out_dir,
         seed=args.seed,
         progress_path=args.progress_path,
-        restart_probability=args.restart_probability,
     )
     print(
         json.dumps(

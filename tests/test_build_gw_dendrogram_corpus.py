@@ -82,16 +82,31 @@ def _write_generation_dendrogram(path: Path) -> set[str]:
     builder = DendrogramBuilder()
     target_root = builder.subtree([_ensg(i) for i in range(1, 6)])
     external_roots = [
-        builder.subtree([_ensg(i) for i in range(start, start + 4)])
-        for start in range(101, 141, 4)
+        builder.subtree([_ensg(i) for i in range(start, start + 16)])
+        for start in range(101, 613, 16)
     ]
     _chain_roots(builder, [target_root] + external_roots)
     builder.write(path)
-    return {_ensg(i) for i in range(1, 6)} | {_ensg(i) for i in range(101, 141)}
+    return {_ensg(i) for i in range(1, 6)} | {_ensg(i) for i in range(101, 613)}
 
 
-def _flat_far_scores(seed_gene_ids: list[str], allowed_gene_ids: set[str]) -> dict[str, float]:
-    return {gene_id: 0.0 for gene_id in allowed_gene_ids if gene_id not in set(seed_gene_ids)}
+def _distance_sampling_fixture() -> tuple[DendrogramBuilder, int, set[str]]:
+    builder = DendrogramBuilder()
+    target_root = builder.subtree([f"T{i}" for i in range(5)], height=0.1)
+    easy_root = builder.subtree([f"E{i}" for i in range(4)], height=0.2)
+    easy_parent = builder.internal(target_root, easy_root, 0.3)
+    medium_root = builder.subtree([f"M{i}" for i in range(4)], height=0.2)
+    medium_parent = builder.internal(easy_parent, medium_root, 0.7)
+    hard_root = builder.subtree([f"H{i}" for i in range(4)], height=0.2)
+    hard_parent = builder.internal(medium_parent, hard_root, 1.1)
+    unused_far_root = builder.subtree([f"F{i}" for i in range(4)], height=0.2)
+    builder.internal(hard_parent, unused_far_root, 1.5)
+    allowed_gene_ids = {f"T{i}" for i in range(5)}
+    allowed_gene_ids |= {f"E{i}" for i in range(4)}
+    allowed_gene_ids |= {f"M{i}" for i in range(4)}
+    allowed_gene_ids |= {f"H{i}" for i in range(4)}
+    allowed_gene_ids |= {f"F{i}" for i in range(4)}
+    return builder, target_root, allowed_gene_ids
 
 
 def test_parse_extract_modules_filters_store_genes_and_deduplicates(tmp_path: Path) -> None:
@@ -115,39 +130,53 @@ def test_parse_extract_modules_filters_store_genes_and_deduplicates(tmp_path: Pa
     assert matching[0]["size_bin"] == "small"
 
 
-def test_rwr_negative_sampling_uses_bands_and_fallback() -> None:
-    scores = {
-        "A": 0.0,
-        "B": 5e-7,
-        "C": 5e-6,
-        "D": 5e-5,
-        "E": 5e-4,
+def test_dendrogram_negative_sampling_uses_requested_distance_bands(tmp_path: Path) -> None:
+    builder, target_root, allowed_gene_ids = _distance_sampling_fixture()
+    dendrogram_path = tmp_path / "distance_dendrogram.txt"
+    builder.write(dendrogram_path)
+    nodes = bgd.parse_dendrogram(dendrogram_path)
+    distance_index = bgd.build_dendrogram_distance_index(nodes, allowed_gene_ids)
+    module = {
+        "source_node_id": target_root,
+        "gene_ids": sorted(f"T{i}" for i in range(5)),
     }
 
-    medium, medium_meta = bgd.select_rwr_negative_genes(
-        target_gene_ids=["TARGET"],
-        candidate_gene_ids=scores.keys(),
-        rwr_scores=scores,
-        sample_size=1,
-        difficulty="medium",
-        seed=1,
-        salt="medium",
-    )
-    hard, hard_meta = bgd.select_rwr_negative_genes(
-        target_gene_ids=["TARGET"],
-        candidate_gene_ids=scores.keys(),
-        rwr_scores=scores,
+    hard, hard_meta = bgd.select_dendrogram_negative_genes(
+        module=module,
+        distance_index=distance_index,
+        candidate_gene_ids=allowed_gene_ids,
         sample_size=2,
         difficulty="hard",
         seed=1,
         salt="hard",
     )
+    medium, medium_meta = bgd.select_dendrogram_negative_genes(
+        module=module,
+        distance_index=distance_index,
+        candidate_gene_ids=allowed_gene_ids,
+        sample_size=2,
+        difficulty="medium",
+        seed=1,
+        salt="medium",
+    )
+    easy, easy_meta = bgd.select_dendrogram_negative_genes(
+        module=module,
+        distance_index=distance_index,
+        candidate_gene_ids=allowed_gene_ids,
+        sample_size=2,
+        difficulty="easy",
+        seed=1,
+        salt="easy",
+    )
 
-    assert medium == ["C"]
+    assert all(gene_id.startswith("E") for gene_id in easy)
+    assert easy_meta["selection_mode"] == "preferred_band"
+    assert all(gene_id.startswith("M") for gene_id in medium)
     assert medium_meta["selection_mode"] == "preferred_band"
-    assert "D" in hard
-    assert hard_meta["selection_mode"] == "fallback_below_upper_cutoff"
-    assert "E" not in hard
+    assert all(gene_id.startswith("H") for gene_id in hard)
+    assert hard_meta["selection_mode"] == "preferred_band"
+    assert max(easy_meta["selected_distances"].values()) < min(medium_meta["selected_distances"].values())
+    assert max(medium_meta["selected_distances"].values()) < min(hard_meta["selected_distances"].values())
 
 
 def test_build_task_prototypes_and_materialization_are_balanced_and_compatible(tmp_path: Path) -> None:
@@ -162,7 +191,6 @@ def test_build_task_prototypes_and_materialization_are_balanced_and_compatible(t
         out_dir=out_dir,
         seed=7,
         allowed_gene_ids=allowed_gene_ids,
-        rwr_score_provider=lambda seeds: _flat_far_scores(seeds, allowed_gene_ids),
     )
 
     for file_name in (
@@ -237,7 +265,6 @@ def test_build_is_deterministic_with_same_seed(tmp_path: Path) -> None:
         out_dir=tmp_path / "out1",
         seed=17,
         allowed_gene_ids=allowed_gene_ids,
-        rwr_score_provider=lambda seeds: _flat_far_scores(seeds, allowed_gene_ids),
     )
     result_2 = bgd.build_gw_dendrogram_corpus(
         dendrogram_path=dendrogram_path,
@@ -245,7 +272,6 @@ def test_build_is_deterministic_with_same_seed(tmp_path: Path) -> None:
         out_dir=tmp_path / "out2",
         seed=17,
         allowed_gene_ids=allowed_gene_ids,
-        rwr_score_provider=lambda seeds: _flat_far_scores(seeds, allowed_gene_ids),
     )
 
     assert result_1["modules"] == result_2["modules"]
