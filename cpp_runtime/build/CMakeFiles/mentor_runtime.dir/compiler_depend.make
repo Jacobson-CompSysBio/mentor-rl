@@ -661,6 +661,7 @@ CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.o: /lustre/orion/syb111/proj-
   /usr/include/time.h \
   /usr/include/wchar.h \
   /usr/include/wctype.h \
+  /usr/lib64/gcc/x86_64-suse-linux/7/include/omp.h \
   /usr/lib64/gcc/x86_64-suse-linux/7/include/stdarg.h \
   /usr/lib64/gcc/x86_64-suse-linux/7/include/stddef.h \
   /usr/lib64/gcc/x86_64-suse-linux/7/include/stdint.h
@@ -678,8 +679,10 @@ libmentor_runtime.so: /lib64/libgcc_s.so.1 \
   /usr/lib64/gcc/x86_64-suse-linux/7/crtendS.o \
   /usr/lib64/gcc/x86_64-suse-linux/7/libgcc.a \
   /usr/lib64/gcc/x86_64-suse-linux/7/libgcc_s.so \
+  /usr/lib64/gcc/x86_64-suse-linux/7/libgomp.so \
   /usr/lib64/gcc/x86_64-suse-linux/7/libstdc++.so \
   /usr/lib64/libc_nonshared.a \
+  /usr/lib64/libpthread.a \
   CMakeFiles/mentor_runtime.dir/src/c_api.cpp.o \
   CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.o \
   CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.o
@@ -708,6 +711,8 @@ CMakeFiles/mentor_runtime.dir/src/c_api.cpp.o:
 /lib64/ld-linux-x86-64.so.2:
 
 /lib64/libgcc_s.so.1:
+
+/usr/lib64/gcc/x86_64-suse-linux/7/include/omp.h:
 
 /usr/include/math.h:
 
@@ -869,6 +874,8 @@ CMakeFiles/mentor_runtime.dir/src/c_api.cpp.o:
 
 /usr/include/c++/7/cwctype:
 
+/usr/lib64/libpthread.a:
+
 /usr/include/c++/7/string:
 
 /usr/include/bits/types/mbstate_t.h:
@@ -950,6 +957,8 @@ CMakeFiles/mentor_runtime.dir/src/c_api.cpp.o:
 /usr/lib64/gcc/x86_64-suse-linux/7/include/stddef.h:
 
 /usr/include/bits/types/struct_itimerspec.h:
+
+/usr/lib64/gcc/x86_64-suse-linux/7/libgomp.so:
 
 /usr/include/bits/struct_rwlock.h:
 

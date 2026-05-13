@@ -67,6 +67,18 @@ def _matches_filters(pair: PreferencePair, args: argparse.Namespace) -> bool:
         return False
     if args.difficulty_bin and pair.difficulty_bin.value not in set(args.difficulty_bin):
         return False
+    if args.pair_category and str(pair.provenance.get("pair_category", "score_margin")) not in set(args.pair_category):
+        return False
+    if args.decision_step and pair.decision_step not in set(args.decision_step):
+        return False
+    if args.tool_backed_only and not bool(pair.provenance.get("chosen_has_successful_tool")):
+        return False
+    if args.min_chosen_group_size is not None:
+        chosen_gene_count = pair.provenance.get("chosen_gene_count")
+        if not isinstance(chosen_gene_count, int):
+            chosen_gene_count = _predicted_gene_count(pair.chosen)
+        if chosen_gene_count < args.min_chosen_group_size:
+            return False
     if args.source_task_id:
         return any(fragment in pair.source_task_id for fragment in args.source_task_id)
     return True
@@ -126,6 +138,13 @@ def _predicted_gene_summary(branch: CandidateBranch) -> str:
     for group in groups:
         parts.append(f"{group.group_id}: {', '.join(group.gene_ids)}")
     return _truncate("; ".join(parts), max_chars=600)
+
+
+def _predicted_gene_count(branch: CandidateBranch) -> int:
+    gene_ids: list[str] = []
+    for group in branch.verifier_step.updated_state.predicted_groups:
+        gene_ids.extend(group.gene_ids)
+    return len(set(gene_ids))
 
 
 def _label_summary(branch: CandidateBranch) -> str:
@@ -246,12 +265,14 @@ def _context_block(pair: PreferencePair, *, max_text_chars: int) -> str:
 
 def render_markdown(pairs: list[PreferencePair], *, pairs_path: Path, max_text_chars: int) -> str:
     counts = Counter((pair.task_type.value, str(pair.evidence_mode), pair.difficulty_bin.value) for pair in pairs)
+    category_counts = Counter(str(pair.provenance.get("pair_category", "score_margin")) for pair in pairs)
     lines = [
         "# Preference Pair Review",
         "",
         f"- Source: `{pairs_path}`",
         f"- Rendered pairs: `{len(pairs)}`",
         f"- Buckets: `{dict(sorted((('/'.join(key), value) for key, value in counts.items())))}`",
+        f"- Pair categories: `{dict(sorted(category_counts.items()))}`",
         "",
         "Use this for manual review: chosen should be visibly better grounded, more valid, or more useful than rejected.",
         "",
@@ -264,6 +285,17 @@ def render_markdown(pairs: list[PreferencePair], *, pairs_path: Path, max_text_c
                 f"- Score margin: `{pair.score_margin:.6f}`",
                 f"- Chosen score: raw `{pair.raw_score_chosen:.6f}`, normalized `{pair.normalized_score_chosen:.6f}`",
                 f"- Rejected score: raw `{pair.raw_score_rejected:.6f}`, normalized `{pair.normalized_score_rejected:.6f}`",
+                f"- Pair category: `{pair.provenance.get('pair_category', 'score_margin')}`",
+                (
+                    f"- Group sizes: chosen `{pair.provenance.get('chosen_gene_count', _predicted_gene_count(pair.chosen))}` "
+                    f"(delta `{pair.provenance.get('chosen_group_size_delta', 'unknown')}`), "
+                    f"rejected `{pair.provenance.get('rejected_gene_count', _predicted_gene_count(pair.rejected))}` "
+                    f"(delta `{pair.provenance.get('rejected_group_size_delta', 'unknown')}`)"
+                ),
+                (
+                    f"- Tool transition: `{pair.provenance.get('chosen_tool_name', 'unknown')}` -> "
+                    f"`{pair.provenance.get('rejected_tool_name', 'unknown')}`"
+                ),
                 "",
                 _context_block(pair, max_text_chars=max_text_chars),
                 _branch_block("Chosen", pair.chosen, max_text_chars=max_text_chars),
@@ -286,6 +318,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--task-type", action="append", default=[], help="Filter by task type. Can be repeated.")
     parser.add_argument("--evidence-mode", action="append", default=[], help="Filter by evidence mode. Can be repeated.")
     parser.add_argument("--difficulty-bin", action="append", default=[], help="Filter by difficulty bin. Can be repeated.")
+    parser.add_argument("--pair-category", action="append", default=[], help="Filter by pair category from provenance. Can be repeated.")
+    parser.add_argument("--decision-step", action="append", type=int, default=[], help="Filter by exact decision step. Can be repeated.")
+    parser.add_argument("--tool-backed-only", action="store_true", help="Only render pairs whose chosen branch has a successful tool observation.")
+    parser.add_argument("--min-chosen-group-size", type=int, default=None, help="Only render pairs with at least this many chosen predicted genes.")
     parser.add_argument("--source-task-id", action="append", default=[], help="Filter by source-task-id substring. Can be repeated.")
     return parser
 

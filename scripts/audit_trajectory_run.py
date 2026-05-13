@@ -81,6 +81,12 @@ class AuditConfig:
     require_pairs: bool = True
     required_task_types: tuple[str, ...] = EXPECTED_TASK_TYPES
     required_evidence_modes: tuple[str, ...] = EXPECTED_EVIDENCE_MODES
+    max_selected_no_tool_rate: float | None = None
+    max_positive_selected_no_tool_rate: float | None = None
+    min_recovery_expansion_pair_rate: float | None = None
+    min_tool_supported_pair_rate: float | None = None
+    max_mechanism_label_only_pair_rate: float | None = None
+    max_step0_pair_rate: float | None = None
 
 
 @dataclass
@@ -288,10 +294,33 @@ def _is_close(left: float, right: float, *, abs_tol: float = 1e-6) -> bool:
     return math.isclose(left, right, rel_tol=1e-6, abs_tol=abs_tol)
 
 
+def _branch_tool_name(branch_payload: dict[str, Any]) -> str:
+    action = branch_payload.get("actor_step", {}).get("tool_action")
+    if isinstance(action, dict):
+        tool_name = action.get("tool_name")
+        if isinstance(tool_name, str) and tool_name:
+            return tool_name
+    return "no_tool"
+
+
+def _predicted_gene_count(branch_payload: dict[str, Any]) -> int:
+    state = branch_payload.get("verifier_step", {}).get("updated_state", {})
+    groups = state.get("predicted_groups") if isinstance(state, dict) else None
+    if not isinstance(groups, list):
+        return 0
+    gene_ids: list[str] = []
+    for group in groups:
+        if isinstance(group, dict):
+            gene_ids.extend(gene_id for gene_id in group.get("gene_ids", []) if isinstance(gene_id, str))
+    return len(set(gene_ids))
+
+
 def _audit_branch_pools(rows: list[dict[str, Any]], report: AuditReport, config: AuditConfig) -> dict[tuple[str, int], dict[str, Any]]:
     task_type_counts: Counter[str] = Counter()
     evidence_mode_counts: Counter[str] = Counter()
     selected_tool_counts: Counter[str] = Counter()
+    selected_tool_counts_by_task: Counter[str] = Counter()
+    selected_gene_counts: Counter[int] = Counter()
     relationship_counts: Counter[str] = Counter()
     generator_error_count = 0
     fallback_branch_count = 0
@@ -391,11 +420,30 @@ def _audit_branch_pools(rows: list[dict[str, Any]], report: AuditReport, config:
 
         if selected_branch is not None:
             selected_score = selected_branch.get("local_score", {}).get("normalized_score")
-            if not isinstance(selected_score, (int, float)) or not _is_close(float(selected_score), max_normalized):
-                report.error("selected_not_top_scored", "Selected branch is not tied for the top normalized score.", artifact="branch_pools.jsonl", row_index=row_index)
+            if not isinstance(selected_score, (int, float)):
+                report.error("selected_not_top_scored", "Selected branch is missing a numeric normalized score.", artifact="branch_pools.jsonl", row_index=row_index)
+            else:
+                selected_score_float = float(selected_score)
+                if not _is_close(selected_score_float, max_normalized):
+                    metadata = selected_branch.get("metadata", {})
+                    selection_policy = metadata.get("selection_policy") if isinstance(metadata, dict) else None
+                    selection_epsilon = metadata.get("selection_score_epsilon", 0.0) if isinstance(metadata, dict) else 0.0
+                    if not isinstance(selection_epsilon, (int, float)):
+                        selection_epsilon = 0.0
+                    score_gap = max_normalized - selected_score_float
+                    if selection_policy != "task_quality" or score_gap > float(selection_epsilon) + 1e-6:
+                        report.error(
+                            "selected_not_top_scored",
+                            "Selected branch is outside the top normalized score or declared task_quality window.",
+                            artifact="branch_pools.jsonl",
+                            row_index=row_index,
+                        )
 
-            action = selected_branch.get("actor_step", {}).get("tool_action")
-            selected_tool_counts[(action or {}).get("tool_name", "no_tool") if isinstance(action, dict) else "no_tool"] += 1
+            selected_tool_name = _branch_tool_name(selected_branch)
+            selected_tool_counts[selected_tool_name] += 1
+            if isinstance(task_type, str):
+                selected_tool_counts_by_task[f"{task_type}/{selected_tool_name}"] += 1
+            selected_gene_counts[_predicted_gene_count(selected_branch)] += 1
             state = selected_branch.get("verifier_step", {}).get("updated_state", {})
             if isinstance(state, dict):
                 relationship_counts[str(state.get("relationship_status"))] += 1
@@ -423,6 +471,39 @@ def _audit_branch_pools(rows: list[dict[str, Any]], report: AuditReport, config:
         report.error("generator_error_rate_high", f"Generator error rate {generator_error_rate:.3f} exceeds {config.max_generator_error_rate:.3f}.")
     if fallback_branch_count:
         report.error("heuristic_fallback_used", f"{fallback_branch_count} branches used heuristic_fallback; DPO generation should use model-backed branches only.")
+    selected_count = sum(selected_tool_counts.values())
+    selected_no_tool_rate = selected_tool_counts.get("no_tool", 0) / selected_count if selected_count else 0.0
+    positive_selected_count = sum(
+        count
+        for key, count in selected_tool_counts_by_task.items()
+        if key.split("/", 1)[0] in {"recovery", "refinement"}
+    )
+    positive_selected_no_tool_count = sum(
+        count
+        for key, count in selected_tool_counts_by_task.items()
+        if key in {"recovery/no_tool", "refinement/no_tool"}
+    )
+    positive_selected_no_tool_rate = (
+        positive_selected_no_tool_count / positive_selected_count
+        if positive_selected_count
+        else 0.0
+    )
+    if (
+        config.max_selected_no_tool_rate is not None
+        and selected_no_tool_rate > config.max_selected_no_tool_rate
+    ):
+        report.error(
+            "selected_no_tool_rate_high",
+            f"Selected no-tool rate {selected_no_tool_rate:.3f} exceeds {config.max_selected_no_tool_rate:.3f}.",
+        )
+    if (
+        config.max_positive_selected_no_tool_rate is not None
+        and positive_selected_no_tool_rate > config.max_positive_selected_no_tool_rate
+    ):
+        report.error(
+            "positive_selected_no_tool_rate_high",
+            f"Recovery/refinement selected no-tool rate {positive_selected_no_tool_rate:.3f} exceeds {config.max_positive_selected_no_tool_rate:.3f}.",
+        )
 
     missing_task_types = sorted(set(config.required_task_types) - set(task_type_counts))
     if missing_task_types:
@@ -445,6 +526,10 @@ def _audit_branch_pools(rows: list[dict[str, Any]], report: AuditReport, config:
             "task_type_counts": _counter_to_sorted_dict(task_type_counts),
             "evidence_mode_counts": _counter_to_sorted_dict(evidence_mode_counts),
             "selected_tool_counts": _counter_to_sorted_dict(selected_tool_counts),
+            "selected_tool_counts_by_task": _counter_to_sorted_dict(selected_tool_counts_by_task),
+            "selected_no_tool_rate": selected_no_tool_rate,
+            "positive_selected_no_tool_rate": positive_selected_no_tool_rate,
+            "selected_gene_count_distribution": _counter_to_sorted_dict(selected_gene_counts),
             "selected_relationship_counts": _counter_to_sorted_dict(relationship_counts),
         }
     )
@@ -518,6 +603,12 @@ def _audit_preference_pairs(
     branch_pool_lookup: dict[tuple[str, int], dict[str, Any]],
 ) -> set[tuple[str, int]]:
     pair_bins: Counter[tuple[str, str]] = Counter()
+    pair_category_counts: Counter[str] = Counter()
+    pair_category_counts_by_task: Counter[str] = Counter()
+    pair_tool_counts: Counter[str] = Counter()
+    chosen_gene_counts: Counter[int] = Counter()
+    rejected_gene_counts: Counter[int] = Counter()
+    decision_step_counts: Counter[int] = Counter()
     pair_step_keys: set[tuple[str, int]] = set()
     margins: list[float] = []
     for row_index, row in enumerate(rows, start=1):
@@ -552,6 +643,19 @@ def _audit_preference_pairs(
                 report.error("pair_branch_not_in_pool", "Pair chosen/rejected branch id is not present in the source branch pool.", artifact=artifact_name, row_index=row_index)
 
         pair_bins[(pair.task_type.value, pair.difficulty_bin.value)] += 1
+        category = pair.provenance.get("pair_category", "score_margin")
+        if not isinstance(category, str) or not category:
+            category = "score_margin"
+        pair_category_counts[category] += 1
+        pair_category_counts_by_task[f"{pair.task_type.value}/{category}"] += 1
+        pair_tool_counts[f"{pair.provenance.get('chosen_tool_name', 'unknown')}->{pair.provenance.get('rejected_tool_name', 'unknown')}"] += 1
+        chosen_gene_count = pair.provenance.get("chosen_gene_count")
+        rejected_gene_count = pair.provenance.get("rejected_gene_count")
+        if isinstance(chosen_gene_count, int):
+            chosen_gene_counts[chosen_gene_count] += 1
+        if isinstance(rejected_gene_count, int):
+            rejected_gene_counts[rejected_gene_count] += 1
+        decision_step_counts[pair.decision_step] += 1
         margins.append(pair.score_margin)
 
     if artifact_name == "preference_pairs.jsonl":
@@ -563,11 +667,77 @@ def _audit_preference_pairs(
                 f"Balanced preference pairs cover {len(pair_bins)} bins, below required minimum {config.min_balanced_pair_bins}.",
                 artifact=artifact_name,
             )
+        total_pairs = len(rows)
+        recovery_pairs = sum(
+            count
+            for key, count in pair_category_counts_by_task.items()
+            if key.startswith("recovery/")
+        )
+        recovery_expansion_pairs = pair_category_counts_by_task.get("recovery/recovery_expansion", 0)
+        tool_supported_pairs = sum(
+            count
+            for category, count in pair_category_counts.items()
+            if category in {"tool_supported_improvement", "recovery_expansion", "refinement_precision"}
+        )
+        mechanism_label_only_pairs = pair_category_counts.get("mechanism_label_only", 0)
+        step0_pairs = decision_step_counts.get(0, 0)
+        recovery_expansion_rate = (
+            recovery_expansion_pairs / recovery_pairs if recovery_pairs else 0.0
+        )
+        tool_supported_pair_rate = tool_supported_pairs / total_pairs if total_pairs else 0.0
+        mechanism_label_only_pair_rate = (
+            mechanism_label_only_pairs / total_pairs if total_pairs else 0.0
+        )
+        step0_pair_rate = step0_pairs / total_pairs if total_pairs else 0.0
+
+        if (
+            config.min_recovery_expansion_pair_rate is not None
+            and recovery_expansion_rate < config.min_recovery_expansion_pair_rate
+        ):
+            report.error(
+                "recovery_expansion_pair_rate_low",
+                f"Recovery expansion pair rate {recovery_expansion_rate:.3f} is below {config.min_recovery_expansion_pair_rate:.3f}.",
+                artifact=artifact_name,
+            )
+        if (
+            config.min_tool_supported_pair_rate is not None
+            and tool_supported_pair_rate < config.min_tool_supported_pair_rate
+        ):
+            report.error(
+                "tool_supported_pair_rate_low",
+                f"Tool-supported pair rate {tool_supported_pair_rate:.3f} is below {config.min_tool_supported_pair_rate:.3f}.",
+                artifact=artifact_name,
+            )
+        if (
+            config.max_mechanism_label_only_pair_rate is not None
+            and mechanism_label_only_pair_rate > config.max_mechanism_label_only_pair_rate
+        ):
+            report.error(
+                "mechanism_label_only_pair_rate_high",
+                f"Mechanism-label-only pair rate {mechanism_label_only_pair_rate:.3f} exceeds {config.max_mechanism_label_only_pair_rate:.3f}.",
+                artifact=artifact_name,
+            )
+        if config.max_step0_pair_rate is not None and step0_pair_rate > config.max_step0_pair_rate:
+            report.error(
+                "step0_pair_rate_high",
+                f"Step-0 pair rate {step0_pair_rate:.3f} exceeds {config.max_step0_pair_rate:.3f}.",
+                artifact=artifact_name,
+            )
 
         report.metrics.update(
             {
                 "preference_pair_count": len(rows),
                 "preference_pair_bins": {f"{task_type}/{difficulty}": count for (task_type, difficulty), count in sorted(pair_bins.items())},
+                "preference_pair_category_counts": _counter_to_sorted_dict(pair_category_counts),
+                "preference_pair_category_counts_by_task": _counter_to_sorted_dict(pair_category_counts_by_task),
+                "preference_pair_tool_transitions": _counter_to_sorted_dict(pair_tool_counts),
+                "chosen_gene_count_distribution": _counter_to_sorted_dict(chosen_gene_counts),
+                "rejected_gene_count_distribution": _counter_to_sorted_dict(rejected_gene_counts),
+                "preference_pair_decision_step_counts": _counter_to_sorted_dict(decision_step_counts),
+                "recovery_expansion_pair_rate": recovery_expansion_rate,
+                "tool_supported_pair_rate": tool_supported_pair_rate,
+                "mechanism_label_only_pair_rate": mechanism_label_only_pair_rate,
+                "step0_pair_rate": step0_pair_rate,
                 "preference_pair_margin_min": min(margins) if margins else None,
                 "preference_pair_margin_mean": (sum(margins) / len(margins)) if margins else None,
                 "preference_pair_margin_max": max(margins) if margins else None,
@@ -677,6 +847,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--allow-incomplete", action="store_true", help="Do not fail solely because progress.json is not completed.")
     parser.add_argument("--allow-empty-pairs", action="store_true", help="Do not fail solely because preference_pairs.jsonl is empty.")
+    parser.add_argument("--max-selected-no-tool-rate", type=float, default=None)
+    parser.add_argument("--max-positive-selected-no-tool-rate", type=float, default=None)
+    parser.add_argument("--min-recovery-expansion-pair-rate", type=float, default=None)
+    parser.add_argument("--min-tool-supported-pair-rate", type=float, default=None)
+    parser.add_argument("--max-mechanism-label-only-pair-rate", type=float, default=None)
+    parser.add_argument("--max-step0-pair-rate", type=float, default=None)
     parser.add_argument(
         "--dpo-pair-gate",
         action="store_true",
@@ -699,6 +875,12 @@ def _print_human(report: AuditReport) -> None:
         "preference_pair_count",
         "raw_preference_pair_count",
         "preference_pair_margin_min",
+        "selected_no_tool_rate",
+        "positive_selected_no_tool_rate",
+        "recovery_expansion_pair_rate",
+        "tool_supported_pair_rate",
+        "mechanism_label_only_pair_rate",
+        "step0_pair_rate",
         "branch_pool_steps_without_raw_pairs",
         "vllm_400_count",
         "observed_context_limit",
@@ -709,6 +891,8 @@ def _print_human(report: AuditReport) -> None:
     print(f"  task_type_counts: {report.metrics.get('task_type_counts')}")
     print(f"  evidence_mode_counts: {report.metrics.get('evidence_mode_counts')}")
     print(f"  preference_pair_bins: {report.metrics.get('preference_pair_bins')}")
+    print(f"  selected_tool_counts: {report.metrics.get('selected_tool_counts')}")
+    print(f"  preference_pair_category_counts: {report.metrics.get('preference_pair_category_counts')}")
     print("Freeze:")
     print(f"  current_git_sha: {report.freeze.get('current_git_sha')}")
     print(f"  current_git_status_short: {report.freeze.get('current_git_status_short') or '<clean>'}")
@@ -743,6 +927,12 @@ def main() -> None:
         require_pairs=not args.allow_empty_pairs,
         required_task_types=_split_csv(args.required_task_types),
         required_evidence_modes=_split_csv(args.required_evidence_modes),
+        max_selected_no_tool_rate=args.max_selected_no_tool_rate,
+        max_positive_selected_no_tool_rate=args.max_positive_selected_no_tool_rate,
+        min_recovery_expansion_pair_rate=args.min_recovery_expansion_pair_rate,
+        min_tool_supported_pair_rate=args.min_tool_supported_pair_rate,
+        max_mechanism_label_only_pair_rate=args.max_mechanism_label_only_pair_rate,
+        max_step0_pair_rate=args.max_step0_pair_rate,
     )
     report = audit_run(args.run_dir, config)
     if args.json:

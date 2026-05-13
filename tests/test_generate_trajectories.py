@@ -299,6 +299,72 @@ class _InvalidVerifierThenValidGenerator:
         ]
 
 
+class _ToolCoverageRetryGenerator:
+    model_name = "gpt-oss-120b-bf16"
+
+    def __init__(self) -> None:
+        self.force_tool_coverage_flags: list[bool] = []
+
+    def generate_actor_candidates(
+        self,
+        context,
+        *,
+        task_row,
+        step_index,
+        n_act,
+        seed,
+        environment=None,
+        force_tool_coverage=False,
+    ):
+        del context, task_row, step_index, n_act, seed, environment
+        self.force_tool_coverage_flags.append(force_tool_coverage)
+        if force_tool_coverage:
+            return [
+                {
+                    "reasoning_text": "Retry with a restart walk to recover missing members.",
+                    "tool_action": {
+                        "tool_name": "rwr_multiplex",
+                        "arguments": {"seeds": ["ENSG1", "ENSG2"], "top_k": 5},
+                    },
+                    "raw_text": "{}",
+                    "generator_errors": [],
+                }
+            ]
+        return [
+            {
+                "reasoning_text": "Stop with the visible seed pair.",
+                "tool_action": None,
+                "raw_text": "{}",
+                "generator_errors": [],
+            }
+        ]
+
+    def generate_verifier_candidates(self, context, *, task_row, actor_candidate, actor_step, observation, step_index, n_ver, seed):
+        del context, task_row, actor_candidate, observation, step_index, n_ver, seed
+        predicted_gene_ids = ["ENSG1", "ENSG2", "ENSG3"] if actor_step.tool_action is not None else ["ENSG1", "ENSG2"]
+        return [
+            {
+                "payload": {
+                    "updated_interpretation": {
+                        "mechanistic_claim": "The evidence supports one coherent module.",
+                        "main_evidence": "The branch updates the candidate group.",
+                        "uncertainty": "",
+                        "next_subgoal": "",
+                    },
+                    "updated_state": {
+                        "relationship_status": "validated_group",
+                        "predicted_gene_ids": predicted_gene_ids,
+                        "mechanistic_labels": [],
+                        "continuation_decision": "stop",
+                        "verifier_notes": "test branch",
+                    },
+                },
+                "raw_text": "{}",
+                "generator_errors": [],
+            }
+        ]
+
+
 class _FakeHTTPResponse:
     def __init__(self, payload: dict) -> None:
         self._payload = payload
@@ -517,15 +583,15 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertEqual(len(generator.session.requests), 2)
         prompts = [request["json"]["messages"][1]["content"] for request in generator.session.requests]
         self.assertIn('"actor_sampling_directive"', prompts[0])
-        self.assertIn('"best_direct_decision"', prompts[0])
-        self.assertIn('"subgraph_coherence_probe"', prompts[1])
+        self.assertIn('"recovery_rwr_expansion"', prompts[0])
+        self.assertIn('"recovery_neighbor_expansion"', prompts[1])
         self.assertEqual(
             actor_candidates[0]["actor_sampling_directive"]["directive_name"],
-            "best_direct_decision",
+            "recovery_rwr_expansion",
         )
         self.assertEqual(
             actor_candidates[1]["actor_sampling_directive"]["directive_name"],
-            "subgraph_coherence_probe",
+            "recovery_neighbor_expansion",
         )
 
     def test_actor_sampling_strategy_must_be_known(self) -> None:
@@ -576,6 +642,61 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertNotIn("layers", compact["payload"])
         self.assertNotIn("unique_neighbors", compact["payload"])
         self.assertLess(len(json.dumps(compact, sort_keys=True)), 7000)
+
+    def test_verifier_prompt_highlights_rwr_non_seed_candidates(self) -> None:
+        observation = ToolObservation(
+            status=ToolObservationStatus.SUCCESS,
+            provenance={"tool_name": "rwr_multiplex", "active_layers": ["ppi"]},
+            call_id="call_rwr",
+            payload={
+                "seed_gene_ids": ["ENSG1", "ENSG2"],
+                "active_seed_gene_ids": ["ENSG1", "ENSG2"],
+                "active_layers": ["ppi"],
+                "top_k": 500,
+                "results": [
+                    {"gene_id": "ENSG1", "score": 0.30},
+                    {"gene_id": "ENSG3", "score": 0.12},
+                    {"gene_id": "ENSG2", "score": 0.11},
+                    {"gene_id": "ENSG4", "score": 0.05},
+                ],
+            },
+        )
+
+        compact = _observation_for_verifier_prompt(observation)
+
+        self.assertIsNotNone(compact)
+        assert compact is not None
+        payload = compact["payload"]
+        self.assertEqual(payload["top_k"], 500)
+        self.assertEqual(payload["non_seed_result_count"], 2)
+        self.assertEqual(
+            [result["gene_id"] for result in payload["top_non_seed_results"]],
+            ["ENSG3", "ENSG4"],
+        )
+        self.assertEqual(payload["ranked_non_seed_gene_ids"], ["ENSG3", "ENSG4"])
+        self.assertIn("ranked_non_seed_gene_ids", payload["recovery_interpretation_hint"])
+
+    def test_recovery_verifier_prompt_includes_expansion_guidance(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+
+        payload = _verifier_prompt_payload(
+            context,
+            actor_step=ActorStep(reasoning_text="Run RWR.", tool_action=None),
+            observation=None,
+            step_index=0,
+            task_type="recovery",
+        )
+
+        self.assertEqual(payload["task_guidance"]["objective"], "Recover missing coherent complex members beyond the current seed/candidate group.")
+        self.assertIn("non-seed", " ".join(payload["task_guidance"]["candidate_policy"]))
 
     def test_actor_rationale_prompt_does_not_include_corum_ground_truth_metadata(self) -> None:
         task_row = _task_rows()[0]
@@ -1743,6 +1864,54 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             retained_branch = branch_pools[0]["branches"][0]
             self.assertEqual(retained_branch["metadata"]["generator_errors"], [])
             self.assertTrue(retained_branch["local_score"]["score_metadata"]["schema_valid"])
+
+    def test_tool_coverage_retry_and_quality_pair_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "tool_coverage_quality_run"
+            generator = _ToolCoverageRetryGenerator()
+            manifest = generate_trajectories(
+                task_rows=_task_rows()[:1],
+                out_dir=out_dir,
+                environment=_build_environment(),
+                config=TrajectoryGenerationConfig(
+                    max_steps=3,
+                    n_act=1,
+                    n_ver=1,
+                    seed=3,
+                    candidate_source="model_vllm",
+                    selection_policy="task_quality",
+                    pair_mining_strategy="quality_balanced",
+                    tool_coverage_retry_count=1,
+                ),
+                model_generator_config=ModelGeneratorConfig(api_base="http://unused"),
+                candidate_generator=generator,
+            )
+
+            self.assertEqual(generator.force_tool_coverage_flags, [False, True])
+            self.assertEqual(manifest["config"]["selection_policy"], "task_quality")
+            self.assertEqual(manifest["config"]["pair_mining_strategy"], "quality_balanced")
+            branch_pools = _read_jsonl(out_dir / "branch_pools.jsonl")
+            selected = next(
+                branch
+                for branch in branch_pools[0]["branches"]
+                if branch["branch_id"] == branch_pools[0]["selected_branch_id"]
+            )
+            self.assertEqual(selected["actor_step"]["tool_action"]["tool_name"], "rwr_multiplex")
+            self.assertEqual(selected["actor_step"]["tool_action"]["arguments"]["top_k"], 500)
+            self.assertEqual(selected["metadata"]["selection_policy"], "task_quality")
+            self.assertEqual(
+                selected["metadata"]["tool_argument_defaults"]["reason"],
+                "recovery_expansion_requires_broad_non_seed_candidate_search",
+            )
+
+            preference_pairs_raw = _read_jsonl(out_dir / "preference_pairs_raw.jsonl")
+            self.assertTrue(preference_pairs_raw)
+            provenance = preference_pairs_raw[0]["provenance"]
+            self.assertEqual(provenance["pair_mining_strategy"], "quality_balanced")
+            self.assertEqual(provenance["pair_category"], "recovery_expansion")
+            self.assertEqual(provenance["chosen_tool_name"], "rwr_multiplex")
+            self.assertEqual(provenance["rejected_tool_name"], "no_tool")
+            self.assertGreater(provenance["chosen_gene_count"], provenance["rejected_gene_count"])
 
     def test_model_backed_generation_can_opt_in_to_heuristic_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -512,7 +512,7 @@ def rwr_multiplex(
         }
         provenance = {
             "tool_name": "rwr_multiplex",
-            "algorithm": "mean_personalized_pagerank",
+            "algorithm": "mean_personalized_pagerank_present_layers",
             "restart_probability": restart_probability,
             "active_layers": [],
         }
@@ -537,7 +537,7 @@ def rwr_multiplex(
     }
     provenance = {
         "tool_name": "rwr_multiplex",
-        "algorithm": "mean_personalized_pagerank",
+        "algorithm": "mean_personalized_pagerank_present_layers",
         "restart_probability": restart_probability,
         "active_layers": active_layers,
         "layer_count": len(active_layers),

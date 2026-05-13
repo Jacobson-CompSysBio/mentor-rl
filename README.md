@@ -51,6 +51,7 @@ Before using model-backed artifacts for DPO, run the verification gate:
 
 ```bash
 python scripts/select_verification_tasks.py \
+  --seed 42 \
   --pilot-size 128 \
   --pilot-out data/corum_corpus/tasks.verification_pilot.jsonl \
   --smoke-task-ids-out data/corum_corpus/tasks.verification_smoke_ids.txt
@@ -59,17 +60,43 @@ SMOKE_TASK_IDS="$(paste -sd, data/corum_corpus/tasks.verification_smoke_ids.txt)
 SMOKE_TEST_ONLY=1 \
 sbatch generate_trajectories.slurm
 
-python scripts/audit_trajectory_run.py --run-dir data/corum_trajectories/<run> --dpo-pair-gate
+python scripts/audit_trajectory_run.py \
+  --run-dir data/corum_trajectories/<run> \
+  --dpo-pair-gate \
+  --max-selected-no-tool-rate 0.60 \
+  --max-positive-selected-no-tool-rate 0.50 \
+  --min-recovery-expansion-pair-rate 0.35 \
+  --min-tool-supported-pair-rate 0.30 \
+  --max-mechanism-label-only-pair-rate 0.20 \
+  --max-step0-pair-rate 0.70
 python scripts/dpo_pair_loader_smoke.py --pairs-path data/corum_trajectories/<run>/preference_pairs.jsonl
+python scripts/render_preference_pairs_review.py \
+  --pairs-path data/corum_trajectories/<run>/preference_pairs.jsonl \
+  --sample-size 30 \
+  --out data/corum_trajectories/<run>/preference_pair_review_sample.md
+
+python scripts/audit_recovery_recoverability.py \
+  --tasks-path data/corum_corpus/tasks.verification_pilot.jsonl \
+  --top-ks 50,100,250,500,1000 \
+  --out-jsonl data/corum_corpus/recovery_recoverability.rwr.jsonl
 ```
 
 The Slurm launcher writes `run_freeze.json` into each output directory and pins
 the generator to the discovered served model id. Set `TASKS_PATH` to the pilot
 JSONL and run once with `TASK_CONCURRENCY=1`, then repeat with the intended
-production concurrency before scaling. For DPO-only runs, high branch-pool tie
-rates are diagnostic as long as balanced preference pairs have valid margins;
-the audit's `--dpo-pair-gate` keeps pair/schema/backend checks strict while
-downgrading tie-rate findings to warnings.
+production concurrency before scaling. The verification selector stratifies
+pilot rows by task type, evidence mode, and difficulty, then uses a deterministic
+seeded order so small pilots do not concentrate on the earliest CORUM complexes.
+The launcher defaults to verbalized actor sampling, task-aware selection,
+quality-balanced pair mining, and tool-coverage retries for recovery/refinement
+tasks; override
+`ACTOR_SAMPLING_STRATEGY`, `SELECTION_POLICY`, `PAIR_MINING_STRATEGY`, and
+`TOOL_COVERAGE_RETRY_COUNT` only for ablations. Recovery RWR branches default
+to `RECOVERY_RWR_TOP_K=500` so verifier prompts include a broader non-seed
+candidate list. For DPO-only runs, high
+branch-pool tie rates are diagnostic as long as balanced preference pairs have
+valid margins; the audit's `--dpo-pair-gate` keeps pair/schema/backend checks
+strict while downgrading tie-rate findings to warnings.
 
 ### 3. Train an SFT model
 
