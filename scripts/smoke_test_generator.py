@@ -30,6 +30,7 @@ from scripts.generate_trajectories import (
     _build_actor_step_from_model_candidate,
     _build_branch_from_model_output,
     _gene_symbol_lookup,
+    _load_gene_id_background,
     _normalize_branch_pool,
     _score_branch,
     _select_best_branch,
@@ -84,13 +85,26 @@ def _load_task(task_path: Path, *, task_id: str | None, task_index: int) -> dict
 
 
 def _build_environment(args: argparse.Namespace) -> RuntimeEnvironment:
+    enrichment_background_gene_ids = _load_gene_id_background(args.enrichment_background_path)
     if args.store_dir is not None:
         return RuntimeEnvironment(
             store_dir=str(args.store_dir),
             compiled_library_path=str(args.compiled_library_path) if args.compiled_library_path else None,
+            mygene_cache_path=str(args.mygene_cache_path) if args.mygene_cache_path else None,
+            allow_network_mygene=args.allow_network_mygene,
+            enrichment_cache_path=str(args.enrichment_cache_path) if args.enrichment_cache_path else None,
+            allow_network_enrichment=args.allow_network_enrichment,
+            enrichment_background_gene_ids=enrichment_background_gene_ids,
         )
     if args.multiplex_flist is not None:
-        return RuntimeEnvironment(multiplex_flist=str(args.multiplex_flist))
+        return RuntimeEnvironment(
+            multiplex_flist=str(args.multiplex_flist),
+            mygene_cache_path=str(args.mygene_cache_path) if args.mygene_cache_path else None,
+            allow_network_mygene=args.allow_network_mygene,
+            enrichment_cache_path=str(args.enrichment_cache_path) if args.enrichment_cache_path else None,
+            allow_network_enrichment=args.allow_network_enrichment,
+            enrichment_background_gene_ids=enrichment_background_gene_ids,
+        )
     raise ValueError("Provide either --store-dir or --multiplex-flist.")
 
 
@@ -135,6 +149,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--store-dir", type=Path, default=DEFAULT_STORE_DIR)
     parser.add_argument("--compiled-library-path", type=Path, default=None)
     parser.add_argument("--multiplex-flist", type=Path, default=None)
+    parser.add_argument("--mygene-cache-path", type=Path, default=None)
+    parser.add_argument("--allow-network-mygene", action="store_true")
+    parser.add_argument("--enrichment-cache-path", type=Path, default=None)
+    parser.add_argument("--allow-network-enrichment", action="store_true")
+    parser.add_argument("--enrichment-background-path", type=Path, default=None)
     parser.add_argument("--generator-api-base", type=str, default=DEFAULT_GENERATOR_API_BASE)
     parser.add_argument(
         "--generator-api-mode",

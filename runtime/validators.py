@@ -155,6 +155,24 @@ def validate_tool_action_schema(tool_action: ToolAction) -> ValidationResult:
         if "fields" in arguments and not _is_string_list(arguments["fields"], allow_empty=False):
             result.add_error("query_mygene 'fields' must be a non-empty list of strings.")
 
+    elif tool_action.tool_name == "enrich_gene_set":
+        result.extend(
+            _reject_unknown_arguments(
+                arguments,
+                allowed={"genes", "sources", "user_threshold", "top_k"},
+            )
+        )
+        if not _is_string_list(arguments.get("genes"), allow_empty=False):
+            result.add_error("enrich_gene_set requires a non-empty list field named 'genes'.")
+        if "sources" in arguments and not _is_string_list(arguments["sources"], allow_empty=False):
+            result.add_error("enrich_gene_set 'sources' must be a non-empty list of strings.")
+        if "user_threshold" in arguments:
+            threshold = arguments["user_threshold"]
+            if not isinstance(threshold, (int, float)) or threshold <= 0 or threshold > 1:
+                result.add_error("enrich_gene_set 'user_threshold' must be in (0, 1].")
+        if "top_k" in arguments and (not isinstance(arguments["top_k"], int) or arguments["top_k"] <= 0):
+            result.add_error("enrich_gene_set 'top_k' must be a positive integer.")
+
     elif tool_action.tool_name == "get_neighbors":
         result.extend(_reject_unknown_arguments(arguments, allowed={"gene", "layers"}))
         if not _is_non_empty_string(arguments.get("gene")):
@@ -225,6 +243,8 @@ def validate_tool_action_semantics(
     if tool_action.tool_name == "get_neighbors":
         gene_fields.append(arguments["gene"])
         layer_fields.extend(arguments.get("layers", []))
+    elif tool_action.tool_name == "enrich_gene_set":
+        gene_fields.extend(arguments["genes"])
     elif tool_action.tool_name == "shortest_path":
         gene_fields.extend([arguments["source"], arguments["target"]])
         if "layer" in arguments:

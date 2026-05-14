@@ -14,6 +14,7 @@ to swap out later if the runtime grows more complex.
 
 from __future__ import annotations
 
+import threading
 from typing import Any, Iterable
 
 from utils.multiplex import Multiplex
@@ -31,8 +32,10 @@ from .tools import (
     ToolExecutionError,
     ToolExecutionResult,
     build_multiplex_index,
+    enrich_gene_set,
     get_neighbors,
     induce_subgraph,
+    load_enrichment_cache,
     load_mygene_cache,
     query_mygene,
     rwr_monoplex,
@@ -55,6 +58,10 @@ class RuntimeEnvironment:
         mygene_cache: dict[str, list[dict[str, Any]]] | None = None,
         mygene_cache_path: str | None = None,
         allow_network_mygene: bool = False,
+        enrichment_cache: dict[str, dict[str, Any]] | None = None,
+        enrichment_cache_path: str | None = None,
+        allow_network_enrichment: bool = False,
+        enrichment_background_gene_ids: Iterable[str] | None = None,
     ) -> None:
         if store_dir is None and multiplex is None and not multiplex_flist:
             raise ValueError(
@@ -85,10 +92,23 @@ class RuntimeEnvironment:
 
         self.mygene_cache_path = mygene_cache_path
         self.allow_network_mygene = allow_network_mygene
+        self.enrichment_cache_path = enrichment_cache_path
+        self.allow_network_enrichment = allow_network_enrichment
+        self._annotation_lock = threading.Lock()
         if mygene_cache is not None:
             self.mygene_cache = mygene_cache
         else:
             self.mygene_cache = load_mygene_cache(mygene_cache_path)
+        if enrichment_cache is not None:
+            self.enrichment_cache = enrichment_cache
+        else:
+            self.enrichment_cache = load_enrichment_cache(enrichment_cache_path)
+        if enrichment_background_gene_ids is None:
+            self.enrichment_background_gene_ids = sorted(self.available_gene_ids)
+        else:
+            self.enrichment_background_gene_ids = sorted(
+                {str(gene_id) for gene_id in enrichment_background_gene_ids if str(gene_id)}
+            )
 
     def describe(self) -> dict[str, Any]:
         """Return a small summary of the runtime resources."""
@@ -101,6 +121,9 @@ class RuntimeEnvironment:
             "gene_count": len(self.available_gene_ids),
             "mygene_cache_size": len(self.mygene_cache),
             "allow_network_mygene": self.allow_network_mygene,
+            "enrichment_cache_size": len(self.enrichment_cache),
+            "allow_network_enrichment": self.allow_network_enrichment,
+            "enrichment_background_gene_count": len(self.enrichment_background_gene_ids),
         }
 
     def execute(
@@ -168,13 +191,27 @@ class RuntimeEnvironment:
 
     def _dispatch(self, tool_action: ToolAction) -> ToolExecutionResult:
         if tool_action.tool_name == "query_mygene":
-            return query_mygene(
-                tool_action.arguments["query"],
-                fields=tool_action.arguments.get("fields"),
-                cache=self.mygene_cache,
-                cache_path=self.mygene_cache_path,
-                allow_network=self.allow_network_mygene,
-            )
+            with self._annotation_lock:
+                return query_mygene(
+                    tool_action.arguments["query"],
+                    fields=tool_action.arguments.get("fields"),
+                    cache=self.mygene_cache,
+                    cache_path=self.mygene_cache_path,
+                    allow_network=self.allow_network_mygene,
+                )
+
+        if tool_action.tool_name == "enrich_gene_set":
+            with self._annotation_lock:
+                return enrich_gene_set(
+                    tool_action.arguments["genes"],
+                    background_gene_ids=self.enrichment_background_gene_ids,
+                    sources=tool_action.arguments.get("sources"),
+                    user_threshold=tool_action.arguments.get("user_threshold", 0.05),
+                    top_k=tool_action.arguments.get("top_k", 10),
+                    cache=self.enrichment_cache,
+                    cache_path=self.enrichment_cache_path,
+                    allow_network=self.allow_network_enrichment,
+                )
 
         if tool_action.tool_name == "get_neighbors":
             if self.compiled_backend is not None:

@@ -23,9 +23,13 @@ from scripts.generate_trajectories import (
     TrajectoryGenerationConfig,
     _actor_prompt_payload,
     _build_actor_step_from_model_candidate,
+    _build_evidence_record,
+    _load_gene_id_background,
+    _load_task_rows,
     _normalize_runtime_tool_action,
     _observation_for_verifier_prompt,
     _runtime_tool_parameters,
+    _task_shard_bucket,
     _verifier_prompt_payload,
     generate_trajectories,
 )
@@ -518,6 +522,8 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertEqual(reference["unavailable_candidate_gene_ids"], [])
         self.assertIn("ppi", reference["available_layer_names"])
         self.assertIn("shortest_path source and target", " ".join(reference["rules"]))
+        self.assertIn("enrich_gene_set", reference["argument_shapes"])
+        self.assertIn("query_mygene", reference["argument_shapes"])
 
     def test_runtime_tool_schemas_document_strict_argument_shapes(self) -> None:
         shortest_path_schema = _runtime_tool_parameters("shortest_path")
@@ -528,6 +534,98 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         induce_subgraph_schema = _runtime_tool_parameters("induce_subgraph")
         self.assertEqual(induce_subgraph_schema["properties"]["genes"]["minItems"], 1)
         self.assertEqual(induce_subgraph_schema["properties"]["layers"]["minItems"], 1)
+
+        enrich_schema = _runtime_tool_parameters("enrich_gene_set")
+        self.assertEqual(enrich_schema["properties"]["genes"]["minItems"], 1)
+        self.assertIn("GO:BP", enrich_schema["properties"]["sources"]["description"])
+
+    def test_enrichment_observation_is_visible_and_recorded_as_evidence(self) -> None:
+        observation = ToolObservation(
+            status=ToolObservationStatus.SUCCESS,
+            provenance={"tool_name": "enrich_gene_set", "source": "cache"},
+            call_id="call_enrich",
+            payload={
+                "query_gene_ids": ["ENSG1", "ENSG2"],
+                "query_gene_count": 2,
+                "background_gene_count": 5,
+                "organism": "hsapiens",
+                "sources": ["GO:BP"],
+                "raw_result_count": 1,
+                "results": [
+                    {
+                        "source": "GO:BP",
+                        "native": "GO:0000001",
+                        "name": "toy process",
+                        "p_value": 0.001,
+                        "significant": True,
+                        "intersection_size": 2,
+                        "precision": 1.0,
+                    }
+                ],
+            },
+        )
+
+        prompt_payload = _observation_for_verifier_prompt(observation)
+        evidence = _build_evidence_record(
+            observation,
+            step_index=0,
+            branch_id="branch",
+            symbol_lookup={},
+        )
+
+        self.assertEqual(prompt_payload["tool_name"], "enrich_gene_set")
+        self.assertEqual(prompt_payload["payload"]["results"][0]["native"], "GO:0000001")
+        self.assertEqual(evidence.provenance["payload"]["results"][0]["name"], "toy process")
+        self.assertEqual(evidence.supporting_gene_ids, ["ENSG1", "ENSG2"])
+
+    def test_module_key_sharding_keeps_task_family_blocks_together(self) -> None:
+        rows = []
+        task_types = ["explanation", "none", "recovery", "refinement"]
+        evidence_modes = ["graph", "minimal"]
+        for module_index in range(24):
+            for task_type in task_types:
+                for evidence_mode in evidence_modes:
+                    rows.append(
+                        {
+                            "task_id": f"gw_dendrogram_module_{module_index:06d}.{task_type}.easy.{evidence_mode}",
+                            "task_type": task_type,
+                        }
+                    )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_path = Path(tmpdir) / "tasks.jsonl"
+            with task_path.open("w", encoding="utf-8") as handle:
+                for row in rows:
+                    handle.write(json.dumps(row) + "\n")
+            for shard_index in range(4):
+                shard_rows = _load_task_rows(
+                    task_path,
+                    task_shard_index=shard_index,
+                    task_shard_count=4,
+                )
+                modules = {row["task_id"].split(".", 1)[0] for row in shard_rows}
+                for module in modules:
+                    module_task_types = {
+                        row["task_type"]
+                        for row in shard_rows
+                        if row["task_id"].startswith(module + ".")
+                    }
+                    self.assertEqual(module_task_types, set(task_types))
+                    self.assertEqual(
+                        _task_shard_bucket({"task_id": module + ".explanation.easy.graph"}, 4),
+                        shard_index,
+                    )
+
+    def test_load_gene_id_background_reads_modules_jsonl(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "modules.jsonl"
+            path.write_text(
+                json.dumps({"gene_ids": ["ENSG1", "ENSG2"]}) + "\n"
+                + json.dumps({"gene_ids": ["ENSG2", "ENSG3"]}) + "\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(_load_gene_id_background(path), ["ENSG1", "ENSG2", "ENSG3"])
 
     def test_actor_verbalized_sampling_uses_distinct_prompt_directives(self) -> None:
         task_row = _task_rows()[0]
@@ -1559,7 +1657,10 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertTrue(generator.session.requests[0]["url"].endswith("/chat/completions"))
         self.assertEqual(first_request["chat_template_kwargs"], {"enable_thinking": False})
         self.assertIn("tools", first_request)
-        self.assertEqual(first_request["tools"][3]["function"]["name"], "rwr_multiplex")
+        self.assertIn(
+            "rwr_multiplex",
+            [tool["function"]["name"] for tool in first_request["tools"]],
+        )
         self.assertEqual(first_request["tool_choice"], "auto")
         self.assertNotIn("guided_json", first_request)
         self.assertNotIn("reasoning_effort", first_request)

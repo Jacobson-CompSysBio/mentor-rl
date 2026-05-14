@@ -5,6 +5,8 @@ from runtime.schemas import (
     ActorStep,
     CandidateBranch,
     ContinuationState,
+    EvidenceRecord,
+    EvidenceSourceType,
     GeneGroup,
     Interpretation,
     LabelSource,
@@ -18,6 +20,7 @@ from runtime.schemas import (
     VerifierStep,
 )
 from runtime.state import (
+    append_evidence_record,
     initialize_state_from_corum_task,
     replace_mechanistic_labels,
     replace_predicted_groups,
@@ -139,6 +142,12 @@ def _none_task() -> dict:
         },
         "mechanism_labels": None,
     }
+
+
+def _no_label_explanation_task() -> dict:
+    task = _explanation_task()
+    task["mechanism_labels"] = None
+    return task
 
 
 class RuntimeScoringTests(unittest.TestCase):
@@ -383,6 +392,130 @@ class RuntimeScoringTests(unittest.TestCase):
 
         self.assertEqual(score.schema_score, 0.0)
         self.assertIn("actor_json_parse_error", " ".join(score.score_metadata["schema_errors"]))
+
+    def test_no_label_task_rewards_grounded_enrichment_mechanism(self) -> None:
+        task = _no_label_explanation_task()
+        interpretation, prior_state = initialize_state_from_corum_task(task, max_budget=4)
+        updated_state = append_evidence_record(
+            prior_state,
+            EvidenceRecord(
+                evidence_id="evidence_enrich",
+                source_type=EvidenceSourceType.TOOL_OBSERVATION,
+                summary="Found enriched terms; top term is histone deacetylase activity.",
+                provenance={
+                    "tool_name": "enrich_gene_set",
+                    "payload": {
+                        "results": [
+                            {
+                                "source": "GO:MF",
+                                "native": "GO:0004407",
+                                "name": "histone deacetylase activity",
+                                "p_value": 0.001,
+                                "significant": True,
+                                "intersection_size": 2,
+                                "query_size": 2,
+                                "precision": 1.0,
+                            }
+                        ]
+                    },
+                },
+                supporting_gene_ids=["ENSG_HDAC4", "ENSG_BCL6"],
+            ),
+        )
+        updated_state = replace_mechanistic_labels(
+            updated_state,
+            [
+                MechanisticLabel(
+                    label_source=LabelSource.GO,
+                    label_id="GO:0004407",
+                    label_name="histone deacetylase activity",
+                    evidence_ids=["evidence_enrich"],
+                )
+            ],
+        )
+        branch = _make_branch(
+            "grounded_mechanism",
+            Interpretation(
+                mechanistic_claim="Histone deacetylase activity is supported by enrichment evidence.",
+                main_evidence="The enrichment tool returned GO:0004407.",
+                uncertainty="",
+                next_subgoal="",
+            ),
+            updated_state,
+        )
+
+        score = score_candidate_branch(task, prior_state, branch, step_index=1, max_steps=6)
+
+        self.assertGreater(score.mechanistic_label_delta, 0.0)
+        self.assertGreater(score.mechanism_evidence_score, 0.0)
+        self.assertEqual(
+            score.score_metadata["mechanistic"]["score_source"],
+            "evidence_grounded_unsupervised",
+        )
+
+    def test_no_label_task_penalizes_unsupported_generic_mechanism(self) -> None:
+        task = _no_label_explanation_task()
+        interpretation, prior_state = initialize_state_from_corum_task(task, max_budget=4)
+        updated_state = replace_mechanistic_labels(
+            prior_state,
+            [
+                MechanisticLabel(
+                    label_source=LabelSource.FREE_TEXT,
+                    label_name="network module",
+                    evidence_ids=[],
+                )
+            ],
+        )
+        branch = _make_branch(
+            "unsupported_mechanism",
+            Interpretation(
+                mechanistic_claim="The genes form a network module.",
+                main_evidence="No annotation evidence was observed.",
+                uncertainty="",
+                next_subgoal="",
+            ),
+            updated_state,
+        )
+
+        score = score_candidate_branch(task, prior_state, branch, step_index=1, max_steps=6)
+
+        self.assertLess(score.mechanism_evidence_score, 0.1)
+
+    def test_no_label_none_task_rewards_calibrated_abstention_on_empty_enrichment(self) -> None:
+        task = _none_task()
+        interpretation, prior_state = initialize_state_from_corum_task(task, max_budget=4)
+        updated_state = append_evidence_record(
+            prior_state,
+            EvidenceRecord(
+                evidence_id="evidence_empty_enrich",
+                source_type=EvidenceSourceType.TOOL_OBSERVATION,
+                summary="No significant gene-set enrichment terms were found.",
+                provenance={
+                    "tool_name": "enrich_gene_set",
+                    "payload": {"results": [], "query_gene_ids": ["ENSG_PIK3CB", "ENSG_STAT6"]},
+                },
+                supporting_gene_ids=["ENSG_PIK3CB", "ENSG_STAT6"],
+            ),
+        )
+        updated_state = replace_predicted_groups(
+            updated_state,
+            predicted_groups=[],
+            relationship_status=RelationshipStatus.INSUFFICIENT_SUPPORT,
+        )
+        branch = _make_branch(
+            "calibrated_abstention",
+            Interpretation(
+                mechanistic_claim="The mechanism remains unresolved with insufficient support.",
+                main_evidence="Enrichment returned no significant shared terms.",
+                uncertainty="No shared label is supported.",
+                next_subgoal="",
+            ),
+            updated_state,
+        )
+
+        score = score_candidate_branch(task, prior_state, branch, step_index=1, max_steps=6)
+
+        self.assertGreater(score.mechanism_evidence_score, 0.4)
 
 
 if __name__ == "__main__":

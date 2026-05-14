@@ -1,10 +1,12 @@
 import unittest
+from unittest.mock import patch
 
 import networkx as nx
 
 from runtime.environment import RuntimeEnvironment
 from runtime.schemas import ToolAction, ToolObservationStatus
 from runtime.state import initialize_state_from_corum_task
+from runtime.tools import ToolExecutionResult
 from utils.multiplex import Multiplex
 
 
@@ -47,6 +49,33 @@ def _build_environment() -> RuntimeEnvironment:
                 }
             ]
         },
+        enrichment_cache={
+            "fake_key": {
+                "query_gene_ids": ["ENSG1", "ENSG2"],
+                "query_gene_count": 2,
+                "background_gene_count": 4,
+                "background_hash": "fake_hash",
+                "organism": "hsapiens",
+                "sources": ["GO:BP"],
+                "user_threshold": 0.05,
+                "top_k": 10,
+                "results": [
+                    {
+                        "source": "GO:BP",
+                        "native": "GO:0000001",
+                        "name": "toy process",
+                        "p_value": 0.01,
+                        "significant": True,
+                        "intersection_size": 2,
+                        "query_size": 2,
+                        "precision": 1.0,
+                    }
+                ],
+                "raw_result_count": 1,
+                "meta": {},
+            }
+        },
+        enrichment_background_gene_ids=["ENSG1", "ENSG2", "ENSG3", "ENSG4"],
     )
 
 
@@ -59,6 +88,8 @@ class RuntimeEnvironmentTests(unittest.TestCase):
         self.assertEqual(summary["layer_count"], 2)
         self.assertEqual(summary["gene_count"], 4)
         self.assertEqual(summary["mygene_cache_size"], 1)
+        self.assertEqual(summary["enrichment_cache_size"], 1)
+        self.assertEqual(summary["enrichment_background_gene_count"], 4)
 
     def test_execute_invalid_action_returns_invalid_observation(self) -> None:
         environment = _build_environment()
@@ -140,6 +171,32 @@ class RuntimeEnvironmentTests(unittest.TestCase):
         self.assertEqual(observation.status, ToolObservationStatus.SUCCESS)
         self.assertEqual(observation.provenance["source"], "cache")
         self.assertEqual(observation.payload["results"][0]["symbol"], "BCL6")
+
+    def test_execute_enrich_gene_set_reads_cached_result(self) -> None:
+        environment = _build_environment()
+        action = ToolAction(
+            tool_name="enrich_gene_set",
+            arguments={"genes": ["ENSG1", "ENSG2"], "sources": ["GO:BP"]},
+            call_id="call_enrich",
+        )
+
+        with patch(
+            "runtime.environment.enrich_gene_set",
+            return_value=ToolExecutionResult(
+                payload={
+                    "query_gene_ids": ["ENSG1", "ENSG2"],
+                    "results": [{"name": "toy process"}],
+                },
+                provenance={"tool_name": "enrich_gene_set", "source": "cache"},
+            ),
+        ) as enrich:
+            observation = environment.execute(action)
+
+        self.assertEqual(observation.status, ToolObservationStatus.SUCCESS)
+        self.assertEqual(observation.provenance["source"], "cache")
+        self.assertEqual(observation.payload["results"][0]["name"], "toy process")
+        self.assertEqual(enrich.call_args.kwargs["background_gene_ids"], ["ENSG1", "ENSG2", "ENSG3", "ENSG4"])
+        self.assertIs(enrich.call_args.kwargs["cache"], environment.enrichment_cache)
 
     def test_execute_respects_runtime_state_budget_validation(self) -> None:
         environment = _build_environment()

@@ -83,7 +83,7 @@ infer_default_max_model_len() {
   local model_name
   model_name="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
   if [[ "${model_name}" == *"gpt-oss"* ]]; then
-    echo "8192"
+    echo "16384"
   else
     echo "16384"
   fi
@@ -113,10 +113,10 @@ fi
 MAX_TASKS="${MAX_TASKS:-8}"
 TASK_SHARD_INDEX="${TASK_SHARD_INDEX:-0}"
 TASK_SHARD_COUNT="${TASK_SHARD_COUNT:-1}"
-MAX_STEPS="${MAX_STEPS:-4}"
-N_ACT="${N_ACT:-4}"
+MAX_STEPS="${MAX_STEPS:-6}"
+N_ACT="${N_ACT:-6}"
 N_VER="${N_VER:-2}"
-TASK_CONCURRENCY="${TASK_CONCURRENCY:-4}"
+TASK_CONCURRENCY="${TASK_CONCURRENCY:-2}"
 GENERATOR_TEMPERATURE="${GENERATOR_TEMPERATURE:-0.8}"
 GENERATOR_TOP_P="${GENERATOR_TOP_P:-0.95}"
 GENERATOR_MAX_COMPLETION_TOKENS="${GENERATOR_MAX_COMPLETION_TOKENS:-4096}"
@@ -129,6 +129,11 @@ SELECTION_SCORE_EPSILON="${SELECTION_SCORE_EPSILON:-0.02}"
 PAIR_MINING_STRATEGY="${PAIR_MINING_STRATEGY:-quality_balanced}"
 TOOL_COVERAGE_RETRY_COUNT="${TOOL_COVERAGE_RETRY_COUNT:-2}"
 RECOVERY_RWR_TOP_K="${RECOVERY_RWR_TOP_K:-500}"
+MYGENE_CACHE_PATH="${MYGENE_CACHE_PATH:-${OUT_DIR}/mygene_cache.json}"
+ENRICHMENT_CACHE_PATH="${ENRICHMENT_CACHE_PATH:-${OUT_DIR}/gprofiler_enrichment_cache.json}"
+ENRICHMENT_BACKGROUND_PATH="${ENRICHMENT_BACKGROUND_PATH:-${REPO_ROOT}/data/gw_dendrogram_corpus/modules.jsonl}"
+ALLOW_NETWORK_MYGENE="${ALLOW_NETWORK_MYGENE:-1}"
+ALLOW_NETWORK_ENRICHMENT="${ALLOW_NETWORK_ENRICHMENT:-1}"
 GENERATOR_TIMEOUT_SECONDS="${GENERATOR_TIMEOUT_SECONDS:-3600}"
 RUN_SMOKE_TEST="${RUN_SMOKE_TEST:-1}"
 SMOKE_TEST_ONLY="${SMOKE_TEST_ONLY:-0}"
@@ -178,6 +183,18 @@ mkdir -p "${ENCODINGS_SHARED_DIR}"
 MAX_TASKS_ARG=()
 if [[ -n "${MAX_TASKS}" && "${MAX_TASKS}" != "all" && "${MAX_TASKS}" != "ALL" ]]; then
   MAX_TASKS_ARG=(--max-tasks "${MAX_TASKS}")
+fi
+MYGENE_NETWORK_ARG=()
+if [[ "${ALLOW_NETWORK_MYGENE}" == "1" ]]; then
+  MYGENE_NETWORK_ARG=(--allow-network-mygene)
+fi
+ENRICHMENT_NETWORK_ARG=()
+if [[ "${ALLOW_NETWORK_ENRICHMENT}" == "1" ]]; then
+  ENRICHMENT_NETWORK_ARG=(--allow-network-enrichment)
+fi
+ENRICHMENT_BACKGROUND_ARG=()
+if [[ -n "${ENRICHMENT_BACKGROUND_PATH}" ]]; then
+  ENRICHMENT_BACKGROUND_ARG=(--enrichment-background-path "${ENRICHMENT_BACKGROUND_PATH}")
 fi
 
 mapfile -t NODE_LIST < <(scontrol show hostnames "${SLURM_JOB_NODELIST}")
@@ -595,6 +612,7 @@ payload = {
         "max_tasks": ${MAX_TASKS@Q},
         "task_shard_index": ${TASK_SHARD_INDEX@Q},
         "task_shard_count": ${TASK_SHARD_COUNT@Q},
+        "task_shard_strategy": "sha256_module_key_mod",
     },
     "generation": {
         "max_steps": ${MAX_STEPS@Q},
@@ -613,6 +631,33 @@ payload = {
         "pair_mining_strategy": ${PAIR_MINING_STRATEGY@Q},
         "tool_coverage_retry_count": ${TOOL_COVERAGE_RETRY_COUNT@Q},
         "recovery_rwr_top_k": ${RECOVERY_RWR_TOP_K@Q},
+        "mechanism_evidence_score_weights": {
+            "specific_claim": {
+                "grounding": 0.25,
+                "consensus": 0.25,
+                "specificity": 0.18,
+                "network_agreement": 0.12,
+                "stability": 0.10,
+                "cross_tool_agreement": 0.10,
+                "unsupported_claim_multiplier": 0.35
+            },
+            "abstention": {
+                "abstention": 0.60,
+                "network_agreement": 0.20,
+                "grounding": 0.20
+            },
+            "evidence_strength": {
+                "mygene_scale": 0.75,
+                "network_scale": 0.50,
+                "network_without_consensus_scale": 0.35,
+                "unsupported_threshold": 0.05
+            }
+        },
+        "mygene_cache_path": ${MYGENE_CACHE_PATH@Q},
+        "enrichment_cache_path": ${ENRICHMENT_CACHE_PATH@Q},
+        "enrichment_background_path": ${ENRICHMENT_BACKGROUND_PATH@Q},
+        "allow_network_mygene": ${ALLOW_NETWORK_MYGENE@Q},
+        "allow_network_enrichment": ${ALLOW_NETWORK_ENRICHMENT@Q},
         "generator_timeout_seconds": ${GENERATOR_TIMEOUT_SECONDS@Q},
     },
     "smoke": {
@@ -687,6 +732,11 @@ if [[ "${RUN_SMOKE_TEST}" == "1" ]]; then
         python scripts/smoke_test_generator.py \
           --tasks-path '${TASKS_PATH}' \
           --store-dir '${STORE_DIR}' \
+          --mygene-cache-path '${MYGENE_CACHE_PATH}' \
+          --enrichment-cache-path '${ENRICHMENT_CACHE_PATH}' \
+          ${MYGENE_NETWORK_ARG[*]@Q} \
+          ${ENRICHMENT_NETWORK_ARG[*]@Q} \
+          ${ENRICHMENT_BACKGROUND_ARG[*]@Q} \
           --generator-api-base 'http://${HEAD_IP}:${VLLM_HTTP_PORT}/v1' \
           --generator-model '${SERVED_MODEL_ID}' \
           --generator-api-mode ${GENERATOR_API_MODE} \
@@ -726,6 +776,11 @@ srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
       --tasks-path '${TASKS_PATH}' \
       --out-dir '${OUT_DIR}' \
       --store-dir '${STORE_DIR}' \
+      --mygene-cache-path '${MYGENE_CACHE_PATH}' \
+      --enrichment-cache-path '${ENRICHMENT_CACHE_PATH}' \
+      ${MYGENE_NETWORK_ARG[*]@Q} \
+      ${ENRICHMENT_NETWORK_ARG[*]@Q} \
+      ${ENRICHMENT_BACKGROUND_ARG[*]@Q} \
       --candidate-source model_vllm \
       --generator-api-base 'http://${HEAD_IP}:${VLLM_HTTP_PORT}/v1' \
       --generator-model '${SERVED_MODEL_ID}' \

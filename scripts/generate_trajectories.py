@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import json
 import math
 import os
@@ -111,6 +112,15 @@ ACTOR_SAMPLING_STRATEGIES = ("batch", "verbalized")
 SELECTION_POLICIES = ("score", "task_quality")
 PAIR_MINING_STRATEGIES = ("score_margin", "quality_balanced")
 ACTOR_DIVERSITY_DIRECTIVES = (
+    {
+        "name": "mechanism_annotation_probe",
+        "instruction": (
+            "If the mechanism is not already grounded in observed annotations or enrichment, "
+            "prefer enrich_gene_set for the current candidate group or query_mygene for one "
+            "representative Ensembl seed before making a specific mechanism claim."
+        ),
+        "preferred_tools": ["enrich_gene_set", "query_mygene"],
+    },
     {
         "name": "best_direct_decision",
         "instruction": (
@@ -260,10 +270,11 @@ TASK_ACTOR_DIVERSITY_DIRECTIVES = {
         {
             "name": "explanation_annotation_decision",
             "instruction": (
-                "Use visible annotations and context to decide the strongest shared "
-                "mechanism when they are already sufficient."
+                "Ground the mechanism in annotation evidence. Prefer enrich_gene_set for "
+                "the seed set, or query_mygene for one representative Ensembl seed when "
+                "no enrichment or annotation evidence has been observed yet."
             ),
-            "preferred_tools": [],
+            "preferred_tools": ["enrich_gene_set", "query_mygene"],
         },
         {
             "name": "explanation_subgraph_validation",
@@ -314,12 +325,15 @@ TOOL_COVERAGE_DIRECTIVES = {
 }
 PAIR_CATEGORY_PRIORITIES = {
     "recovery_expansion": 0,
-    "tool_supported_improvement": 1,
-    "refinement_precision": 2,
-    "none_abstention": 3,
-    "score_margin": 4,
-    "mechanism_label_only": 5,
-    "conservative_stop": 6,
+    "mechanism_evidence_improvement": 1,
+    "unsupported_mechanism_rejected": 2,
+    "calibrated_abstention": 3,
+    "tool_supported_improvement": 4,
+    "refinement_precision": 5,
+    "none_abstention": 6,
+    "score_margin": 7,
+    "mechanism_label_only": 8,
+    "conservative_stop": 9,
 }
 TRAJECTORY_STAGES = (
     ("load_tasks", "Load canonical task rows"),
@@ -355,6 +369,11 @@ Actor rules:
   previous successful tool observation. Do not invent new ENSG ids.
 - Prefer the cheapest action that is most likely to reduce uncertainty.
 - If current visible evidence is already enough, do not call a tool.
+- For explanation, recovery, and refinement tasks, a specific biological
+  mechanism is not sufficiently grounded by Ensembl IDs or graph membership
+  alone. If no annotation, MyGene, or enrichment evidence has been observed,
+  prefer `enrich_gene_set` for the current candidate group or `query_mygene`
+  for a representative seed before stopping with a mechanism claim.
 - To query all graph layers, omit the `layers` or `layer` argument entirely.
   Never write "all", [], or null for layer selection.
 - For shortest_path, source and target must each be one string id, never a
@@ -364,6 +383,8 @@ Actor rules:
 
 Tool guidance:
 - query_mygene: look up identifiers or metadata for one gene or alias string
+- enrich_gene_set: test whether a candidate gene set is enriched for shared GO,
+  pathway, or complex terms against the configured background
 - get_neighbors: inspect one seed gene's neighborhood
 - shortest_path: test whether two genes are closely connected
 - induce_subgraph: inspect coherence inside a candidate group
@@ -372,6 +393,7 @@ Tool guidance:
 
 Allowed tools:
 - query_mygene: {"query": str, "fields": [str] optional}
+- enrich_gene_set: {"genes": [str], "sources": [str] optional, "user_threshold": float optional, "top_k": int optional}
 - get_neighbors: {"gene": str, "layers": [real layer name] optional; omit for all layers}
 - shortest_path: {"source": str, "target": str, "layer": real layer name optional; omit for all layers}
 - rwr_multiplex: {"seeds": [str], "top_k": int optional}
@@ -436,6 +458,12 @@ State update guidance:
 - For none tasks, prefer "insufficient_support" or "multiple_groups" when one coherent mechanism is not supported.
 - If relationship_status is insufficient_support, an empty predicted_gene_ids list is acceptable.
 - Prefer GO or FCGS labels when visible annotations support them.
+- Mechanistic labels must be copied from or directly summarized from observed
+  annotation/enrichment evidence. Generic labels such as "network module",
+  "connected subgraph", "co-expression", or "protein binding" are uncertainty
+  statements, not sufficient mechanisms.
+- For tool-derived labels, include evidence_ids that point to the supporting
+  evidence records already visible in the state.
 
 Output schema:
 {
@@ -449,7 +477,7 @@ Output schema:
     "relationship_status": str,
     "predicted_gene_ids": [str],
     "mechanistic_labels": [
-      {"label_source": str, "label_name": str, "label_id": str or null}
+      {"label_source": str, "label_name": str, "label_id": str or null, "evidence_ids": [str]}
     ],
     "continuation_decision": str,
     "verifier_notes": str
@@ -461,6 +489,7 @@ ACTOR_OUTPUT_TOOL_NAME = "emit_actor_step"
 VERIFIER_OUTPUT_TOOL_NAME = "emit_verifier_update"
 RUNTIME_TOOL_NAMES = (
     "query_mygene",
+    "enrich_gene_set",
     "get_neighbors",
     "shortest_path",
     "rwr_multiplex",
@@ -680,7 +709,8 @@ def _tool_argument_reference_payload(
         "rules": [
             "Graph tools require canonical Ensembl gene id strings, not symbols.",
             "Use candidate_gene_ids for gene/source/target/seeds/genes unless a prior successful tool observation returned another exact id.",
-            "Use query_mygene first when only a gene symbol, alias, or non-Ensembl id is available.",
+            "Use query_mygene for one representative gene when identifier metadata or gene summaries are needed.",
+            "Use enrich_gene_set on candidate_gene_ids when a group-level mechanism is needed.",
             "For all graph layers, omit layer/layers entirely; do not pass null, [], 'all', or '*' values.",
             "shortest_path source and target must each be one non-empty string id.",
             "get_neighbors gene must be one non-empty string id.",
@@ -688,6 +718,12 @@ def _tool_argument_reference_payload(
         ],
         "argument_shapes": {
             "query_mygene": {"query": "string", "fields": "optional non-empty string array"},
+            "enrich_gene_set": {
+                "genes": "non-empty string array",
+                "sources": "optional source array",
+                "user_threshold": "optional float in (0, 1]",
+                "top_k": "optional positive integer",
+            },
             "get_neighbors": {"gene": "string", "layers": "optional non-empty layer-name array"},
             "shortest_path": {
                 "source": "string",
@@ -787,7 +823,13 @@ def _actor_prompt_payload(
 
 
 def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dict[str, Any] | None:
-    if observation is None or observation.status != ToolObservationStatus.SUCCESS:
+    if observation is None:
+        return None
+    tool_name_for_status = _safe_text((observation.provenance or {}).get("tool_name"))
+    if observation.status != ToolObservationStatus.SUCCESS and not (
+        observation.status == ToolObservationStatus.EMPTY
+        and tool_name_for_status in {"query_mygene", "enrich_gene_set"}
+    ):
         return None
 
     payload = observation.payload or {}
@@ -921,6 +963,16 @@ def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dic
             "result_count": payload.get("result_count", 0),
             "results": _preview_list(payload.get("results"), limit=PROMPT_MYGENE_PREVIEW_LIMIT),
         }
+    elif tool_name == "enrich_gene_set":
+        compact_payload = {
+            "query_gene_count": payload.get("query_gene_count", 0),
+            "query_gene_ids": _preview_list(payload.get("query_gene_ids")),
+            "background_gene_count": payload.get("background_gene_count", 0),
+            "organism": payload.get("organism"),
+            "sources": _preview_list(payload.get("sources")),
+            "raw_result_count": payload.get("raw_result_count", 0),
+            "results": _preview_list(payload.get("results"), limit=10),
+        }
     else:
         compact_payload = {}
 
@@ -933,6 +985,16 @@ def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dic
         "provenance": _compact_provenance_for_prompt(provenance),
         "payload": compact_payload,
     }
+
+
+def _observation_is_valid_evidence(observation: ToolObservation | None) -> bool:
+    if observation is None:
+        return False
+    if observation.status == ToolObservationStatus.SUCCESS:
+        return True
+    if observation.status == ToolObservationStatus.EMPTY:
+        return observation.provenance.get("tool_name") in {"query_mygene", "enrich_gene_set"}
+    return False
 
 
 def _verifier_prompt_payload(
@@ -1262,8 +1324,12 @@ def _verifier_output_schema() -> dict[str, Any]:
                                 },
                                 "label_name": {"type": "string"},
                                 "label_id": {"type": ["string", "null"]},
+                                "evidence_ids": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
                             },
-                            "required": ["label_source", "label_name", "label_id"],
+                            "required": ["label_source", "label_name", "label_id", "evidence_ids"],
                             "additionalProperties": False,
                         },
                     },
@@ -1350,6 +1416,33 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
                 },
             },
             "required": ["query"],
+            "additionalProperties": False,
+        }
+    if tool_name == "enrich_gene_set":
+        return {
+            "type": "object",
+            "properties": {
+                "genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Canonical Ensembl gene id strings from candidate_gene_ids or prior successful tool observations.",
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Optional g:Profiler sources such as GO:BP, GO:MF, GO:CC, REAC, WP, KEGG, or CORUM.",
+                },
+                "user_threshold": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 1,
+                    "description": "Optional corrected p-value threshold.",
+                },
+                "top_k": {"type": "integer", "minimum": 1},
+            },
+            "required": ["genes"],
             "additionalProperties": False,
         }
     if tool_name == "get_neighbors":
@@ -1455,6 +1548,7 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
 def _runtime_tool_description(tool_name: str) -> str:
     descriptions = {
         "query_mygene": "Retrieve gene identifier and metadata information for one query string.",
+        "enrich_gene_set": "Run group-level functional enrichment for a gene set against the configured background.",
         "get_neighbors": "Retrieve direct graph neighbors for one gene.",
         "shortest_path": "Compute a shortest path between two genes.",
         "rwr_multiplex": "Rank genes by random walk with restart across the multiplex.",
@@ -2588,6 +2682,13 @@ def _write_jsonl_line(handle: Any, payload: dict[str, Any]) -> None:
     handle.write("\n")
 
 
+def _task_shard_bucket(task_row: dict[str, Any], task_shard_count: int) -> int:
+    task_id = str(task_row.get("task_id", ""))
+    module_key = task_id.split(".", 1)[0] if task_id else ""
+    digest = hashlib.sha256(module_key.encode("utf-8")).hexdigest()
+    return int(digest[:16], 16) % task_shard_count
+
+
 def _load_task_rows(
     tasks_path: Path,
     *,
@@ -2607,14 +2708,39 @@ def _load_task_rows(
             line = line.strip()
             if not line:
                 continue
-            if input_task_index % task_shard_count != task_shard_index:
-                input_task_index += 1
+            row = json.loads(line)
+            if task_shard_count > 1 and _task_shard_bucket(row, task_shard_count) != task_shard_index:
                 continue
-            rows.append(json.loads(line))
+            rows.append(row)
             input_task_index += 1
             if max_tasks is not None and len(rows) >= max_tasks:
                 break
     return rows
+
+
+def _load_gene_id_background(path: Path | None) -> list[str] | None:
+    if path is None:
+        return None
+    gene_ids: list[str] = []
+    seen: set[str] = set()
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            values: list[str]
+            if stripped.startswith("{"):
+                payload = json.loads(stripped)
+                values = _safe_list_of_strings(payload.get("gene_ids"))
+            elif stripped.startswith("["):
+                values = _safe_list_of_strings(json.loads(stripped))
+            else:
+                values = [stripped.split()[0]]
+            for gene_id in values:
+                if gene_id and gene_id not in seen:
+                    seen.add(gene_id)
+                    gene_ids.append(gene_id)
+    return gene_ids
 
 
 def _gene_symbol_lookup(task_row: dict[str, Any]) -> dict[str, str]:
@@ -2749,8 +2875,74 @@ def _summarize_observation(observation: ToolObservation | None) -> tuple[str, li
             f"Retrieved {payload.get('result_count', 0)} MyGene hits for {payload.get('query')}.",
             [],
         )
+    if tool_name == "enrich_gene_set":
+        results = payload.get("results", [])
+        result_list = results if isinstance(results, list) else []
+        if result_list:
+            top = result_list[0]
+            top_name = top.get("name") if isinstance(top, dict) else None
+            top_id = top.get("native") if isinstance(top, dict) else None
+            return (
+                f"Found {len(result_list)} enriched terms; top term is {top_name or top_id}.",
+                _safe_list_of_strings(payload.get("query_gene_ids"))[:PROMPT_LIST_PREVIEW_LIMIT],
+            )
+        return (
+            "No significant gene-set enrichment terms were found.",
+            _safe_list_of_strings(payload.get("query_gene_ids"))[:PROMPT_LIST_PREVIEW_LIMIT],
+        )
 
     return (f"Recorded a {tool_name} observation.", [])
+
+
+def _evidence_payload_for_record(observation: ToolObservation) -> dict[str, Any]:
+    payload = observation.payload or {}
+    tool_name = observation.provenance.get("tool_name")
+    if tool_name == "query_mygene":
+        return {
+            "query": payload.get("query"),
+            "requested_fields": _preview_list(payload.get("requested_fields"), limit=32),
+            "result_count": payload.get("result_count", 0),
+            "results": _preview_list(payload.get("results"), limit=PROMPT_MYGENE_PREVIEW_LIMIT),
+        }
+    if tool_name == "enrich_gene_set":
+        return {
+            "query_gene_ids": _preview_list(payload.get("query_gene_ids"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "query_gene_count": payload.get("query_gene_count", 0),
+            "background_gene_count": payload.get("background_gene_count", 0),
+            "background_hash": payload.get("background_hash"),
+            "organism": payload.get("organism"),
+            "sources": _preview_list(payload.get("sources"), limit=16),
+            "user_threshold": payload.get("user_threshold"),
+            "raw_result_count": payload.get("raw_result_count", 0),
+            "results": _preview_list(payload.get("results"), limit=10),
+        }
+    if tool_name == "induce_subgraph":
+        return {
+            "query_gene_ids": _preview_list(payload.get("query_gene_ids"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "present_gene_ids": _preview_list(payload.get("present_gene_ids"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "combined_edge_count": payload.get("combined_edge_count", 0),
+        }
+    if tool_name == "shortest_path":
+        return {
+            "source_gene_id": payload.get("source_gene_id"),
+            "target_gene_id": payload.get("target_gene_id"),
+            "path_gene_ids": _preview_list(payload.get("path_gene_ids")),
+            "hop_count": payload.get("hop_count"),
+        }
+    if tool_name in {"rwr_multiplex", "rwr_monoplex"}:
+        return {
+            "seed_gene_ids": _preview_list(payload.get("seed_gene_ids"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "active_seed_gene_ids": _preview_list(payload.get("active_seed_gene_ids")),
+            "top_k": payload.get("top_k"),
+            "results": _preview_list(payload.get("results"), limit=PROMPT_RWR_RESULT_PREVIEW_LIMIT),
+        }
+    if tool_name == "get_neighbors":
+        return {
+            "query_gene_id": payload.get("query_gene_id"),
+            "unique_neighbor_count": payload.get("unique_neighbor_count", 0),
+            "unique_neighbors": _preview_list(payload.get("unique_neighbors"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+        }
+    return {}
 
 
 def _build_evidence_record(
@@ -2773,6 +2965,7 @@ def _build_evidence_record(
         provenance={
             "step_index": step_index,
             **observation.provenance,
+            "payload": _evidence_payload_for_record(observation),
         },
         supporting_gene_ids=supporting_gene_ids,
         supporting_gene_symbols=[_symbol_for_gene(gene_id, symbol_lookup) for gene_id in supporting_gene_ids],
@@ -2903,6 +3096,12 @@ def _positive_group_update(
     if tool_name == "query_mygene":
         return visible_seed_ids or current_gene_ids, RelationshipStatus.PARTIALLY_OBSERVED_GROUP
 
+    if tool_name == "enrich_gene_set":
+        results = payload.get("results", [])
+        if isinstance(results, list) and results:
+            return current_gene_ids, RelationshipStatus.VALIDATED_GROUP
+        return current_gene_ids, RelationshipStatus.UNKNOWN
+
     return current_gene_ids, RelationshipStatus.UNKNOWN
 
 
@@ -2939,6 +3138,11 @@ def _none_group_update(
     if tool_name == "get_neighbors":
         neighbors = payload.get("unique_neighbors", [])
         if not neighbors:
+            return [], RelationshipStatus.INSUFFICIENT_SUPPORT
+        return current_gene_ids, RelationshipStatus.PARTIALLY_OBSERVED_GROUP
+
+    if tool_name == "enrich_gene_set":
+        if not payload.get("results"):
             return [], RelationshipStatus.INSUFFICIENT_SUPPORT
         return current_gene_ids, RelationshipStatus.PARTIALLY_OBSERVED_GROUP
 
@@ -3083,6 +3287,10 @@ def _pair_category(
         chosen_branch.local_score.mechanistic_label_delta
         - rejected_branch.local_score.mechanistic_label_delta
     )
+    mechanism_evidence_diff = (
+        chosen_branch.local_score.mechanism_evidence_score
+        - rejected_branch.local_score.mechanism_evidence_score
+    )
     chosen_group_delta = int(chosen_features["group_size_delta"])
     rejected_group_delta = int(rejected_features["group_size_delta"])
 
@@ -3103,7 +3311,17 @@ def _pair_category(
         and chosen_branch.verifier_step.updated_state.relationship_status
         == RelationshipStatus.INSUFFICIENT_SUPPORT
     ):
+        if chosen_branch.local_score.mechanism_evidence_score > rejected_branch.local_score.mechanism_evidence_score + 1e-9:
+            return "calibrated_abstention"
         return "none_abstention"
+    if mechanism_evidence_diff > 1e-9:
+        return "mechanism_evidence_improvement"
+    if (
+        rejected_branch.local_score.mechanism_evidence_score <= 0.05
+        and rejected_branch.verifier_step.updated_interpretation.mechanistic_claim.strip()
+        and chosen_branch.local_score.mechanism_evidence_score > rejected_branch.local_score.mechanism_evidence_score
+    ):
+        return "unsupported_mechanism_rejected"
     if bool(chosen_features["has_successful_tool"]) and (
         not bool(rejected_features["has_successful_tool"]) or complex_diff > 1e-9
     ):
@@ -3157,6 +3375,10 @@ def _pair_quality_provenance(
         "rejected_recall_delta": rejected_features["recall_delta"],
         "chosen_precision_delta": chosen_features["precision_delta"],
         "rejected_precision_delta": rejected_features["precision_delta"],
+        "chosen_mechanism_evidence_score": chosen_features["mechanism_evidence_score"],
+        "rejected_mechanism_evidence_score": rejected_features["mechanism_evidence_score"],
+        "chosen_mechanism_evidence_delta": chosen_features["mechanism_evidence_delta"],
+        "rejected_mechanism_evidence_delta": rejected_features["mechanism_evidence_delta"],
         "complex_delta_diff": (
             chosen_branch.local_score.complex_membership_delta
             - rejected_branch.local_score.complex_membership_delta
@@ -3164,6 +3386,10 @@ def _pair_quality_provenance(
         "mechanistic_delta_diff": (
             chosen_branch.local_score.mechanistic_label_delta
             - rejected_branch.local_score.mechanistic_label_delta
+        ),
+        "mechanism_evidence_score_diff": (
+            chosen_branch.local_score.mechanism_evidence_score
+            - rejected_branch.local_score.mechanism_evidence_score
         ),
         "efficiency_penalty_diff": (
             chosen_branch.local_score.efficiency_penalty
@@ -3458,6 +3684,29 @@ def _actor_templates_for_step(
         )
 
     if current_gene_ids:
+        if task_type in {"explanation", "recovery", "refinement"}:
+            add_template(
+                "enrich_current_group",
+                "Run group-level enrichment before making a specific mechanism claim.",
+                tool_name="enrich_gene_set",
+                arguments={"genes": current_gene_ids, "top_k": 10},
+            )
+            add_template(
+                "mygene_first_seed",
+                "Look up one representative seed gene to ground the mechanism in gene annotations.",
+                tool_name="query_mygene",
+                arguments={
+                    "query": current_gene_ids[0],
+                    "fields": [
+                        "symbol",
+                        "name",
+                        "summary",
+                        "type_of_gene",
+                        "go",
+                        "pathway",
+                    ],
+                },
+            )
         add_template(
             "induce_subgraph_current_group",
             "Inspect the induced subgraph on the current candidate group.",
@@ -3497,6 +3746,8 @@ def _actor_templates_for_step(
     ordered_ids_by_task = {
         "recovery": [
             "rwr_expand_group",
+            "enrich_current_group",
+            "mygene_first_seed",
             "induce_subgraph_current_group",
             "neighbors_first_seed",
             "shortest_path_seed_pair",
@@ -3505,6 +3756,8 @@ def _actor_templates_for_step(
         ],
         "refinement": [
             "induce_subgraph_current_group",
+            "enrich_current_group",
+            "mygene_first_seed",
             "rwr_expand_group",
             "neighbors_first_seed",
             "shortest_path_seed_pair",
@@ -3513,6 +3766,8 @@ def _actor_templates_for_step(
         ],
         "explanation": [
             "use_visible_annotations",
+            "enrich_current_group",
+            "mygene_first_seed",
             "induce_subgraph_current_group",
             "shortest_path_seed_pair",
             "neighbors_first_seed",
@@ -3610,6 +3865,7 @@ def _build_labels_from_model_payload(payload: dict[str, Any]) -> tuple[list[Mech
         label_source = raw_label.get("label_source")
         label_name = raw_label.get("label_name")
         label_id = raw_label.get("label_id")
+        evidence_ids = _safe_list_of_strings(raw_label.get("evidence_ids"))
         if not isinstance(label_name, str) or not label_name:
             errors.append(f"verifier_label_{index}_missing_name")
             continue
@@ -3622,7 +3878,7 @@ def _build_labels_from_model_payload(payload: dict[str, Any]) -> tuple[list[Mech
                     label_source=label_source,
                     label_name=label_name,
                     label_id=label_id if isinstance(label_id, str) else None,
-                    evidence_ids=[],
+                    evidence_ids=evidence_ids,
                 )
             )
         except Exception as error:
@@ -3650,7 +3906,7 @@ def _build_branch_from_model_output(
     updated_state = clone_state(prior_state)
     updated_state = decrement_budget(updated_state)
     if actor_step.tool_action is not None:
-        invalid_tool = observation is None or observation.status != ToolObservationStatus.SUCCESS
+        invalid_tool = not _observation_is_valid_evidence(observation)
         updated_state = record_tool_call(updated_state, invalid=invalid_tool)
 
     evidence_record = _build_evidence_record(
@@ -3779,7 +4035,7 @@ def _build_heuristic_branch_for_templates(
     updated_state = clone_state(prior_state)
     updated_state = decrement_budget(updated_state)
     if actor_step.tool_action is not None:
-        invalid_tool = observation is None or observation.status != ToolObservationStatus.SUCCESS
+        invalid_tool = not _observation_is_valid_evidence(observation)
         updated_state = record_tool_call(updated_state, invalid=invalid_tool)
 
     evidence_record = _build_evidence_record(
@@ -3940,8 +4196,7 @@ def _branch_tool_name(branch: CandidateBranch) -> str:
 def _branch_has_successful_tool(branch: CandidateBranch) -> bool:
     return (
         branch.actor_step.tool_action is not None
-        and branch.observation is not None
-        and branch.observation.status == ToolObservationStatus.SUCCESS
+        and _observation_is_valid_evidence(branch.observation)
     )
 
 
@@ -3986,6 +4241,8 @@ def _branch_quality_features(
         "group_size_delta": len(post_gene_ids) - len(prior_gene_ids),
         "complex_delta": branch.local_score.complex_membership_delta,
         "mechanistic_delta": branch.local_score.mechanistic_label_delta,
+        "mechanism_evidence_delta": branch.local_score.mechanism_evidence_delta,
+        "mechanism_evidence_score": branch.local_score.mechanism_evidence_score,
         "efficiency_penalty": branch.local_score.efficiency_penalty,
         "recall_delta": _complex_metric_delta(branch, "recall"),
         "precision_delta": _complex_metric_delta(branch, "precision"),
@@ -3999,23 +4256,31 @@ def _tool_preference_rank(task_type: str, tool_name: str) -> int:
     task_preferences = {
         "recovery": {
             "rwr_multiplex": 4,
+            "enrich_gene_set": 4,
             "get_neighbors": 3,
+            "query_mygene": 3,
             "induce_subgraph": 2,
             "shortest_path": 1,
         },
         "refinement": {
             "induce_subgraph": 4,
+            "enrich_gene_set": 4,
             "rwr_multiplex": 3,
+            "query_mygene": 2,
             "shortest_path": 2,
             "get_neighbors": 1,
         },
         "none": {
             "induce_subgraph": 3,
+            "enrich_gene_set": 2,
             "shortest_path": 2,
             "get_neighbors": 1,
+            "query_mygene": 1,
         },
         "explanation": {
-            "induce_subgraph": 3,
+            "enrich_gene_set": 4,
+            "query_mygene": 3,
+            "induce_subgraph": 2,
             "shortest_path": 2,
             "get_neighbors": 1,
         },
@@ -4039,6 +4304,8 @@ def _branch_task_quality_tuple(
     group_size_delta = int(features["group_size_delta"])
     complex_delta = float(features["complex_delta"])
     mechanism_delta = float(features["mechanistic_delta"])
+    mechanism_evidence_delta = float(features["mechanism_evidence_delta"])
+    mechanism_evidence_score = float(features["mechanism_evidence_score"])
     recall_delta = float(features["recall_delta"])
     precision_delta = float(features["precision_delta"])
 
@@ -4050,6 +4317,8 @@ def _branch_task_quality_tuple(
             group_size_delta,
             successful_tool,
             tool_rank,
+            mechanism_evidence_delta,
+            mechanism_evidence_score,
             mechanism_delta,
             -float(features["efficiency_penalty"]),
             normalized,
@@ -4062,6 +4331,8 @@ def _branch_task_quality_tuple(
             int(group_size_delta < 0),
             successful_tool,
             tool_rank,
+            mechanism_evidence_delta,
+            mechanism_evidence_score,
             mechanism_delta,
             -abs(group_size_delta),
             -float(features["efficiency_penalty"]),
@@ -4072,6 +4343,8 @@ def _branch_task_quality_tuple(
         quality = (
             int(status == RelationshipStatus.INSUFFICIENT_SUPPORT.value),
             complex_delta,
+            mechanism_evidence_delta,
+            mechanism_evidence_score,
             successful_tool,
             tool_rank,
             -len(_branch_predicted_gene_ids(branch)),
@@ -4081,12 +4354,14 @@ def _branch_task_quality_tuple(
         )
     else:
         quality = (
+            mechanism_evidence_delta,
+            mechanism_evidence_score,
             mechanism_delta,
             complex_delta,
             int(status == RelationshipStatus.VALIDATED_GROUP.value),
-            no_tool,
             successful_tool,
             tool_rank,
+            -no_tool,
             -float(features["efficiency_penalty"]),
             normalized,
             total,
@@ -4825,6 +5100,8 @@ def generate_trajectories(
                             "terminal_complex_delta_score": terminal_score["complex_delta"],
                             "terminal_absolute_mechanistic_score": terminal_score["absolute_mechanistic_score"],
                             "terminal_mechanistic_delta_score": terminal_score["mechanistic_delta"],
+                            "terminal_mechanism_evidence_score": terminal_score.get("mechanism_evidence_score", 0.0),
+                            "terminal_mechanism_evidence_delta_score": terminal_score.get("mechanism_evidence_delta", 0.0),
                             "terminal_efficiency_penalty": terminal_score["efficiency_penalty"],
                             "terminal_reward": terminal_score["terminal_reward"],
                         },
@@ -4988,6 +5265,34 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Optional text flist for the Python reference backend.",
+    )
+    parser.add_argument(
+        "--mygene-cache-path",
+        type=Path,
+        default=None,
+        help="Optional MyGene cache JSON path used by query_mygene.",
+    )
+    parser.add_argument(
+        "--allow-network-mygene",
+        action="store_true",
+        help="Allow query_mygene to call the live MyGene API on cache misses.",
+    )
+    parser.add_argument(
+        "--enrichment-cache-path",
+        type=Path,
+        default=None,
+        help="Optional g:Profiler enrichment cache JSON path used by enrich_gene_set.",
+    )
+    parser.add_argument(
+        "--allow-network-enrichment",
+        action="store_true",
+        help="Allow enrich_gene_set to call the live g:Profiler API on cache misses.",
+    )
+    parser.add_argument(
+        "--enrichment-background-path",
+        type=Path,
+        default=None,
+        help="Optional gene background file. Supports one gene per line, JSON lists, or JSONL rows with gene_ids.",
     )
     parser.add_argument(
         "--max-tasks",
@@ -5222,13 +5527,27 @@ def main() -> None:
             actor_sampling_strategy=args.actor_sampling_strategy,
         )
 
+    enrichment_background_gene_ids = _load_gene_id_background(args.enrichment_background_path)
+
     if args.store_dir is not None:
         environment = RuntimeEnvironment(
             store_dir=str(args.store_dir),
             compiled_library_path=str(args.compiled_library_path) if args.compiled_library_path else None,
+            mygene_cache_path=str(args.mygene_cache_path) if args.mygene_cache_path else None,
+            allow_network_mygene=args.allow_network_mygene,
+            enrichment_cache_path=str(args.enrichment_cache_path) if args.enrichment_cache_path else None,
+            allow_network_enrichment=args.allow_network_enrichment,
+            enrichment_background_gene_ids=enrichment_background_gene_ids,
         )
     elif args.multiplex_flist is not None:
-        environment = RuntimeEnvironment(multiplex_flist=str(args.multiplex_flist))
+        environment = RuntimeEnvironment(
+            multiplex_flist=str(args.multiplex_flist),
+            mygene_cache_path=str(args.mygene_cache_path) if args.mygene_cache_path else None,
+            allow_network_mygene=args.allow_network_mygene,
+            enrichment_cache_path=str(args.enrichment_cache_path) if args.enrichment_cache_path else None,
+            allow_network_enrichment=args.allow_network_enrichment,
+            enrichment_background_gene_ids=enrichment_background_gene_ids,
+        )
     else:
         raise ValueError("Provide either --store-dir or --multiplex-flist.")
 
@@ -5237,6 +5556,15 @@ def main() -> None:
         "max_tasks": args.max_tasks,
         "task_shard_index": args.task_shard_index,
         "task_shard_count": args.task_shard_count,
+        "task_shard_strategy": "sha256_module_key_mod",
+        "mygene_cache_path": str(args.mygene_cache_path) if args.mygene_cache_path else None,
+        "allow_network_mygene": args.allow_network_mygene,
+        "enrichment_cache_path": str(args.enrichment_cache_path) if args.enrichment_cache_path else None,
+        "allow_network_enrichment": args.allow_network_enrichment,
+        "enrichment_background_path": str(args.enrichment_background_path) if args.enrichment_background_path else None,
+        "enrichment_background_gene_count": (
+            len(enrichment_background_gene_ids) if enrichment_background_gene_ids is not None else None
+        ),
     }
 
     generate_trajectories(
