@@ -10,11 +10,19 @@ import networkx as nx
 
 from runtime import (
     ActorStep,
+    CandidateBranch,
+    ContinuationState,
+    GeneGroup,
+    Interpretation,
+    LocalScoreBreakdown,
+    RelationshipStatus,
     SharedPrefixContext,
     ToolAction,
     ToolObservation,
     ToolObservationStatus,
+    VerifierStep,
     initialize_state_from_corum_task,
+    replace_predicted_groups,
 )
 from runtime.environment import RuntimeEnvironment
 from scripts.generate_trajectories import (
@@ -28,6 +36,7 @@ from scripts.generate_trajectories import (
     _load_task_rows,
     _normalize_runtime_tool_action,
     _observation_for_verifier_prompt,
+    _pair_is_task_safe,
     _prefetch_mechanism_evidence_cache,
     _runtime_tool_parameters,
     _task_shard_bucket,
@@ -122,6 +131,53 @@ def _collect_json_keys(value) -> set[str]:
             keys.update(_collect_json_keys(item))
         return keys
     return set()
+
+
+def _branch_for_pair_filter(branch_id: str, state, gene_ids: list[str], metrics: dict[str, float], complex_delta: float) -> CandidateBranch:
+    updated_state = replace_predicted_groups(
+        state,
+        predicted_groups=[
+            GeneGroup(
+                group_id=branch_id,
+                gene_ids=gene_ids,
+                gene_symbols=[],
+                rationale="Pair-filter test branch.",
+            )
+        ],
+        relationship_status=RelationshipStatus.VALIDATED_GROUP,
+    )
+    updated_state.continuation_state = ContinuationState.STOP
+    return CandidateBranch(
+        branch_id=branch_id,
+        actor_step=ActorStep(reasoning_text="Test branch.", tool_action=None),
+        verifier_step=VerifierStep(
+            updated_interpretation=Interpretation(
+                mechanistic_claim="Test claim.",
+                main_evidence="Test evidence.",
+                uncertainty="",
+                next_subgoal="",
+            ),
+            updated_state=updated_state,
+            continuation_decision=ContinuationState.STOP,
+            verifier_notes="Pair-filter test verifier.",
+        ),
+        local_score=LocalScoreBreakdown(
+            schema_score=1.0,
+            complex_membership_delta=complex_delta,
+            mechanistic_label_delta=0.8,
+            efficiency_penalty=0.0,
+            total_score=2.0,
+            normalized_score=1.0,
+            mechanism_evidence_delta=0.8,
+            mechanism_evidence_score=0.8,
+            score_metadata={
+                "complex": {
+                    "best_group_pre": {"metrics": {"jaccard": 0.5, "precision": 1.0, "recall": 0.5}},
+                    "best_group_post": {"metrics": metrics},
+                }
+            },
+        ),
+    )
 
 
 class _FakeModelGenerator:
@@ -452,6 +508,40 @@ class _BrokenFinalChannelTokenizer:
 
 
 class GenerateTrajectoriesTests(unittest.TestCase):
+    def test_pair_filter_rejects_mechanism_improvement_with_worse_gene_correctness(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+        chosen = _branch_for_pair_filter(
+            "chosen_mechanism_only",
+            state,
+            ["ENSG1"],
+            {"jaccard": 1.0 / 3.0, "precision": 1.0, "recall": 1.0 / 3.0},
+            complex_delta=-0.1,
+        )
+        rejected = _branch_for_pair_filter(
+            "rejected_better_genes",
+            state,
+            ["ENSG1", "ENSG2", "ENSG3"],
+            {"jaccard": 1.0, "precision": 1.0, "recall": 1.0},
+            complex_delta=0.5,
+        )
+
+        self.assertFalse(
+            _pair_is_task_safe(
+                task_type="recovery",
+                context=context,
+                chosen_branch=chosen,
+                rejected_branch=rejected,
+            )
+        )
+
     def test_model_tool_action_normalization_removes_all_layer_alias(self) -> None:
         tool_action, errors = _normalize_runtime_tool_action(
             {
@@ -947,6 +1037,9 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             self.assertIn("terminal_reward", final_summaries[0])
             self.assertIn("finding_count", final_summaries[0])
             self.assertIn("terminal_schema_score", final_summaries[0])
+            self.assertIn("task_success", final_summaries[0])
+            self.assertIn("task_success_level", final_summaries[0])
+            self.assertIn("task_success_metadata", final_summaries[0])
             blocked_artifact_keys = {
                 "terminal_score_metadata",
                 "raw_actor_response",

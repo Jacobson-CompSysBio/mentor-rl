@@ -453,6 +453,148 @@ class RuntimeScoringTests(unittest.TestCase):
             "evidence_grounded_unsupervised",
         )
 
+    def test_explanation_branch_penalizes_submodule_collapse_despite_mechanism_evidence(self) -> None:
+        task = _no_label_explanation_task()
+        interpretation, prior_state = initialize_state_from_corum_task(task, max_budget=4)
+        updated_state = append_evidence_record(
+            prior_state,
+            EvidenceRecord(
+                evidence_id="evidence_enrich",
+                source_type=EvidenceSourceType.TOOL_OBSERVATION,
+                summary="Found enriched terms; top term is histone deacetylase activity.",
+                provenance={
+                    "tool_name": "enrich_gene_set",
+                    "payload": {
+                        "results": [
+                            {
+                                "source": "GO:MF",
+                                "native": "GO:0004407",
+                                "name": "histone deacetylase activity",
+                                "p_value": 0.001,
+                                "significant": True,
+                                "intersection_size": 1,
+                                "query_size": 1,
+                                "precision": 1.0,
+                            }
+                        ]
+                    },
+                },
+                supporting_gene_ids=["ENSG_HDAC4"],
+            ),
+        )
+        updated_state = replace_predicted_groups(
+            updated_state,
+            predicted_groups=[
+                GeneGroup(
+                    group_id="submodule",
+                    gene_ids=["ENSG_HDAC4"],
+                    gene_symbols=["HDAC4"],
+                    rationale="Collapse to the annotated subset.",
+                )
+            ],
+            relationship_status=RelationshipStatus.VALIDATED_GROUP,
+        )
+        updated_state = replace_mechanistic_labels(
+            updated_state,
+            [
+                MechanisticLabel(
+                    label_source=LabelSource.GO,
+                    label_id="GO:0004407",
+                    label_name="histone deacetylase activity",
+                    evidence_ids=["evidence_enrich"],
+                )
+            ],
+        )
+        branch = _make_branch(
+            "collapsed_explanation",
+            Interpretation(
+                mechanistic_claim="Histone deacetylase activity is supported for a subset.",
+                main_evidence="Only one retained gene has direct enrichment support.",
+                uncertainty="The full module was not preserved.",
+                next_subgoal="",
+            ),
+            updated_state,
+        )
+
+        score = score_candidate_branch(task, prior_state, branch, step_index=1, max_steps=6)
+
+        self.assertEqual(
+            score.score_metadata["task_success"]["task_success_level"],
+            "negative",
+        )
+        self.assertGreater(score.score_metadata["task_mismatch_penalty"], 0.0)
+        self.assertLessEqual(
+            score.score_metadata["mechanistic"]["effective_delta_for_score"],
+            0.0,
+        )
+
+    def test_terminal_score_caps_mechanism_reward_when_task_fails(self) -> None:
+        task = _no_label_explanation_task()
+        _, initial_state = initialize_state_from_corum_task(task, max_budget=4)
+        final_state = append_evidence_record(
+            initial_state,
+            EvidenceRecord(
+                evidence_id="evidence_enrich",
+                source_type=EvidenceSourceType.TOOL_OBSERVATION,
+                summary="Found enriched terms; top term is histone deacetylase activity.",
+                provenance={
+                    "tool_name": "enrich_gene_set",
+                    "payload": {
+                        "results": [
+                            {
+                                "source": "GO:MF",
+                                "native": "GO:0004407",
+                                "name": "histone deacetylase activity",
+                                "p_value": 0.001,
+                                "significant": True,
+                                "intersection_size": 1,
+                                "query_size": 1,
+                                "precision": 1.0,
+                            }
+                        ]
+                    },
+                },
+                supporting_gene_ids=["ENSG_HDAC4"],
+            ),
+        )
+        final_state = replace_predicted_groups(
+            final_state,
+            predicted_groups=[
+                GeneGroup(
+                    group_id="submodule",
+                    gene_ids=["ENSG_HDAC4"],
+                    gene_symbols=["HDAC4"],
+                    rationale="Collapsed to one supported gene.",
+                )
+            ],
+            relationship_status=RelationshipStatus.VALIDATED_GROUP,
+        )
+        final_state = replace_mechanistic_labels(
+            final_state,
+            [
+                MechanisticLabel(
+                    label_source=LabelSource.GO,
+                    label_id="GO:0004407",
+                    label_name="histone deacetylase activity",
+                    evidence_ids=["evidence_enrich"],
+                )
+            ],
+        )
+        final_state.continuation_state = ContinuationState.STOP
+        final_state.termination_reason = TerminationReason.MODEL_STOP
+
+        score = score_terminal_trajectory(
+            task,
+            initial_state,
+            final_state,
+            step_count=1,
+            max_steps=4,
+        )
+
+        self.assertEqual(score["task_success_level"], "negative")
+        self.assertEqual(score["mechanism_reward_cap"], 0.15)
+        self.assertLessEqual(score["effective_absolute_mechanistic_score"], 0.15)
+
     def test_no_label_task_penalizes_unsupported_generic_mechanism(self) -> None:
         task = _no_label_explanation_task()
         interpretation, prior_state = initialize_state_from_corum_task(task, max_budget=4)

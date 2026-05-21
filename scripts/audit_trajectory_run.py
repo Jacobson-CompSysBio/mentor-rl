@@ -49,8 +49,13 @@ BLOCKED_KEYS = {
     "prompt_token_ids",
 }
 EXPECTED_TASK_TYPES = ("explanation", "recovery", "refinement", "none")
-EXPECTED_EVIDENCE_MODES = ("contextual", "full", "graph", "minimal")
+EXPECTED_EVIDENCE_MODES = ("graph", "minimal")
 EXPECTED_DIFFICULTY_BINS = ("easy", "medium", "hard")
+POSITIVE_TASK_SUCCESS_THRESHOLDS = {
+    "explanation": {"recall": 0.85, "jaccard": 0.75},
+    "recovery": {"recall": 0.80, "jaccard": 0.80},
+    "refinement": {"recall": 0.80, "jaccard": 0.80, "precision": 0.80},
+}
 CONTEXT_LIMIT_RE = re.compile(
     r"maximum context length is (?P<limit>\d+) tokens.*request has (?P<input>\d+) input tokens",
     re.IGNORECASE,
@@ -86,7 +91,11 @@ class AuditConfig:
     min_recovery_expansion_pair_rate: float | None = None
     min_tool_supported_pair_rate: float | None = None
     max_mechanism_label_only_pair_rate: float | None = None
+    max_mechanism_evidence_improvement_pair_rate: float | None = None
     max_step0_pair_rate: float | None = None
+    min_none_success_rate: float | None = None
+    min_explanation_success_rate: float | None = None
+    min_recovery_refinement_partial_rate: float | None = None
 
 
 @dataclass
@@ -176,6 +185,188 @@ def _walk_blocked_keys(value: Any, *, path: str = "") -> Iterable[str]:
 
 def _counter_to_sorted_dict(counter: Counter[Any]) -> dict[str, int]:
     return {str(key): counter[key] for key in sorted(counter, key=str)}
+
+
+def _load_jsonl_objects(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if not path.exists():
+        return rows
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if line.strip():
+                try:
+                    payload = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(payload, dict):
+                    rows.append(payload)
+    return rows
+
+
+def _task_path_from_freeze(report: AuditReport) -> Path | None:
+    run_freeze = report.freeze.get("run_freeze")
+    if isinstance(run_freeze, dict):
+        task_selection = run_freeze.get("task_selection")
+        if isinstance(task_selection, dict) and task_selection.get("tasks_path"):
+            return Path(str(task_selection["tasks_path"]))
+    task_selection = report.freeze.get("manifest_task_selection")
+    if isinstance(task_selection, dict) and task_selection.get("tasks_path"):
+        return Path(str(task_selection["tasks_path"]))
+    return None
+
+
+def _load_task_index_for_run(report: AuditReport) -> dict[str, dict[str, Any]]:
+    tasks_path = _task_path_from_freeze(report)
+    if tasks_path is None:
+        return {}
+    rows = _load_jsonl_objects(tasks_path)
+    return {
+        str(row.get("task_id")): row
+        for row in rows
+        if isinstance(row.get("task_id"), str)
+    }
+
+
+def _unique_gene_ids_from_state(state: dict[str, Any]) -> list[str]:
+    groups = state.get("predicted_groups") if isinstance(state, dict) else None
+    if not isinstance(groups, list):
+        return []
+    seen: set[str] = set()
+    gene_ids: list[str] = []
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        for gene_id in group.get("gene_ids", []):
+            if isinstance(gene_id, str) and gene_id and gene_id not in seen:
+                seen.add(gene_id)
+                gene_ids.append(gene_id)
+    return gene_ids
+
+
+def _safe_divide(numerator: float, denominator: float) -> float:
+    return numerator / denominator if denominator else 0.0
+
+
+def _set_metrics(predicted_gene_ids: list[str], target_gene_ids: list[str]) -> dict[str, float]:
+    predicted = set(predicted_gene_ids)
+    target = set(target_gene_ids)
+    overlap = predicted & target
+    union = predicted | target
+    return {
+        "precision": _safe_divide(len(overlap), len(predicted)),
+        "recall": _safe_divide(len(overlap), len(target)),
+        "jaccard": 1.0 if not union else len(overlap) / len(union),
+        "overlap_count": float(len(overlap)),
+        "predicted_gene_count": float(len(predicted)),
+        "target_gene_count": float(len(target)),
+    }
+
+
+def _size_bin_for_task(row: dict[str, Any]) -> str:
+    explicit = row.get("size_bin")
+    if isinstance(explicit, str) and explicit:
+        return explicit
+    hidden_target = row.get("hidden_target")
+    gene_count = None
+    if isinstance(hidden_target, dict) and isinstance(hidden_target.get("target_gene_ids"), list):
+        gene_count = len({gene_id for gene_id in hidden_target["target_gene_ids"] if isinstance(gene_id, str)})
+    if gene_count is None:
+        visible_inputs = row.get("visible_inputs")
+        if isinstance(visible_inputs, dict) and isinstance(visible_inputs.get("seed_gene_ids"), list):
+            gene_count = len({gene_id for gene_id in visible_inputs["seed_gene_ids"] if isinstance(gene_id, str)})
+    if gene_count is None:
+        return "unknown"
+    if 5 <= gene_count <= 10:
+        return "small"
+    if 11 <= gene_count <= 15:
+        return "medium"
+    if gene_count >= 16:
+        return "large"
+    return "other"
+
+
+def _final_summary_alignment(
+    summary: dict[str, Any],
+    task_row: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if task_row is None:
+        return None
+    task_type = str(task_row.get("task_type") or summary.get("task_type") or "")
+    final_state = summary.get("final_state")
+    if not isinstance(final_state, dict):
+        return None
+    predicted_gene_ids = _unique_gene_ids_from_state(final_state)
+    relationship_status = str(final_state.get("relationship_status"))
+    hidden_target = task_row.get("hidden_target")
+    if not isinstance(hidden_target, dict):
+        return None
+
+    if task_type == "none":
+        expected_relationship = str(hidden_target.get("relationship_status"))
+        success = (
+            relationship_status == expected_relationship
+            and not predicted_gene_ids
+        )
+        partial = (
+            not success
+            and (
+                relationship_status == expected_relationship
+                or not predicted_gene_ids
+            )
+        )
+        return {
+            "task_type": task_type,
+            "size_bin": _size_bin_for_task(task_row),
+            "difficulty": task_row.get("difficulty"),
+            "evidence_mode": task_row.get("evidence_mode"),
+            "relationship_status": relationship_status,
+            "expected_relationship": expected_relationship,
+            "predicted_gene_count": len(predicted_gene_ids),
+            "task_success": success,
+            "task_success_level": "positive" if success else ("partial" if partial else "negative"),
+            "precision": 1.0 if success else 0.0,
+            "recall": 1.0 if success else 0.0,
+            "jaccard": 1.0 if success else 0.0,
+        }
+
+    target_gene_ids = hidden_target.get("target_gene_ids")
+    if not isinstance(target_gene_ids, list):
+        return None
+    target_gene_ids = [gene_id for gene_id in target_gene_ids if isinstance(gene_id, str)]
+    metrics = _set_metrics(predicted_gene_ids, target_gene_ids)
+    thresholds = POSITIVE_TASK_SUCCESS_THRESHOLDS.get(task_type, {})
+    success = (
+        metrics["recall"] >= thresholds.get("recall", 1.0)
+        and metrics["jaccard"] >= thresholds.get("jaccard", 1.0)
+        and metrics["precision"] >= thresholds.get("precision", 0.0)
+        and relationship_status in {"validated_group", "partially_observed_group"}
+    )
+    partial = (
+        not success
+        and relationship_status in {"validated_group", "partially_observed_group"}
+        and (metrics["recall"] >= 0.60 or metrics["jaccard"] >= 0.60)
+    )
+    if task_type == "refinement" and partial and metrics["precision"] < 0.60:
+        partial = False
+    return {
+        "task_type": task_type,
+        "size_bin": _size_bin_for_task(task_row),
+        "difficulty": task_row.get("difficulty"),
+        "evidence_mode": task_row.get("evidence_mode"),
+        "relationship_status": relationship_status,
+        "predicted_gene_count": int(metrics["predicted_gene_count"]),
+        "target_gene_count": int(metrics["target_gene_count"]),
+        "overlap_count": int(metrics["overlap_count"]),
+        "precision": metrics["precision"],
+        "recall": metrics["recall"],
+        "jaccard": metrics["jaccard"],
+        "task_success": success,
+        "task_success_level": "positive" if success else ("partial" if partial else "negative"),
+    }
+
+
+def _mean(values: list[float]) -> float | None:
+    return sum(values) / len(values) if values else None
 
 
 def _run_git(args: list[str]) -> str | None:
@@ -554,18 +745,35 @@ def _audit_turns(rows: list[dict[str, Any]], report: AuditReport) -> None:
     report.metrics["trajectory_turn_count"] = len(rows)
 
 
-def _audit_final_summaries(rows: list[dict[str, Any]], report: AuditReport, manifest: dict[str, Any] | None) -> None:
+def _audit_final_summaries(
+    rows: list[dict[str, Any]],
+    report: AuditReport,
+    manifest: dict[str, Any] | None,
+    task_index: dict[str, dict[str, Any]],
+    config: AuditConfig,
+) -> None:
     task_type_counts: Counter[str] = Counter()
     evidence_mode_counts: Counter[str] = Counter()
+    difficulty_counts: Counter[str] = Counter()
+    size_bin_counts: Counter[str] = Counter()
+    success_level_counts: Counter[str] = Counter()
+    success_level_by_task: Counter[str] = Counter()
+    success_level_by_bucket: Counter[str] = Counter()
     step_counts: Counter[int] = Counter()
     rewards: list[float] = []
+    precision_values: list[float] = []
+    recall_values: list[float] = []
+    jaccard_values: list[float] = []
     for row_index, row in enumerate(rows, start=1):
         task_type = row.get("task_type")
         evidence_mode = row.get("evidence_mode")
+        difficulty = row.get("difficulty")
         if isinstance(task_type, str):
             task_type_counts[task_type] += 1
         if isinstance(evidence_mode, str):
             evidence_mode_counts[evidence_mode] += 1
+        if isinstance(difficulty, str):
+            difficulty_counts[difficulty] += 1
         step_count = row.get("step_count")
         if isinstance(step_count, int):
             step_counts[step_count] += 1
@@ -576,16 +784,123 @@ def _audit_final_summaries(rows: list[dict[str, Any]], report: AuditReport, mani
                 report.error("summary_missing_score", f"final_summaries row is missing numeric {key}.", artifact="final_summaries.jsonl", row_index=row_index)
         if isinstance(row.get("terminal_reward"), (int, float)):
             rewards.append(float(row["terminal_reward"]))
+        if "task_success_level" not in row:
+            report.warning(
+                "summary_missing_task_success",
+                "final_summaries row was generated before task_success fields were added; audit recomputed alignment.",
+                artifact="final_summaries.jsonl",
+                row_index=row_index,
+            )
+        source_task_id = row.get("source_task_id")
+        task_row = task_index.get(str(source_task_id)) if source_task_id is not None else None
+        alignment = _final_summary_alignment(row, task_row)
+        if alignment is None:
+            continue
+        size_bin = str(alignment.get("size_bin", "unknown"))
+        success_level = str(alignment.get("task_success_level", "unknown"))
+        alignment_task_type = str(alignment.get("task_type", task_type))
+        size_bin_counts[size_bin] += 1
+        success_level_counts[success_level] += 1
+        success_level_by_task[f"{alignment_task_type}/{success_level}"] += 1
+        success_level_by_bucket[
+            f"{size_bin}/{alignment_task_type}/{alignment.get('evidence_mode')}/{alignment.get('difficulty')}/{success_level}"
+        ] += 1
+        for metric_name, target in (
+            ("precision", precision_values),
+            ("recall", recall_values),
+            ("jaccard", jaccard_values),
+        ):
+            metric_value = alignment.get(metric_name)
+            if isinstance(metric_value, (int, float)):
+                target.append(float(metric_value))
 
     expected = (manifest or {}).get("num_trajectories")
     if isinstance(expected, int) and expected != len(rows):
         report.error("summary_count_mismatch", f"manifest num_trajectories={expected} but final_summaries has {len(rows)} rows.", artifact="final_summaries.jsonl")
+
+    none_total = sum(
+        count for key, count in success_level_by_task.items() if key.startswith("none/")
+    )
+    none_positive = success_level_by_task.get("none/positive", 0)
+    explanation_total = sum(
+        count for key, count in success_level_by_task.items() if key.startswith("explanation/")
+    )
+    explanation_positive = success_level_by_task.get("explanation/positive", 0)
+    recovery_refinement_total = sum(
+        count
+        for key, count in success_level_by_task.items()
+        if key.startswith("recovery/") or key.startswith("refinement/")
+    )
+    recovery_refinement_partial_or_positive = sum(
+        count
+        for key, count in success_level_by_task.items()
+        if (
+            key.startswith("recovery/")
+            or key.startswith("refinement/")
+        )
+        and (key.endswith("/positive") or key.endswith("/partial"))
+    )
+    none_success_rate = none_positive / none_total if none_total else None
+    explanation_success_rate = (
+        explanation_positive / explanation_total if explanation_total else None
+    )
+    recovery_refinement_partial_rate = (
+        recovery_refinement_partial_or_positive / recovery_refinement_total
+        if recovery_refinement_total
+        else None
+    )
+
+    if (
+        config.min_none_success_rate is not None
+        and none_success_rate is not None
+        and none_success_rate < config.min_none_success_rate
+    ):
+        report.error(
+            "none_success_rate_low",
+            f"None-task success rate {none_success_rate:.3f} is below {config.min_none_success_rate:.3f}.",
+            artifact="final_summaries.jsonl",
+        )
+    if (
+        config.min_explanation_success_rate is not None
+        and explanation_success_rate is not None
+        and explanation_success_rate < config.min_explanation_success_rate
+    ):
+        report.error(
+            "explanation_success_rate_low",
+            f"Explanation success rate {explanation_success_rate:.3f} is below {config.min_explanation_success_rate:.3f}.",
+            artifact="final_summaries.jsonl",
+        )
+    if (
+        config.min_recovery_refinement_partial_rate is not None
+        and recovery_refinement_partial_rate is not None
+        and recovery_refinement_partial_rate < config.min_recovery_refinement_partial_rate
+    ):
+        report.error(
+            "recovery_refinement_partial_rate_low",
+            (
+                "Recovery/refinement partial-or-better rate "
+                f"{recovery_refinement_partial_rate:.3f} is below "
+                f"{config.min_recovery_refinement_partial_rate:.3f}."
+            ),
+            artifact="final_summaries.jsonl",
+        )
 
     report.metrics.update(
         {
             "final_summary_count": len(rows),
             "final_summary_task_type_counts": _counter_to_sorted_dict(task_type_counts),
             "final_summary_evidence_mode_counts": _counter_to_sorted_dict(evidence_mode_counts),
+            "final_summary_difficulty_counts": _counter_to_sorted_dict(difficulty_counts),
+            "final_summary_size_bin_counts": _counter_to_sorted_dict(size_bin_counts),
+            "task_success_level_counts": _counter_to_sorted_dict(success_level_counts),
+            "task_success_level_counts_by_task": _counter_to_sorted_dict(success_level_by_task),
+            "task_success_level_counts_by_bucket": _counter_to_sorted_dict(success_level_by_bucket),
+            "none_success_rate": none_success_rate,
+            "explanation_success_rate": explanation_success_rate,
+            "recovery_refinement_partial_or_better_rate": recovery_refinement_partial_rate,
+            "terminal_precision_mean": _mean(precision_values),
+            "terminal_recall_mean": _mean(recall_values),
+            "terminal_jaccard_mean": _mean(jaccard_values),
             "step_count_distribution": _counter_to_sorted_dict(step_counts),
             "terminal_reward_min": min(rewards) if rewards else None,
             "terminal_reward_mean": (sum(rewards) / len(rewards)) if rewards else None,
@@ -680,6 +995,7 @@ def _audit_preference_pairs(
             if category in {"tool_supported_improvement", "recovery_expansion", "refinement_precision"}
         )
         mechanism_label_only_pairs = pair_category_counts.get("mechanism_label_only", 0)
+        mechanism_evidence_improvement_pairs = pair_category_counts.get("mechanism_evidence_improvement", 0)
         step0_pairs = decision_step_counts.get(0, 0)
         recovery_expansion_rate = (
             recovery_expansion_pairs / recovery_pairs if recovery_pairs else 0.0
@@ -687,6 +1003,9 @@ def _audit_preference_pairs(
         tool_supported_pair_rate = tool_supported_pairs / total_pairs if total_pairs else 0.0
         mechanism_label_only_pair_rate = (
             mechanism_label_only_pairs / total_pairs if total_pairs else 0.0
+        )
+        mechanism_evidence_improvement_pair_rate = (
+            mechanism_evidence_improvement_pairs / total_pairs if total_pairs else 0.0
         )
         step0_pair_rate = step0_pairs / total_pairs if total_pairs else 0.0
 
@@ -717,6 +1036,19 @@ def _audit_preference_pairs(
                 f"Mechanism-label-only pair rate {mechanism_label_only_pair_rate:.3f} exceeds {config.max_mechanism_label_only_pair_rate:.3f}.",
                 artifact=artifact_name,
             )
+        if (
+            config.max_mechanism_evidence_improvement_pair_rate is not None
+            and mechanism_evidence_improvement_pair_rate > config.max_mechanism_evidence_improvement_pair_rate
+        ):
+            report.error(
+                "mechanism_evidence_improvement_pair_rate_high",
+                (
+                    "Mechanism-evidence-only improvement pair rate "
+                    f"{mechanism_evidence_improvement_pair_rate:.3f} exceeds "
+                    f"{config.max_mechanism_evidence_improvement_pair_rate:.3f}."
+                ),
+                artifact=artifact_name,
+            )
         if config.max_step0_pair_rate is not None and step0_pair_rate > config.max_step0_pair_rate:
             report.error(
                 "step0_pair_rate_high",
@@ -737,6 +1069,7 @@ def _audit_preference_pairs(
                 "recovery_expansion_pair_rate": recovery_expansion_rate,
                 "tool_supported_pair_rate": tool_supported_pair_rate,
                 "mechanism_label_only_pair_rate": mechanism_label_only_pair_rate,
+                "mechanism_evidence_improvement_pair_rate": mechanism_evidence_improvement_pair_rate,
                 "step0_pair_rate": step0_pair_rate,
                 "preference_pair_margin_min": min(margins) if margins else None,
                 "preference_pair_margin_mean": (sum(margins) / len(margins)) if margins else None,
@@ -775,7 +1108,8 @@ def audit_run(run_dir: Path, config: AuditConfig) -> AuditReport:
     _audit_logs(run_dir, report)
     branch_pool_lookup = _audit_branch_pools(rows_by_file["branch_pools.jsonl"], report, config)
     _audit_turns(rows_by_file["trajectory_turns.jsonl"], report)
-    _audit_final_summaries(rows_by_file["final_summaries.jsonl"], report, manifest)
+    task_index = _load_task_index_for_run(report)
+    _audit_final_summaries(rows_by_file["final_summaries.jsonl"], report, manifest, task_index, config)
     raw_pair_steps = _audit_preference_pairs(
         rows_by_file["preference_pairs_raw.jsonl"],
         report,
@@ -852,7 +1186,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-recovery-expansion-pair-rate", type=float, default=None)
     parser.add_argument("--min-tool-supported-pair-rate", type=float, default=None)
     parser.add_argument("--max-mechanism-label-only-pair-rate", type=float, default=None)
+    parser.add_argument("--max-mechanism-evidence-improvement-pair-rate", type=float, default=None)
     parser.add_argument("--max-step0-pair-rate", type=float, default=None)
+    parser.add_argument("--min-none-success-rate", type=float, default=None)
+    parser.add_argument("--min-explanation-success-rate", type=float, default=None)
+    parser.add_argument("--min-recovery-refinement-partial-rate", type=float, default=None)
     parser.add_argument(
         "--dpo-pair-gate",
         action="store_true",
@@ -875,11 +1213,16 @@ def _print_human(report: AuditReport) -> None:
         "preference_pair_count",
         "raw_preference_pair_count",
         "preference_pair_margin_min",
+        "none_success_rate",
+        "explanation_success_rate",
+        "recovery_refinement_partial_or_better_rate",
+        "terminal_jaccard_mean",
         "selected_no_tool_rate",
         "positive_selected_no_tool_rate",
         "recovery_expansion_pair_rate",
         "tool_supported_pair_rate",
         "mechanism_label_only_pair_rate",
+        "mechanism_evidence_improvement_pair_rate",
         "step0_pair_rate",
         "branch_pool_steps_without_raw_pairs",
         "vllm_400_count",
@@ -891,6 +1234,8 @@ def _print_human(report: AuditReport) -> None:
     print(f"  task_type_counts: {report.metrics.get('task_type_counts')}")
     print(f"  evidence_mode_counts: {report.metrics.get('evidence_mode_counts')}")
     print(f"  preference_pair_bins: {report.metrics.get('preference_pair_bins')}")
+    print(f"  final_summary_size_bin_counts: {report.metrics.get('final_summary_size_bin_counts')}")
+    print(f"  task_success_level_counts_by_task: {report.metrics.get('task_success_level_counts_by_task')}")
     print(f"  selected_tool_counts: {report.metrics.get('selected_tool_counts')}")
     print(f"  preference_pair_category_counts: {report.metrics.get('preference_pair_category_counts')}")
     print("Freeze:")
@@ -932,7 +1277,11 @@ def main() -> None:
         min_recovery_expansion_pair_rate=args.min_recovery_expansion_pair_rate,
         min_tool_supported_pair_rate=args.min_tool_supported_pair_rate,
         max_mechanism_label_only_pair_rate=args.max_mechanism_label_only_pair_rate,
+        max_mechanism_evidence_improvement_pair_rate=args.max_mechanism_evidence_improvement_pair_rate,
         max_step0_pair_rate=args.max_step0_pair_rate,
+        min_none_success_rate=args.min_none_success_rate,
+        min_explanation_success_rate=args.min_explanation_success_rate,
+        min_recovery_refinement_partial_rate=args.min_recovery_refinement_partial_rate,
     )
     report = audit_run(args.run_dir, config)
     if args.json:

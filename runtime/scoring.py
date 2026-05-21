@@ -140,6 +140,33 @@ class TerminalScoringConfig:
 
 DEFAULT_TERMINAL_SCORING_CONFIG = TerminalScoringConfig()
 
+TASK_SUCCESS_THRESHOLDS = {
+    "explanation": {
+        "positive_recall": 0.85,
+        "positive_jaccard": 0.75,
+        "partial_recall": 0.60,
+        "partial_jaccard": 0.50,
+    },
+    "recovery": {
+        "positive_recall": 0.80,
+        "positive_jaccard": 0.80,
+        "partial_recall": 0.60,
+        "partial_jaccard": 0.60,
+    },
+    "refinement": {
+        "positive_recall": 0.80,
+        "positive_jaccard": 0.80,
+        "positive_precision": 0.80,
+        "partial_recall": 0.60,
+        "partial_jaccard": 0.60,
+        "partial_precision": 0.60,
+    },
+    "none": {
+        "positive_relationship": RelationshipStatus.INSUFFICIENT_SUPPORT.value,
+        "positive_predicted_gene_count": 0,
+    },
+}
+
 
 def _fail(message: str) -> None:
     raise SchemaValidationError(message)
@@ -169,6 +196,10 @@ def _safe_divide(numerator: float, denominator: float) -> float:
     if denominator == 0:
         return 0.0
     return numerator / denominator
+
+
+def _safe_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
 def _flatten_predicted_gene_ids(state: StructuredState) -> list[str]:
@@ -257,6 +288,137 @@ def _best_group_match(
     assert best_payload is not None  # pragma: no cover - impossible after non-empty loop
     best_payload.pop("false_positives", None)
     return best_payload
+
+
+def _visible_seed_retention(state: StructuredState, task_row: dict[str, Any]) -> dict[str, Any]:
+    visible_inputs = task_row.get("visible_inputs")
+    seed_gene_ids = []
+    if isinstance(visible_inputs, dict):
+        seed_gene_ids = [
+            str(gene_id)
+            for gene_id in visible_inputs.get("seed_gene_ids", [])
+            if isinstance(gene_id, str) and gene_id
+        ]
+    predicted_gene_ids = set(_flatten_predicted_gene_ids(state))
+    retained = [gene_id for gene_id in seed_gene_ids if gene_id in predicted_gene_ids]
+    return {
+        "seed_gene_count": len(seed_gene_ids),
+        "retained_seed_gene_count": len(retained),
+        "retained_seed_gene_ids": retained,
+        "seed_retention": 1.0 if not seed_gene_ids else len(retained) / len(seed_gene_ids),
+    }
+
+
+def _positive_task_success(
+    *,
+    task_type: TaskType,
+    best_group: dict[str, Any],
+    state: StructuredState,
+    task_row: dict[str, Any],
+) -> dict[str, Any]:
+    metrics = best_group.get("metrics", {})
+    jaccard = float(metrics.get("jaccard") or 0.0)
+    precision = float(metrics.get("precision") or 0.0)
+    recall = float(metrics.get("recall") or 0.0)
+    thresholds = TASK_SUCCESS_THRESHOLDS[task_type.value]
+    failure_reasons: list[str] = []
+
+    if recall < thresholds["positive_recall"]:
+        failure_reasons.append("target_recall_below_positive_threshold")
+    if jaccard < thresholds["positive_jaccard"]:
+        failure_reasons.append("target_jaccard_below_positive_threshold")
+    if task_type == TaskType.REFINEMENT and precision < thresholds["positive_precision"]:
+        failure_reasons.append("target_precision_below_positive_threshold")
+    if task_type == TaskType.EXPLANATION:
+        seed_retention = _visible_seed_retention(state, task_row)
+        if seed_retention["seed_retention"] < thresholds["positive_recall"]:
+            failure_reasons.append("visible_module_genes_were_dropped")
+    else:
+        seed_retention = _visible_seed_retention(state, task_row)
+
+    relationship_ok = state.relationship_status in {
+        RelationshipStatus.VALIDATED_GROUP,
+        RelationshipStatus.PARTIALLY_OBSERVED_GROUP,
+    }
+    if not relationship_ok:
+        failure_reasons.append("relationship_status_not_group")
+
+    positive = not failure_reasons
+    partial = (
+        not positive
+        and relationship_ok
+        and (
+            recall >= thresholds["partial_recall"]
+            or jaccard >= thresholds["partial_jaccard"]
+        )
+    )
+    if task_type == TaskType.REFINEMENT and partial and precision < thresholds["partial_precision"]:
+        partial = False
+    if task_type == TaskType.EXPLANATION and partial and seed_retention["seed_retention"] < thresholds["partial_recall"]:
+        partial = False
+
+    if positive:
+        level = "positive"
+    elif partial:
+        level = "partial"
+    else:
+        level = "negative"
+
+    return {
+        "task_success": positive,
+        "task_success_level": level,
+        "task_quality_failure_reasons": failure_reasons,
+        "thresholds": thresholds,
+        "best_group": best_group,
+        "metrics": {
+            "jaccard": jaccard,
+            "precision": precision,
+            "recall": recall,
+        },
+        "relationship_status": state.relationship_status.value,
+        "seed_retention": seed_retention,
+    }
+
+
+def _none_task_success(
+    *,
+    state: StructuredState,
+    expected_relationship: RelationshipStatus,
+) -> dict[str, Any]:
+    predicted_gene_ids = _flatten_predicted_gene_ids(state)
+    failure_reasons: list[str] = []
+    if state.relationship_status != expected_relationship:
+        failure_reasons.append("relationship_status_not_insufficient_support")
+    if predicted_gene_ids:
+        failure_reasons.append("predicted_genes_not_empty")
+
+    positive = not failure_reasons
+    partial = (
+        not positive
+        and (
+            state.relationship_status == expected_relationship
+            or not predicted_gene_ids
+        )
+    )
+    return {
+        "task_success": positive,
+        "task_success_level": "positive" if positive else ("partial" if partial else "negative"),
+        "task_quality_failure_reasons": failure_reasons,
+        "thresholds": TASK_SUCCESS_THRESHOLDS["none"],
+        "expected_relationship": expected_relationship.value,
+        "relationship_status": state.relationship_status.value,
+        "predicted_gene_count": len(predicted_gene_ids),
+        "predicted_gene_ids": predicted_gene_ids,
+    }
+
+
+def _mechanism_cap_for_task_success(task_success: dict[str, Any]) -> float:
+    level = task_success.get("task_success_level")
+    if level == "positive":
+        return 1.0
+    if level == "partial":
+        return 0.50
+    return 0.15
 
 
 def _canonical_label_targets(mechanism_labels: dict[str, Any] | None) -> dict[str, set[str]]:
@@ -925,6 +1087,10 @@ def score_candidate_branch(
             "none_relationship_weight": config.none_relationship_weight,
             "none_abstention_weight": config.none_abstention_weight,
         }
+        task_success = _none_task_success(
+            state=post_state,
+            expected_relationship=expected_relationship,
+        )
     else:
         target_gene_ids = hidden_target.get("target_gene_ids")
         if not isinstance(target_gene_ids, list) or not target_gene_ids:
@@ -941,6 +1107,12 @@ def score_candidate_branch(
             "precision_weight": weights.precision,
             "recall_weight": weights.recall,
         }
+        task_success = _positive_task_success(
+            task_type=task_type,
+            best_group=complex_metadata["best_group_post"],
+            state=post_state,
+            task_row=task_row,
+        )
 
     canonical_targets = _canonical_label_targets(task_row.get("mechanism_labels"))
     pre_mechanistic = _mechanistic_accuracy(prior_state.mechanistic_labels, canonical_targets)
@@ -964,6 +1136,19 @@ def score_candidate_branch(
     else:
         mechanistic_delta = mechanism_evidence_delta
         mechanism_score_source = "evidence_grounded_unsupervised"
+
+    task_mismatch_penalty = 0.0
+    effective_mechanistic_delta = mechanistic_delta
+    if task_type == TaskType.EXPLANATION:
+        pre_metrics = _safe_dict(_safe_dict(complex_metadata.get("best_group_pre")).get("metrics"))
+        post_metrics = _safe_dict(_safe_dict(complex_metadata.get("best_group_post")).get("metrics"))
+        pre_recall = float(pre_metrics.get("recall") or 0.0)
+        post_recall = float(post_metrics.get("recall") or 0.0)
+        if post_recall + 1e-9 < pre_recall:
+            task_mismatch_penalty = pre_recall - post_recall
+            effective_mechanistic_delta = min(effective_mechanistic_delta, 0.0)
+    elif task_type != TaskType.NONE and task_success["task_success_level"] == "negative" and complex_delta < 0:
+        effective_mechanistic_delta = min(effective_mechanistic_delta, 0.0)
 
     tool_action = branch.actor_step.tool_action
     observation = branch.observation
@@ -1014,8 +1199,9 @@ def score_candidate_branch(
     total_score = (
         config.schema_weight * schema_score
         + config.complex_delta_weight * complex_delta
-        + config.mechanism_delta_weight * mechanistic_delta
+        + config.mechanism_delta_weight * effective_mechanistic_delta
         - config.efficiency_weight * efficiency_penalty
+        - task_mismatch_penalty
     )
 
     score_metadata = {
@@ -1040,7 +1226,10 @@ def score_candidate_branch(
             "mechanism_evidence_pre": pre_mechanism_evidence,
             "mechanism_evidence_post": post_mechanism_evidence,
             "mechanism_evidence_delta": mechanism_evidence_delta,
+            "effective_delta_for_score": effective_mechanistic_delta,
         },
+        "task_success": task_success,
+        "task_mismatch_penalty": task_mismatch_penalty,
         "efficiency": {
             "step_fraction": step_fraction,
             "total_tool_calls": total_tool_calls,
@@ -1135,6 +1324,10 @@ def score_terminal_trajectory(
             "none_relationship_weight": config.local_config.none_relationship_weight,
             "none_abstention_weight": config.local_config.none_abstention_weight,
         }
+        task_success = _none_task_success(
+            state=final_state,
+            expected_relationship=expected_relationship,
+        )
     else:
         target_gene_ids = hidden_target.get("target_gene_ids")
         if not isinstance(target_gene_ids, list) or not target_gene_ids:
@@ -1152,6 +1345,12 @@ def score_terminal_trajectory(
             "precision_weight": weights.precision,
             "recall_weight": weights.recall,
         }
+        task_success = _positive_task_success(
+            task_type=task_type,
+            best_group=final_match,
+            state=final_state,
+            task_row=task_row,
+        )
 
     complex_delta = final_complex_score - initial_complex_score
 
@@ -1179,6 +1378,12 @@ def score_terminal_trajectory(
         final_mechanistic_score = final_mechanism_evidence_score
         mechanism_score_source = "evidence_grounded_unsupervised"
     mechanistic_delta = final_mechanistic_score - initial_mechanistic_score
+    mechanism_cap = _mechanism_cap_for_task_success(task_success)
+    effective_final_mechanistic_score = min(final_mechanistic_score, mechanism_cap)
+    effective_mechanistic_delta = effective_final_mechanistic_score - min(
+        initial_mechanistic_score,
+        mechanism_cap,
+    )
 
     schema_score, schema_metadata = _terminal_schema_score(final_state)
     total_tool_calls = max(0, final_state.total_tool_call_count - initial_state.total_tool_call_count)
@@ -1194,8 +1399,8 @@ def score_terminal_trajectory(
         config.schema_weight * schema_score
         + config.absolute_complex_weight * final_complex_score
         + config.complex_delta_weight * complex_delta
-        + config.absolute_mechanism_weight * final_mechanistic_score
-        + config.mechanism_delta_weight * mechanistic_delta
+        + config.absolute_mechanism_weight * effective_final_mechanistic_score
+        + config.mechanism_delta_weight * effective_mechanistic_delta
         - config.efficiency_weight * efficiency_penalty
     )
 
@@ -1207,12 +1412,19 @@ def score_terminal_trajectory(
         "mechanistic_delta": mechanistic_delta,
         "mechanism_evidence_score": final_mechanism_evidence_score,
         "mechanism_evidence_delta": final_mechanism_evidence_score - initial_mechanism_evidence_score,
+        "effective_absolute_mechanistic_score": effective_final_mechanistic_score,
+        "effective_mechanistic_delta": effective_mechanistic_delta,
+        "mechanism_reward_cap": mechanism_cap,
+        "task_success": task_success["task_success"],
+        "task_success_level": task_success["task_success_level"],
+        "task_quality_failure_reasons": task_success["task_quality_failure_reasons"],
         "efficiency_penalty": efficiency_penalty,
         "terminal_reward": terminal_reward,
         "metadata": {
             "task_type": task_type.value,
             "step_count": step_count,
             "max_steps": max_steps,
+            "task_success": task_success,
             "schema": schema_metadata,
             "complex": complex_metadata,
             "mechanistic": {
@@ -1221,6 +1433,9 @@ def score_terminal_trajectory(
                 "final": final_mechanistic,
                 "mechanism_evidence_initial": initial_mechanism_evidence,
                 "mechanism_evidence_final": final_mechanism_evidence,
+                "effective_final_score_for_reward": effective_final_mechanistic_score,
+                "effective_delta_for_reward": effective_mechanistic_delta,
+                "reward_cap": mechanism_cap,
             },
             "efficiency": {
                 "step_fraction": step_fraction,

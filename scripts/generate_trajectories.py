@@ -324,16 +324,21 @@ TOOL_COVERAGE_DIRECTIVES = {
     },
 }
 PAIR_CATEGORY_PRIORITIES = {
-    "recovery_expansion": 0,
-    "mechanism_evidence_improvement": 1,
-    "unsupported_mechanism_rejected": 2,
-    "calibrated_abstention": 3,
-    "tool_supported_improvement": 4,
-    "refinement_precision": 5,
-    "none_abstention": 6,
-    "score_margin": 7,
-    "mechanism_label_only": 8,
-    "conservative_stop": 9,
+    "task_correctness_improvement": 0,
+    "explanation_preservation": 1,
+    "recovery_expansion": 2,
+    "recovery_recall": 3,
+    "refinement_precision": 4,
+    "refinement_jaccard": 5,
+    "abstention_correct": 6,
+    "calibrated_abstention": 7,
+    "tool_supported_improvement": 8,
+    "mechanism_evidence_improvement": 9,
+    "unsupported_mechanism_rejected": 10,
+    "none_abstention": 11,
+    "score_margin": 12,
+    "mechanism_label_only": 13,
+    "conservative_stop": 14,
 }
 TRAJECTORY_STAGES = (
     ("load_tasks", "Load canonical task rows"),
@@ -369,6 +374,13 @@ Actor rules:
   previous successful tool observation. Do not invent new ENSG ids.
 - Prefer the cheapest action that is most likely to reduce uncertainty.
 - If current visible evidence is already enough, do not call a tool.
+- For explanation tasks, the visible seed set is the module to preserve. Do
+  not replace it with a smaller submodule just because only a subset has
+  stronger annotation evidence; keep the full candidate group and describe any
+  submodule support as partial mechanism evidence or uncertainty.
+- For recovery and refinement tasks, separate the gene-membership decision
+  from the mechanism-labeling decision. A correct or improving gene set may
+  still have an unresolved mechanism.
 - For explanation, recovery, and refinement tasks, a specific biological
   mechanism is not sufficiently grounded by Ensembl IDs or graph membership
   alone. If no annotation, MyGene, or enrichment evidence has been observed,
@@ -448,13 +460,18 @@ Label source meanings:
 
 State update guidance:
 - predicted_gene_ids should contain the best current coherent group.
-- For explanation, the predicted group often matches the visible seed set.
+- For explanation, preserve the full visible seed module in predicted_gene_ids
+  unless the final conclusion is explicit abstention. If evidence supports only
+  a submodule, keep the full module as the predicted group and describe the
+  submodule as partial mechanistic support in the interpretation.
 - For recovery, add genes only when the observation supports them.
   When an RWR observation is available, explicitly evaluate the top non-seed
   candidates before declaring the seed group complete. Add only candidates that
   have credible visible support; otherwise explain why the non-seed candidates
   are too weak and continue if another check could help.
 - For refinement, remove genes that look unsupported or off-module.
+- For recovery and refinement, decide module membership first; mechanism labels
+  should not force an unsupported expansion or pruning decision.
 - For none tasks, prefer "insufficient_support" or "multiple_groups" when one coherent mechanism is not supported.
 - If relationship_status is insufficient_support, an empty predicted_gene_ids list is acceptable.
 - Prefer GO or FCGS labels when visible annotations support them.
@@ -3391,6 +3408,10 @@ def _pair_category(
     )
     chosen_group_delta = int(chosen_features["group_size_delta"])
     rejected_group_delta = int(rejected_features["group_size_delta"])
+    chosen_jaccard = float(chosen_features["post_jaccard"])
+    rejected_jaccard = float(rejected_features["post_jaccard"])
+    chosen_recall = float(chosen_features["post_recall"])
+    rejected_recall = float(rejected_features["post_recall"])
 
     if (
         task_type == "recovery"
@@ -3404,14 +3425,27 @@ def _pair_category(
         and float(chosen_features["precision_delta"]) > float(rejected_features["precision_delta"]) + 1e-9
     ):
         return "refinement_precision"
+    if task_type == "explanation" and (
+        chosen_recall > rejected_recall + 1e-9
+        or chosen_jaccard > rejected_jaccard + 1e-9
+    ):
+        return "explanation_preservation"
+    if task_type == "recovery" and chosen_recall > rejected_recall + 1e-9:
+        return "recovery_recall"
+    if task_type == "refinement" and chosen_jaccard > rejected_jaccard + 1e-9:
+        return "refinement_jaccard"
     if (
         task_type == "none"
         and chosen_branch.verifier_step.updated_state.relationship_status
         == RelationshipStatus.INSUFFICIENT_SUPPORT
     ):
+        if not _branch_predicted_gene_ids(chosen_branch):
+            return "abstention_correct"
         if chosen_branch.local_score.mechanism_evidence_score > rejected_branch.local_score.mechanism_evidence_score + 1e-9:
             return "calibrated_abstention"
         return "none_abstention"
+    if task_type != "none" and complex_diff > 1e-9:
+        return "task_correctness_improvement"
     if mechanism_evidence_diff > 1e-9:
         return "mechanism_evidence_improvement"
     if (
@@ -3506,6 +3540,31 @@ def _preference_difficulty_for_rank(index: int, total: int) -> PreferenceDifficu
     return PreferenceDifficulty.MEDIUM
 
 
+def _pair_is_task_safe(
+    *,
+    task_type: str,
+    context: SharedPrefixContext,
+    chosen_branch: CandidateBranch,
+    rejected_branch: CandidateBranch,
+) -> bool:
+    """Reject pairs where mechanism text improves while task correctness regresses."""
+
+    if task_type == "none":
+        return True
+    chosen_features = _branch_quality_features(chosen_branch, prior_state=context.state)
+    rejected_features = _branch_quality_features(rejected_branch, prior_state=context.state)
+    if float(chosen_features["complex_delta"]) + 1e-9 < float(rejected_features["complex_delta"]):
+        return False
+    for metric_name in ("post_jaccard", "post_recall"):
+        if float(chosen_features[metric_name]) + 1e-9 < float(rejected_features[metric_name]):
+            return False
+    if task_type == "refinement" and (
+        float(chosen_features["post_precision"]) + 1e-9 < float(rejected_features["post_precision"])
+    ):
+        return False
+    return True
+
+
 def _mine_preference_pairs(
     *,
     task_row: dict[str, Any],
@@ -3556,6 +3615,13 @@ def _mine_preference_pairs(
     seen_branch_ids: set[str] = set()
     for difficulty_bin, rejected_branch in difficulty_targets:
         if rejected_branch.branch_id in seen_branch_ids:
+            continue
+        if not _pair_is_task_safe(
+            task_type=str(task_row["task_type"]),
+            context=context,
+            chosen_branch=chosen_branch,
+            rejected_branch=rejected_branch,
+        ):
             continue
         seen_branch_ids.add(rejected_branch.branch_id)
         rejected_normalized = float(rejected_branch.local_score.normalized_score or 0.0)
@@ -4328,6 +4394,18 @@ def _complex_metric_delta(branch: CandidateBranch, metric_name: str) -> float:
     return float(post_value) - float(pre_value)
 
 
+def _complex_metric_value(branch: CandidateBranch, metric_name: str, *, phase: str) -> float:
+    complex_metadata = branch.local_score.score_metadata.get("complex", {})
+    if not isinstance(complex_metadata, dict):
+        return 0.0
+    if phase == "pre":
+        metrics = _safe_dict(_safe_dict(complex_metadata.get("best_group_pre")).get("metrics"))
+    else:
+        metrics = _safe_dict(_safe_dict(complex_metadata.get("best_group_post")).get("metrics"))
+    value = metrics.get(metric_name, 0.0)
+    return float(value) if isinstance(value, (int, float)) else 0.0
+
+
 def _branch_quality_features(
     branch: CandidateBranch,
     *,
@@ -4351,6 +4429,12 @@ def _branch_quality_features(
         "recall_delta": _complex_metric_delta(branch, "recall"),
         "precision_delta": _complex_metric_delta(branch, "precision"),
         "jaccard_delta": _complex_metric_delta(branch, "jaccard"),
+        "post_recall": _complex_metric_value(branch, "recall", phase="post"),
+        "post_precision": _complex_metric_value(branch, "precision", phase="post"),
+        "post_jaccard": _complex_metric_value(branch, "jaccard", phase="post"),
+        "task_success_level": branch.local_score.score_metadata.get("task_success", {}).get(
+            "task_success_level"
+        ),
         "relationship_status": relationship_status,
         "continuation_state": branch.verifier_step.updated_state.continuation_state.value,
     }
@@ -4458,11 +4542,15 @@ def _branch_task_quality_tuple(
         )
     else:
         quality = (
+            complex_delta,
+            recall_delta,
+            precision_delta,
+            float(features["jaccard_delta"]),
+            int(status == RelationshipStatus.VALIDATED_GROUP.value),
+            int(features["task_success_level"] == "positive"),
             mechanism_evidence_delta,
             mechanism_evidence_score,
             mechanism_delta,
-            complex_delta,
-            int(status == RelationshipStatus.VALIDATED_GROUP.value),
             successful_tool,
             tool_rank,
             -no_tool,
@@ -5206,6 +5294,25 @@ def generate_trajectories(
                             "terminal_mechanistic_delta_score": terminal_score["mechanistic_delta"],
                             "terminal_mechanism_evidence_score": terminal_score.get("mechanism_evidence_score", 0.0),
                             "terminal_mechanism_evidence_delta_score": terminal_score.get("mechanism_evidence_delta", 0.0),
+                            "terminal_effective_mechanistic_score": terminal_score.get(
+                                "effective_absolute_mechanistic_score",
+                                terminal_score.get("absolute_mechanistic_score", 0.0),
+                            ),
+                            "terminal_effective_mechanistic_delta_score": terminal_score.get(
+                                "effective_mechanistic_delta",
+                                terminal_score.get("mechanistic_delta", 0.0),
+                            ),
+                            "terminal_mechanism_reward_cap": terminal_score.get("mechanism_reward_cap", 1.0),
+                            "task_success": terminal_score.get("task_success", False),
+                            "task_success_level": terminal_score.get("task_success_level", "unknown"),
+                            "task_quality_failure_reasons": terminal_score.get(
+                                "task_quality_failure_reasons",
+                                [],
+                            ),
+                            "task_success_metadata": terminal_score.get("metadata", {}).get(
+                                "task_success",
+                                {},
+                            ),
                             "terminal_efficiency_penalty": terminal_score["efficiency_penalty"],
                             "terminal_reward": terminal_score["terminal_reward"],
                         },

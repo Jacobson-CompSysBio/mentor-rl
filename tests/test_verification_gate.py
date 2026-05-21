@@ -9,7 +9,11 @@ from runtime.environment import RuntimeEnvironment
 from scripts.audit_trajectory_run import AuditConfig, audit_run
 from scripts.dpo_pair_loader_smoke import smoke_load_pairs
 from scripts.generate_trajectories import TrajectoryGenerationConfig, generate_trajectories
-from scripts.select_verification_tasks import select_pilot_rows, select_smoke_task_ids
+from scripts.select_verification_tasks import (
+    select_pilot_rows,
+    select_smoke_task_ids,
+    size_bin_for_task_row,
+)
 from utils.multiplex import Multiplex
 
 
@@ -103,6 +107,8 @@ class VerificationGateTests(unittest.TestCase):
 
             self.assertTrue(report.ok, [finding.to_dict() for finding in report.findings])
             self.assertEqual(report.metrics["final_summary_count"], 2)
+            self.assertIn("task_success_level_counts_by_task", report.metrics)
+            self.assertIn("terminal_jaccard_mean", report.metrics)
 
     def test_audit_can_downgrade_tie_rate_for_dpo_pair_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -244,6 +250,28 @@ class VerificationGateTests(unittest.TestCase):
 
         self.assertEqual(difficulty_counts, {"easy": 2, "hard": 2, "medium": 2})
         self.assertGreater(len(complex_ids), 1)
+
+    def test_select_verification_tasks_stratifies_by_dendrogram_size_bin(self) -> None:
+        rows = []
+        for size, gene_count in (("small", 6), ("medium", 12), ("large", 20)):
+            for task_type in ("explanation", "recovery"):
+                rows.append(
+                    {
+                        "task_id": f"gw_dendrogram_module_{size}.{task_type}.easy.graph",
+                        "task_type": task_type,
+                        "evidence_mode": "graph",
+                        "difficulty": "easy",
+                        "hidden_target": {
+                            "relationship_status": "validated_group",
+                            "target_gene_ids": [f"ENSG{size}{index}" for index in range(gene_count)],
+                        },
+                    }
+                )
+
+        pilot_rows = select_pilot_rows(rows, pilot_size=6, seed=11)
+
+        self.assertEqual({size_bin_for_task_row(row) for row in pilot_rows}, {"small", "medium", "large"})
+        self.assertEqual(len(pilot_rows), 6)
 
 
 if __name__ == "__main__":
