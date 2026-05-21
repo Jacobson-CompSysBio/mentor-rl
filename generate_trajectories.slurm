@@ -134,6 +134,11 @@ ENRICHMENT_CACHE_PATH="${ENRICHMENT_CACHE_PATH:-${OUT_DIR}/gprofiler_enrichment_
 ENRICHMENT_BACKGROUND_PATH="${ENRICHMENT_BACKGROUND_PATH:-${REPO_ROOT}/data/gw_dendrogram_corpus/modules.jsonl}"
 ALLOW_NETWORK_MYGENE="${ALLOW_NETWORK_MYGENE:-1}"
 ALLOW_NETWORK_ENRICHMENT="${ALLOW_NETWORK_ENRICHMENT:-1}"
+PREFETCH_MECHANISM_CACHE="${PREFETCH_MECHANISM_CACHE:-1}"
+PREFETCH_MYGENE_PER_TASK="${PREFETCH_MYGENE_PER_TASK:-3}"
+PREFETCH_ENRICHMENT_TOP_K="${PREFETCH_ENRICHMENT_TOP_K:-10}"
+PREFETCH_MAX_TASKS="${PREFETCH_MAX_TASKS:-20}"
+REQUIRE_PREFETCH_SUCCESS="${REQUIRE_PREFETCH_SUCCESS:-1}"
 GENERATOR_TIMEOUT_SECONDS="${GENERATOR_TIMEOUT_SECONDS:-3600}"
 RUN_SMOKE_TEST="${RUN_SMOKE_TEST:-1}"
 SMOKE_TEST_ONLY="${SMOKE_TEST_ONLY:-0}"
@@ -196,6 +201,19 @@ ENRICHMENT_BACKGROUND_ARG=()
 if [[ -n "${ENRICHMENT_BACKGROUND_PATH}" ]]; then
   ENRICHMENT_BACKGROUND_ARG=(--enrichment-background-path "${ENRICHMENT_BACKGROUND_PATH}")
 fi
+PREFETCH_MECHANISM_ARG=()
+if [[ "${PREFETCH_MECHANISM_CACHE}" == "1" ]]; then
+  PREFETCH_MECHANISM_ARG=(
+    --prefetch-mechanism-cache
+    --prefetch-mygene-per-task "${PREFETCH_MYGENE_PER_TASK}"
+    --prefetch-enrichment-top-k "${PREFETCH_ENRICHMENT_TOP_K}"
+    --prefetch-max-tasks "${PREFETCH_MAX_TASKS}"
+  )
+fi
+REQUIRE_PREFETCH_SUCCESS_ARG=()
+if [[ "${REQUIRE_PREFETCH_SUCCESS}" == "1" ]]; then
+  REQUIRE_PREFETCH_SUCCESS_ARG=(--require-prefetch-success)
+fi
 
 mapfile -t NODE_LIST < <(scontrol show hostnames "${SLURM_JOB_NODELIST}")
 HEAD_NODE="${NODE_LIST[0]}"
@@ -211,11 +229,17 @@ if [[ -z "${HEAD_IP}" ]]; then
   exit 1
 fi
 
-export all_proxy=socks://proxy.ccs.ornl.gov:3128/
-export ftp_proxy=ftp://proxy.ccs.ornl.gov:3128/
-export http_proxy=http://proxy.ccs.ornl.gov:3128/
-export https_proxy=http://proxy.ccs.ornl.gov:3128/
-export no_proxy='localhost,127.0.0.0/8,*.ccs.ornl.gov'
+MENTOR_ALL_PROXY="${MENTOR_ALL_PROXY:-socks://proxy.ccs.ornl.gov:3128/}"
+MENTOR_FTP_PROXY="${MENTOR_FTP_PROXY:-ftp://proxy.ccs.ornl.gov:3128/}"
+MENTOR_HTTP_PROXY="${MENTOR_HTTP_PROXY:-http://proxy.ccs.ornl.gov:3128/}"
+MENTOR_HTTPS_PROXY="${MENTOR_HTTPS_PROXY:-http://proxy.ccs.ornl.gov:3128/}"
+MENTOR_NO_PROXY="${MENTOR_NO_PROXY:-localhost,127.0.0.0/8,${HEAD_IP},${HEAD_NODE},${HEAD_NODE}-hsn0,*.ccs.ornl.gov}"
+
+export all_proxy="${MENTOR_ALL_PROXY}"
+export ftp_proxy="${MENTOR_FTP_PROXY}"
+export http_proxy="${MENTOR_HTTP_PROXY}"
+export https_proxy="${MENTOR_HTTPS_PROXY}"
+export no_proxy="${MENTOR_NO_PROXY}"
 export HF_HOME="${HF_HOME:-${SCRATCH}/hf_cache}"
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
 export HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-1}"
@@ -333,6 +357,11 @@ log "SELECTION_SCORE_EPSILON=${SELECTION_SCORE_EPSILON}"
 log "PAIR_MINING_STRATEGY=${PAIR_MINING_STRATEGY}"
 log "TOOL_COVERAGE_RETRY_COUNT=${TOOL_COVERAGE_RETRY_COUNT}"
 log "RECOVERY_RWR_TOP_K=${RECOVERY_RWR_TOP_K}"
+log "PREFETCH_MECHANISM_CACHE=${PREFETCH_MECHANISM_CACHE}"
+log "PREFETCH_MYGENE_PER_TASK=${PREFETCH_MYGENE_PER_TASK}"
+log "PREFETCH_ENRICHMENT_TOP_K=${PREFETCH_ENRICHMENT_TOP_K}"
+log "PREFETCH_MAX_TASKS=${PREFETCH_MAX_TASKS}"
+log "REQUIRE_PREFETCH_SUCCESS=${REQUIRE_PREFETCH_SUCCESS}"
 log "GENERATOR_TIMEOUT_SECONDS=${GENERATOR_TIMEOUT_SECONDS}"
 log "RUN_SMOKE_TEST=${RUN_SMOKE_TEST}"
 log "SMOKE_TEST_ONLY=${SMOKE_TEST_ONLY}"
@@ -563,6 +592,13 @@ PY
 )"
 log "SERVED_MODEL_ID=${SERVED_MODEL_ID}"
 
+export all_proxy="${MENTOR_ALL_PROXY}"
+export ftp_proxy="${MENTOR_FTP_PROXY}"
+export http_proxy="${MENTOR_HTTP_PROXY}"
+export https_proxy="${MENTOR_HTTPS_PROXY}"
+export no_proxy="${MENTOR_NO_PROXY}"
+log "Restored proxy environment for trajectory annotation APIs; no_proxy=${MENTOR_NO_PROXY}"
+
 RUN_FREEZE_PATH="${OUT_DIR}/run_freeze.json"
 python3 - <<PY
 import json
@@ -658,6 +694,13 @@ payload = {
         "enrichment_background_path": ${ENRICHMENT_BACKGROUND_PATH@Q},
         "allow_network_mygene": ${ALLOW_NETWORK_MYGENE@Q},
         "allow_network_enrichment": ${ALLOW_NETWORK_ENRICHMENT@Q},
+        "prefetch_mechanism_cache": ${PREFETCH_MECHANISM_CACHE@Q},
+        "prefetch_mygene_per_task": ${PREFETCH_MYGENE_PER_TASK@Q},
+        "prefetch_enrichment_top_k": ${PREFETCH_ENRICHMENT_TOP_K@Q},
+        "prefetch_max_tasks": ${PREFETCH_MAX_TASKS@Q},
+        "require_prefetch_success": ${REQUIRE_PREFETCH_SUCCESS@Q},
+        "proxy_env_restored_for_generation": "1",
+        "no_proxy": ${MENTOR_NO_PROXY@Q},
         "generator_timeout_seconds": ${GENERATOR_TIMEOUT_SECONDS@Q},
     },
     "smoke": {
@@ -737,6 +780,8 @@ if [[ "${RUN_SMOKE_TEST}" == "1" ]]; then
           ${MYGENE_NETWORK_ARG[*]@Q} \
           ${ENRICHMENT_NETWORK_ARG[*]@Q} \
           ${ENRICHMENT_BACKGROUND_ARG[*]@Q} \
+          ${PREFETCH_MECHANISM_ARG[*]@Q} \
+          ${REQUIRE_PREFETCH_SUCCESS_ARG[*]@Q} \
           --generator-api-base 'http://${HEAD_IP}:${VLLM_HTTP_PORT}/v1' \
           --generator-model '${SERVED_MODEL_ID}' \
           --generator-api-mode ${GENERATOR_API_MODE} \
@@ -781,6 +826,7 @@ srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
       ${MYGENE_NETWORK_ARG[*]@Q} \
       ${ENRICHMENT_NETWORK_ARG[*]@Q} \
       ${ENRICHMENT_BACKGROUND_ARG[*]@Q} \
+      ${PREFETCH_MECHANISM_ARG[*]@Q} \
       --candidate-source model_vllm \
       --generator-api-base 'http://${HEAD_IP}:${VLLM_HTTP_PORT}/v1' \
       --generator-model '${SERVED_MODEL_ID}' \

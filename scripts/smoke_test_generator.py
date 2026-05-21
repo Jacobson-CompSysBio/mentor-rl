@@ -32,6 +32,7 @@ from scripts.generate_trajectories import (
     _gene_symbol_lookup,
     _load_gene_id_background,
     _normalize_branch_pool,
+    _prefetch_mechanism_evidence_cache,
     _score_branch,
     _select_best_branch,
     _unique,
@@ -154,6 +155,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--enrichment-cache-path", type=Path, default=None)
     parser.add_argument("--allow-network-enrichment", action="store_true")
     parser.add_argument("--enrichment-background-path", type=Path, default=None)
+    parser.add_argument("--prefetch-mechanism-cache", action="store_true")
+    parser.add_argument("--prefetch-mygene-per-task", type=int, default=3)
+    parser.add_argument("--prefetch-enrichment-top-k", type=int, default=10)
+    parser.add_argument("--prefetch-max-tasks", type=int, default=None)
+    parser.add_argument(
+        "--require-prefetch-success",
+        action="store_true",
+        help="Fail the smoke test if annotation/enrichment cache prefetching reports API errors.",
+    )
     parser.add_argument("--generator-api-base", type=str, default=DEFAULT_GENERATOR_API_BASE)
     parser.add_argument(
         "--generator-api-mode",
@@ -200,6 +210,18 @@ def main() -> None:
         environment = _build_environment(args)
     except ValueError as error:
         raise SystemExit(str(error)) from error
+
+    prefetch_report = None
+    if args.prefetch_mechanism_cache:
+        prefetch_report = _prefetch_mechanism_evidence_cache(
+            [task_row],
+            environment,
+            mygene_per_task=args.prefetch_mygene_per_task,
+            enrichment_top_k=args.prefetch_enrichment_top_k,
+        )
+        if args.require_prefetch_success and int(prefetch_report.get("error_count", 0) or 0) > 0:
+            print(json.dumps({"error": "prefetch_failed", "prefetch_report": prefetch_report}, indent=2), file=sys.stderr)
+            raise SystemExit(1)
 
     interpretation, state = initialize_state_from_corum_task(task_row, max_budget=1)
     context = SharedPrefixContext(
@@ -252,6 +274,7 @@ def main() -> None:
                 "model_name": generator.model_name,
                 "actor_candidate_count": len(actor_candidates),
                 "runtime": environment.describe(),
+                "prefetch_report": prefetch_report,
             },
             indent=2,
             sort_keys=True,

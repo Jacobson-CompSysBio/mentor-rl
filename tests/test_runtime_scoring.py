@@ -481,6 +481,29 @@ class RuntimeScoringTests(unittest.TestCase):
 
         self.assertLess(score.mechanism_evidence_score, 0.1)
 
+    def test_positive_no_label_task_does_not_reward_ungrounded_abstention(self) -> None:
+        task = _no_label_explanation_task()
+        interpretation, prior_state = initialize_state_from_corum_task(task, max_budget=4)
+        updated_state = replace_predicted_groups(
+            prior_state,
+            predicted_groups=[],
+            relationship_status=RelationshipStatus.INSUFFICIENT_SUPPORT,
+        )
+        branch = _make_branch(
+            "ungrounded_abstention",
+            Interpretation(
+                mechanistic_claim="No specific mechanism is supported.",
+                main_evidence="Only seed identifiers were visible.",
+                uncertainty="No annotation evidence was observed.",
+                next_subgoal="",
+            ),
+            updated_state,
+        )
+
+        score = score_candidate_branch(task, prior_state, branch, step_index=1, max_steps=6)
+
+        self.assertEqual(score.mechanism_evidence_score, 0.0)
+
     def test_no_label_none_task_rewards_calibrated_abstention_on_empty_enrichment(self) -> None:
         task = _none_task()
         interpretation, prior_state = initialize_state_from_corum_task(task, max_budget=4)

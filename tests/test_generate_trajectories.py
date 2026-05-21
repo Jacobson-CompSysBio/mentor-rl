@@ -28,6 +28,7 @@ from scripts.generate_trajectories import (
     _load_task_rows,
     _normalize_runtime_tool_action,
     _observation_for_verifier_prompt,
+    _prefetch_mechanism_evidence_cache,
     _runtime_tool_parameters,
     _task_shard_bucket,
     _verifier_prompt_payload,
@@ -577,6 +578,46 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertEqual(prompt_payload["payload"]["results"][0]["native"], "GO:0000001")
         self.assertEqual(evidence.provenance["payload"]["results"][0]["name"], "toy process")
         self.assertEqual(evidence.supporting_gene_ids, ["ENSG1", "ENSG2"])
+
+    def test_graph_evidence_record_compacts_large_layer_provenance(self) -> None:
+        observation = ToolObservation(
+            status=ToolObservationStatus.SUCCESS,
+            provenance={
+                "tool_name": "get_neighbors",
+                "queried_layers": [f"layer_{index}" for index in range(100)],
+            },
+            call_id="call_neighbors",
+            payload={
+                "query_gene_id": "ENSG1",
+                "unique_neighbor_count": 2,
+                "unique_neighbors": ["ENSG2", "ENSG3"],
+            },
+        )
+
+        evidence = _build_evidence_record(
+            observation,
+            step_index=0,
+            branch_id="branch",
+            symbol_lookup={},
+        )
+
+        self.assertNotIn("queried_layers", evidence.provenance)
+        self.assertEqual(evidence.provenance["queried_layers_count"], 100)
+        self.assertLessEqual(len(evidence.provenance["queried_layers_sample"]), 20)
+
+    def test_prefetch_mechanism_evidence_cache_runs_annotation_tools(self) -> None:
+        report = _prefetch_mechanism_evidence_cache(
+            [_task_rows()[0]],
+            _build_environment(),
+            mygene_per_task=2,
+            enrichment_top_k=5,
+        )
+
+        self.assertEqual(report["task_count"], 1)
+        self.assertEqual(report["unique_enrichment_queries"], 1)
+        self.assertEqual(report["unique_mygene_queries"], 2)
+        self.assertEqual(report["tool_status_counts"]["enrich_gene_set.empty"], 1)
+        self.assertEqual(report["tool_status_counts"]["query_mygene.empty"], 2)
 
     def test_module_key_sharding_keeps_task_family_blocks_together(self) -> None:
         rows = []

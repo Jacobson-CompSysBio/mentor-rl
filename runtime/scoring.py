@@ -701,6 +701,7 @@ def _mechanism_evidence_quality(
     state: StructuredState,
     *,
     claim_text: str = "",
+    task_type: TaskType | None = None,
 ) -> dict[str, Any]:
     labels = list(state.mechanistic_labels)
     enrichment = _best_enrichment_support(state)
@@ -710,6 +711,10 @@ def _mechanism_evidence_quality(
     evidence_weights = MECHANISM_EVIDENCE_SCORE_WEIGHTS["evidence_strength"]
     claim_weights = MECHANISM_EVIDENCE_SCORE_WEIGHTS["specific_claim"]
     abstention_weights = MECHANISM_EVIDENCE_SCORE_WEIGHTS["abstention"]
+    annotation_evidence_strength = max(
+        enrichment["score"],
+        mygene["score"] * evidence_weights["mygene_scale"],
+    )
     evidence_strength = max(
         enrichment["score"],
         mygene["score"] * evidence_weights["mygene_scale"],
@@ -726,11 +731,14 @@ def _mechanism_evidence_quality(
     abstention = _abstention_score(state, claim_text=claim_text, evidence_strength=evidence_strength)
 
     if abstention["abstains"]:
-        total = (
-            abstention_weights["abstention"] * abstention["score"]
-            + abstention_weights["network_agreement"] * network_score
-            + abstention_weights["grounding"] * grounding["score"]
-        )
+        if task_type is not None and task_type != TaskType.NONE and annotation_evidence_strength <= 0.05:
+            total = 0.0
+        else:
+            total = (
+                abstention_weights["abstention"] * abstention["score"]
+                + abstention_weights["network_agreement"] * network_score
+                + abstention_weights["grounding"] * grounding["score"]
+            )
     else:
         total = (
             claim_weights["grounding"] * grounding["score"]
@@ -757,6 +765,7 @@ def _mechanism_evidence_quality(
         "abstention": abstention,
         "cross_tool_agreement": min(enrichment["score"], mygene["score"]),
         "evidence_strength": evidence_strength,
+        "annotation_evidence_strength": annotation_evidence_strength,
         "weights": MECHANISM_EVIDENCE_SCORE_WEIGHTS,
     }
 
@@ -939,10 +948,12 @@ def score_candidate_branch(
     pre_mechanism_evidence = _mechanism_evidence_quality(
         prior_state,
         claim_text="",
+        task_type=task_type,
     )
     post_mechanism_evidence = _mechanism_evidence_quality(
         post_state,
         claim_text=branch.verifier_step.updated_interpretation.mechanistic_claim,
+        task_type=task_type,
     )
     mechanism_evidence_delta = (
         post_mechanism_evidence["score"] - pre_mechanism_evidence["score"]
@@ -1147,8 +1158,16 @@ def score_terminal_trajectory(
     canonical_targets = _canonical_label_targets(task_row.get("mechanism_labels"))
     initial_mechanistic = _mechanistic_accuracy(initial_state.mechanistic_labels, canonical_targets)
     final_mechanistic = _mechanistic_accuracy(final_state.mechanistic_labels, canonical_targets)
-    initial_mechanism_evidence = _mechanism_evidence_quality(initial_state, claim_text="")
-    final_mechanism_evidence = _mechanism_evidence_quality(final_state, claim_text="")
+    initial_mechanism_evidence = _mechanism_evidence_quality(
+        initial_state,
+        claim_text="",
+        task_type=task_type,
+    )
+    final_mechanism_evidence = _mechanism_evidence_quality(
+        final_state,
+        claim_text="",
+        task_type=task_type,
+    )
     initial_mechanism_evidence_score = float(initial_mechanism_evidence["score"])
     final_mechanism_evidence_score = float(final_mechanism_evidence["score"])
     if _has_canonical_label_targets(canonical_targets):

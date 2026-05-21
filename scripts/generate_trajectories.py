@@ -653,6 +653,14 @@ def _state_payload_for_model_prompt(state: Any) -> dict[str, Any]:
         if not isinstance(record, dict):
             continue
         record["summary"] = _truncate_prompt_text(record.get("summary"), max_chars=280)
+        record["supporting_gene_ids"] = _preview_list(
+            record.get("supporting_gene_ids"),
+            limit=PROMPT_LIST_PREVIEW_LIMIT,
+        )
+        record["supporting_gene_symbols"] = _preview_list(
+            record.get("supporting_gene_symbols"),
+            limit=PROMPT_LIST_PREVIEW_LIMIT,
+        )
         provenance = record.get("provenance")
         if isinstance(provenance, dict):
             record["provenance"] = _compact_provenance_for_prompt(provenance)
@@ -2743,6 +2751,98 @@ def _load_gene_id_background(path: Path | None) -> list[str] | None:
     return gene_ids
 
 
+def _task_seed_gene_ids(task_row: dict[str, Any]) -> list[str]:
+    visible_inputs = task_row.get("visible_inputs")
+    if isinstance(visible_inputs, dict):
+        genes = _safe_list_of_strings(visible_inputs.get("seed_gene_ids"))
+        if genes:
+            return genes
+    hidden_target = task_row.get("hidden_target")
+    if isinstance(hidden_target, dict):
+        return _safe_list_of_strings(hidden_target.get("target_gene_ids"))
+    return []
+
+
+def _prefetch_mechanism_evidence_cache(
+    task_rows: list[dict[str, Any]],
+    environment: RuntimeEnvironment,
+    *,
+    mygene_per_task: int = 3,
+    enrichment_top_k: int = 10,
+) -> dict[str, Any]:
+    """Warm annotation/enrichment caches before model generation starts."""
+
+    status_counts: Counter[str] = Counter()
+    tool_status_counts: Counter[str] = Counter()
+    errors: list[dict[str, Any]] = []
+    seen_enrichment_sets: set[tuple[str, ...]] = set()
+    seen_mygene_queries: set[str] = set()
+
+    for task_index, task_row in enumerate(task_rows):
+        task_id = str(task_row.get("task_id", f"task_{task_index}"))
+        gene_ids = _task_seed_gene_ids(task_row)
+        if not gene_ids:
+            continue
+
+        enrichment_key = tuple(gene_ids)
+        if enrichment_key not in seen_enrichment_sets:
+            seen_enrichment_sets.add(enrichment_key)
+            observation = environment.execute(
+                ToolAction(
+                    tool_name="enrich_gene_set",
+                    arguments={"genes": gene_ids, "top_k": enrichment_top_k},
+                    call_id=f"prefetch.{task_index}.enrich_gene_set",
+                )
+            )
+            status_key = f"enrich_gene_set.{observation.status.value}"
+            status_counts[observation.status.value] += 1
+            tool_status_counts[status_key] += 1
+            if observation.status == ToolObservationStatus.ERROR:
+                errors.append(
+                    {
+                        "task_id": task_id,
+                        "tool_name": "enrich_gene_set",
+                        "error": observation.error,
+                    }
+                )
+
+        for gene_id in gene_ids[: max(0, mygene_per_task)]:
+            if gene_id in seen_mygene_queries:
+                continue
+            seen_mygene_queries.add(gene_id)
+            observation = environment.execute(
+                ToolAction(
+                    tool_name="query_mygene",
+                    arguments={"query": gene_id},
+                    call_id=f"prefetch.{task_index}.query_mygene.{gene_id}",
+                )
+            )
+            status_key = f"query_mygene.{observation.status.value}"
+            status_counts[observation.status.value] += 1
+            tool_status_counts[status_key] += 1
+            if observation.status == ToolObservationStatus.ERROR:
+                errors.append(
+                    {
+                        "task_id": task_id,
+                        "tool_name": "query_mygene",
+                        "query": gene_id,
+                        "error": observation.error,
+                    }
+                )
+
+    return {
+        "task_count": len(task_rows),
+        "unique_enrichment_queries": len(seen_enrichment_sets),
+        "unique_mygene_queries": len(seen_mygene_queries),
+        "status_counts": dict(sorted(status_counts.items())),
+        "tool_status_counts": dict(sorted(tool_status_counts.items())),
+        "error_count": len(errors),
+        "errors_preview": errors[:10],
+        "mygene_cache_size": len(environment.mygene_cache),
+        "enrichment_cache_size": len(environment.enrichment_cache),
+    }
+
+
 def _gene_symbol_lookup(task_row: dict[str, Any]) -> dict[str, str]:
     visible_inputs = task_row["visible_inputs"]
     return {
@@ -2958,15 +3058,13 @@ def _build_evidence_record(
         return None
 
     summary, supporting_gene_ids = _summarize_observation(observation)
+    compact_provenance = _compact_provenance_for_prompt(observation.provenance)
+    compact_provenance["payload"] = _evidence_payload_for_record(observation)
     return EvidenceRecord(
         evidence_id=f"{branch_id}.evidence",
         source_type=EvidenceSourceType.TOOL_OBSERVATION,
         summary=summary,
-        provenance={
-            "step_index": step_index,
-            **observation.provenance,
-            "payload": _evidence_payload_for_record(observation),
-        },
+        provenance={"step_index": step_index, **compact_provenance},
         supporting_gene_ids=supporting_gene_ids,
         supporting_gene_symbols=[_symbol_for_gene(gene_id, symbol_lookup) for gene_id in supporting_gene_ids],
         tool_call_id=observation.call_id,
@@ -4181,6 +4279,12 @@ def _branch_selection_errors(branch: CandidateBranch) -> list[str]:
         else:
             errors.append("local_score_schema_invalid")
 
+    if branch.actor_step.tool_action is not None:
+        if branch.observation is None:
+            errors.append("missing_tool_observation")
+        elif branch.observation.status in (ToolObservationStatus.INVALID, ToolObservationStatus.ERROR):
+            errors.append(f"tool_observation_status={branch.observation.status.value}")
+
     return _unique(errors)
 
 
@@ -5295,6 +5399,29 @@ def parse_args() -> argparse.Namespace:
         help="Optional gene background file. Supports one gene per line, JSON lists, or JSONL rows with gene_ids.",
     )
     parser.add_argument(
+        "--prefetch-mechanism-cache",
+        action="store_true",
+        help="Warm MyGene and enrichment caches for selected tasks before model generation.",
+    )
+    parser.add_argument(
+        "--prefetch-mygene-per-task",
+        type=int,
+        default=3,
+        help="Number of seed genes per task to prefetch with MyGene when --prefetch-mechanism-cache is set.",
+    )
+    parser.add_argument(
+        "--prefetch-enrichment-top-k",
+        type=int,
+        default=10,
+        help="g:Profiler top_k used during enrichment cache prefetching.",
+    )
+    parser.add_argument(
+        "--prefetch-max-tasks",
+        type=int,
+        default=None,
+        help="Optional cap on the number of selected task rows used for cache prefetching.",
+    )
+    parser.add_argument(
         "--max-tasks",
         type=int,
         default=None,
@@ -5551,6 +5678,16 @@ def main() -> None:
     else:
         raise ValueError("Provide either --store-dir or --multiplex-flist.")
 
+    prefetch_report = None
+    if args.prefetch_mechanism_cache:
+        prefetch_rows = task_rows[: args.prefetch_max_tasks] if args.prefetch_max_tasks is not None else task_rows
+        prefetch_report = _prefetch_mechanism_evidence_cache(
+            prefetch_rows,
+            environment,
+            mygene_per_task=args.prefetch_mygene_per_task,
+            enrichment_top_k=args.prefetch_enrichment_top_k,
+        )
+
     task_selection = {
         "tasks_path": str(args.tasks_path),
         "max_tasks": args.max_tasks,
@@ -5565,6 +5702,11 @@ def main() -> None:
         "enrichment_background_gene_count": (
             len(enrichment_background_gene_ids) if enrichment_background_gene_ids is not None else None
         ),
+        "prefetch_mechanism_cache": args.prefetch_mechanism_cache,
+        "prefetch_mygene_per_task": args.prefetch_mygene_per_task,
+        "prefetch_enrichment_top_k": args.prefetch_enrichment_top_k,
+        "prefetch_max_tasks": args.prefetch_max_tasks,
+        "prefetch_report": prefetch_report,
     }
 
     generate_trajectories(

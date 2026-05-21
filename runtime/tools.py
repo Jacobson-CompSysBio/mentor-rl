@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 import hashlib
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -46,6 +48,9 @@ DEFAULT_GPROFILER_ORGANISM = "hsapiens"
 DEFAULT_GPROFILER_SOURCES = ("GO:BP", "GO:MF", "GO:CC", "REAC", "WP", "KEGG", "CORUM")
 DEFAULT_ENRICHMENT_TOP_K = 10
 DEFAULT_ENRICHMENT_USER_THRESHOLD = 0.05
+DEFAULT_MYGENE_TIMEOUT_SECONDS = 45
+DEFAULT_GPROFILER_TIMEOUT_SECONDS = 120
+DEFAULT_ANNOTATION_REQUEST_RETRIES = 3
 
 
 class ToolExecutionError(RuntimeError):
@@ -281,6 +286,35 @@ def _filter_mygene_hit(hit: dict[str, Any], fields: list[str] | None) -> dict[st
     return filtered
 
 
+def _read_json_request(
+    request: urllib.request.Request,
+    *,
+    timeout: int,
+    retries: int = DEFAULT_ANNOTATION_REQUEST_RETRIES,
+) -> dict[str, Any]:
+    """Read a JSON HTTP response with a few retries for flaky annotation APIs."""
+
+    last_error: Exception | None = None
+    for attempt_index in range(max(1, retries)):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ToolExecutionError("Annotation API response must be a JSON object.")
+            return payload
+        except ToolExecutionError:
+            raise
+        except (TimeoutError, urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
+            last_error = exc
+            if attempt_index + 1 >= max(1, retries):
+                break
+            time.sleep(min(2.0 ** attempt_index, 8.0))
+        except json.JSONDecodeError as exc:
+            raise ToolExecutionError(f"Annotation API returned invalid JSON: {exc}") from exc
+
+    raise ToolExecutionError(f"Annotation API request failed after {max(1, retries)} attempts: {last_error}")
+
+
 def _fetch_mygene_hits(query: str, fields: list[str] | None) -> list[dict[str, Any]]:
     request_query = f"ensembl.gene:{query}" if query.startswith("ENSG") and ":" not in query else query
     query_params = {
@@ -290,9 +324,14 @@ def _fetch_mygene_hits(query: str, fields: list[str] | None) -> list[dict[str, A
         "fields": ",".join(fields or DEFAULT_MYGENE_FIELDS),
     }
     url = "https://mygene.info/v3/query?" + urllib.parse.urlencode(query_params)
-    request = urllib.request.Request(url, headers={"Accept": "application/json"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "mentor-rl/1.0",
+        },
+    )
+    payload = _read_json_request(request, timeout=DEFAULT_MYGENE_TIMEOUT_SECONDS)
 
     hits = payload.get("hits", [])
     if not isinstance(hits, list):
@@ -308,7 +347,31 @@ def _stable_payload_hash(payload: dict[str, Any]) -> str:
 def _normalize_sources(sources: list[str] | None) -> list[str]:
     if not sources:
         return list(DEFAULT_GPROFILER_SOURCES)
-    return _unique_preserving_order([str(source) for source in sources if str(source)])
+    aliases = {
+        "GO": ("GO:BP", "GO:MF", "GO:CC"),
+        "GOBP": ("GO:BP",),
+        "GO_BP": ("GO:BP",),
+        "GO:BP": ("GO:BP",),
+        "GOMF": ("GO:MF",),
+        "GO_MF": ("GO:MF",),
+        "GO:MF": ("GO:MF",),
+        "GOCC": ("GO:CC",),
+        "GO_CC": ("GO:CC",),
+        "GO:CC": ("GO:CC",),
+        "REACTOME": ("REAC",),
+        "REAC": ("REAC",),
+        "WIKIPATHWAYS": ("WP",),
+        "WP": ("WP",),
+        "KEGG": ("KEGG",),
+        "CORUM": ("CORUM",),
+    }
+    normalized: list[str] = []
+    for source in sources:
+        source_text = str(source).strip()
+        if not source_text:
+            continue
+        normalized.extend(aliases.get(source_text.upper(), (source_text,)))
+    return _unique_preserving_order(normalized)
 
 
 def _normalize_gprofiler_result(item: dict[str, Any]) -> dict[str, Any]:
@@ -364,8 +427,7 @@ def _fetch_gprofiler_enrichment(
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        response_payload = json.loads(response.read().decode("utf-8"))
+    response_payload = _read_json_request(request, timeout=DEFAULT_GPROFILER_TIMEOUT_SECONDS)
 
     raw_results = response_payload.get("result", [])
     if not isinstance(raw_results, list):
