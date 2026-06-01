@@ -1,0 +1,5 @@
+{
+    "dendrogram": "/lustre/orion/syb111/proj-shared/Personal/smithkp/projects/PASC_2026/full_brain/mentor_protein/PASC_2026_full_brain_protein_clusters_dendrogram.txt",
+    "clusters": "/lustre/orion/syb111/proj-shared/Personal/smithkp/projects/PASC_2026/full_brain/mentor_protein/PASC_2026_full_brain_protein_clusters.tsv",
+    "distance_matrix": "/lustre/orion/syb111/proj-shared/Personal/smithkp/projects/PASC_2026/full_brain/rwr_protein/PASC_2026_full_brain_protein_spearman_dist_matrix.tsv"
+}
