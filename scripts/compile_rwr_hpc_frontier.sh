@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH -A SYB114
 #SBATCH -J compile_rwr_hpc
-#SBATCH -o compile_rwr-%x.o
-#SBATCH -e compile_rwr-%x.e
+#SBATCH -o logs/%x-%j.out
+#SBATCH -e logs/%x-%j.err
 #SBATCH -t 00:15:00
 #SBATCH -p batch
 #SBATCH -N 1
@@ -15,9 +15,21 @@ module load craype-accel-amd-gfx90a
 module load rocm/6.2.4
 export MPICH_GPU_SUPPORT_ENABLED=1
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+if [[ -n "${MENTOR_RL_ROOT:-}" ]]; then
+  REPO_ROOT="$(cd -- "${MENTOR_RL_ROOT}" && pwd)"
+elif [[ -n "${SLURM_SUBMIT_DIR:-}" && -d "${SLURM_SUBMIT_DIR}/external/rwr_hpc" ]]; then
+  REPO_ROOT="$(cd -- "${SLURM_SUBMIT_DIR}" && pwd)"
+else
+  SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+  REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+fi
+
 RWR_DIR="${REPO_ROOT}/external/rwr_hpc"
+if [[ ! -d "${RWR_DIR}" ]]; then
+  echo "Could not find RWR++ source at ${RWR_DIR}" >&2
+  echo "Submit from the mentor-rl repo root or set MENTOR_RL_ROOT." >&2
+  exit 1
+fi
 
 BUILD_DIR="${RWR_DIR}/build_frontier"
 SOURCE_STAGE="${RWR_DIR}/build_frontier_source"
