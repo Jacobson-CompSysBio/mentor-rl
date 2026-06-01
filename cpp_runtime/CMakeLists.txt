@@ -4,19 +4,73 @@ project(mentor_runtime LANGUAGES CXX)
 
 find_package(OpenMP)
 
+set(
+  RWR_HPC_DIR
+  "${CMAKE_CURRENT_SOURCE_DIR}/../external/rwr_hpc"
+  CACHE PATH
+  "Path to external RWR-HPC/RWR++ runtime"
+)
+
+option(MENTOR_USE_RWR_HPC "Build mentor_runtime with RWR-HPC libraries" ON)
+
 add_library(
   mentor_runtime
   SHARED
   src/c_api.cpp
   src/graph_store.cpp
   src/tool_kernels.cpp
+  src/rwr_hpc_adapter.cpp
 )
 
-target_include_directories(mentor_runtime PUBLIC include)
+target_include_directories(
+  mentor_runtime 
+  PUBLIC 
+    include
+)
+
 target_compile_features(mentor_runtime PUBLIC cxx_std_17)
+
 if(OpenMP_CXX_FOUND)
   target_link_libraries(mentor_runtime PUBLIC OpenMP::OpenMP_CXX)
 endif()
+
+if(MENTOR_USE_RWR_HPC)
+  message(STATUS "Using RWR-HPC from ${RWR_HPC_DIR}")
+
+  add_subdirectory("${RWR_HPC_DIR}/libs/utils" "${CMAKE_BINARY_DIR}/rwr_hpc_utils")
+  add_subdirectory("${RWR_HPC_DIR}/libs/timer" "${CMAKE_BINARY_DIR}/rwr_hpc_timer")
+  add_subdirectory("${RWR_HPC_DIR}/libs/parallel" "${CMAKE_BINARY_DIR}/rwr_hpc_parallel")
+  add_subdirectory("${RWR_HPC_DIR}/libs/file_io" "${CMAKE_BINARY_DIR}/rwr_hpc_file_io")
+  add_subdirectory("${RWR_HPC_DIR}/libs/sparse" "${CMAKE_BINARY_DIR}/rwr_hpc_sparse")
+  add_subdirectory("${RWR_HPC_DIR}/libs/network" "${CMAKE_BINARY_DIR}/rwr_hpc_network")
+  add_subdirectory("${RWR_HPC_DIR}/libs/multiplex" "${CMAKE_BINARY_DIR}/rwr_hpc_multiplex")
+  add_subdirectory("${RWR_HPC_DIR}/libs/rank" "${CMAKE_BINARY_DIR}/rwr_hpc_rank")
+  add_subdirectory("${RWR_HPC_DIR}/libs/rwr" "${CMAKE_BINARY_DIR}/rwr_hpc_rwr")
+
+  target_compile_definitions(mentor_runtime PRIVATE MENTOR_USE_RWR_HPC=1)
+
+  target_link_libraries(
+    mentor_runtime
+    PRIVATE
+      sampling
+      normalize
+      sparse
+      sort
+      correlate
+      parallel
+      multiplex
+      timer
+      rank
+      file_io
+      elbow_point
+      split
+      rwr
+      batch_generator
+      stats
+      utils
+      network
+  )
+
 
 set_target_properties(
   mentor_runtime

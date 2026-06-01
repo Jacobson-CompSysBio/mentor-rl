@@ -20,18 +20,24 @@ events:
     names:
       - "uname"
     candidate_directories:
+      - "/opt/rocm-6.3.1/lib/cmake/hip/bin/"
+      - "/opt/rocm-6.3.1/lib/cmake/hip/sbin/"
+      - "/opt/rocm-6.3.1/lib/cmake/hip/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/sbin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/sbin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/opt/rocm-6.3.1/bin/"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/"
       - "/ccs/home/krusepi/.local/bin/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
       - "/sw/sources/hpss/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
@@ -44,7 +50,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/"
       - "/opt/cray/pe/perftools/24.11.0/bin/"
       - "/opt/cray/pe/papi/7.1.0.4/bin/"
-      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/cray/libfabric/2.3.1/bin/"
       - "/opt/clmgr/sbin/"
       - "/opt/clmgr/bin/"
       - "/opt/sgi/sbin/"
@@ -56,22 +62,31 @@ events:
       - "/opt/bin/"
       - "/opt/c3/bin/"
       - "/usr/lib/mit/bin/"
+      - "/usr/lib/mit/sbin/"
       - "/opt/puppetlabs/bin/"
+      - "/usr/diags/scripts/"
+      - "/usr/diags/bin/non-mpi/"
+      - "/usr/diags/bin/nvidia/gpuburn_static/"
       - "/opt/cray/pe/bin/"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
     searched_directories:
+      - "/opt/rocm-6.3.1/lib/cmake/hip/bin/uname"
+      - "/opt/rocm-6.3.1/lib/cmake/hip/sbin/uname"
+      - "/opt/rocm-6.3.1/lib/cmake/hip/uname"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/uname"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/sbin/uname"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/uname"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/uname"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/sbin/uname"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/uname"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/uname"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/uname"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/uname"
+      - "/opt/rocm-6.3.1/bin/uname"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/uname"
       - "/ccs/home/krusepi/.local/bin/uname"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/uname"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/uname"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/uname"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/uname"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/uname"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/uname"
       - "/sw/sources/hpss/bin/uname"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/uname"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/uname"
@@ -84,7 +99,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/uname"
       - "/opt/cray/pe/perftools/24.11.0/bin/uname"
       - "/opt/cray/pe/papi/7.1.0.4/bin/uname"
-      - "/opt/cray/libfabric/1.22.0/bin/uname"
+      - "/opt/cray/libfabric/2.3.1/bin/uname"
       - "/opt/clmgr/sbin/uname"
       - "/opt/clmgr/bin/uname"
       - "/opt/sgi/sbin/uname"
@@ -94,16 +109,19 @@ events:
     found: "/usr/bin/uname"
     search_context:
       ENV{CMAKE_PREFIX_PATH}:
+        - "/opt/rocm-6.3.1/lib/cmake/hip"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
       ENV{PATH}:
-        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
-        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/opt/rocm-6.3.1/bin"
+        - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin"
         - "/ccs/home/krusepi/.local/bin"
-        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
-        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
         - "/sw/sources/hpss/bin"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
@@ -116,29 +134,31 @@ events:
         - "/opt/cray/pe/cce/18.0.1/bin"
         - "/opt/cray/pe/perftools/24.11.0/bin"
         - "/opt/cray/pe/papi/7.1.0.4/bin"
-        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/cray/libfabric/2.3.1/bin"
         - "/opt/clmgr/sbin"
         - "/opt/clmgr/bin"
         - "/opt/sgi/sbin"
         - "/opt/sgi/bin"
         - "/sw/frontier/bin"
-        - "/ccs/home/krusepi/.local/bin"
         - "/usr/local/bin"
         - "/usr/bin"
         - "/bin"
         - "/opt/bin"
         - "/opt/c3/bin"
         - "/usr/lib/mit/bin"
+        - "/usr/lib/mit/sbin"
         - "/opt/puppetlabs/bin"
+        - "/usr/diags/scripts"
+        - "/usr/diags/bin/non-mpi"
+        - "/usr/diags/bin/nvidia/gpuburn_static"
         - "/opt/cray/pe/bin"
-        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
   -
     kind: "message-v1"
     backtrace:
       - "/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/CMakeDetermineSystem.cmake:212 (message)"
       - "CMakeLists.txt:3 (project)"
     message: |
-      The system is: Linux - 6.4.0-150600.23.47_15.0.10-cray_shasta_c - x86_64
+      The system is: Linux - 6.4.0-150700.53.52-default - x86_64
   -
     kind: "find-v1"
     backtrace:
@@ -160,18 +180,24 @@ events:
       - "make"
       - "smake"
     candidate_directories:
+      - "/opt/rocm-6.3.1/lib/cmake/hip/bin/"
+      - "/opt/rocm-6.3.1/lib/cmake/hip/sbin/"
+      - "/opt/rocm-6.3.1/lib/cmake/hip/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/sbin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/sbin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/opt/rocm-6.3.1/bin/"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/"
       - "/ccs/home/krusepi/.local/bin/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
       - "/sw/sources/hpss/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
@@ -184,7 +210,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/"
       - "/opt/cray/pe/perftools/24.11.0/bin/"
       - "/opt/cray/pe/papi/7.1.0.4/bin/"
-      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/cray/libfabric/2.3.1/bin/"
       - "/opt/clmgr/sbin/"
       - "/opt/clmgr/bin/"
       - "/opt/sgi/sbin/"
@@ -196,22 +222,31 @@ events:
       - "/opt/bin/"
       - "/opt/c3/bin/"
       - "/usr/lib/mit/bin/"
+      - "/usr/lib/mit/sbin/"
       - "/opt/puppetlabs/bin/"
+      - "/usr/diags/scripts/"
+      - "/usr/diags/bin/non-mpi/"
+      - "/usr/diags/bin/nvidia/gpuburn_static/"
       - "/opt/cray/pe/bin/"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
     searched_directories:
+      - "/opt/rocm-6.3.1/lib/cmake/hip/bin/gmake"
+      - "/opt/rocm-6.3.1/lib/cmake/hip/sbin/gmake"
+      - "/opt/rocm-6.3.1/lib/cmake/hip/gmake"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/gmake"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/sbin/gmake"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/gmake"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/gmake"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/sbin/gmake"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/gmake"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/gmake"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/gmake"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/gmake"
+      - "/opt/rocm-6.3.1/bin/gmake"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/gmake"
       - "/ccs/home/krusepi/.local/bin/gmake"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/gmake"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/gmake"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/gmake"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/gmake"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/gmake"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/gmake"
       - "/sw/sources/hpss/bin/gmake"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/gmake"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/gmake"
@@ -224,7 +259,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/gmake"
       - "/opt/cray/pe/perftools/24.11.0/bin/gmake"
       - "/opt/cray/pe/papi/7.1.0.4/bin/gmake"
-      - "/opt/cray/libfabric/1.22.0/bin/gmake"
+      - "/opt/cray/libfabric/2.3.1/bin/gmake"
       - "/opt/clmgr/sbin/gmake"
       - "/opt/clmgr/bin/gmake"
       - "/opt/sgi/sbin/gmake"
@@ -234,16 +269,19 @@ events:
     found: "/usr/bin/gmake"
     search_context:
       ENV{CMAKE_PREFIX_PATH}:
+        - "/opt/rocm-6.3.1/lib/cmake/hip"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
       ENV{PATH}:
-        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
-        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/opt/rocm-6.3.1/bin"
+        - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin"
         - "/ccs/home/krusepi/.local/bin"
-        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
-        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
         - "/sw/sources/hpss/bin"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
@@ -256,22 +294,24 @@ events:
         - "/opt/cray/pe/cce/18.0.1/bin"
         - "/opt/cray/pe/perftools/24.11.0/bin"
         - "/opt/cray/pe/papi/7.1.0.4/bin"
-        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/cray/libfabric/2.3.1/bin"
         - "/opt/clmgr/sbin"
         - "/opt/clmgr/bin"
         - "/opt/sgi/sbin"
         - "/opt/sgi/bin"
         - "/sw/frontier/bin"
-        - "/ccs/home/krusepi/.local/bin"
         - "/usr/local/bin"
         - "/usr/bin"
         - "/bin"
         - "/opt/bin"
         - "/opt/c3/bin"
         - "/usr/lib/mit/bin"
+        - "/usr/lib/mit/sbin"
         - "/opt/puppetlabs/bin"
+        - "/usr/diags/scripts"
+        - "/usr/diags/bin/non-mpi"
+        - "/usr/diags/bin/nvidia/gpuburn_static"
         - "/opt/cray/pe/bin"
-        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
   -
     kind: "find-v1"
     backtrace:
@@ -301,18 +341,24 @@ events:
       - "icx"
       - "clang++"
     candidate_directories:
+      - "/opt/rocm-6.3.1/lib/cmake/hip/bin/"
+      - "/opt/rocm-6.3.1/lib/cmake/hip/sbin/"
+      - "/opt/rocm-6.3.1/lib/cmake/hip/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/sbin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/sbin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/opt/rocm-6.3.1/bin/"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/"
       - "/ccs/home/krusepi/.local/bin/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
       - "/sw/sources/hpss/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
@@ -325,7 +371,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/"
       - "/opt/cray/pe/perftools/24.11.0/bin/"
       - "/opt/cray/pe/papi/7.1.0.4/bin/"
-      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/cray/libfabric/2.3.1/bin/"
       - "/opt/clmgr/sbin/"
       - "/opt/clmgr/bin/"
       - "/opt/sgi/sbin/"
@@ -337,22 +383,31 @@ events:
       - "/opt/bin/"
       - "/opt/c3/bin/"
       - "/usr/lib/mit/bin/"
+      - "/usr/lib/mit/sbin/"
       - "/opt/puppetlabs/bin/"
+      - "/usr/diags/scripts/"
+      - "/usr/diags/bin/non-mpi/"
+      - "/usr/diags/bin/nvidia/gpuburn_static/"
       - "/opt/cray/pe/bin/"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
     searched_directories:
+      - "/opt/rocm-6.3.1/lib/cmake/hip/bin/c++"
+      - "/opt/rocm-6.3.1/lib/cmake/hip/sbin/c++"
+      - "/opt/rocm-6.3.1/lib/cmake/hip/c++"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/c++"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/sbin/c++"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/c++"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/c++"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/sbin/c++"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/c++"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/c++"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/c++"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/c++"
+      - "/opt/rocm-6.3.1/bin/c++"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/c++"
       - "/ccs/home/krusepi/.local/bin/c++"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/c++"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/c++"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/c++"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/c++"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/c++"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/c++"
       - "/sw/sources/hpss/bin/c++"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/c++"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/c++"
@@ -365,7 +420,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/c++"
       - "/opt/cray/pe/perftools/24.11.0/bin/c++"
       - "/opt/cray/pe/papi/7.1.0.4/bin/c++"
-      - "/opt/cray/libfabric/1.22.0/bin/c++"
+      - "/opt/cray/libfabric/2.3.1/bin/c++"
       - "/opt/clmgr/sbin/c++"
       - "/opt/clmgr/bin/c++"
       - "/opt/sgi/sbin/c++"
@@ -375,16 +430,19 @@ events:
     found: "/usr/bin/c++"
     search_context:
       ENV{CMAKE_PREFIX_PATH}:
+        - "/opt/rocm-6.3.1/lib/cmake/hip"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
       ENV{PATH}:
-        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
-        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/opt/rocm-6.3.1/bin"
+        - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin"
         - "/ccs/home/krusepi/.local/bin"
-        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
-        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
         - "/sw/sources/hpss/bin"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
@@ -397,22 +455,24 @@ events:
         - "/opt/cray/pe/cce/18.0.1/bin"
         - "/opt/cray/pe/perftools/24.11.0/bin"
         - "/opt/cray/pe/papi/7.1.0.4/bin"
-        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/cray/libfabric/2.3.1/bin"
         - "/opt/clmgr/sbin"
         - "/opt/clmgr/bin"
         - "/opt/sgi/sbin"
         - "/opt/sgi/bin"
         - "/sw/frontier/bin"
-        - "/ccs/home/krusepi/.local/bin"
         - "/usr/local/bin"
         - "/usr/bin"
         - "/bin"
         - "/opt/bin"
         - "/opt/c3/bin"
         - "/usr/lib/mit/bin"
+        - "/usr/lib/mit/sbin"
         - "/opt/puppetlabs/bin"
+        - "/usr/diags/scripts"
+        - "/usr/diags/bin/non-mpi"
+        - "/usr/diags/bin/nvidia/gpuburn_static"
         - "/opt/cray/pe/bin"
-        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
   -
     kind: "find-v1"
     backtrace:
@@ -440,16 +500,19 @@ events:
     found: "/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/CMakeCXXCompilerId.cpp.in"
     search_context:
       ENV{CMAKE_PREFIX_PATH}:
+        - "/opt/rocm-6.3.1/lib/cmake/hip"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
       ENV{PATH}:
-        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
-        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/opt/rocm-6.3.1/bin"
+        - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin"
         - "/ccs/home/krusepi/.local/bin"
-        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
-        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
         - "/sw/sources/hpss/bin"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
@@ -462,22 +525,24 @@ events:
         - "/opt/cray/pe/cce/18.0.1/bin"
         - "/opt/cray/pe/perftools/24.11.0/bin"
         - "/opt/cray/pe/papi/7.1.0.4/bin"
-        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/cray/libfabric/2.3.1/bin"
         - "/opt/clmgr/sbin"
         - "/opt/clmgr/bin"
         - "/opt/sgi/sbin"
         - "/opt/sgi/bin"
         - "/sw/frontier/bin"
-        - "/ccs/home/krusepi/.local/bin"
         - "/usr/local/bin"
         - "/usr/bin"
         - "/bin"
         - "/opt/bin"
         - "/opt/c3/bin"
         - "/usr/lib/mit/bin"
+        - "/usr/lib/mit/sbin"
         - "/opt/puppetlabs/bin"
+        - "/usr/diags/scripts"
+        - "/usr/diags/bin/non-mpi"
+        - "/usr/diags/bin/nvidia/gpuburn_static"
         - "/opt/cray/pe/bin"
-        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
   -
     kind: "message-v1"
     backtrace:
@@ -521,12 +586,15 @@ events:
       - "ar"
     candidate_directories:
       - "/usr/bin/"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/opt/rocm-6.3.1/bin/"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/"
       - "/ccs/home/krusepi/.local/bin/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
       - "/sw/sources/hpss/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
@@ -539,7 +607,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/"
       - "/opt/cray/pe/perftools/24.11.0/bin/"
       - "/opt/cray/pe/papi/7.1.0.4/bin/"
-      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/cray/libfabric/2.3.1/bin/"
       - "/opt/clmgr/sbin/"
       - "/opt/clmgr/bin/"
       - "/opt/sgi/sbin/"
@@ -550,22 +618,28 @@ events:
       - "/opt/bin/"
       - "/opt/c3/bin/"
       - "/usr/lib/mit/bin/"
+      - "/usr/lib/mit/sbin/"
       - "/opt/puppetlabs/bin/"
+      - "/usr/diags/scripts/"
+      - "/usr/diags/bin/non-mpi/"
+      - "/usr/diags/bin/nvidia/gpuburn_static/"
       - "/opt/cray/pe/bin/"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
     found: "/usr/bin/ar"
     search_context:
       ENV{CMAKE_PREFIX_PATH}:
+        - "/opt/rocm-6.3.1/lib/cmake/hip"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
       ENV{PATH}:
-        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
-        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/opt/rocm-6.3.1/bin"
+        - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin"
         - "/ccs/home/krusepi/.local/bin"
-        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
-        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
         - "/sw/sources/hpss/bin"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
@@ -578,22 +652,24 @@ events:
         - "/opt/cray/pe/cce/18.0.1/bin"
         - "/opt/cray/pe/perftools/24.11.0/bin"
         - "/opt/cray/pe/papi/7.1.0.4/bin"
-        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/cray/libfabric/2.3.1/bin"
         - "/opt/clmgr/sbin"
         - "/opt/clmgr/bin"
         - "/opt/sgi/sbin"
         - "/opt/sgi/bin"
         - "/sw/frontier/bin"
-        - "/ccs/home/krusepi/.local/bin"
         - "/usr/local/bin"
         - "/usr/bin"
         - "/bin"
         - "/opt/bin"
         - "/opt/c3/bin"
         - "/usr/lib/mit/bin"
+        - "/usr/lib/mit/sbin"
         - "/opt/puppetlabs/bin"
+        - "/usr/diags/scripts"
+        - "/usr/diags/bin/non-mpi"
+        - "/usr/diags/bin/nvidia/gpuburn_static"
         - "/opt/cray/pe/bin"
-        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
   -
     kind: "find-v1"
     backtrace:
@@ -615,12 +691,15 @@ events:
       - "ranlib"
     candidate_directories:
       - "/usr/bin/"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/opt/rocm-6.3.1/bin/"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/"
       - "/ccs/home/krusepi/.local/bin/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
       - "/sw/sources/hpss/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
@@ -633,7 +712,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/"
       - "/opt/cray/pe/perftools/24.11.0/bin/"
       - "/opt/cray/pe/papi/7.1.0.4/bin/"
-      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/cray/libfabric/2.3.1/bin/"
       - "/opt/clmgr/sbin/"
       - "/opt/clmgr/bin/"
       - "/opt/sgi/sbin/"
@@ -644,22 +723,28 @@ events:
       - "/opt/bin/"
       - "/opt/c3/bin/"
       - "/usr/lib/mit/bin/"
+      - "/usr/lib/mit/sbin/"
       - "/opt/puppetlabs/bin/"
+      - "/usr/diags/scripts/"
+      - "/usr/diags/bin/non-mpi/"
+      - "/usr/diags/bin/nvidia/gpuburn_static/"
       - "/opt/cray/pe/bin/"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
     found: "/usr/bin/ranlib"
     search_context:
       ENV{CMAKE_PREFIX_PATH}:
+        - "/opt/rocm-6.3.1/lib/cmake/hip"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
       ENV{PATH}:
-        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
-        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/opt/rocm-6.3.1/bin"
+        - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin"
         - "/ccs/home/krusepi/.local/bin"
-        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
-        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
         - "/sw/sources/hpss/bin"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
@@ -672,22 +757,24 @@ events:
         - "/opt/cray/pe/cce/18.0.1/bin"
         - "/opt/cray/pe/perftools/24.11.0/bin"
         - "/opt/cray/pe/papi/7.1.0.4/bin"
-        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/cray/libfabric/2.3.1/bin"
         - "/opt/clmgr/sbin"
         - "/opt/clmgr/bin"
         - "/opt/sgi/sbin"
         - "/opt/sgi/bin"
         - "/sw/frontier/bin"
-        - "/ccs/home/krusepi/.local/bin"
         - "/usr/local/bin"
         - "/usr/bin"
         - "/bin"
         - "/opt/bin"
         - "/opt/c3/bin"
         - "/usr/lib/mit/bin"
+        - "/usr/lib/mit/sbin"
         - "/opt/puppetlabs/bin"
+        - "/usr/diags/scripts"
+        - "/usr/diags/bin/non-mpi"
+        - "/usr/diags/bin/nvidia/gpuburn_static"
         - "/opt/cray/pe/bin"
-        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
   -
     kind: "find-v1"
     backtrace:
@@ -709,12 +796,15 @@ events:
       - "strip"
     candidate_directories:
       - "/usr/bin/"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/opt/rocm-6.3.1/bin/"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/"
       - "/ccs/home/krusepi/.local/bin/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
       - "/sw/sources/hpss/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
@@ -727,7 +817,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/"
       - "/opt/cray/pe/perftools/24.11.0/bin/"
       - "/opt/cray/pe/papi/7.1.0.4/bin/"
-      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/cray/libfabric/2.3.1/bin/"
       - "/opt/clmgr/sbin/"
       - "/opt/clmgr/bin/"
       - "/opt/sgi/sbin/"
@@ -738,22 +828,28 @@ events:
       - "/opt/bin/"
       - "/opt/c3/bin/"
       - "/usr/lib/mit/bin/"
+      - "/usr/lib/mit/sbin/"
       - "/opt/puppetlabs/bin/"
+      - "/usr/diags/scripts/"
+      - "/usr/diags/bin/non-mpi/"
+      - "/usr/diags/bin/nvidia/gpuburn_static/"
       - "/opt/cray/pe/bin/"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
     found: "/usr/bin/strip"
     search_context:
       ENV{CMAKE_PREFIX_PATH}:
+        - "/opt/rocm-6.3.1/lib/cmake/hip"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
       ENV{PATH}:
-        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
-        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/opt/rocm-6.3.1/bin"
+        - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin"
         - "/ccs/home/krusepi/.local/bin"
-        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
-        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
         - "/sw/sources/hpss/bin"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
@@ -766,22 +862,24 @@ events:
         - "/opt/cray/pe/cce/18.0.1/bin"
         - "/opt/cray/pe/perftools/24.11.0/bin"
         - "/opt/cray/pe/papi/7.1.0.4/bin"
-        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/cray/libfabric/2.3.1/bin"
         - "/opt/clmgr/sbin"
         - "/opt/clmgr/bin"
         - "/opt/sgi/sbin"
         - "/opt/sgi/bin"
         - "/sw/frontier/bin"
-        - "/ccs/home/krusepi/.local/bin"
         - "/usr/local/bin"
         - "/usr/bin"
         - "/bin"
         - "/opt/bin"
         - "/opt/c3/bin"
         - "/usr/lib/mit/bin"
+        - "/usr/lib/mit/sbin"
         - "/opt/puppetlabs/bin"
+        - "/usr/diags/scripts"
+        - "/usr/diags/bin/non-mpi"
+        - "/usr/diags/bin/nvidia/gpuburn_static"
         - "/opt/cray/pe/bin"
-        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
   -
     kind: "find-v1"
     backtrace:
@@ -803,12 +901,15 @@ events:
       - "ld"
     candidate_directories:
       - "/usr/bin/"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/opt/rocm-6.3.1/bin/"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/"
       - "/ccs/home/krusepi/.local/bin/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
       - "/sw/sources/hpss/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
@@ -821,7 +922,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/"
       - "/opt/cray/pe/perftools/24.11.0/bin/"
       - "/opt/cray/pe/papi/7.1.0.4/bin/"
-      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/cray/libfabric/2.3.1/bin/"
       - "/opt/clmgr/sbin/"
       - "/opt/clmgr/bin/"
       - "/opt/sgi/sbin/"
@@ -832,22 +933,28 @@ events:
       - "/opt/bin/"
       - "/opt/c3/bin/"
       - "/usr/lib/mit/bin/"
+      - "/usr/lib/mit/sbin/"
       - "/opt/puppetlabs/bin/"
+      - "/usr/diags/scripts/"
+      - "/usr/diags/bin/non-mpi/"
+      - "/usr/diags/bin/nvidia/gpuburn_static/"
       - "/opt/cray/pe/bin/"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
     found: "/usr/bin/ld"
     search_context:
       ENV{CMAKE_PREFIX_PATH}:
+        - "/opt/rocm-6.3.1/lib/cmake/hip"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
       ENV{PATH}:
-        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
-        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/opt/rocm-6.3.1/bin"
+        - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin"
         - "/ccs/home/krusepi/.local/bin"
-        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
-        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
         - "/sw/sources/hpss/bin"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
@@ -860,22 +967,24 @@ events:
         - "/opt/cray/pe/cce/18.0.1/bin"
         - "/opt/cray/pe/perftools/24.11.0/bin"
         - "/opt/cray/pe/papi/7.1.0.4/bin"
-        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/cray/libfabric/2.3.1/bin"
         - "/opt/clmgr/sbin"
         - "/opt/clmgr/bin"
         - "/opt/sgi/sbin"
         - "/opt/sgi/bin"
         - "/sw/frontier/bin"
-        - "/ccs/home/krusepi/.local/bin"
         - "/usr/local/bin"
         - "/usr/bin"
         - "/bin"
         - "/opt/bin"
         - "/opt/c3/bin"
         - "/usr/lib/mit/bin"
+        - "/usr/lib/mit/sbin"
         - "/opt/puppetlabs/bin"
+        - "/usr/diags/scripts"
+        - "/usr/diags/bin/non-mpi"
+        - "/usr/diags/bin/nvidia/gpuburn_static"
         - "/opt/cray/pe/bin"
-        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
   -
     kind: "find-v1"
     backtrace:
@@ -897,12 +1006,15 @@ events:
       - "nm"
     candidate_directories:
       - "/usr/bin/"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/opt/rocm-6.3.1/bin/"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/"
       - "/ccs/home/krusepi/.local/bin/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
       - "/sw/sources/hpss/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
@@ -915,7 +1027,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/"
       - "/opt/cray/pe/perftools/24.11.0/bin/"
       - "/opt/cray/pe/papi/7.1.0.4/bin/"
-      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/cray/libfabric/2.3.1/bin/"
       - "/opt/clmgr/sbin/"
       - "/opt/clmgr/bin/"
       - "/opt/sgi/sbin/"
@@ -926,22 +1038,28 @@ events:
       - "/opt/bin/"
       - "/opt/c3/bin/"
       - "/usr/lib/mit/bin/"
+      - "/usr/lib/mit/sbin/"
       - "/opt/puppetlabs/bin/"
+      - "/usr/diags/scripts/"
+      - "/usr/diags/bin/non-mpi/"
+      - "/usr/diags/bin/nvidia/gpuburn_static/"
       - "/opt/cray/pe/bin/"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
     found: "/usr/bin/nm"
     search_context:
       ENV{CMAKE_PREFIX_PATH}:
+        - "/opt/rocm-6.3.1/lib/cmake/hip"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
       ENV{PATH}:
-        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
-        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/opt/rocm-6.3.1/bin"
+        - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin"
         - "/ccs/home/krusepi/.local/bin"
-        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
-        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
         - "/sw/sources/hpss/bin"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
@@ -954,22 +1072,24 @@ events:
         - "/opt/cray/pe/cce/18.0.1/bin"
         - "/opt/cray/pe/perftools/24.11.0/bin"
         - "/opt/cray/pe/papi/7.1.0.4/bin"
-        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/cray/libfabric/2.3.1/bin"
         - "/opt/clmgr/sbin"
         - "/opt/clmgr/bin"
         - "/opt/sgi/sbin"
         - "/opt/sgi/bin"
         - "/sw/frontier/bin"
-        - "/ccs/home/krusepi/.local/bin"
         - "/usr/local/bin"
         - "/usr/bin"
         - "/bin"
         - "/opt/bin"
         - "/opt/c3/bin"
         - "/usr/lib/mit/bin"
+        - "/usr/lib/mit/sbin"
         - "/opt/puppetlabs/bin"
+        - "/usr/diags/scripts"
+        - "/usr/diags/bin/non-mpi"
+        - "/usr/diags/bin/nvidia/gpuburn_static"
         - "/opt/cray/pe/bin"
-        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
   -
     kind: "find-v1"
     backtrace:
@@ -991,12 +1111,15 @@ events:
       - "objdump"
     candidate_directories:
       - "/usr/bin/"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/opt/rocm-6.3.1/bin/"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/"
       - "/ccs/home/krusepi/.local/bin/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
       - "/sw/sources/hpss/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
@@ -1009,7 +1132,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/"
       - "/opt/cray/pe/perftools/24.11.0/bin/"
       - "/opt/cray/pe/papi/7.1.0.4/bin/"
-      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/cray/libfabric/2.3.1/bin/"
       - "/opt/clmgr/sbin/"
       - "/opt/clmgr/bin/"
       - "/opt/sgi/sbin/"
@@ -1020,22 +1143,28 @@ events:
       - "/opt/bin/"
       - "/opt/c3/bin/"
       - "/usr/lib/mit/bin/"
+      - "/usr/lib/mit/sbin/"
       - "/opt/puppetlabs/bin/"
+      - "/usr/diags/scripts/"
+      - "/usr/diags/bin/non-mpi/"
+      - "/usr/diags/bin/nvidia/gpuburn_static/"
       - "/opt/cray/pe/bin/"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
     found: "/usr/bin/objdump"
     search_context:
       ENV{CMAKE_PREFIX_PATH}:
+        - "/opt/rocm-6.3.1/lib/cmake/hip"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
       ENV{PATH}:
-        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
-        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/opt/rocm-6.3.1/bin"
+        - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin"
         - "/ccs/home/krusepi/.local/bin"
-        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
-        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
         - "/sw/sources/hpss/bin"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
@@ -1048,22 +1177,24 @@ events:
         - "/opt/cray/pe/cce/18.0.1/bin"
         - "/opt/cray/pe/perftools/24.11.0/bin"
         - "/opt/cray/pe/papi/7.1.0.4/bin"
-        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/cray/libfabric/2.3.1/bin"
         - "/opt/clmgr/sbin"
         - "/opt/clmgr/bin"
         - "/opt/sgi/sbin"
         - "/opt/sgi/bin"
         - "/sw/frontier/bin"
-        - "/ccs/home/krusepi/.local/bin"
         - "/usr/local/bin"
         - "/usr/bin"
         - "/bin"
         - "/opt/bin"
         - "/opt/c3/bin"
         - "/usr/lib/mit/bin"
+        - "/usr/lib/mit/sbin"
         - "/opt/puppetlabs/bin"
+        - "/usr/diags/scripts"
+        - "/usr/diags/bin/non-mpi"
+        - "/usr/diags/bin/nvidia/gpuburn_static"
         - "/opt/cray/pe/bin"
-        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
   -
     kind: "find-v1"
     backtrace:
@@ -1085,12 +1216,15 @@ events:
       - "objcopy"
     candidate_directories:
       - "/usr/bin/"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/opt/rocm-6.3.1/bin/"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/"
       - "/ccs/home/krusepi/.local/bin/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
       - "/sw/sources/hpss/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
@@ -1103,7 +1237,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/"
       - "/opt/cray/pe/perftools/24.11.0/bin/"
       - "/opt/cray/pe/papi/7.1.0.4/bin/"
-      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/cray/libfabric/2.3.1/bin/"
       - "/opt/clmgr/sbin/"
       - "/opt/clmgr/bin/"
       - "/opt/sgi/sbin/"
@@ -1114,22 +1248,28 @@ events:
       - "/opt/bin/"
       - "/opt/c3/bin/"
       - "/usr/lib/mit/bin/"
+      - "/usr/lib/mit/sbin/"
       - "/opt/puppetlabs/bin/"
+      - "/usr/diags/scripts/"
+      - "/usr/diags/bin/non-mpi/"
+      - "/usr/diags/bin/nvidia/gpuburn_static/"
       - "/opt/cray/pe/bin/"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
     found: "/usr/bin/objcopy"
     search_context:
       ENV{CMAKE_PREFIX_PATH}:
+        - "/opt/rocm-6.3.1/lib/cmake/hip"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
       ENV{PATH}:
-        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
-        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/opt/rocm-6.3.1/bin"
+        - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin"
         - "/ccs/home/krusepi/.local/bin"
-        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
-        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
         - "/sw/sources/hpss/bin"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
@@ -1142,22 +1282,24 @@ events:
         - "/opt/cray/pe/cce/18.0.1/bin"
         - "/opt/cray/pe/perftools/24.11.0/bin"
         - "/opt/cray/pe/papi/7.1.0.4/bin"
-        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/cray/libfabric/2.3.1/bin"
         - "/opt/clmgr/sbin"
         - "/opt/clmgr/bin"
         - "/opt/sgi/sbin"
         - "/opt/sgi/bin"
         - "/sw/frontier/bin"
-        - "/ccs/home/krusepi/.local/bin"
         - "/usr/local/bin"
         - "/usr/bin"
         - "/bin"
         - "/opt/bin"
         - "/opt/c3/bin"
         - "/usr/lib/mit/bin"
+        - "/usr/lib/mit/sbin"
         - "/opt/puppetlabs/bin"
+        - "/usr/diags/scripts"
+        - "/usr/diags/bin/non-mpi"
+        - "/usr/diags/bin/nvidia/gpuburn_static"
         - "/opt/cray/pe/bin"
-        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
   -
     kind: "find-v1"
     backtrace:
@@ -1179,12 +1321,15 @@ events:
       - "readelf"
     candidate_directories:
       - "/usr/bin/"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/opt/rocm-6.3.1/bin/"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/"
       - "/ccs/home/krusepi/.local/bin/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
       - "/sw/sources/hpss/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
@@ -1197,7 +1342,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/"
       - "/opt/cray/pe/perftools/24.11.0/bin/"
       - "/opt/cray/pe/papi/7.1.0.4/bin/"
-      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/cray/libfabric/2.3.1/bin/"
       - "/opt/clmgr/sbin/"
       - "/opt/clmgr/bin/"
       - "/opt/sgi/sbin/"
@@ -1208,22 +1353,28 @@ events:
       - "/opt/bin/"
       - "/opt/c3/bin/"
       - "/usr/lib/mit/bin/"
+      - "/usr/lib/mit/sbin/"
       - "/opt/puppetlabs/bin/"
+      - "/usr/diags/scripts/"
+      - "/usr/diags/bin/non-mpi/"
+      - "/usr/diags/bin/nvidia/gpuburn_static/"
       - "/opt/cray/pe/bin/"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
     found: "/usr/bin/readelf"
     search_context:
       ENV{CMAKE_PREFIX_PATH}:
+        - "/opt/rocm-6.3.1/lib/cmake/hip"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
       ENV{PATH}:
-        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
-        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/opt/rocm-6.3.1/bin"
+        - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin"
         - "/ccs/home/krusepi/.local/bin"
-        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
-        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
         - "/sw/sources/hpss/bin"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
@@ -1236,22 +1387,24 @@ events:
         - "/opt/cray/pe/cce/18.0.1/bin"
         - "/opt/cray/pe/perftools/24.11.0/bin"
         - "/opt/cray/pe/papi/7.1.0.4/bin"
-        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/cray/libfabric/2.3.1/bin"
         - "/opt/clmgr/sbin"
         - "/opt/clmgr/bin"
         - "/opt/sgi/sbin"
         - "/opt/sgi/bin"
         - "/sw/frontier/bin"
-        - "/ccs/home/krusepi/.local/bin"
         - "/usr/local/bin"
         - "/usr/bin"
         - "/bin"
         - "/opt/bin"
         - "/opt/c3/bin"
         - "/usr/lib/mit/bin"
+        - "/usr/lib/mit/sbin"
         - "/opt/puppetlabs/bin"
+        - "/usr/diags/scripts"
+        - "/usr/diags/bin/non-mpi"
+        - "/usr/diags/bin/nvidia/gpuburn_static"
         - "/opt/cray/pe/bin"
-        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
   -
     kind: "find-v1"
     backtrace:
@@ -1273,12 +1426,15 @@ events:
       - "dlltool"
     candidate_directories:
       - "/usr/bin/"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/opt/rocm-6.3.1/bin/"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/"
       - "/ccs/home/krusepi/.local/bin/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
       - "/sw/sources/hpss/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
@@ -1291,7 +1447,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/"
       - "/opt/cray/pe/perftools/24.11.0/bin/"
       - "/opt/cray/pe/papi/7.1.0.4/bin/"
-      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/cray/libfabric/2.3.1/bin/"
       - "/opt/clmgr/sbin/"
       - "/opt/clmgr/bin/"
       - "/opt/sgi/sbin/"
@@ -1302,17 +1458,23 @@ events:
       - "/opt/bin/"
       - "/opt/c3/bin/"
       - "/usr/lib/mit/bin/"
+      - "/usr/lib/mit/sbin/"
       - "/opt/puppetlabs/bin/"
+      - "/usr/diags/scripts/"
+      - "/usr/diags/bin/non-mpi/"
+      - "/usr/diags/bin/nvidia/gpuburn_static/"
       - "/opt/cray/pe/bin/"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
     searched_directories:
       - "/usr/bin/dlltool"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/dlltool"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/dlltool"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/dlltool"
+      - "/opt/rocm-6.3.1/bin/dlltool"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/dlltool"
       - "/ccs/home/krusepi/.local/bin/dlltool"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/dlltool"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/dlltool"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/dlltool"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/dlltool"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/dlltool"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/dlltool"
       - "/sw/sources/hpss/bin/dlltool"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/dlltool"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/dlltool"
@@ -1325,7 +1487,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/dlltool"
       - "/opt/cray/pe/perftools/24.11.0/bin/dlltool"
       - "/opt/cray/pe/papi/7.1.0.4/bin/dlltool"
-      - "/opt/cray/libfabric/1.22.0/bin/dlltool"
+      - "/opt/cray/libfabric/2.3.1/bin/dlltool"
       - "/opt/clmgr/sbin/dlltool"
       - "/opt/clmgr/bin/dlltool"
       - "/opt/sgi/sbin/dlltool"
@@ -1336,22 +1498,28 @@ events:
       - "/opt/bin/dlltool"
       - "/opt/c3/bin/dlltool"
       - "/usr/lib/mit/bin/dlltool"
+      - "/usr/lib/mit/sbin/dlltool"
       - "/opt/puppetlabs/bin/dlltool"
+      - "/usr/diags/scripts/dlltool"
+      - "/usr/diags/bin/non-mpi/dlltool"
+      - "/usr/diags/bin/nvidia/gpuburn_static/dlltool"
       - "/opt/cray/pe/bin/dlltool"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/dlltool"
     found: false
     search_context:
       ENV{CMAKE_PREFIX_PATH}:
+        - "/opt/rocm-6.3.1/lib/cmake/hip"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
       ENV{PATH}:
-        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
-        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/opt/rocm-6.3.1/bin"
+        - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin"
         - "/ccs/home/krusepi/.local/bin"
-        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
-        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
         - "/sw/sources/hpss/bin"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
@@ -1364,22 +1532,24 @@ events:
         - "/opt/cray/pe/cce/18.0.1/bin"
         - "/opt/cray/pe/perftools/24.11.0/bin"
         - "/opt/cray/pe/papi/7.1.0.4/bin"
-        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/cray/libfabric/2.3.1/bin"
         - "/opt/clmgr/sbin"
         - "/opt/clmgr/bin"
         - "/opt/sgi/sbin"
         - "/opt/sgi/bin"
         - "/sw/frontier/bin"
-        - "/ccs/home/krusepi/.local/bin"
         - "/usr/local/bin"
         - "/usr/bin"
         - "/bin"
         - "/opt/bin"
         - "/opt/c3/bin"
         - "/usr/lib/mit/bin"
+        - "/usr/lib/mit/sbin"
         - "/opt/puppetlabs/bin"
+        - "/usr/diags/scripts"
+        - "/usr/diags/bin/non-mpi"
+        - "/usr/diags/bin/nvidia/gpuburn_static"
         - "/opt/cray/pe/bin"
-        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
   -
     kind: "find-v1"
     backtrace:
@@ -1401,12 +1571,15 @@ events:
       - "addr2line"
     candidate_directories:
       - "/usr/bin/"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/opt/rocm-6.3.1/bin/"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/"
       - "/ccs/home/krusepi/.local/bin/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
       - "/sw/sources/hpss/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
@@ -1419,7 +1592,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/"
       - "/opt/cray/pe/perftools/24.11.0/bin/"
       - "/opt/cray/pe/papi/7.1.0.4/bin/"
-      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/cray/libfabric/2.3.1/bin/"
       - "/opt/clmgr/sbin/"
       - "/opt/clmgr/bin/"
       - "/opt/sgi/sbin/"
@@ -1430,22 +1603,28 @@ events:
       - "/opt/bin/"
       - "/opt/c3/bin/"
       - "/usr/lib/mit/bin/"
+      - "/usr/lib/mit/sbin/"
       - "/opt/puppetlabs/bin/"
+      - "/usr/diags/scripts/"
+      - "/usr/diags/bin/non-mpi/"
+      - "/usr/diags/bin/nvidia/gpuburn_static/"
       - "/opt/cray/pe/bin/"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
     found: "/usr/bin/addr2line"
     search_context:
       ENV{CMAKE_PREFIX_PATH}:
+        - "/opt/rocm-6.3.1/lib/cmake/hip"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
       ENV{PATH}:
-        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
-        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/opt/rocm-6.3.1/bin"
+        - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin"
         - "/ccs/home/krusepi/.local/bin"
-        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
-        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
         - "/sw/sources/hpss/bin"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
@@ -1458,22 +1637,24 @@ events:
         - "/opt/cray/pe/cce/18.0.1/bin"
         - "/opt/cray/pe/perftools/24.11.0/bin"
         - "/opt/cray/pe/papi/7.1.0.4/bin"
-        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/cray/libfabric/2.3.1/bin"
         - "/opt/clmgr/sbin"
         - "/opt/clmgr/bin"
         - "/opt/sgi/sbin"
         - "/opt/sgi/bin"
         - "/sw/frontier/bin"
-        - "/ccs/home/krusepi/.local/bin"
         - "/usr/local/bin"
         - "/usr/bin"
         - "/bin"
         - "/opt/bin"
         - "/opt/c3/bin"
         - "/usr/lib/mit/bin"
+        - "/usr/lib/mit/sbin"
         - "/opt/puppetlabs/bin"
+        - "/usr/diags/scripts"
+        - "/usr/diags/bin/non-mpi"
+        - "/usr/diags/bin/nvidia/gpuburn_static"
         - "/opt/cray/pe/bin"
-        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
   -
     kind: "find-v1"
     backtrace:
@@ -1495,12 +1676,15 @@ events:
       - "tapi"
     candidate_directories:
       - "/usr/bin/"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/opt/rocm-6.3.1/bin/"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/"
       - "/ccs/home/krusepi/.local/bin/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
       - "/sw/sources/hpss/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
@@ -1513,7 +1697,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/"
       - "/opt/cray/pe/perftools/24.11.0/bin/"
       - "/opt/cray/pe/papi/7.1.0.4/bin/"
-      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/cray/libfabric/2.3.1/bin/"
       - "/opt/clmgr/sbin/"
       - "/opt/clmgr/bin/"
       - "/opt/sgi/sbin/"
@@ -1524,17 +1708,23 @@ events:
       - "/opt/bin/"
       - "/opt/c3/bin/"
       - "/usr/lib/mit/bin/"
+      - "/usr/lib/mit/sbin/"
       - "/opt/puppetlabs/bin/"
+      - "/usr/diags/scripts/"
+      - "/usr/diags/bin/non-mpi/"
+      - "/usr/diags/bin/nvidia/gpuburn_static/"
       - "/opt/cray/pe/bin/"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
     searched_directories:
       - "/usr/bin/tapi"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/tapi"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/tapi"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/tapi"
+      - "/opt/rocm-6.3.1/bin/tapi"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/tapi"
       - "/ccs/home/krusepi/.local/bin/tapi"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/tapi"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/tapi"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/tapi"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/tapi"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/tapi"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/tapi"
       - "/sw/sources/hpss/bin/tapi"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/tapi"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/tapi"
@@ -1547,7 +1737,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/tapi"
       - "/opt/cray/pe/perftools/24.11.0/bin/tapi"
       - "/opt/cray/pe/papi/7.1.0.4/bin/tapi"
-      - "/opt/cray/libfabric/1.22.0/bin/tapi"
+      - "/opt/cray/libfabric/2.3.1/bin/tapi"
       - "/opt/clmgr/sbin/tapi"
       - "/opt/clmgr/bin/tapi"
       - "/opt/sgi/sbin/tapi"
@@ -1558,22 +1748,28 @@ events:
       - "/opt/bin/tapi"
       - "/opt/c3/bin/tapi"
       - "/usr/lib/mit/bin/tapi"
+      - "/usr/lib/mit/sbin/tapi"
       - "/opt/puppetlabs/bin/tapi"
+      - "/usr/diags/scripts/tapi"
+      - "/usr/diags/bin/non-mpi/tapi"
+      - "/usr/diags/bin/nvidia/gpuburn_static/tapi"
       - "/opt/cray/pe/bin/tapi"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/tapi"
     found: false
     search_context:
       ENV{CMAKE_PREFIX_PATH}:
+        - "/opt/rocm-6.3.1/lib/cmake/hip"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
       ENV{PATH}:
-        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
-        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/opt/rocm-6.3.1/bin"
+        - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin"
         - "/ccs/home/krusepi/.local/bin"
-        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
-        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
         - "/sw/sources/hpss/bin"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
@@ -1586,22 +1782,24 @@ events:
         - "/opt/cray/pe/cce/18.0.1/bin"
         - "/opt/cray/pe/perftools/24.11.0/bin"
         - "/opt/cray/pe/papi/7.1.0.4/bin"
-        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/cray/libfabric/2.3.1/bin"
         - "/opt/clmgr/sbin"
         - "/opt/clmgr/bin"
         - "/opt/sgi/sbin"
         - "/opt/sgi/bin"
         - "/sw/frontier/bin"
-        - "/ccs/home/krusepi/.local/bin"
         - "/usr/local/bin"
         - "/usr/bin"
         - "/bin"
         - "/opt/bin"
         - "/opt/c3/bin"
         - "/usr/lib/mit/bin"
+        - "/usr/lib/mit/sbin"
         - "/opt/puppetlabs/bin"
+        - "/usr/diags/scripts"
+        - "/usr/diags/bin/non-mpi"
+        - "/usr/diags/bin/nvidia/gpuburn_static"
         - "/opt/cray/pe/bin"
-        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
   -
     kind: "find-v1"
     backtrace:
@@ -1626,12 +1824,15 @@ events:
       - "gcc-ar"
     candidate_directories:
       - "/usr/bin/"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/opt/rocm-6.3.1/bin/"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/"
       - "/ccs/home/krusepi/.local/bin/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
       - "/sw/sources/hpss/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
@@ -1644,7 +1845,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/"
       - "/opt/cray/pe/perftools/24.11.0/bin/"
       - "/opt/cray/pe/papi/7.1.0.4/bin/"
-      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/cray/libfabric/2.3.1/bin/"
       - "/opt/clmgr/sbin/"
       - "/opt/clmgr/bin/"
       - "/opt/sgi/sbin/"
@@ -1655,17 +1856,23 @@ events:
       - "/opt/bin/"
       - "/opt/c3/bin/"
       - "/usr/lib/mit/bin/"
+      - "/usr/lib/mit/sbin/"
       - "/opt/puppetlabs/bin/"
+      - "/usr/diags/scripts/"
+      - "/usr/diags/bin/non-mpi/"
+      - "/usr/diags/bin/nvidia/gpuburn_static/"
       - "/opt/cray/pe/bin/"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
     searched_directories:
       - "/usr/bin/gcc-ar-7.5"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/gcc-ar-7.5"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/gcc-ar-7.5"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/gcc-ar-7.5"
+      - "/opt/rocm-6.3.1/bin/gcc-ar-7.5"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/gcc-ar-7.5"
       - "/ccs/home/krusepi/.local/bin/gcc-ar-7.5"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/gcc-ar-7.5"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/gcc-ar-7.5"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/gcc-ar-7.5"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/gcc-ar-7.5"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/gcc-ar-7.5"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/gcc-ar-7.5"
       - "/sw/sources/hpss/bin/gcc-ar-7.5"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/gcc-ar-7.5"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/gcc-ar-7.5"
@@ -1678,7 +1885,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/gcc-ar-7.5"
       - "/opt/cray/pe/perftools/24.11.0/bin/gcc-ar-7.5"
       - "/opt/cray/pe/papi/7.1.0.4/bin/gcc-ar-7.5"
-      - "/opt/cray/libfabric/1.22.0/bin/gcc-ar-7.5"
+      - "/opt/cray/libfabric/2.3.1/bin/gcc-ar-7.5"
       - "/opt/clmgr/sbin/gcc-ar-7.5"
       - "/opt/clmgr/bin/gcc-ar-7.5"
       - "/opt/sgi/sbin/gcc-ar-7.5"
@@ -1689,22 +1896,28 @@ events:
       - "/opt/bin/gcc-ar-7.5"
       - "/opt/c3/bin/gcc-ar-7.5"
       - "/usr/lib/mit/bin/gcc-ar-7.5"
+      - "/usr/lib/mit/sbin/gcc-ar-7.5"
       - "/opt/puppetlabs/bin/gcc-ar-7.5"
+      - "/usr/diags/scripts/gcc-ar-7.5"
+      - "/usr/diags/bin/non-mpi/gcc-ar-7.5"
+      - "/usr/diags/bin/nvidia/gpuburn_static/gcc-ar-7.5"
       - "/opt/cray/pe/bin/gcc-ar-7.5"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/gcc-ar-7.5"
     found: "/usr/bin/gcc-ar-7"
     search_context:
       ENV{CMAKE_PREFIX_PATH}:
+        - "/opt/rocm-6.3.1/lib/cmake/hip"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
       ENV{PATH}:
-        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
-        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/opt/rocm-6.3.1/bin"
+        - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin"
         - "/ccs/home/krusepi/.local/bin"
-        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
-        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
         - "/sw/sources/hpss/bin"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
@@ -1717,22 +1930,24 @@ events:
         - "/opt/cray/pe/cce/18.0.1/bin"
         - "/opt/cray/pe/perftools/24.11.0/bin"
         - "/opt/cray/pe/papi/7.1.0.4/bin"
-        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/cray/libfabric/2.3.1/bin"
         - "/opt/clmgr/sbin"
         - "/opt/clmgr/bin"
         - "/opt/sgi/sbin"
         - "/opt/sgi/bin"
         - "/sw/frontier/bin"
-        - "/ccs/home/krusepi/.local/bin"
         - "/usr/local/bin"
         - "/usr/bin"
         - "/bin"
         - "/opt/bin"
         - "/opt/c3/bin"
         - "/usr/lib/mit/bin"
+        - "/usr/lib/mit/sbin"
         - "/opt/puppetlabs/bin"
+        - "/usr/diags/scripts"
+        - "/usr/diags/bin/non-mpi"
+        - "/usr/diags/bin/nvidia/gpuburn_static"
         - "/opt/cray/pe/bin"
-        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
   -
     kind: "find-v1"
     backtrace:
@@ -1757,12 +1972,15 @@ events:
       - "gcc-ranlib"
     candidate_directories:
       - "/usr/bin/"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/opt/rocm-6.3.1/bin/"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/"
       - "/ccs/home/krusepi/.local/bin/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
       - "/sw/sources/hpss/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
@@ -1775,7 +1993,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/"
       - "/opt/cray/pe/perftools/24.11.0/bin/"
       - "/opt/cray/pe/papi/7.1.0.4/bin/"
-      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/cray/libfabric/2.3.1/bin/"
       - "/opt/clmgr/sbin/"
       - "/opt/clmgr/bin/"
       - "/opt/sgi/sbin/"
@@ -1786,17 +2004,23 @@ events:
       - "/opt/bin/"
       - "/opt/c3/bin/"
       - "/usr/lib/mit/bin/"
+      - "/usr/lib/mit/sbin/"
       - "/opt/puppetlabs/bin/"
+      - "/usr/diags/scripts/"
+      - "/usr/diags/bin/non-mpi/"
+      - "/usr/diags/bin/nvidia/gpuburn_static/"
       - "/opt/cray/pe/bin/"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
     searched_directories:
       - "/usr/bin/gcc-ranlib-7.5"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/gcc-ranlib-7.5"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/gcc-ranlib-7.5"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/gcc-ranlib-7.5"
+      - "/opt/rocm-6.3.1/bin/gcc-ranlib-7.5"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/gcc-ranlib-7.5"
       - "/ccs/home/krusepi/.local/bin/gcc-ranlib-7.5"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/gcc-ranlib-7.5"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/gcc-ranlib-7.5"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/gcc-ranlib-7.5"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/gcc-ranlib-7.5"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/gcc-ranlib-7.5"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/gcc-ranlib-7.5"
       - "/sw/sources/hpss/bin/gcc-ranlib-7.5"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/gcc-ranlib-7.5"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/gcc-ranlib-7.5"
@@ -1809,7 +2033,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/gcc-ranlib-7.5"
       - "/opt/cray/pe/perftools/24.11.0/bin/gcc-ranlib-7.5"
       - "/opt/cray/pe/papi/7.1.0.4/bin/gcc-ranlib-7.5"
-      - "/opt/cray/libfabric/1.22.0/bin/gcc-ranlib-7.5"
+      - "/opt/cray/libfabric/2.3.1/bin/gcc-ranlib-7.5"
       - "/opt/clmgr/sbin/gcc-ranlib-7.5"
       - "/opt/clmgr/bin/gcc-ranlib-7.5"
       - "/opt/sgi/sbin/gcc-ranlib-7.5"
@@ -1820,22 +2044,28 @@ events:
       - "/opt/bin/gcc-ranlib-7.5"
       - "/opt/c3/bin/gcc-ranlib-7.5"
       - "/usr/lib/mit/bin/gcc-ranlib-7.5"
+      - "/usr/lib/mit/sbin/gcc-ranlib-7.5"
       - "/opt/puppetlabs/bin/gcc-ranlib-7.5"
+      - "/usr/diags/scripts/gcc-ranlib-7.5"
+      - "/usr/diags/bin/non-mpi/gcc-ranlib-7.5"
+      - "/usr/diags/bin/nvidia/gpuburn_static/gcc-ranlib-7.5"
       - "/opt/cray/pe/bin/gcc-ranlib-7.5"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/gcc-ranlib-7.5"
     found: "/usr/bin/gcc-ranlib-7"
     search_context:
       ENV{CMAKE_PREFIX_PATH}:
+        - "/opt/rocm-6.3.1/lib/cmake/hip"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
       ENV{PATH}:
-        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
-        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/opt/rocm-6.3.1/bin"
+        - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin"
         - "/ccs/home/krusepi/.local/bin"
-        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
-        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
         - "/sw/sources/hpss/bin"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
@@ -1848,22 +2078,24 @@ events:
         - "/opt/cray/pe/cce/18.0.1/bin"
         - "/opt/cray/pe/perftools/24.11.0/bin"
         - "/opt/cray/pe/papi/7.1.0.4/bin"
-        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/cray/libfabric/2.3.1/bin"
         - "/opt/clmgr/sbin"
         - "/opt/clmgr/bin"
         - "/opt/sgi/sbin"
         - "/opt/sgi/bin"
         - "/sw/frontier/bin"
-        - "/ccs/home/krusepi/.local/bin"
         - "/usr/local/bin"
         - "/usr/bin"
         - "/bin"
         - "/opt/bin"
         - "/opt/c3/bin"
         - "/usr/lib/mit/bin"
+        - "/usr/lib/mit/sbin"
         - "/opt/puppetlabs/bin"
+        - "/usr/diags/scripts"
+        - "/usr/diags/bin/non-mpi"
+        - "/usr/diags/bin/nvidia/gpuburn_static"
         - "/opt/cray/pe/bin"
-        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
   -
     kind: "try_compile-v1"
     backtrace:
@@ -1873,8 +2105,8 @@ events:
     checks:
       - "Detecting CXX compiler ABI info"
     directories:
-      source: "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-1x0xei"
-      binary: "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-1x0xei"
+      source: "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-oQnZ2L"
+      binary: "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-oQnZ2L"
     cmakeVariables:
       CMAKE_CXX_FLAGS: ""
       CMAKE_CXX_FLAGS_DEBUG: "-g"
@@ -1884,13 +2116,13 @@ events:
       variable: "CMAKE_CXX_ABI_COMPILED"
       cached: true
       stdout: |
-        Change Dir: '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-1x0xei'
+        Change Dir: '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-oQnZ2L'
         
-        Run Build Command(s): /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_83dbe/fast
-        /usr/bin/gmake  -f CMakeFiles/cmTC_83dbe.dir/build.make CMakeFiles/cmTC_83dbe.dir/build
-        gmake[1]: Entering directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-1x0xei'
-        Building CXX object CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o
-        /usr/bin/c++   -v -o CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o -c /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/CMakeCXXCompilerABI.cpp
+        Run Build Command(s): /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_d3229/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_d3229.dir/build.make CMakeFiles/cmTC_d3229.dir/build
+        gmake[1]: Entering directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-oQnZ2L'
+        Building CXX object CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o
+        /usr/bin/c++   -v -o CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o -c /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/CMakeCXXCompilerABI.cpp
         Using built-in specs.
         COLLECT_GCC=/usr/bin/c++
         OFFLOAD_TARGET_NAMES=hsa:nvptx-none
@@ -1898,8 +2130,8 @@ events:
         Configured with: ../configure --prefix=/usr --infodir=/usr/share/info --mandir=/usr/share/man --libdir=/usr/lib64 --libexecdir=/usr/lib64 --enable-languages=c,c++,objc,fortran,obj-c++,ada,go --enable-offload-targets=hsa,nvptx-none, --without-cuda-driver --enable-checking=release --disable-werror --with-gxx-include-dir=/usr/include/c++/7 --enable-ssp --disable-libssp --disable-libvtv --disable-libcc1 --disable-plugin --with-bugurl=https://bugs.opensuse.org/ --with-pkgversion='SUSE Linux' --with-slibdir=/lib64 --with-system-zlib --enable-libstdcxx-allocator=new --disable-libstdcxx-pch --enable-version-specific-runtime-libs --with-gcc-major-version-only --enable-linker-build-id --enable-linux-futex --enable-gnu-indirect-function --program-suffix=-7 --without-system-libunwind --enable-multilib --with-arch-32=x86-64 --with-tune=generic --build=x86_64-suse-linux --host=x86_64-suse-linux
         Thread model: posix
         gcc version 7.5.0 (SUSE Linux) 
-        COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64'
-         /usr/lib64/gcc/x86_64-suse-linux/7/cc1plus -quiet -v -D_GNU_SOURCE /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/CMakeCXXCompilerABI.cpp -quiet -dumpbase CMakeCXXCompilerABI.cpp -mtune=generic -march=x86-64 -auxbase-strip CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o -version -o /tmp/ccC4KZya.s
+        COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64'
+         /usr/lib64/gcc/x86_64-suse-linux/7/cc1plus -quiet -v -D_GNU_SOURCE /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/CMakeCXXCompilerABI.cpp -quiet -dumpbase CMakeCXXCompilerABI.cpp -mtune=generic -march=x86-64 -auxbase-strip CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o -version -o /tmp/ccqPTAPe.s
         GNU C++14 (SUSE Linux) version 7.5.0 (x86_64-suse-linux)
         	compiled by GNU C version 7.5.0, GMP version 6.1.2, MPFR version 4.0.2-p6, MPC version 1.1.0, isl version isl-0.18-GMP
         
@@ -1920,14 +2152,14 @@ events:
         
         GGC heuristics: --param ggc-min-expand=100 --param ggc-min-heapsize=131072
         Compiler executable checksum: 8aa3e93f5ed22c5f5cae2475b2e54dc9
-        COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64'
-         /usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/bin/as -v --64 -o CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o /tmp/ccC4KZya.s
-        GNU assembler version 2.43.1 (x86_64-suse-linux) using BFD version (GNU Binutils; SUSE Linux Enterprise 15) 2.43.1.20241209-150100.7.52
+        COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64'
+         /usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/bin/as -v --64 -o CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o /tmp/ccqPTAPe.s
+        GNU assembler version 2.45.0 (x86_64-suse-linux) using BFD version (GNU Binutils; SUSE Linux Enterprise 15) 2.45.0.20251103-150100757
         COMPILER_PATH=/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/:/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/bin/
         LIBRARY_PATH=/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/:/lib/../lib64/:/usr/lib/../lib64/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../:/lib/:/usr/lib/
-        COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64'
-        Linking CXX executable cmTC_83dbe
-        /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E cmake_link_script CMakeFiles/cmTC_83dbe.dir/link.txt --verbose=1
+        COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64'
+        Linking CXX executable cmTC_d3229
+        /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E cmake_link_script CMakeFiles/cmTC_d3229.dir/link.txt --verbose=1
         Using built-in specs.
         COLLECT_GCC=/usr/bin/c++
         COLLECT_LTO_WRAPPER=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper
@@ -1938,14 +2170,14 @@ events:
         gcc version 7.5.0 (SUSE Linux) 
         COMPILER_PATH=/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/:/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/bin/
         LIBRARY_PATH=/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/:/lib/../lib64/:/usr/lib/../lib64/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../:/lib/:/usr/lib/
-        COLLECT_GCC_OPTIONS='-v' '-o' 'cmTC_83dbe' '-shared-libgcc' '-mtune=generic' '-march=x86-64'
-         /usr/lib64/gcc/x86_64-suse-linux/7/collect2 -plugin /usr/lib64/gcc/x86_64-suse-linux/7/liblto_plugin.so -plugin-opt=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper -plugin-opt=-fresolution=/tmp/ccFHmPFF.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_83dbe /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crt1.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crti.o /usr/lib64/gcc/x86_64-suse-linux/7/crtbegin.o -L/usr/lib64/gcc/x86_64-suse-linux/7 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64 -L/lib/../lib64 -L/usr/lib/../lib64 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib -L/usr/lib64/gcc/x86_64-suse-linux/7/../../.. -v CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib64/gcc/x86_64-suse-linux/7/crtend.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crtn.o
+        COLLECT_GCC_OPTIONS='-v' '-o' 'cmTC_d3229' '-shared-libgcc' '-mtune=generic' '-march=x86-64'
+         /usr/lib64/gcc/x86_64-suse-linux/7/collect2 -plugin /usr/lib64/gcc/x86_64-suse-linux/7/liblto_plugin.so -plugin-opt=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper -plugin-opt=-fresolution=/tmp/ccs6DBSU.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_d3229 /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crt1.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crti.o /usr/lib64/gcc/x86_64-suse-linux/7/crtbegin.o -L/usr/lib64/gcc/x86_64-suse-linux/7 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64 -L/lib/../lib64 -L/usr/lib/../lib64 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib -L/usr/lib64/gcc/x86_64-suse-linux/7/../../.. -v CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib64/gcc/x86_64-suse-linux/7/crtend.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crtn.o
         collect2 version 7.5.0
-        /usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/bin/ld -plugin /usr/lib64/gcc/x86_64-suse-linux/7/liblto_plugin.so -plugin-opt=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper -plugin-opt=-fresolution=/tmp/ccFHmPFF.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_83dbe /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crt1.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crti.o /usr/lib64/gcc/x86_64-suse-linux/7/crtbegin.o -L/usr/lib64/gcc/x86_64-suse-linux/7 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64 -L/lib/../lib64 -L/usr/lib/../lib64 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib -L/usr/lib64/gcc/x86_64-suse-linux/7/../../.. -v CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib64/gcc/x86_64-suse-linux/7/crtend.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crtn.o
-        GNU ld (GNU Binutils; SUSE Linux Enterprise 15) 2.43.1.20241209-150100.7.52
-        COLLECT_GCC_OPTIONS='-v' '-o' 'cmTC_83dbe' '-shared-libgcc' '-mtune=generic' '-march=x86-64'
-        /usr/bin/c++  -v -Wl,-v CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o -o cmTC_83dbe
-        gmake[1]: Leaving directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-1x0xei'
+        /usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/bin/ld -plugin /usr/lib64/gcc/x86_64-suse-linux/7/liblto_plugin.so -plugin-opt=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper -plugin-opt=-fresolution=/tmp/ccs6DBSU.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_d3229 /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crt1.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crti.o /usr/lib64/gcc/x86_64-suse-linux/7/crtbegin.o -L/usr/lib64/gcc/x86_64-suse-linux/7 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64 -L/lib/../lib64 -L/usr/lib/../lib64 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib -L/usr/lib64/gcc/x86_64-suse-linux/7/../../.. -v CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib64/gcc/x86_64-suse-linux/7/crtend.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crtn.o
+        GNU ld (GNU Binutils; SUSE Linux Enterprise 15) 2.45.0.20251103-150100757
+        COLLECT_GCC_OPTIONS='-v' '-o' 'cmTC_d3229' '-shared-libgcc' '-mtune=generic' '-march=x86-64'
+        /usr/bin/c++  -v -Wl,-v CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o -o cmTC_d3229
+        gmake[1]: Leaving directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-oQnZ2L'
         
       exitCode: 0
   -
@@ -1988,13 +2220,13 @@ events:
       Parsed CXX implicit link information:
         link line regex: [^( *|.*[/\\])(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
         linker tool regex: [^[ 	]*(->|")?[ 	]*(([^"]*[/\\])?(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)))("|,| |$)]
-        ignore line: [Change Dir: '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-1x0xei']
+        ignore line: [Change Dir: '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-oQnZ2L']
         ignore line: []
-        ignore line: [Run Build Command(s): /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_83dbe/fast]
-        ignore line: [/usr/bin/gmake  -f CMakeFiles/cmTC_83dbe.dir/build.make CMakeFiles/cmTC_83dbe.dir/build]
-        ignore line: [gmake[1]: Entering directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-1x0xei']
-        ignore line: [Building CXX object CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o]
-        ignore line: [/usr/bin/c++   -v -o CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o -c /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/CMakeCXXCompilerABI.cpp]
+        ignore line: [Run Build Command(s): /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_d3229/fast]
+        ignore line: [/usr/bin/gmake  -f CMakeFiles/cmTC_d3229.dir/build.make CMakeFiles/cmTC_d3229.dir/build]
+        ignore line: [gmake[1]: Entering directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-oQnZ2L']
+        ignore line: [Building CXX object CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o]
+        ignore line: [/usr/bin/c++   -v -o CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o -c /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/CMakeCXXCompilerABI.cpp]
         ignore line: [Using built-in specs.]
         ignore line: [COLLECT_GCC=/usr/bin/c++]
         ignore line: [OFFLOAD_TARGET_NAMES=hsa:nvptx-none]
@@ -2002,8 +2234,8 @@ events:
         ignore line: [Configured with: ../configure --prefix=/usr --infodir=/usr/share/info --mandir=/usr/share/man --libdir=/usr/lib64 --libexecdir=/usr/lib64 --enable-languages=c c++ objc fortran obj-c++ ada go --enable-offload-targets=hsa nvptx-none  --without-cuda-driver --enable-checking=release --disable-werror --with-gxx-include-dir=/usr/include/c++/7 --enable-ssp --disable-libssp --disable-libvtv --disable-libcc1 --disable-plugin --with-bugurl=https://bugs.opensuse.org/ --with-pkgversion='SUSE Linux' --with-slibdir=/lib64 --with-system-zlib --enable-libstdcxx-allocator=new --disable-libstdcxx-pch --enable-version-specific-runtime-libs --with-gcc-major-version-only --enable-linker-build-id --enable-linux-futex --enable-gnu-indirect-function --program-suffix=-7 --without-system-libunwind --enable-multilib --with-arch-32=x86-64 --with-tune=generic --build=x86_64-suse-linux --host=x86_64-suse-linux]
         ignore line: [Thread model: posix]
         ignore line: [gcc version 7.5.0 (SUSE Linux) ]
-        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64']
-        ignore line: [ /usr/lib64/gcc/x86_64-suse-linux/7/cc1plus -quiet -v -D_GNU_SOURCE /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/CMakeCXXCompilerABI.cpp -quiet -dumpbase CMakeCXXCompilerABI.cpp -mtune=generic -march=x86-64 -auxbase-strip CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o -version -o /tmp/ccC4KZya.s]
+        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64']
+        ignore line: [ /usr/lib64/gcc/x86_64-suse-linux/7/cc1plus -quiet -v -D_GNU_SOURCE /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/CMakeCXXCompilerABI.cpp -quiet -dumpbase CMakeCXXCompilerABI.cpp -mtune=generic -march=x86-64 -auxbase-strip CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o -version -o /tmp/ccqPTAPe.s]
         ignore line: [GNU C++14 (SUSE Linux) version 7.5.0 (x86_64-suse-linux)]
         ignore line: [	compiled by GNU C version 7.5.0  GMP version 6.1.2  MPFR version 4.0.2-p6  MPC version 1.1.0  isl version isl-0.18-GMP]
         ignore line: []
@@ -2024,15 +2256,15 @@ events:
         ignore line: []
         ignore line: [GGC heuristics: --param ggc-min-expand=100 --param ggc-min-heapsize=131072]
         ignore line: [Compiler executable checksum: 8aa3e93f5ed22c5f5cae2475b2e54dc9]
-        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64']
-        ignore line: [ /usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/bin/as -v --64 -o CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o /tmp/ccC4KZya.s]
-        ignore line: [GNU assembler version 2.43.1 (x86_64-suse-linux) using BFD version (GNU Binutils]
-        ignore line: [ SUSE Linux Enterprise 15) 2.43.1.20241209-150100.7.52]
+        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64']
+        ignore line: [ /usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/bin/as -v --64 -o CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o /tmp/ccqPTAPe.s]
+        ignore line: [GNU assembler version 2.45.0 (x86_64-suse-linux) using BFD version (GNU Binutils]
+        ignore line: [ SUSE Linux Enterprise 15) 2.45.0.20251103-150100757]
         ignore line: [COMPILER_PATH=/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/:/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/bin/]
         ignore line: [LIBRARY_PATH=/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/:/lib/../lib64/:/usr/lib/../lib64/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../:/lib/:/usr/lib/]
-        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64']
-        ignore line: [Linking CXX executable cmTC_83dbe]
-        ignore line: [/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E cmake_link_script CMakeFiles/cmTC_83dbe.dir/link.txt --verbose=1]
+        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64']
+        ignore line: [Linking CXX executable cmTC_d3229]
+        ignore line: [/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E cmake_link_script CMakeFiles/cmTC_d3229.dir/link.txt --verbose=1]
         ignore line: [Using built-in specs.]
         ignore line: [COLLECT_GCC=/usr/bin/c++]
         ignore line: [COLLECT_LTO_WRAPPER=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper]
@@ -2043,13 +2275,13 @@ events:
         ignore line: [gcc version 7.5.0 (SUSE Linux) ]
         ignore line: [COMPILER_PATH=/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/:/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/bin/]
         ignore line: [LIBRARY_PATH=/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/:/lib/../lib64/:/usr/lib/../lib64/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../:/lib/:/usr/lib/]
-        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'cmTC_83dbe' '-shared-libgcc' '-mtune=generic' '-march=x86-64']
-        link line: [ /usr/lib64/gcc/x86_64-suse-linux/7/collect2 -plugin /usr/lib64/gcc/x86_64-suse-linux/7/liblto_plugin.so -plugin-opt=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper -plugin-opt=-fresolution=/tmp/ccFHmPFF.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_83dbe /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crt1.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crti.o /usr/lib64/gcc/x86_64-suse-linux/7/crtbegin.o -L/usr/lib64/gcc/x86_64-suse-linux/7 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64 -L/lib/../lib64 -L/usr/lib/../lib64 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib -L/usr/lib64/gcc/x86_64-suse-linux/7/../../.. -v CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib64/gcc/x86_64-suse-linux/7/crtend.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crtn.o]
+        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'cmTC_d3229' '-shared-libgcc' '-mtune=generic' '-march=x86-64']
+        link line: [ /usr/lib64/gcc/x86_64-suse-linux/7/collect2 -plugin /usr/lib64/gcc/x86_64-suse-linux/7/liblto_plugin.so -plugin-opt=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper -plugin-opt=-fresolution=/tmp/ccs6DBSU.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_d3229 /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crt1.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crti.o /usr/lib64/gcc/x86_64-suse-linux/7/crtbegin.o -L/usr/lib64/gcc/x86_64-suse-linux/7 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64 -L/lib/../lib64 -L/usr/lib/../lib64 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib -L/usr/lib64/gcc/x86_64-suse-linux/7/../../.. -v CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib64/gcc/x86_64-suse-linux/7/crtend.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crtn.o]
           arg [/usr/lib64/gcc/x86_64-suse-linux/7/collect2] ==> ignore
           arg [-plugin] ==> ignore
           arg [/usr/lib64/gcc/x86_64-suse-linux/7/liblto_plugin.so] ==> ignore
           arg [-plugin-opt=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper] ==> ignore
-          arg [-plugin-opt=-fresolution=/tmp/ccFHmPFF.res] ==> ignore
+          arg [-plugin-opt=-fresolution=/tmp/ccs6DBSU.res] ==> ignore
           arg [-plugin-opt=-pass-through=-lgcc_s] ==> ignore
           arg [-plugin-opt=-pass-through=-lgcc] ==> ignore
           arg [-plugin-opt=-pass-through=-lc] ==> ignore
@@ -2062,7 +2294,7 @@ events:
           arg [-dynamic-linker] ==> ignore
           arg [/lib64/ld-linux-x86-64.so.2] ==> ignore
           arg [-o] ==> ignore
-          arg [cmTC_83dbe] ==> ignore
+          arg [cmTC_d3229] ==> ignore
           arg [/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crt1.o] ==> obj [/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crt1.o]
           arg [/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crti.o] ==> obj [/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crti.o]
           arg [/usr/lib64/gcc/x86_64-suse-linux/7/crtbegin.o] ==> obj [/usr/lib64/gcc/x86_64-suse-linux/7/crtbegin.o]
@@ -2073,7 +2305,7 @@ events:
           arg [-L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib] ==> dir [/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib]
           arg [-L/usr/lib64/gcc/x86_64-suse-linux/7/../../..] ==> dir [/usr/lib64/gcc/x86_64-suse-linux/7/../../..]
           arg [-v] ==> ignore
-          arg [CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o] ==> ignore
+          arg [CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o] ==> ignore
           arg [-lstdc++] ==> lib [stdc++]
           arg [-lm] ==> lib [m]
           arg [-lgcc_s] ==> lib [gcc_s]
@@ -2084,7 +2316,7 @@ events:
           arg [/usr/lib64/gcc/x86_64-suse-linux/7/crtend.o] ==> obj [/usr/lib64/gcc/x86_64-suse-linux/7/crtend.o]
           arg [/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crtn.o] ==> obj [/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crtn.o]
         ignore line: [collect2 version 7.5.0]
-        ignore line: [/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/bin/ld -plugin /usr/lib64/gcc/x86_64-suse-linux/7/liblto_plugin.so -plugin-opt=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper -plugin-opt=-fresolution=/tmp/ccFHmPFF.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_83dbe /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crt1.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crti.o /usr/lib64/gcc/x86_64-suse-linux/7/crtbegin.o -L/usr/lib64/gcc/x86_64-suse-linux/7 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64 -L/lib/../lib64 -L/usr/lib/../lib64 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib -L/usr/lib64/gcc/x86_64-suse-linux/7/../../.. -v CMakeFiles/cmTC_83dbe.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib64/gcc/x86_64-suse-linux/7/crtend.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crtn.o]
+        ignore line: [/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/bin/ld -plugin /usr/lib64/gcc/x86_64-suse-linux/7/liblto_plugin.so -plugin-opt=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper -plugin-opt=-fresolution=/tmp/ccs6DBSU.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_d3229 /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crt1.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crti.o /usr/lib64/gcc/x86_64-suse-linux/7/crtbegin.o -L/usr/lib64/gcc/x86_64-suse-linux/7 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64 -L/lib/../lib64 -L/usr/lib/../lib64 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib -L/usr/lib64/gcc/x86_64-suse-linux/7/../../.. -v CMakeFiles/cmTC_d3229.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib64/gcc/x86_64-suse-linux/7/crtend.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crtn.o]
         linker tool for 'CXX': /usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/bin/ld
         collapse obj [/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crt1.o] ==> [/usr/lib64/crt1.o]
         collapse obj [/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crti.o] ==> [/usr/lib64/crti.o]
@@ -2110,11 +2342,7 @@ events:
       - "CMakeLists.txt:3 (project)"
     message: |
       Running the CXX compiler's linker: "/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/bin/ld" "-v"
-      GNU ld (GNU Binutils; SUSE Linux Enterprise 15) 2.43.1.20241209-150100.7.52
-...
-
----
-events:
+      GNU ld (GNU Binutils; SUSE Linux Enterprise 15) 2.45.0.20251103-150100757
   -
     kind: "try_compile-v1"
     backtrace:
@@ -2123,8 +2351,8 @@ events:
       - "CMakeLists.txt:5 (find_package)"
     description: "Detecting CXX OpenMP compiler info"
     directories:
-      source: "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Kj9tQu"
-      binary: "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Kj9tQu"
+      source: "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Nfwhkn"
+      binary: "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Nfwhkn"
     cmakeVariables:
       CMAKE_CXX_FLAGS: ""
       CMAKE_CXX_FLAGS_DEBUG: "-g"
@@ -2133,15 +2361,15 @@ events:
       variable: "OpenMP_COMPILE_RESULT_CXX_fopenmp"
       cached: true
       stdout: |
-        Change Dir: '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Kj9tQu'
+        Change Dir: '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Nfwhkn'
         
-        Run Build Command(s): /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_8db38/fast
-        /usr/bin/gmake  -f CMakeFiles/cmTC_8db38.dir/build.make CMakeFiles/cmTC_8db38.dir/build
-        gmake[1]: Entering directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Kj9tQu'
-        Building CXX object CMakeFiles/cmTC_8db38.dir/OpenMPTryFlag.cpp.o
-        /usr/bin/c++   -fopenmp -o CMakeFiles/cmTC_8db38.dir/OpenMPTryFlag.cpp.o -c /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Kj9tQu/OpenMPTryFlag.cpp
-        Linking CXX executable cmTC_8db38
-        /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E cmake_link_script CMakeFiles/cmTC_8db38.dir/link.txt --verbose=1
+        Run Build Command(s): /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_c6bf9/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_c6bf9.dir/build.make CMakeFiles/cmTC_c6bf9.dir/build
+        gmake[1]: Entering directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Nfwhkn'
+        Building CXX object CMakeFiles/cmTC_c6bf9.dir/OpenMPTryFlag.cpp.o
+        /usr/bin/c++   -fopenmp -o CMakeFiles/cmTC_c6bf9.dir/OpenMPTryFlag.cpp.o -c /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Nfwhkn/OpenMPTryFlag.cpp
+        Linking CXX executable cmTC_c6bf9
+        /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E cmake_link_script CMakeFiles/cmTC_c6bf9.dir/link.txt --verbose=1
         Using built-in specs.
         COLLECT_GCC=/usr/bin/c++
         COLLECT_LTO_WRAPPER=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper
@@ -2153,11 +2381,11 @@ events:
         COMPILER_PATH=/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/:/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/bin/
         LIBRARY_PATH=/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/:/lib/../lib64/:/usr/lib/../lib64/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../:/lib/:/usr/lib/
         Reading specs from /usr/lib64/gcc/x86_64-suse-linux/7/libgomp.spec
-        COLLECT_GCC_OPTIONS='-fopenmp' '-v' '-o' 'cmTC_8db38' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-pthread'
-         /usr/lib64/gcc/x86_64-suse-linux/7/collect2 -plugin /usr/lib64/gcc/x86_64-suse-linux/7/liblto_plugin.so -plugin-opt=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper -plugin-opt=-fresolution=/tmp/cctrqpNV.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lpthread -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_8db38 /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crt1.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crti.o /usr/lib64/gcc/x86_64-suse-linux/7/crtbegin.o /usr/lib64/gcc/x86_64-suse-linux/7/crtoffloadbegin.o -L/usr/lib64/gcc/x86_64-suse-linux/7 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64 -L/lib/../lib64 -L/usr/lib/../lib64 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib -L/usr/lib64/gcc/x86_64-suse-linux/7/../../.. CMakeFiles/cmTC_8db38.dir/OpenMPTryFlag.cpp.o -lstdc++ -lm -lgomp -lgcc_s -lgcc -lpthread -lc -lgcc_s -lgcc /usr/lib64/gcc/x86_64-suse-linux/7/crtend.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crtn.o /usr/lib64/gcc/x86_64-suse-linux/7/crtoffloadend.o
-        COLLECT_GCC_OPTIONS='-fopenmp' '-v' '-o' 'cmTC_8db38' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-pthread'
-        /usr/bin/c++  -fopenmp -v CMakeFiles/cmTC_8db38.dir/OpenMPTryFlag.cpp.o -o cmTC_8db38
-        gmake[1]: Leaving directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Kj9tQu'
+        COLLECT_GCC_OPTIONS='-fopenmp' '-v' '-o' 'cmTC_c6bf9' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-pthread'
+         /usr/lib64/gcc/x86_64-suse-linux/7/collect2 -plugin /usr/lib64/gcc/x86_64-suse-linux/7/liblto_plugin.so -plugin-opt=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper -plugin-opt=-fresolution=/tmp/ccJb06Xj.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lpthread -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_c6bf9 /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crt1.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crti.o /usr/lib64/gcc/x86_64-suse-linux/7/crtbegin.o /usr/lib64/gcc/x86_64-suse-linux/7/crtoffloadbegin.o -L/usr/lib64/gcc/x86_64-suse-linux/7 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64 -L/lib/../lib64 -L/usr/lib/../lib64 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib -L/usr/lib64/gcc/x86_64-suse-linux/7/../../.. CMakeFiles/cmTC_c6bf9.dir/OpenMPTryFlag.cpp.o -lstdc++ -lm -lgomp -lgcc_s -lgcc -lpthread -lc -lgcc_s -lgcc /usr/lib64/gcc/x86_64-suse-linux/7/crtend.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crtn.o /usr/lib64/gcc/x86_64-suse-linux/7/crtoffloadend.o
+        COLLECT_GCC_OPTIONS='-fopenmp' '-v' '-o' 'cmTC_c6bf9' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-pthread'
+        /usr/bin/c++  -fopenmp -v CMakeFiles/cmTC_c6bf9.dir/OpenMPTryFlag.cpp.o -o cmTC_c6bf9
+        gmake[1]: Leaving directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Nfwhkn'
         
       exitCode: 0
   -
@@ -2169,15 +2397,15 @@ events:
     message: |
       Parsed CXX OpenMP implicit link information from above output:
         link line regex: [^( *|.*[/\\])(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
-        ignore line: [Change Dir: '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Kj9tQu']
+        ignore line: [Change Dir: '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Nfwhkn']
         ignore line: []
-        ignore line: [Run Build Command(s): /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_8db38/fast]
-        ignore line: [/usr/bin/gmake  -f CMakeFiles/cmTC_8db38.dir/build.make CMakeFiles/cmTC_8db38.dir/build]
-        ignore line: [gmake[1]: Entering directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Kj9tQu']
-        ignore line: [Building CXX object CMakeFiles/cmTC_8db38.dir/OpenMPTryFlag.cpp.o]
-        ignore line: [/usr/bin/c++   -fopenmp -o CMakeFiles/cmTC_8db38.dir/OpenMPTryFlag.cpp.o -c /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Kj9tQu/OpenMPTryFlag.cpp]
-        ignore line: [Linking CXX executable cmTC_8db38]
-        ignore line: [/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E cmake_link_script CMakeFiles/cmTC_8db38.dir/link.txt --verbose=1]
+        ignore line: [Run Build Command(s): /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_c6bf9/fast]
+        ignore line: [/usr/bin/gmake  -f CMakeFiles/cmTC_c6bf9.dir/build.make CMakeFiles/cmTC_c6bf9.dir/build]
+        ignore line: [gmake[1]: Entering directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Nfwhkn']
+        ignore line: [Building CXX object CMakeFiles/cmTC_c6bf9.dir/OpenMPTryFlag.cpp.o]
+        ignore line: [/usr/bin/c++   -fopenmp -o CMakeFiles/cmTC_c6bf9.dir/OpenMPTryFlag.cpp.o -c /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-Nfwhkn/OpenMPTryFlag.cpp]
+        ignore line: [Linking CXX executable cmTC_c6bf9]
+        ignore line: [/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E cmake_link_script CMakeFiles/cmTC_c6bf9.dir/link.txt --verbose=1]
         ignore line: [Using built-in specs.]
         ignore line: [COLLECT_GCC=/usr/bin/c++]
         ignore line: [COLLECT_LTO_WRAPPER=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper]
@@ -2189,13 +2417,13 @@ events:
         ignore line: [COMPILER_PATH=/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/:/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/bin/]
         ignore line: [LIBRARY_PATH=/usr/lib64/gcc/x86_64-suse-linux/7/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/:/lib/../lib64/:/usr/lib/../lib64/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib/:/usr/lib64/gcc/x86_64-suse-linux/7/../../../:/lib/:/usr/lib/]
         ignore line: [Reading specs from /usr/lib64/gcc/x86_64-suse-linux/7/libgomp.spec]
-        ignore line: [COLLECT_GCC_OPTIONS='-fopenmp' '-v' '-o' 'cmTC_8db38' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-pthread']
-        link line: [ /usr/lib64/gcc/x86_64-suse-linux/7/collect2 -plugin /usr/lib64/gcc/x86_64-suse-linux/7/liblto_plugin.so -plugin-opt=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper -plugin-opt=-fresolution=/tmp/cctrqpNV.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lpthread -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_8db38 /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crt1.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crti.o /usr/lib64/gcc/x86_64-suse-linux/7/crtbegin.o /usr/lib64/gcc/x86_64-suse-linux/7/crtoffloadbegin.o -L/usr/lib64/gcc/x86_64-suse-linux/7 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64 -L/lib/../lib64 -L/usr/lib/../lib64 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib -L/usr/lib64/gcc/x86_64-suse-linux/7/../../.. CMakeFiles/cmTC_8db38.dir/OpenMPTryFlag.cpp.o -lstdc++ -lm -lgomp -lgcc_s -lgcc -lpthread -lc -lgcc_s -lgcc /usr/lib64/gcc/x86_64-suse-linux/7/crtend.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crtn.o /usr/lib64/gcc/x86_64-suse-linux/7/crtoffloadend.o]
+        ignore line: [COLLECT_GCC_OPTIONS='-fopenmp' '-v' '-o' 'cmTC_c6bf9' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-pthread']
+        link line: [ /usr/lib64/gcc/x86_64-suse-linux/7/collect2 -plugin /usr/lib64/gcc/x86_64-suse-linux/7/liblto_plugin.so -plugin-opt=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper -plugin-opt=-fresolution=/tmp/ccJb06Xj.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lpthread -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_c6bf9 /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crt1.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crti.o /usr/lib64/gcc/x86_64-suse-linux/7/crtbegin.o /usr/lib64/gcc/x86_64-suse-linux/7/crtoffloadbegin.o -L/usr/lib64/gcc/x86_64-suse-linux/7 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64 -L/lib/../lib64 -L/usr/lib/../lib64 -L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib -L/usr/lib64/gcc/x86_64-suse-linux/7/../../.. CMakeFiles/cmTC_c6bf9.dir/OpenMPTryFlag.cpp.o -lstdc++ -lm -lgomp -lgcc_s -lgcc -lpthread -lc -lgcc_s -lgcc /usr/lib64/gcc/x86_64-suse-linux/7/crtend.o /usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64/crtn.o /usr/lib64/gcc/x86_64-suse-linux/7/crtoffloadend.o]
           arg [/usr/lib64/gcc/x86_64-suse-linux/7/collect2] ==> ignore
           arg [-plugin] ==> ignore
           arg [/usr/lib64/gcc/x86_64-suse-linux/7/liblto_plugin.so] ==> ignore
           arg [-plugin-opt=/usr/lib64/gcc/x86_64-suse-linux/7/lto-wrapper] ==> ignore
-          arg [-plugin-opt=-fresolution=/tmp/cctrqpNV.res] ==> ignore
+          arg [-plugin-opt=-fresolution=/tmp/ccJb06Xj.res] ==> ignore
           arg [-plugin-opt=-pass-through=-lgcc_s] ==> ignore
           arg [-plugin-opt=-pass-through=-lgcc] ==> ignore
           arg [-plugin-opt=-pass-through=-lpthread] ==> ignore
@@ -2209,14 +2437,14 @@ events:
           arg [-dynamic-linker] ==> ignore
           arg [/lib64/ld-linux-x86-64.so.2] ==> ignore
           arg [-o] ==> ignore
-          arg [cmTC_8db38] ==> ignore
+          arg [cmTC_c6bf9] ==> ignore
           arg [-L/usr/lib64/gcc/x86_64-suse-linux/7] ==> dir [/usr/lib64/gcc/x86_64-suse-linux/7]
           arg [-L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64] ==> dir [/usr/lib64/gcc/x86_64-suse-linux/7/../../../../lib64]
           arg [-L/lib/../lib64] ==> dir [/lib/../lib64]
           arg [-L/usr/lib/../lib64] ==> dir [/usr/lib/../lib64]
           arg [-L/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib] ==> dir [/usr/lib64/gcc/x86_64-suse-linux/7/../../../../x86_64-suse-linux/lib]
           arg [-L/usr/lib64/gcc/x86_64-suse-linux/7/../../..] ==> dir [/usr/lib64/gcc/x86_64-suse-linux/7/../../..]
-          arg [CMakeFiles/cmTC_8db38.dir/OpenMPTryFlag.cpp.o] ==> ignore
+          arg [CMakeFiles/cmTC_c6bf9.dir/OpenMPTryFlag.cpp.o] ==> ignore
           arg [-lstdc++] ==> lib [stdc++]
           arg [-lm] ==> lib [m]
           arg [-lgomp] ==> lib [gomp]
@@ -2262,12 +2490,15 @@ events:
       - "/usr/lib64/"
       - "/lib64/"
       - "/usr/x86_64-suse-linux/lib/"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/opt/rocm-6.3.1/bin/"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/"
       - "/ccs/home/krusepi/.local/bin/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
       - "/sw/sources/hpss/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
@@ -2279,7 +2510,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/"
       - "/opt/cray/pe/perftools/24.11.0/bin/"
       - "/opt/cray/pe/papi/7.1.0.4/bin/"
-      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/cray/libfabric/2.3.1/bin/"
       - "/opt/clmgr/bin/"
       - "/opt/sgi/sbin/"
       - "/opt/sgi/bin/"
@@ -2290,9 +2521,12 @@ events:
       - "/opt/bin/"
       - "/opt/c3/bin/"
       - "/usr/lib/mit/bin/"
+      - "/usr/lib/mit/sbin/"
       - "/opt/puppetlabs/bin/"
+      - "/usr/diags/scripts/"
+      - "/usr/diags/bin/non-mpi/"
+      - "/usr/diags/bin/nvidia/gpuburn_static/"
       - "/opt/cray/pe/bin/"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
       - "/usr/local/lib64/"
       - "/usr/local/lib/"
       - "/usr/local/"
@@ -2307,16 +2541,19 @@ events:
     found: "/usr/lib64/gcc/x86_64-suse-linux/7/libgomp.so"
     search_context:
       ENV{CMAKE_PREFIX_PATH}:
+        - "/opt/rocm-6.3.1/lib/cmake/hip"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
       ENV{PATH}:
-        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
-        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/opt/rocm-6.3.1/bin"
+        - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin"
         - "/ccs/home/krusepi/.local/bin"
-        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
-        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
         - "/sw/sources/hpss/bin"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
@@ -2329,22 +2566,24 @@ events:
         - "/opt/cray/pe/cce/18.0.1/bin"
         - "/opt/cray/pe/perftools/24.11.0/bin"
         - "/opt/cray/pe/papi/7.1.0.4/bin"
-        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/cray/libfabric/2.3.1/bin"
         - "/opt/clmgr/sbin"
         - "/opt/clmgr/bin"
         - "/opt/sgi/sbin"
         - "/opt/sgi/bin"
         - "/sw/frontier/bin"
-        - "/ccs/home/krusepi/.local/bin"
         - "/usr/local/bin"
         - "/usr/bin"
         - "/bin"
         - "/opt/bin"
         - "/opt/c3/bin"
         - "/usr/lib/mit/bin"
+        - "/usr/lib/mit/sbin"
         - "/opt/puppetlabs/bin"
+        - "/usr/diags/scripts"
+        - "/usr/diags/bin/non-mpi"
+        - "/usr/diags/bin/nvidia/gpuburn_static"
         - "/opt/cray/pe/bin"
-        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
       CMAKE_INSTALL_PREFIX: "/usr/local"
       CMAKE_SYSTEM_PREFIX_PATH:
         - "/usr/local"
@@ -2381,12 +2620,15 @@ events:
       - "/usr/lib64/"
       - "/lib64/"
       - "/usr/x86_64-suse-linux/lib/"
-      - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB/"
-      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli/"
+      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
+      - "/opt/rocm-6.3.1/bin/"
+      - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin/"
       - "/ccs/home/krusepi/.local/bin/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/"
       - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin/"
-      - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs/"
       - "/sw/sources/hpss/bin/"
       - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin/"
       - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin/"
@@ -2398,7 +2640,7 @@ events:
       - "/opt/cray/pe/cce/18.0.1/bin/"
       - "/opt/cray/pe/perftools/24.11.0/bin/"
       - "/opt/cray/pe/papi/7.1.0.4/bin/"
-      - "/opt/cray/libfabric/1.22.0/bin/"
+      - "/opt/cray/libfabric/2.3.1/bin/"
       - "/opt/clmgr/bin/"
       - "/opt/sgi/sbin/"
       - "/opt/sgi/bin/"
@@ -2409,9 +2651,12 @@ events:
       - "/opt/bin/"
       - "/opt/c3/bin/"
       - "/usr/lib/mit/bin/"
+      - "/usr/lib/mit/sbin/"
       - "/opt/puppetlabs/bin/"
+      - "/usr/diags/scripts/"
+      - "/usr/diags/bin/non-mpi/"
+      - "/usr/diags/bin/nvidia/gpuburn_static/"
       - "/opt/cray/pe/bin/"
-      - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64/"
       - "/usr/local/lib64/"
       - "/usr/local/lib/"
       - "/usr/local/"
@@ -2428,16 +2673,19 @@ events:
     found: "/usr/lib64/libpthread.a"
     search_context:
       ENV{CMAKE_PREFIX_PATH}:
+        - "/opt/rocm-6.3.1/lib/cmake/hip"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v"
       ENV{PATH}:
-        - "/ccs/home/krusepi/.codex/tmp/arg0/codex-arg0KS9ojB"
-        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-560a9dba96f961efea7b1612916f89e5d5d4d679/server/bin/remote-cli"
+        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
+        - "/opt/rocm-6.3.1/bin"
+        - "/ccs/home/krusepi/.nvm/versions/node/v22.22.3/bin"
         - "/ccs/home/krusepi/.local/bin"
-        - "/ccs/home/krusepi/.local/bin"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/ccs/home/krusepi/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/autofs/nccs-svm1_home1/krusepi/.vscode-server/cli/servers/Stable-8761a5560cfd65fdd19ce7e2bd18dab5c0a4d84e/server/bin/remote-cli"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin"
         - "/lustre/orion/syb111/proj-shared/Environments/miniconda3/condabin"
-        - "/sw/frontier/lfs-wrapper/0.0.1/bin/lfs"
         - "/sw/sources/hpss/bin"
         - "/sw/frontier/spack-envs/cpe24.11-cpu/opt/cce-18.0.1/darshan-runtime-3.4.6-vytzz7ybtlaqs3uprtx6s7nzdoidrvux/bin"
         - "/sw/frontier/spack-envs/core-25.03/opt/gcc-13.2/tmux-3.4-fcqqko3j4ga67yuc7zxaqcwsix5hns2v/bin"
@@ -2450,22 +2698,24 @@ events:
         - "/opt/cray/pe/cce/18.0.1/bin"
         - "/opt/cray/pe/perftools/24.11.0/bin"
         - "/opt/cray/pe/papi/7.1.0.4/bin"
-        - "/opt/cray/libfabric/1.22.0/bin"
+        - "/opt/cray/libfabric/2.3.1/bin"
         - "/opt/clmgr/sbin"
         - "/opt/clmgr/bin"
         - "/opt/sgi/sbin"
         - "/opt/sgi/bin"
         - "/sw/frontier/bin"
-        - "/ccs/home/krusepi/.local/bin"
         - "/usr/local/bin"
         - "/usr/bin"
         - "/bin"
         - "/opt/bin"
         - "/opt/c3/bin"
         - "/usr/lib/mit/bin"
+        - "/usr/lib/mit/sbin"
         - "/opt/puppetlabs/bin"
+        - "/usr/diags/scripts"
+        - "/usr/diags/bin/non-mpi"
+        - "/usr/diags/bin/nvidia/gpuburn_static"
         - "/opt/cray/pe/bin"
-        - "/ccs/home/krusepi/.vscode-server/extensions/openai.chatgpt-26.409.20454-linux-x64/bin/linux-x86_64"
       CMAKE_INSTALL_PREFIX: "/usr/local"
       CMAKE_SYSTEM_PREFIX_PATH:
         - "/usr/local"
@@ -2486,8 +2736,8 @@ events:
       - "CMakeLists.txt:5 (find_package)"
     description: "Detecting CXX OpenMP version"
     directories:
-      source: "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-aPQkrs"
-      binary: "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-aPQkrs"
+      source: "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-ezQqSU"
+      binary: "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-ezQqSU"
     cmakeVariables:
       CMAKE_CXX_FLAGS: ""
       CMAKE_CXX_FLAGS_DEBUG: "-g"
@@ -2496,17 +2746,17 @@ events:
       variable: "OpenMP_SPECTEST_CXX_"
       cached: true
       stdout: |
-        Change Dir: '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-aPQkrs'
+        Change Dir: '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-ezQqSU'
         
-        Run Build Command(s): /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_6f267/fast
-        /usr/bin/gmake  -f CMakeFiles/cmTC_6f267.dir/build.make CMakeFiles/cmTC_6f267.dir/build
-        gmake[1]: Entering directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-aPQkrs'
-        Building CXX object CMakeFiles/cmTC_6f267.dir/OpenMPCheckVersion.cpp.o
-        /usr/bin/c++   -fopenmp -o CMakeFiles/cmTC_6f267.dir/OpenMPCheckVersion.cpp.o -c /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-aPQkrs/OpenMPCheckVersion.cpp
-        Linking CXX executable cmTC_6f267
-        /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E cmake_link_script CMakeFiles/cmTC_6f267.dir/link.txt --verbose=1
-        /usr/bin/c++  -fopenmp CMakeFiles/cmTC_6f267.dir/OpenMPCheckVersion.cpp.o -o cmTC_6f267
-        gmake[1]: Leaving directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-aPQkrs'
+        Run Build Command(s): /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_3b644/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_3b644.dir/build.make CMakeFiles/cmTC_3b644.dir/build
+        gmake[1]: Entering directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-ezQqSU'
+        Building CXX object CMakeFiles/cmTC_3b644.dir/OpenMPCheckVersion.cpp.o
+        /usr/bin/c++   -fopenmp -o CMakeFiles/cmTC_3b644.dir/OpenMPCheckVersion.cpp.o -c /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-ezQqSU/OpenMPCheckVersion.cpp
+        Linking CXX executable cmTC_3b644
+        /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -E cmake_link_script CMakeFiles/cmTC_3b644.dir/link.txt --verbose=1
+        /usr/bin/c++  -fopenmp CMakeFiles/cmTC_3b644.dir/OpenMPCheckVersion.cpp.o -o cmTC_3b644
+        gmake[1]: Leaving directory '/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/CMakeScratch/TryCompile-ezQqSU'
         
       exitCode: 0
 ...
