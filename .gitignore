@@ -15,3 +15,14 @@ scout.tar.bz2
 env.tar.gz
 *.pyc   
 vllm0141rocm72.sif
+
+# Source-only RWR++ vendor tree. Keep generated builds/results out of Git.
+external/rwr_hpc/.git/
+external/rwr_hpc/build*/
+external/rwr_hpc/results/
+external/rwr_hpc/**/logs/
+external/rwr_hpc/**/*.o
+external/rwr_hpc/**/*.e
+external/rwr_hpc/**/*.pyc
+external/rwr_hpc/**/*.profraw
+external/rwr_hpc/Rplots.pdf
