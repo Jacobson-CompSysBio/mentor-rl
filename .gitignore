@@ -20,3 +20,5 @@ external/rwr_hpc/results/
 external/rwr_hpc/.git/
 external/rwr_hpc/**/*.o
 external/rwr_hpc/**/*.e
+external/cli11/.git/
+external/cli11/build*/
