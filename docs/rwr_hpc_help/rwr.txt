@@ -1,18 +1,18 @@
-Distributed GRIN filtering
-Usage: /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/build_frontier/apps/grin/grin [OPTIONS]
+Distributed RWR on Multiplex Networks
+Usage: /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/build_frontier/apps/rwr/rwr_wrapper [OPTIONS]
 
 Options:
   -h,--help                   Print this help message and exit
   -f,--flist TEXT REQUIRED    Path to the file containing paths to and names of each layer in the multiplex
   --no_edgelist_headers       Indicates that the edge lists contains no headers
-  --seed_file TEXT REQUIRED   Tab delimited file containing seeds to initalize RWR probabilty vectors with.
+  -s,--seed_file TEXT         Tab delimited file containing seeds to initalize RWR probabilty vectors with.
                               Seeds on a single line will be combined in a single vector.
                               Seeds on mulitple lines will be encoded in seperate vectors.
+                              Any empty value will treat each node in the multiplex as a seed speately.
   --no_set_ids                Indicates that the seed_file contains no set ids
                               .These ids are stored as the first value in each row.
   --runtag TEXT REQUIRED      string to append to output
   -o,--output_dir TEXT [./]   Output directory
-  --temp_dir TEXT [./]        Directory for any intermediate files
   -r,--restart FLOAT:FLOAT in [0 - 1] [0.7] 
                               Probabilty of restart during random walk
   -d,--delta FLOAT:FLOAT in [0 - 1] [0.5] 
@@ -22,6 +22,9 @@ Options:
   --threshold FLOAT [1e-10]   Used to determine when RWR converges
   --record_encodings          Indicates that the RWR encodings should be recorded
   --record_ranks              Indicates that the ranked RWR encodings should be recorded
-  --n_samples_null_dist UINT:INT in [0 - 10000] [100] 
-                              Number of random seeds sets to use to create null distribution.
-  --seed UINT [42]            Value used to seed random number generator for null distribution
+  --distance_metric TEXT:{spearman,pearson,dot} [spearman] 
+                              Metric used to calculate distance between all pairs of RWR encodings
+  --record_nodes_by_layer     Indicates that a file should be created recording which nodes are present in each layer
+  --filter_method TEXT:{elbow}
+                              Indicates the method that should be used to filter the RWR scores before calculating the distance matrix.
+  --binary_format             Indicates the distance matrix should be written with the data in a binary file and the meta data in a YAML file

@@ -211,6 +211,29 @@ def validate_tool_action_schema(tool_action: ToolAction) -> ValidationResult:
             result.add_error("induce_subgraph requires a non-empty list field named 'genes'.")
         if "layers" in arguments and not _is_string_list(arguments["layers"], allow_empty=False):
             result.add_error("induce_subgraph 'layers' must be a non-empty list of strings.")
+        
+    elif tool_action.tool_name == "rwr_hpc_app":
+        result.extend(
+            _reject_unknown_arguments(
+                arguments,
+                allowed={"app", "app_name", "args", "timeout_seconds", "cwd", "allow_nonzero"},
+            )
+        )
+        app_value = arguments.get("app") or arguments.get("app_name") 
+        if not _is_non_empty_string(app_value):
+            result.add_error("rwr_hpc_app requires a non-empty string field named 'app'.")
+        if "app" in arguments and "app_name" in arguments and arguments["app"] != arguments["app_name"]:
+            result.add_error("rwr_hpc_app cannot specify both 'app' and 'app_name' with different values.")
+        if "args" in arguments and not _is_string_list(arguments["args"], allow_empty=True):
+            result.add_error("rwr_hpc_app 'args' must be a list of strings.")
+        if "timeout_seconds" in arguments:
+            timeout_seconds = arguments["timeout_seconds"]
+            if not isinstance(timeout_seconds, int) or timeout_seconds <= 0:
+                result.add_error("rwr_hpc_app 'timeout_seconds' must be a positive integer.")
+        if "cwd" in arguments and not _is_non_empty_string(arguments["cwd"]):
+            result.add_error("rwr_hpc_app 'cwd' must be a non-empty string when provided.")
+        if "allow_nonzero" in arguments and not isinstance(arguments["allow_nonzero"], bool):
+            result.add_error("rwr_hpc_app 'allow_nonzero' must be a boolean when provided.")
 
     return result
 

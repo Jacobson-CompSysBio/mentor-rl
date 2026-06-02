@@ -26,7 +26,7 @@ class RwrHpcAppBackend:
 
     Exposes app-level RWR++ workflows without linking them into libmentor_runtime.so"""
 
-    EXPECTED_APPS = {
+    REQUIRED_APPS = {
         "rwr": {"rwr_wrapper", "rwr"},
         "rwr_loe": {"rwr_loe"},
         "rwr_ablation": {"rwr_ablation"},
@@ -34,8 +34,16 @@ class RwrHpcAppBackend:
         "grin": {"grin"},
         "shortest_paths": {"shortest_paths"},
         "clean_edge_list": {"clean_edge_list"},
+    }
+
+    OPTIONAL_APPS = {
         "gene_layer_map": {"gene_layer_map"},
         "disconnected_components": {"disconnected_components"},
+    }
+
+    EXPECTED_APPS = {
+        **REQUIRED_APPS,
+        **OPTIONAL_APPS,
     }
 
     def __init__(
@@ -107,7 +115,10 @@ class RwrHpcAppBackend:
 
     # list missing apps 
     def missing_apps(self) -> list[str]:
-        return sorted(set(self.EXPECTED_APPS) - set(self.apps))
+        return sorted(set(self.REQUIRED_APPS) - set(self.apps))
+
+    def missing_optional_apps(self) -> list[str]:
+        return sorted(set(self.OPTIONAL_APPS) - set(self.apps))
 
     # given an app name, return the executable path or raise if not found
     def require_app(self, tool_name: str) -> Path:

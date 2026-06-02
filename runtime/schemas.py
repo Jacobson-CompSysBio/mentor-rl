@@ -31,6 +31,7 @@ KNOWN_TOOL_NAMES = (
     "rwr_multiplex",
     "rwr_monoplex",
     "induce_subgraph",
+    "rwr_hpc_app",
 )
 
 

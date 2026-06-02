@@ -14,12 +14,14 @@ to swap out later if the runtime grows more complex.
 
 from __future__ import annotations
 
+import os
 import threading
 from typing import Any, Iterable
 
 from utils.multiplex import Multiplex
 
 from .backend import CompiledRuntimeBackend
+from .rwr_hpc_app_backend import RwrHpcAppBackend
 from .schemas import (
     RUNTIME_SCHEMA_VERSION,
     StructuredState,
@@ -62,6 +64,9 @@ class RuntimeEnvironment:
         enrichment_cache_path: str | None = None,
         allow_network_enrichment: bool = False,
         enrichment_background_gene_ids: Iterable[str] | None = None,
+        rwr_hpc_build_dir: str | None = None,
+        rwr_hpc_app_manifest_path: str | None = None,
+        enable_rwr_hpc_apps: bool = True,
     ) -> None:
         if store_dir is None and multiplex is None and not multiplex_flist:
             raise ValueError(
@@ -89,6 +94,13 @@ class RuntimeEnvironment:
             self.index = build_multiplex_index(multiplex)
             self.available_gene_ids = set(self.index.gene_ids)
             self.available_layers = set(self.index.layer_names)
+        
+        self.rwr_hpc_app_backend = None
+        if enable_rwr_hpc_apps and (rwr_hpc_build_dir or os.environ.get("RWR_HPC_BUILD_DIR")):
+            self.rwr_hpc_app_backend = RwrHpcAppBackend(
+                build_dir=rwr_hpc_build_dir,
+                manifest_path=rwr_hpc_app_manifest_path,
+            )
 
         self.mygene_cache_path = mygene_cache_path
         self.allow_network_mygene = allow_network_mygene
@@ -124,6 +136,19 @@ class RuntimeEnvironment:
             "enrichment_cache_size": len(self.enrichment_cache),
             "allow_network_enrichment": self.allow_network_enrichment,
             "enrichment_background_gene_count": len(self.enrichment_background_gene_ids),
+            "rwr_hpc_apps_enabled": self.rwr_hpc_app_backend is not None,
+            "rwr_hpc_apps_available": (
+                sorted(self.rwr_hpc_app_backend.available_apps() if self.rwr_hpc_app_backend is not None else [])
+            ),
+            "rwr_hpc_apps_missing_required": (
+                self.rwr_hpc_app_backend.missing_apps()
+                if self.rwr_hpc_app_backend is not None else []
+            ),
+            "rwr_hpc_apps_missing_optional": (
+                self.rwr_hpc_app_backend.missing_optional_apps()
+                if self.rwr_hpc_app_backend is not None 
+                else []
+            ),
         }
 
     def execute(
@@ -277,6 +302,40 @@ class RuntimeEnvironment:
                 tool_action.arguments["seeds"],
                 layer=tool_action.arguments["layer"],
                 top_k=tool_action.arguments.get("top_k", 20),
+            )
+        
+        if tool_action.tool_name == "rwr_hpc_app":
+            if self.rwr_hpc_app_backend is None:
+                raise ToolExecutionError("RWR-HPC app backend is not initialized. "
+                                         "Set RWR_HPC_BUILD_DIR or pass rwr_hpc_build_dir.")
+            app_name = tool_action.arguments.get("app") or arguments.get("app_name")
+            app_args = tool_action.arguments.get("args", [])
+            timeout_seconds = tool_action.arguments.get("timeout_seconds", 300)
+            cwd = tool_action.arguments.get("cwd")
+            allow_nonzero = tool_action.arguments.get("allow_nonzero", False)
+
+            try:
+                app_result = self.rwr_hpc_app_backend.run_app(
+                    app_name,
+                    app_args,
+                    timeout_seconds=timeout_seconds,
+                    cwd=cwd,
+                )
+            except KeyError as exc:
+                raise ToolExecutionError(str(exc)) from exc
+            
+            if app_result.returncode != 0 and not allow_nonzero:
+                text = app_result.stderr or app_result.stdout
+                preview = text[:1000] if text else ""
+                raise ToolExecutionError(
+                    f"RWR-HPC app {app_name!r} failed with return code {app_result.returncode}. "
+                    f"Output: {preview}"
+                )
+            
+            return ToolExecutionResult(
+                payload=app_result.payload,
+                provenance=app_result.provenance,
+                is_empty=not bool(app_result.stdout or app_result.stderr),
             )
 
         raise ToolExecutionError(f"Unsupported tool name: {tool_action.tool_name}.")
