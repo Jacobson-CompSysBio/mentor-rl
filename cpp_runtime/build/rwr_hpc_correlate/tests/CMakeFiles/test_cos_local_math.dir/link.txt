@@ -1,1 +1,0 @@
-/opt/rocm-6.2.4/llvm/bin/clang++ -O3 -DNDEBUG -Xlinker --dependency-file=CMakeFiles/test_cos_local_math.dir/link.d CMakeFiles/test_cos_local_math.dir/test_cos_local_math.cpp.o ../src/CMakeFiles/cosine_math_obj.dir/metrics/cos/cos_cpu.cpp.o -o test_cos_local_math  ../../lib/libgtest.a ../../lib/libgtest_main.a ../../lib/libgmock.a ../../lib/libgtest.a

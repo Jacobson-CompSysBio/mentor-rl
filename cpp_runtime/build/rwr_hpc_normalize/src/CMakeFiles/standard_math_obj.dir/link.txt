@@ -1,2 +1,0 @@
-/opt/rocm-6.2.4/llvm/bin/llvm-ar qc libstandard_math_obj.a CMakeFiles/standard_math_obj.dir/standard/standard_cpu.cpp.o CMakeFiles/standard_math_obj.dir/common/hip_common.hip.o CMakeFiles/standard_math_obj.dir/standard/standard_gpu.hip.o
-/opt/rocm-6.2.4/llvm/bin/llvm-ranlib libstandard_math_obj.a

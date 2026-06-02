@@ -1,4 +1,3 @@
-// add adapter header
 #include "rwr_hpc_adapter.hpp"
 
 #include <stdexcept>
@@ -10,13 +9,13 @@ RwrHpcRwrResult rwr_hpc_rwr_multiplex(
     const std::vector<std::string>& seed_gene_ids,
     std::size_t top_k,
     double restart_probability) {
-    (void)store;
-    (void)seed_gene_ids;
-    (void)top_k;
-    (void)restart_probability;
+  (void)store;
+  (void)seed_gene_ids;
+  (void)top_k;
+  (void)restart_probability;
 
-    throw std::runtime_error("rwr_hpc_rwr_multiplex is not implemented yet")
-    }
+  throw std::runtime_error("rwr_hpc_rwr_multiplex is not implemented yet.");
+}
 
 RwrHpcRwrResult rwr_hpc_rwr_monoplex(
     const GraphStore& store,
@@ -57,4 +56,4 @@ RwrHpcNeighborsResult rwr_hpc_get_neighbors(
   throw std::runtime_error("rwr_hpc_get_neighbors is not implemented yet.");
 }
 
-}
+}  // namespace mentor

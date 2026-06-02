@@ -1,1 +1,0 @@
-/opt/rocm-6.2.4/llvm/bin/clang++ -O3 -DNDEBUG -Xlinker --dependency-file=CMakeFiles/test_stats.dir/link.d CMakeFiles/test_stats.dir/test_stats.cpp.o -o test_stats  ../../lib/libgtest_main.a ../../lib/libgmock.a ../../lib/libgtest.a

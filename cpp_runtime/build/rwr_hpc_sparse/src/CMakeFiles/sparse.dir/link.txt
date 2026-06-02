@@ -1,2 +1,0 @@
-/opt/rocm-6.2.4/llvm/bin/llvm-ar qc libsparse.a CMakeFiles/sparse.dir/CSR_Matrix.cpp.o
-/opt/rocm-6.2.4/llvm/bin/llvm-ranlib libsparse.a

@@ -1,2 +1,0 @@
-/opt/rocm-6.2.4/llvm/bin/llvm-ar qc libtimer.a CMakeFiles/timer.dir/Timer.cpp.o
-/opt/rocm-6.2.4/llvm/bin/llvm-ranlib libtimer.a

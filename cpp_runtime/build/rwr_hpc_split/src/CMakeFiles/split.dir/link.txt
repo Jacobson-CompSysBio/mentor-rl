@@ -1,2 +1,0 @@
-/opt/rocm-6.2.4/llvm/bin/llvm-ar qc libsplit.a CMakeFiles/split.dir/split.cpp.o
-/opt/rocm-6.2.4/llvm/bin/llvm-ranlib libsplit.a

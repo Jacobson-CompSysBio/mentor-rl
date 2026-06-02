@@ -2,16 +2,15 @@ cmake_minimum_required(VERSION 3.16)
 
 project(mentor_runtime LANGUAGES CXX)
 
+message(STATUS "DEBUG: using cpp_runtime/CMakeLists.txt from ${CMAKE_CURRENT_LIST_FILE}")
+
 find_package(OpenMP)
 
-set(
-  RWR_HPC_DIR
-  "${CMAKE_CURRENT_SOURCE_DIR}/../external/rwr_hpc"
-  CACHE PATH
-  "Path to external RWR-HPC/RWR++ runtime"
+option(
+  MENTOR_USE_RWR_HPC
+  "Build mentor_runtime with selected embedded RWR-HPC libraries"
+  OFF
 )
-
-option(MENTOR_USE_RWR_HPC "Build mentor_runtime with RWR-HPC libraries" ON)
 
 add_library(
   mentor_runtime
@@ -23,8 +22,8 @@ add_library(
 )
 
 target_include_directories(
-  mentor_runtime 
-  PUBLIC 
+  mentor_runtime
+  PUBLIC
     include
 )
 
@@ -35,51 +34,11 @@ if(OpenMP_CXX_FOUND)
 endif()
 
 if(MENTOR_USE_RWR_HPC)
-  message(STATUS "Using RWR-HPC from ${RWR_HPC_DIR}")
-
-  add_subdirectory("${RWR_HPC_DIR}/libs/utils" "${CMAKE_BINARY_DIR}/rwr_hpc_utils")
-  add_subdirectory("${RWR_HPC_DIR}/libs/timer" "${CMAKE_BINARY_DIR}/rwr_hpc_timer")
-  add_subdirectory("${RWR_HPC_DIR}/libs/parallel" "${CMAKE_BINARY_DIR}/rwr_hpc_parallel")
-  add_subdirectory("${RWR_HPC_DIR}/libs/file_io" "${CMAKE_BINARY_DIR}/rwr_hpc_file_io")
-  add_subdirectory("${RWR_HPC_DIR}/libs/sparse" "${CMAKE_BINARY_DIR}/rwr_hpc_sparse")
-  add_subdirectory("${RWR_HPC_DIR}/libs/network" "${CMAKE_BINARY_DIR}/rwr_hpc_network")
-  add_subdirectory("${RWR_HPC_DIR}/libs/multiplex" "${CMAKE_BINARY_DIR}/rwr_hpc_multiplex")
-  add_subdirectory("${RWR_HPC_DIR}/libs/rank" "${CMAKE_BINARY_DIR}/rwr_hpc_rank")
-  add_subdirectory("${RWR_HPC_DIR}/libs/rwr" "${CMAKE_BINARY_DIR}/rwr_hpc_rwr")
-  add_subdirectory("${RWR_HPC_DIR}/libs/sampling" "${CMAKE_BINARY_DIR}/rwr_hpc_sampling")
-  add_subdirectory("${RWR_HPC_DIR}/libs/normalize" "${CMAKE_BINARY_DIR}/rwr_hpc_normalize")
-  add_subdirectory("${RWR_HPC_DIR}/libs/correlate" "${CMAKE_BINARY_DIR}/rwr_hpc_correlate")
-  add_subdirectory("${RWR_HPC_DIR}/libs/elbow_point" "${CMAKE_BINARY_DIR}/rwr_hpc_elbow_point")
-  add_subdirectory("${RWR_HPC_DIR}/libs/split" "${CMAKE_BINARY_DIR}/rwr_hpc_split")
-  add_subdirectory("${RWR_HPC_DIR}/libs/sort" "${CMAKE_BINARY_DIR}/rwr_hpc_sort")
-  add_subdirectory("${RWR_HPC_DIR}/libs/batch_generator" "${CMAKE_BINARY_DIR}/rwr_hpc_batch_generator")
-  add_subdirectory("${RWR_HPC_DIR}/libs/stats" "${CMAKE_BINARY_DIR}/rwr_hpc_stats")
-
-  target_compile_definitions(mentor_runtime PRIVATE MENTOR_USE_RWR_HPC=1)
-
-  target_link_libraries(
-    mentor_runtime
-    PRIVATE
-      sampling
-      normalize
-      sparse
-      sort
-      correlate
-      parallel
-      multiplex
-      timer
-      rank
-      file_io
-      elbow_point
-      split
-      rwr
-      batch_generator
-      stats
-      utils
-      network
+  message(FATAL_ERROR
+    "MENTOR_USE_RWR_HPC is intentionally disabled for now. "
+    "Use the standalone RWR-HPC app backend for full RWR++ workflows first."
   )
 endif()
-
 
 set_target_properties(
   mentor_runtime

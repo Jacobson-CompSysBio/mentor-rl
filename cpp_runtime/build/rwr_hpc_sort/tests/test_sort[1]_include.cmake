@@ -1,5 +1,0 @@
-if(EXISTS "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_sort/tests/test_sort[1]_tests.cmake")
-  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_sort/tests/test_sort[1]_tests.cmake")
-else()
-  add_test(test_sort_NOT_BUILT test_sort_NOT_BUILT)
-endif()

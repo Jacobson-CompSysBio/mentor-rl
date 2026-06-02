@@ -1,0 +1,12 @@
+Cleans an edge list of self-loops, duplicate edges, and directed edges
+Usage: /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/build_frontier/apps/clean_edge_list/clean_edge_list [OPTIONS]
+
+Options:
+  -h,--help                   Print this help message and exit
+  --edge_list TEXT REQUIRED   Path to the edge list file
+  --no_edgelist_headers       Indicates that the edge list contains no headers
+  --directed                  Indicates that the network should be treated as directed
+  -o,--output_dir TEXT [./]   Output directory
+  --duplicate_edge_method TEXT:{max,min,sum,mean} [max] 
+                              The method used to reduce multiple edges with same source and target
+  --allow_self_loops          Indicates that self-loops are allowed

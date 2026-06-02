@@ -1,2 +1,0 @@
-/opt/rocm-6.2.4/llvm/bin/llvm-ar qc libutils.a CMakeFiles/utils.dir/vector_utils.cpp.o
-/opt/rocm-6.2.4/llvm/bin/llvm-ranlib libutils.a

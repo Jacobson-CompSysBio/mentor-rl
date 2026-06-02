@@ -1,2 +1,0 @@
-/opt/rocm-6.2.4/llvm/bin/llvm-ar qc libmultiplex.a CMakeFiles/multiplex.dir/Multiplex.cpp.o
-/opt/rocm-6.2.4/llvm/bin/llvm-ranlib libmultiplex.a

@@ -1,0 +1,29 @@
+MPICH ERROR [Rank 0] [job id ] [Tue Jun  2 10:16:13 2026] [login10] - Abort(1) (rank 0 in comm 0): application called MPI_Abort(MPI_COMM_WORLD, 1) - process 0
+
+Distributed GRIN filtering
+Usage: /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/build_frontier/apps/grin/grin [OPTIONS]
+
+Options:
+  -h,--help                   Print this help message and exit
+  -f,--flist TEXT REQUIRED    Path to the file containing paths to and names of each layer in the multiplex
+  --no_edgelist_headers       Indicates that the edge lists contains no headers
+  --seed_file TEXT REQUIRED   Tab delimited file containing seeds to initalize RWR probabilty vectors with.
+                              Seeds on a single line will be combined in a single vector.
+                              Seeds on mulitple lines will be encoded in seperate vectors.
+  --no_set_ids                Indicates that the seed_file contains no set ids
+                              .These ids are stored as the first value in each row.
+  --runtag TEXT REQUIRED      string to append to output
+  -o,--output_dir TEXT [./]   Output directory
+  --temp_dir TEXT [./]        Directory for any intermediate files
+  -r,--restart FLOAT:FLOAT in [0 - 1] [0.7] 
+                              Probabilty of restart during random walk
+  -d,--delta FLOAT:FLOAT in [0 - 1] [0.5] 
+                              Probabilty of jumping from a layer to any other layer in the mulitplex
+  --reduction_method TEXT:{geometric,arithmetic,sum,none} [geometric] 
+                              The method used to reduce RWR embeddings to a single value per node
+  --threshold FLOAT [1e-10]   Used to determine when RWR converges
+  --record_encodings          Indicates that the RWR encodings should be recorded
+  --record_ranks              Indicates that the ranked RWR encodings should be recorded
+  --n_samples_null_dist UINT:INT in [0 - 10000] [100] 
+                              Number of random seeds sets to use to create null distribution.
+  --seed UINT [42]            Value used to seed random number generator for null distribution

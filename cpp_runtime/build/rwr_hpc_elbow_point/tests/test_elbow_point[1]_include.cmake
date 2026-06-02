@@ -1,5 +1,0 @@
-if(EXISTS "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_elbow_point/tests/test_elbow_point[1]_tests.cmake")
-  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_elbow_point/tests/test_elbow_point[1]_tests.cmake")
-else()
-  add_test(test_elbow_point_NOT_BUILT test_elbow_point_NOT_BUILT)
-endif()

@@ -1,1 +1,0 @@
-/opt/rocm-6.2.4/llvm/bin/clang++ -O3 -DNDEBUG -Xlinker --dependency-file=CMakeFiles/test_split.dir/link.d CMakeFiles/test_split.dir/test_split.cpp.o -o test_split  ../src/libsplit.a ../../lib/libgtest_main.a ../../lib/libgmock.a ../../lib/libgtest.a

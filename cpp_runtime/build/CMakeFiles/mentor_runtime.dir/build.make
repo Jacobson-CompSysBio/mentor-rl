@@ -76,57 +76,57 @@ CMakeFiles/mentor_runtime.dir/src/c_api.cpp.o: CMakeFiles/mentor_runtime.dir/fla
 CMakeFiles/mentor_runtime.dir/src/c_api.cpp.o: /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/c_api.cpp
 CMakeFiles/mentor_runtime.dir/src/c_api.cpp.o: CMakeFiles/mentor_runtime.dir/compiler_depend.ts
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/mentor_runtime.dir/src/c_api.cpp.o"
-	/opt/rocm-6.2.4/llvm/bin/clang++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/mentor_runtime.dir/src/c_api.cpp.o -MF CMakeFiles/mentor_runtime.dir/src/c_api.cpp.o.d -o CMakeFiles/mentor_runtime.dir/src/c_api.cpp.o -c /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/c_api.cpp
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/mentor_runtime.dir/src/c_api.cpp.o -MF CMakeFiles/mentor_runtime.dir/src/c_api.cpp.o.d -o CMakeFiles/mentor_runtime.dir/src/c_api.cpp.o -c /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/c_api.cpp
 
 CMakeFiles/mentor_runtime.dir/src/c_api.cpp.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/mentor_runtime.dir/src/c_api.cpp.i"
-	/opt/rocm-6.2.4/llvm/bin/clang++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/c_api.cpp > CMakeFiles/mentor_runtime.dir/src/c_api.cpp.i
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/c_api.cpp > CMakeFiles/mentor_runtime.dir/src/c_api.cpp.i
 
 CMakeFiles/mentor_runtime.dir/src/c_api.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/mentor_runtime.dir/src/c_api.cpp.s"
-	/opt/rocm-6.2.4/llvm/bin/clang++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/c_api.cpp -o CMakeFiles/mentor_runtime.dir/src/c_api.cpp.s
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/c_api.cpp -o CMakeFiles/mentor_runtime.dir/src/c_api.cpp.s
 
 CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.o: CMakeFiles/mentor_runtime.dir/flags.make
 CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.o: /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/graph_store.cpp
 CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.o: CMakeFiles/mentor_runtime.dir/compiler_depend.ts
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.o"
-	/opt/rocm-6.2.4/llvm/bin/clang++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.o -MF CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.o.d -o CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.o -c /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/graph_store.cpp
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.o -MF CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.o.d -o CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.o -c /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/graph_store.cpp
 
 CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.i"
-	/opt/rocm-6.2.4/llvm/bin/clang++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/graph_store.cpp > CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.i
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/graph_store.cpp > CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.i
 
 CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.s"
-	/opt/rocm-6.2.4/llvm/bin/clang++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/graph_store.cpp -o CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.s
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/graph_store.cpp -o CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.s
 
 CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.o: CMakeFiles/mentor_runtime.dir/flags.make
 CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.o: /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/tool_kernels.cpp
 CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.o: CMakeFiles/mentor_runtime.dir/compiler_depend.ts
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.o"
-	/opt/rocm-6.2.4/llvm/bin/clang++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.o -MF CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.o.d -o CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.o -c /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/tool_kernels.cpp
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.o -MF CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.o.d -o CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.o -c /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/tool_kernels.cpp
 
 CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.i"
-	/opt/rocm-6.2.4/llvm/bin/clang++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/tool_kernels.cpp > CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.i
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/tool_kernels.cpp > CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.i
 
 CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.s"
-	/opt/rocm-6.2.4/llvm/bin/clang++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/tool_kernels.cpp -o CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.s
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/tool_kernels.cpp -o CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.s
 
 CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.o: CMakeFiles/mentor_runtime.dir/flags.make
 CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.o: /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/rwr_hpc_adapter.cpp
 CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.o: CMakeFiles/mentor_runtime.dir/compiler_depend.ts
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Building CXX object CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.o"
-	/opt/rocm-6.2.4/llvm/bin/clang++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.o -MF CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.o.d -o CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.o -c /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/rwr_hpc_adapter.cpp
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.o -MF CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.o.d -o CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.o -c /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/rwr_hpc_adapter.cpp
 
 CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.i"
-	/opt/rocm-6.2.4/llvm/bin/clang++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/rwr_hpc_adapter.cpp > CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.i
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/rwr_hpc_adapter.cpp > CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.i
 
 CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.s"
-	/opt/rocm-6.2.4/llvm/bin/clang++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/rwr_hpc_adapter.cpp -o CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.s
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/src/rwr_hpc_adapter.cpp -o CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.s
 
 # Object files for target mentor_runtime
 mentor_runtime_OBJECTS = \
@@ -144,33 +144,8 @@ libmentor_runtime.so: CMakeFiles/mentor_runtime.dir/src/tool_kernels.cpp.o
 libmentor_runtime.so: CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.o
 libmentor_runtime.so: CMakeFiles/mentor_runtime.dir/build.make
 libmentor_runtime.so: CMakeFiles/mentor_runtime.dir/compiler_depend.ts
-libmentor_runtime.so: rwr_hpc_sampling/src/libsampling.a
-libmentor_runtime.so: rwr_hpc_normalize/src/libnormalize.a
-libmentor_runtime.so: rwr_hpc_sparse/src/libsparse.a
-libmentor_runtime.so: rwr_hpc_correlate/src/libcorrelate.a
-libmentor_runtime.so: rwr_hpc_parallel/src/libparallel.a
-libmentor_runtime.so: rwr_hpc_multiplex/src/libmultiplex.a
-libmentor_runtime.so: rwr_hpc_timer/src/libtimer.a
-libmentor_runtime.so: rwr_hpc_rank/src/librank.a
-libmentor_runtime.so: rwr_hpc_file_io/libfile_io.a
-libmentor_runtime.so: rwr_hpc_elbow_point/src/libelbow_point.a
-libmentor_runtime.so: rwr_hpc_split/src/libsplit.a
-libmentor_runtime.so: rwr_hpc_rwr/src/librwr.a
-libmentor_runtime.so: rwr_hpc_utils/src/libutils.a
-libmentor_runtime.so: rwr_hpc_network/src/libnetwork.a
-libmentor_runtime.so: rwr_hpc_normalize/src/libnormalize.a
-libmentor_runtime.so: /opt/rocm-6.2.4/lib/libamdhip64.so.6.2.60204
-libmentor_runtime.so: /opt/rocm-6.2.4/lib/libamdhip64.so.6.2.60204
-libmentor_runtime.so: /opt/rocm-6.2.4/lib/libamdhip64.so.6.2.60204
-libmentor_runtime.so: /opt/rocm-6.2.4/lib/llvm/lib/libomp.so
+libmentor_runtime.so: /usr/lib64/gcc/x86_64-suse-linux/7/libgomp.so
 libmentor_runtime.so: /usr/lib64/libpthread.a
-libmentor_runtime.so: rwr_hpc_sampling/src/libsampling.a
-libmentor_runtime.so: rwr_hpc_sparse/src/libsparse.a
-libmentor_runtime.so: rwr_hpc_split/src/libsplit.a
-libmentor_runtime.so: /opt/cray/pe/mpich/8.1.31/ofi/cray/17.0/lib/libmpi_cray.so
-libmentor_runtime.so: /opt/rocm-6.2.4/lib/llvm/lib/clang/18/lib/linux/libclang_rt.builtins-x86_64.a
-libmentor_runtime.so: /opt/rocm-6.2.4/lib/libamdhip64.so.6.2.60204
-libmentor_runtime.so: /opt/rocm-6.2.4/lib/libamdhip64.so.6.2.60204
 libmentor_runtime.so: CMakeFiles/mentor_runtime.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "Linking CXX shared library libmentor_runtime.so"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/mentor_runtime.dir/link.txt --verbose=$(VERBOSE)

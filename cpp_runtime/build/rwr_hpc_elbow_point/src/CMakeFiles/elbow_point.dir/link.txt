@@ -1,2 +1,0 @@
-/opt/rocm-6.2.4/llvm/bin/llvm-ar qc libelbow_point.a CMakeFiles/elbow_point.dir/elbow_point.cpp.o
-/opt/rocm-6.2.4/llvm/bin/llvm-ranlib libelbow_point.a

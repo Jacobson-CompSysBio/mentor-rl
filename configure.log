@@ -1,0 +1,56 @@
+-- The CXX compiler identification is Clang 18.0.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /opt/rocm-6.2.4/llvm/bin/clang++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Found OpenMP_CXX: -fopenmp=libomp (found version "5.1")
+-- Found OpenMP: TRUE (found version "5.1")
+-- Using RWR-HPC from /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc
+-- Found MPI_CXX: /opt/cray/pe/mpich/8.1.31/ofi/cray/17.0/lib/libmpi_cray.so (found version "3.1")
+-- Found MPI: TRUE (found version "3.1")
+-- The C compiler identification is Clang 18.0.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /opt/rocm-6.2.4/llvm/bin/clang - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- OpenMP enabled for network library
+-- OpenMP enabled for multiplex library
+-- OpenMP enabled for rank library
+-- The HIP compiler identification is Clang 18.0.0
+-- Detecting HIP compiler ABI info
+-- Detecting HIP compiler ABI info - done
+-- Check for working HIP compiler: /opt/rocm-6.2.4/llvm/bin/clang++ - skipped
+-- Detecting HIP compile features
+-- Detecting HIP compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Performing Test HIP_CLANG_SUPPORTS_PARALLEL_JOBS
+-- Performing Test HIP_CLANG_SUPPORTS_PARALLEL_JOBS - Success
+-- OpenMP enabled for normalize library
+-- HIP support enabled for normalize library
+-- OpenMP enabled for correlate library
+-- HIP enabled for correlate library
+CMake Warning (dev) at /autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/share/cmake-4.1/Modules/FetchContent.cmake:1373 (message):
+  The DOWNLOAD_EXTRACT_TIMESTAMP option was not given and policy CMP0135 is
+  not set.  The policy's OLD behavior will be used.  When using a URL
+  download, the timestamps of extracted files should preferably be that of
+  the time of extraction, otherwise code that depends on the extracted
+  contents might not be rebuilt if the URL changes.  The OLD behavior
+  preserves the timestamps from the archive instead, but this is usually not
+  what you want.  Update your project to the NEW behavior or specify the
+  DOWNLOAD_EXTRACT_TIMESTAMP option with a value of true to avoid this
+  robustness issue.
+Call Stack (most recent call first):
+  /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/libs/correlate/tests/CMakeLists.txt:6 (FetchContent_Declare)
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+-- Found Python3: /lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/python3.11 (found version "3.11.5") found components: Interpreter
+Adding HIP libraries to tests
+-- OpenMP enabled for elbow_point library
+-- Using ROCm include directory: /opt/rocm-6.2.4/include
+-- Configuring done (8.0s)
+-- Generating done (0.8s)
+-- Build files have been written to: /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build

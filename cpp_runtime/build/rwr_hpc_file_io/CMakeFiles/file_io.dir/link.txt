@@ -1,2 +1,0 @@
-/opt/rocm-6.2.4/llvm/bin/llvm-ar qc libfile_io.a CMakeFiles/file_io.dir/src/matrix_io.cpp.o CMakeFiles/file_io.dir/src/binary_io.cpp.o
-/opt/rocm-6.2.4/llvm/bin/llvm-ranlib libfile_io.a
