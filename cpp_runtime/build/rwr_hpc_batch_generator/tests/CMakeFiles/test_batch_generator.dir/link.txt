@@ -1,0 +1,1 @@
+/opt/rocm-6.2.4/llvm/bin/clang++ -O3 -DNDEBUG -Xlinker --dependency-file=CMakeFiles/test_batch_generator.dir/link.d CMakeFiles/test_batch_generator.dir/test_batch_generator.cpp.o -o test_batch_generator  ../../lib/libgtest_main.a ../../lib/libgmock.a ../../lib/libgtest.a

@@ -1,0 +1,2 @@
+/opt/rocm-6.2.4/llvm/bin/llvm-ar qc ../../../lib/libgmock.a "CMakeFiles/gmock.dir/src/gmock-all.cc.o"
+/opt/rocm-6.2.4/llvm/bin/llvm-ranlib ../../../lib/libgmock.a

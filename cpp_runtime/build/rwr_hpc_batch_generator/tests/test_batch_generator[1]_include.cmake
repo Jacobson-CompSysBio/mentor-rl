@@ -1,0 +1,5 @@
+if(EXISTS "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_batch_generator/tests/test_batch_generator[1]_tests.cmake")
+  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_batch_generator/tests/test_batch_generator[1]_tests.cmake")
+else()
+  add_test(test_batch_generator_NOT_BUILT test_batch_generator_NOT_BUILT)
+endif()

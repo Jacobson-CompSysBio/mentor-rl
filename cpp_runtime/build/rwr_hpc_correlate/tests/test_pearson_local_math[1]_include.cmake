@@ -1,0 +1,5 @@
+if(EXISTS "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_correlate/tests/test_pearson_local_math[1]_tests.cmake")
+  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_correlate/tests/test_pearson_local_math[1]_tests.cmake")
+else()
+  add_test(test_pearson_local_math_NOT_BUILT test_pearson_local_math_NOT_BUILT)
+endif()

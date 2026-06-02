@@ -46,6 +46,14 @@ if(MENTOR_USE_RWR_HPC)
   add_subdirectory("${RWR_HPC_DIR}/libs/multiplex" "${CMAKE_BINARY_DIR}/rwr_hpc_multiplex")
   add_subdirectory("${RWR_HPC_DIR}/libs/rank" "${CMAKE_BINARY_DIR}/rwr_hpc_rank")
   add_subdirectory("${RWR_HPC_DIR}/libs/rwr" "${CMAKE_BINARY_DIR}/rwr_hpc_rwr")
+  add_subdirectory("${RWR_HPC_DIR}/libs/sampling" "${CMAKE_BINARY_DIR}/rwr_hpc_sampling")
+  add_subdirectory("${RWR_HPC_DIR}/libs/normalize" "${CMAKE_BINARY_DIR}/rwr_hpc_normalize")
+  add_subdirectory("${RWR_HPC_DIR}/libs/correlate" "${CMAKE_BINARY_DIR}/rwr_hpc_correlate")
+  add_subdirectory("${RWR_HPC_DIR}/libs/elbow_point" "${CMAKE_BINARY_DIR}/rwr_hpc_elbow_point")
+  add_subdirectory("${RWR_HPC_DIR}/libs/split" "${CMAKE_BINARY_DIR}/rwr_hpc_split")
+  add_subdirectory("${RWR_HPC_DIR}/libs/sort" "${CMAKE_BINARY_DIR}/rwr_hpc_sort")
+  add_subdirectory("${RWR_HPC_DIR}/libs/batch_generator" "${CMAKE_BINARY_DIR}/rwr_hpc_batch_generator")
+  add_subdirectory("${RWR_HPC_DIR}/libs/stats" "${CMAKE_BINARY_DIR}/rwr_hpc_stats")
 
   target_compile_definitions(mentor_runtime PRIVATE MENTOR_USE_RWR_HPC=1)
 
@@ -70,6 +78,7 @@ if(MENTOR_USE_RWR_HPC)
       utils
       network
   )
+endif()
 
 
 set_target_properties(

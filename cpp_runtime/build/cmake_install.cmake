@@ -39,7 +39,92 @@ endif()
 
 # Set path to fallback-tool for dependency-resolution.
 if(NOT DEFINED CMAKE_OBJDUMP)
-  set(CMAKE_OBJDUMP "/usr/bin/objdump")
+  set(CMAKE_OBJDUMP "/opt/rocm-6.2.4/llvm/bin/llvm-objdump")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_utils/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_timer/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_parallel/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_file_io/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_sparse/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_network/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_multiplex/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_rank/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_rwr/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_sampling/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_normalize/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_correlate/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_elbow_point/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_split/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_sort/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_batch_generator/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_stats/cmake_install.cmake")
 endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT

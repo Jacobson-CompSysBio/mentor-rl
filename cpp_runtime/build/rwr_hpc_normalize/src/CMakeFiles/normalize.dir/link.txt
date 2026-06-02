@@ -1,0 +1,2 @@
+/opt/rocm-6.2.4/llvm/bin/llvm-ar qc libnormalize.a CMakeFiles/normalize.dir/standard/standard_dispatch.cpp.o CMakeFiles/normalize.dir/common/hip_common.hip.o CMakeFiles/normalize.dir/common/hip_seams.cpp.o CMakeFiles/standard_math_obj.dir/standard/standard_cpu.cpp.o CMakeFiles/standard_math_obj.dir/common/hip_common.hip.o CMakeFiles/standard_math_obj.dir/standard/standard_gpu.hip.o
+/opt/rocm-6.2.4/llvm/bin/llvm-ranlib libnormalize.a

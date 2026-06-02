@@ -1,0 +1,2 @@
+/opt/rocm-6.2.4/llvm/bin/llvm-ar qc libsampling.a CMakeFiles/sampling.dir/sampling.cpp.o
+/opt/rocm-6.2.4/llvm/bin/llvm-ranlib libsampling.a

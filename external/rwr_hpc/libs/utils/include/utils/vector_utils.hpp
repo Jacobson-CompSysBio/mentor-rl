@@ -17,6 +17,8 @@
 #include <limits>
 #include <type_traits>
 #include <string>
+#include <cmath>
+#include <sstream>
 
 /// @namespace utils
 /// @brief Utility functions for vector and container operations.

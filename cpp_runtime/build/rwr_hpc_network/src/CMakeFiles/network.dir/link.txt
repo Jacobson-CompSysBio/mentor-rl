@@ -1,0 +1,2 @@
+/opt/rocm-6.2.4/llvm/bin/llvm-ar qc libnetwork.a CMakeFiles/network.dir/Network.cpp.o
+/opt/rocm-6.2.4/llvm/bin/llvm-ranlib libnetwork.a

@@ -1,0 +1,2 @@
+/opt/rocm-6.2.4/llvm/bin/llvm-ar qc libparallel.a CMakeFiles/parallel.dir/parallel.cpp.o
+/opt/rocm-6.2.4/llvm/bin/llvm-ranlib libparallel.a

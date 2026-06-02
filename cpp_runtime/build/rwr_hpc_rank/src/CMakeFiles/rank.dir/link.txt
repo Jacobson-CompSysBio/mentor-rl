@@ -1,0 +1,2 @@
+/opt/rocm-6.2.4/llvm/bin/llvm-ar qc librank.a CMakeFiles/rank.dir/rank.cpp.o
+/opt/rocm-6.2.4/llvm/bin/llvm-ranlib librank.a

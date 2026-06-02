@@ -14,11 +14,26 @@
 # EXTERNAL cache entries
 ########################
 
-//Path to a program.
-CMAKE_ADDR2LINE:FILEPATH=/usr/bin/addr2line
+//The directory containing a CMake configuration file for AMDDeviceLibs.
+AMDDeviceLibs_DIR:PATH=/opt/rocm-6.2.4/lib/cmake/AMDDeviceLibs
+
+//AMD GPU targets to compile for
+AMDGPU_TARGETS:STRING=gfx90a
+
+//Builds the googlemock subproject
+BUILD_GMOCK:BOOL=ON
+
+//Build shared instead of static libs
+BUILD_SHARED_LIBS:BOOL=OFF
+
+//Build unit tests
+BUILD_TESTS:BOOL=ON
 
 //Path to a program.
-CMAKE_AR:FILEPATH=/usr/bin/ar
+CMAKE_ADDR2LINE:FILEPATH=/opt/rocm-6.2.4/llvm/bin/llvm-addr2line
+
+//Path to a program.
+CMAKE_AR:FILEPATH=/opt/rocm-6.2.4/llvm/bin/llvm-ar
 
 //Choose the type of build, options are: None Debug Release RelWithDebInfo
 // MinSizeRel ...
@@ -28,15 +43,16 @@ CMAKE_BUILD_TYPE:STRING=Release
 CMAKE_COLOR_MAKEFILE:BOOL=ON
 
 //CXX compiler
-CMAKE_CXX_COMPILER:FILEPATH=/usr/bin/c++
+CMAKE_CXX_COMPILER:STRING=/opt/rocm-6.2.4/llvm/bin/clang++
 
-//A wrapper around 'ar' adding the appropriate '--plugin' option
-// for the GCC compiler
-CMAKE_CXX_COMPILER_AR:FILEPATH=/usr/bin/gcc-ar-7
+//LLVM archiver
+CMAKE_CXX_COMPILER_AR:FILEPATH=/opt/rocm-6.2.4/lib/llvm/bin/llvm-ar
 
-//A wrapper around 'ranlib' adding the appropriate '--plugin' option
-// for the GCC compiler
-CMAKE_CXX_COMPILER_RANLIB:FILEPATH=/usr/bin/gcc-ranlib-7
+//`clang-scan-deps` dependency scanner
+CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS:FILEPATH=/opt/rocm-6.2.4/lib/llvm/bin/clang-scan-deps
+
+//Generate index for LLVM archive
+CMAKE_CXX_COMPILER_RANLIB:FILEPATH=/opt/rocm-6.2.4/lib/llvm/bin/llvm-ranlib
 
 //Flags used by the CXX compiler during all build types.
 CMAKE_CXX_FLAGS:STRING=
@@ -53,8 +69,35 @@ CMAKE_CXX_FLAGS_RELEASE:STRING=-O3 -DNDEBUG
 //Flags used by the CXX compiler during RELWITHDEBINFO builds.
 CMAKE_CXX_FLAGS_RELWITHDEBINFO:STRING=-O2 -g -DNDEBUG
 
+//C compiler
+CMAKE_C_COMPILER:FILEPATH=/opt/rocm-6.2.4/llvm/bin/clang
+
+//LLVM archiver
+CMAKE_C_COMPILER_AR:FILEPATH=/opt/rocm-6.2.4/lib/llvm/bin/llvm-ar
+
+//`clang-scan-deps` dependency scanner
+CMAKE_C_COMPILER_CLANG_SCAN_DEPS:FILEPATH=/opt/rocm-6.2.4/lib/llvm/bin/clang-scan-deps
+
+//Generate index for LLVM archive
+CMAKE_C_COMPILER_RANLIB:FILEPATH=/opt/rocm-6.2.4/lib/llvm/bin/llvm-ranlib
+
+//Flags used by the C compiler during all build types.
+CMAKE_C_FLAGS:STRING=
+
+//Flags used by the C compiler during DEBUG builds.
+CMAKE_C_FLAGS_DEBUG:STRING=-g
+
+//Flags used by the C compiler during MINSIZEREL builds.
+CMAKE_C_FLAGS_MINSIZEREL:STRING=-Os -DNDEBUG
+
+//Flags used by the C compiler during RELEASE builds.
+CMAKE_C_FLAGS_RELEASE:STRING=-O3 -DNDEBUG
+
+//Flags used by the C compiler during RELWITHDEBINFO builds.
+CMAKE_C_FLAGS_RELWITHDEBINFO:STRING=-O2 -g -DNDEBUG
+
 //Path to a program.
-CMAKE_DLLTOOL:FILEPATH=CMAKE_DLLTOOL-NOTFOUND
+CMAKE_DLLTOOL:FILEPATH=/opt/rocm-6.2.4/llvm/bin/llvm-dlltool
 
 //Flags used by the linker during all build types.
 CMAKE_EXE_LINKER_FLAGS:STRING=
@@ -77,11 +120,92 @@ CMAKE_EXPORT_COMPILE_COMMANDS:BOOL=
 //Value Computed by CMake.
 CMAKE_FIND_PACKAGE_REDIRECTS_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles/pkgRedirects
 
+//No help, variable specified on the command line.
+CMAKE_HIP_ARCHITECTURES:UNINITIALIZED=gfx90a
+
+//HIP compiler
+CMAKE_HIP_COMPILER:STRING=/opt/rocm-6.2.4/llvm/bin/clang++
+
+//LLVM archiver
+CMAKE_HIP_COMPILER_AR:FILEPATH=/opt/rocm-6.2.4/lib/llvm/bin/llvm-ar
+
+//`clang-scan-deps` dependency scanner
+CMAKE_HIP_COMPILER_CLANG_SCAN_DEPS:FILEPATH=/opt/rocm-6.2.4/lib/llvm/bin/clang-scan-deps
+
+//Generate index for LLVM archive
+CMAKE_HIP_COMPILER_RANLIB:FILEPATH=/opt/rocm-6.2.4/lib/llvm/bin/llvm-ranlib
+
+//Flags used by the HIP compiler during all build types.
+CMAKE_HIP_FLAGS:STRING=
+
+//Flags used by the HIP compiler during DEBUG builds.
+CMAKE_HIP_FLAGS_DEBUG:STRING=-g -g
+
+//Flags used by the HIP compiler during MINSIZEREL builds.
+CMAKE_HIP_FLAGS_MINSIZEREL:STRING=-Os -DNDEBUG
+
+//Flags used by the HIP compiler during RELEASE builds.
+CMAKE_HIP_FLAGS_RELEASE:STRING=-O3 -DNDEBUG
+
+//Flags used by the HIP compiler during RELWITHDEBINFO builds.
+CMAKE_HIP_FLAGS_RELWITHDEBINFO:STRING=-O2 -g -DNDEBUG
+
+//No help, variable specified on the command line.
+CMAKE_HIP_PLATFORM:UNINITIALIZED=amd
+
+//User executables (bin)
+CMAKE_INSTALL_BINDIR:PATH=bin
+
+//Read-only architecture-independent data (DATAROOTDIR)
+CMAKE_INSTALL_DATADIR:PATH=
+
+//Read-only architecture-independent data root (share)
+CMAKE_INSTALL_DATAROOTDIR:PATH=share
+
+//Documentation root (DATAROOTDIR/doc/PROJECT_NAME)
+CMAKE_INSTALL_DOCDIR:PATH=
+
+//C header files (include)
+CMAKE_INSTALL_INCLUDEDIR:PATH=include
+
+//Info documentation (DATAROOTDIR/info)
+CMAKE_INSTALL_INFODIR:PATH=
+
+//Object code libraries (lib64)
+CMAKE_INSTALL_LIBDIR:PATH=lib64
+
+//Program executables (libexec)
+CMAKE_INSTALL_LIBEXECDIR:PATH=libexec
+
+//Locale-dependent data (DATAROOTDIR/locale)
+CMAKE_INSTALL_LOCALEDIR:PATH=
+
+//Modifiable single-machine data (var)
+CMAKE_INSTALL_LOCALSTATEDIR:PATH=var
+
+//Man documentation (DATAROOTDIR/man)
+CMAKE_INSTALL_MANDIR:PATH=
+
+//C header files for non-gcc (/usr/include)
+CMAKE_INSTALL_OLDINCLUDEDIR:PATH=/usr/include
+
 //Install path prefix, prepended onto install directories.
 CMAKE_INSTALL_PREFIX:PATH=/usr/local
 
+//Run-time variable data (LOCALSTATEDIR/run)
+CMAKE_INSTALL_RUNSTATEDIR:PATH=
+
+//System admin executables (sbin)
+CMAKE_INSTALL_SBINDIR:PATH=sbin
+
+//Modifiable architecture-independent data (com)
+CMAKE_INSTALL_SHAREDSTATEDIR:PATH=com
+
+//Read-only single-machine data (etc)
+CMAKE_INSTALL_SYSCONFDIR:PATH=etc
+
 //Path to a program.
-CMAKE_LINKER:FILEPATH=/usr/bin/ld
+CMAKE_LINKER:FILEPATH=/opt/rocm-6.2.4/llvm/bin/ld.lld
 
 //Path to a program.
 CMAKE_MAKE_PROGRAM:FILEPATH=/usr/bin/gmake
@@ -107,13 +231,19 @@ CMAKE_MODULE_LINKER_FLAGS_RELEASE:STRING=
 CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO:STRING=
 
 //Path to a program.
-CMAKE_NM:FILEPATH=/usr/bin/nm
+CMAKE_NM:FILEPATH=/opt/rocm-6.2.4/llvm/bin/llvm-nm
 
 //Path to a program.
-CMAKE_OBJCOPY:FILEPATH=/usr/bin/objcopy
+CMAKE_OBJCOPY:FILEPATH=/opt/rocm-6.2.4/llvm/bin/llvm-objcopy
 
 //Path to a program.
-CMAKE_OBJDUMP:FILEPATH=/usr/bin/objdump
+CMAKE_OBJDUMP:FILEPATH=/opt/rocm-6.2.4/llvm/bin/llvm-objdump
+
+//No help, variable specified on the command line.
+CMAKE_POLICY_VERSION_MINIMUM:UNINITIALIZED=3.5
+
+//No help, variable specified on the command line.
+CMAKE_PREFIX_PATH:UNINITIALIZED=/opt/rocm-6.2.4
 
 //Value Computed by CMake
 CMAKE_PROJECT_COMPAT_VERSION:STATIC=
@@ -143,10 +273,10 @@ CMAKE_PROJECT_VERSION_PATCH:STATIC=
 CMAKE_PROJECT_VERSION_TWEAK:STATIC=
 
 //Path to a program.
-CMAKE_RANLIB:FILEPATH=/usr/bin/ranlib
+CMAKE_RANLIB:FILEPATH=/opt/rocm-6.2.4/llvm/bin/llvm-ranlib
 
 //Path to a program.
-CMAKE_READELF:FILEPATH=/usr/bin/readelf
+CMAKE_READELF:FILEPATH=/opt/rocm-6.2.4/llvm/bin/llvm-readelf
 
 //Flags used by the linker during the creation of shared libraries
 // during all build types.
@@ -196,7 +326,7 @@ CMAKE_STATIC_LINKER_FLAGS_RELEASE:STRING=
 CMAKE_STATIC_LINKER_FLAGS_RELWITHDEBINFO:STRING=
 
 //Path to a program.
-CMAKE_STRIP:FILEPATH=/usr/bin/strip
+CMAKE_STRIP:FILEPATH=/opt/rocm-6.2.4/llvm/bin/llvm-strip
 
 //Path to a program.
 CMAKE_TAPI:FILEPATH=CMAKE_TAPI-NOTFOUND
@@ -207,17 +337,222 @@ CMAKE_TAPI:FILEPATH=CMAKE_TAPI-NOTFOUND
 // Studio IDE projects all commands are done without /nologo.
 CMAKE_VERBOSE_MAKEFILE:BOOL=FALSE
 
+//Directory under which to collect all populated content
+FETCHCONTENT_BASE_DIR:PATH=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/_deps
+
+//Disables all attempts to download or update content and assumes
+// source dirs already exist
+FETCHCONTENT_FULLY_DISCONNECTED:BOOL=OFF
+
+//Enables QUIET option for all content population
+FETCHCONTENT_QUIET:BOOL=ON
+
+//When not empty, overrides where to find pre-populated content
+// for googletest
+FETCHCONTENT_SOURCE_DIR_GOOGLETEST:PATH=
+
+//Enables UPDATE_DISCONNECTED behavior for all content population
+FETCHCONTENT_UPDATES_DISCONNECTED:BOOL=OFF
+
+//Enables UPDATE_DISCONNECTED behavior just for population of googletest
+FETCHCONTENT_UPDATES_DISCONNECTED_GOOGLETEST:BOOL=OFF
+
+//GPU targets to compile for
+GPU_TARGETS:STRING=gfx90a
+
+//Use Abseil and RE2. Requires Abseil and RE2 to be separately
+// added to the build.
+GTEST_HAS_ABSL:BOOL=OFF
+
+//The directory containing a CMake configuration file for HIP.
+HIP_DIR:PATH=/opt/rocm-6.2.4/lib/cmake/hip
+
+//Enable installation of googletest. (Projects embedding googletest
+// may want to turn this OFF.)
+INSTALL_GTEST:BOOL=ON
+
+//Build mentor_runtime with RWR-HPC libraries
+MENTOR_USE_RWR_HPC:BOOL=ON
+
+//Executable for running MPI programs.
+MPIEXEC_EXECUTABLE:FILEPATH=/usr/bin/srun
+
+//Maximum number of processors available to run MPI applications.
+MPIEXEC_MAX_NUMPROCS:STRING=64
+
+//Flag used by MPI to specify the number of processes for mpiexec;
+// the next option will be the number of processes.
+MPIEXEC_NUMPROC_FLAG:STRING=-n
+
+//These flags will be placed after all flags passed to mpiexec.
+MPIEXEC_POSTFLAGS:STRING=
+
+//These flags will be directly before the executable that is being
+// run by mpiexec.
+MPIEXEC_PREFLAGS:STRING=
+
+//MPI CXX additional include directories
+MPI_CXX_ADDITIONAL_INCLUDE_DIRS:STRING=
+
+//MPI compiler for CXX
+MPI_CXX_COMPILER:FILEPATH=/opt/cray/pe/mpich/8.1.31/ofi/crayclang/17.0/bin/mpicxx
+
+//MPI CXX compiler wrapper include directories
+MPI_CXX_COMPILER_INCLUDE_DIRS:STRING=/opt/cray/pe/mpich/8.1.31/ofi/cray/17.0/include
+
+//MPI CXX compilation definitions
+MPI_CXX_COMPILE_DEFINITIONS:STRING=
+
+//MPI CXX compilation options
+MPI_CXX_COMPILE_OPTIONS:STRING=
+
+//Path to a file.
+MPI_CXX_HEADER_DIR:PATH=/opt/cray/pe/mpich/8.1.31/ofi/cray/17.0/include
+
+//MPI CXX libraries to link against
+MPI_CXX_LIB_NAMES:STRING=mpi_cray
+
+//MPI CXX linker flags
+MPI_CXX_LINK_FLAGS:STRING=
+
+//If true, the MPI-2 C++ bindings are disabled using definitions.
+MPI_CXX_SKIP_MPICXX:BOOL=OFF
+
+//Location of the mpi_cray library for MPI
+MPI_mpi_cray_LIBRARY:FILEPATH=/opt/cray/pe/mpich/8.1.31/ofi/cray/17.0/lib/libmpi_cray.so
+
 //CXX compiler flags for OpenMP parallelization
-OpenMP_CXX_FLAGS:STRING=-fopenmp
+OpenMP_CXX_FLAGS:STRING=-fopenmp=libomp
 
 //CXX compiler libraries for OpenMP parallelization
-OpenMP_CXX_LIB_NAMES:STRING=gomp;pthread
+OpenMP_CXX_LIB_NAMES:STRING=omp;pthread
 
-//Path to the gomp library for OpenMP
-OpenMP_gomp_LIBRARY:FILEPATH=/usr/lib64/gcc/x86_64-suse-linux/7/libgomp.so
+//C compiler flags for OpenMP parallelization
+OpenMP_C_FLAGS:STRING=-fopenmp=libomp
+
+//C compiler libraries for OpenMP parallelization
+OpenMP_C_LIB_NAMES:STRING=omp;pthread
+
+//Path to the omp library for OpenMP
+OpenMP_omp_LIBRARY:FILEPATH=/opt/rocm-6.2.4/lib/llvm/lib/libomp.so
 
 //Path to the pthread library for OpenMP
 OpenMP_pthread_LIBRARY:FILEPATH=/usr/lib64/libpthread.a
+
+//Arguments to supply to pkg-config
+PKG_CONFIG_ARGN:STRING=
+
+//pkg-config executable
+PKG_CONFIG_EXECUTABLE:FILEPATH=/usr/bin/pkg-config
+
+//No help, variable specified on the command line.
+ROCM_ROOT:UNINITIALIZED=/opt/rocm-6.2.4
+
+//Path to external RWR-HPC/RWR++ runtime
+RWR_HPC_DIR:PATH=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc
+
+//Enable HIP/ROCm GPU support
+USE_HIP:BOOL=ON
+
+//Enable OpenMP in CPU backend
+USE_OPENMP:BOOL=ON
+
+//The directory containing a CMake configuration file for amd_comgr.
+amd_comgr_DIR:PATH=/opt/rocm-6.2.4/lib/cmake/amd_comgr
+
+//Value Computed by CMake
+batch_generator_BINARY_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_batch_generator
+
+//Value Computed by CMake
+batch_generator_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+batch_generator_SOURCE_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/libs/batch_generator
+
+//Value Computed by CMake
+correlate_BINARY_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_correlate
+
+//Value Computed by CMake
+correlate_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+correlate_SOURCE_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/libs/correlate
+
+//Value Computed by CMake
+elbow_point_BINARY_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_elbow_point
+
+//Value Computed by CMake
+elbow_point_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+elbow_point_SOURCE_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/libs/elbow_point
+
+//Value Computed by CMake
+file_io_BINARY_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_multiplex
+
+//Value Computed by CMake
+file_io_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+file_io_SOURCE_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/libs/multiplex
+
+//Value Computed by CMake
+gmock_BINARY_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/_deps/googletest-build/googlemock
+
+//Value Computed by CMake
+gmock_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+gmock_SOURCE_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/_deps/googletest-src/googlemock
+
+//Build all of Google Mock's own tests.
+gmock_build_tests:BOOL=OFF
+
+//Value Computed by CMake
+googletest-distribution_BINARY_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/_deps/googletest-build
+
+//Value Computed by CMake
+googletest-distribution_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+googletest-distribution_SOURCE_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/_deps/googletest-src
+
+//Value Computed by CMake
+gtest_BINARY_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/_deps/googletest-build/googletest
+
+//Value Computed by CMake
+gtest_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+gtest_SOURCE_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/_deps/googletest-src/googletest
+
+//Build gtest's sample programs.
+gtest_build_samples:BOOL=OFF
+
+//Build all of gtest's own tests.
+gtest_build_tests:BOOL=OFF
+
+//Disable uses of pthreads in gtest.
+gtest_disable_pthreads:BOOL=OFF
+
+//Use shared (DLL) run-time lib even when Google Test is built
+// as static lib.
+gtest_force_shared_crt:BOOL=ON
+
+//Build gtest with internal symbols hidden in shared libraries.
+gtest_hide_internal_symbols:BOOL=OFF
+
+//The directory containing a CMake configuration file for hip.
+hip_DIR:PATH=/opt/rocm-6.2.4/lib/cmake/hip
+
+//The directory containing a CMake configuration file for hipblas.
+hipblas_DIR:PATH=/opt/rocm-6.2.4/lib/cmake/hipblas
+
+//The directory containing a CMake configuration file for hipsparse.
+hipsparse_DIR:PATH=/opt/rocm-6.2.4/lib/cmake/hipsparse
+
+//The directory containing a CMake configuration file for hsa-runtime64.
+hsa-runtime64_DIR:PATH=/opt/rocm-6.2.4/lib/cmake/hsa-runtime64
 
 //Value Computed by CMake
 mentor_runtime_BINARY_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build
@@ -227,6 +562,105 @@ mentor_runtime_IS_TOP_LEVEL:STATIC=ON
 
 //Value Computed by CMake
 mentor_runtime_SOURCE_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime
+
+//Value Computed by CMake
+network_BINARY_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_network
+
+//Value Computed by CMake
+network_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+network_SOURCE_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/libs/network
+
+//Value Computed by CMake
+normalize_BINARY_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_normalize
+
+//Value Computed by CMake
+normalize_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+normalize_SOURCE_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/libs/normalize
+
+//Value Computed by CMake
+parallel_BINARY_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_parallel
+
+//Value Computed by CMake
+parallel_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+parallel_SOURCE_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/libs/parallel
+
+//Value Computed by CMake
+rank_BINARY_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_rank
+
+//Value Computed by CMake
+rank_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+rank_SOURCE_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/libs/rank
+
+//Value Computed by CMake
+rwr_BINARY_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_rwr
+
+//Value Computed by CMake
+rwr_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+rwr_SOURCE_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/libs/rwr
+
+//Value Computed by CMake
+sampling_BINARY_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_sampling
+
+//Value Computed by CMake
+sampling_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+sampling_SOURCE_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/libs/sampling
+
+//Value Computed by CMake
+sort_BINARY_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_sort
+
+//Value Computed by CMake
+sort_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+sort_SOURCE_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/libs/sort
+
+//Value Computed by CMake
+sparse_BINARY_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_sparse
+
+//Value Computed by CMake
+sparse_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+sparse_SOURCE_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/libs/sparse
+
+//Value Computed by CMake
+split_BINARY_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_split
+
+//Value Computed by CMake
+split_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+split_SOURCE_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/libs/split
+
+//Value Computed by CMake
+stats_BINARY_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_stats
+
+//Value Computed by CMake
+stats_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+stats_SOURCE_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/libs/stats
+
+//Value Computed by CMake
+timer_BINARY_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/rwr_hpc_timer
+
+//Value Computed by CMake
+timer_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+timer_SOURCE_DIR:STATIC=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/libs/timer
 
 
 ########################
@@ -257,6 +691,8 @@ CMAKE_CTEST_COMMAND:INTERNAL=/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.
 CMAKE_CXX_COMPILER-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_CXX_COMPILER_AR
 CMAKE_CXX_COMPILER_AR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS
+CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_CXX_COMPILER_RANLIB
 CMAKE_CXX_COMPILER_RANLIB-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_CXX_FLAGS
@@ -269,6 +705,24 @@ CMAKE_CXX_FLAGS_MINSIZEREL-ADVANCED:INTERNAL=1
 CMAKE_CXX_FLAGS_RELEASE-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_CXX_FLAGS_RELWITHDEBINFO
 CMAKE_CXX_FLAGS_RELWITHDEBINFO-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_C_COMPILER
+CMAKE_C_COMPILER-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_C_COMPILER_AR
+CMAKE_C_COMPILER_AR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_C_COMPILER_CLANG_SCAN_DEPS
+CMAKE_C_COMPILER_CLANG_SCAN_DEPS-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_C_COMPILER_RANLIB
+CMAKE_C_COMPILER_RANLIB-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_C_FLAGS
+CMAKE_C_FLAGS-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_C_FLAGS_DEBUG
+CMAKE_C_FLAGS_DEBUG-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_C_FLAGS_MINSIZEREL
+CMAKE_C_FLAGS_MINSIZEREL-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_C_FLAGS_RELEASE
+CMAKE_C_FLAGS_RELEASE-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_C_FLAGS_RELWITHDEBINFO
+CMAKE_C_FLAGS_RELWITHDEBINFO-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_DLLTOOL
 CMAKE_DLLTOOL-ADVANCED:INTERNAL=1
 //Executable file format
@@ -295,11 +749,63 @@ CMAKE_GENERATOR_INSTANCE:INTERNAL=
 CMAKE_GENERATOR_PLATFORM:INTERNAL=
 //Name of generator toolset.
 CMAKE_GENERATOR_TOOLSET:INTERNAL=
+//Test CMAKE_HAVE_LIBC_PTHREAD
+CMAKE_HAVE_LIBC_PTHREAD:INTERNAL=1
+//ADVANCED property for variable: CMAKE_HIP_COMPILER
+CMAKE_HIP_COMPILER-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_HIP_COMPILER_AR
+CMAKE_HIP_COMPILER_AR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_HIP_COMPILER_CLANG_SCAN_DEPS
+CMAKE_HIP_COMPILER_CLANG_SCAN_DEPS-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_HIP_COMPILER_RANLIB
+CMAKE_HIP_COMPILER_RANLIB-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_HIP_FLAGS
+CMAKE_HIP_FLAGS-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_HIP_FLAGS_DEBUG
+CMAKE_HIP_FLAGS_DEBUG-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_HIP_FLAGS_MINSIZEREL
+CMAKE_HIP_FLAGS_MINSIZEREL-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_HIP_FLAGS_RELEASE
+CMAKE_HIP_FLAGS_RELEASE-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_HIP_FLAGS_RELWITHDEBINFO
+CMAKE_HIP_FLAGS_RELWITHDEBINFO-ADVANCED:INTERNAL=1
 //Source directory with the top level CMakeLists.txt file for this
 // project
 CMAKE_HOME_DIRECTORY:INTERNAL=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime
+//ADVANCED property for variable: CMAKE_INSTALL_BINDIR
+CMAKE_INSTALL_BINDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_DATADIR
+CMAKE_INSTALL_DATADIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_DATAROOTDIR
+CMAKE_INSTALL_DATAROOTDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_DOCDIR
+CMAKE_INSTALL_DOCDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_INCLUDEDIR
+CMAKE_INSTALL_INCLUDEDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_INFODIR
+CMAKE_INSTALL_INFODIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_LIBDIR
+CMAKE_INSTALL_LIBDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_LIBEXECDIR
+CMAKE_INSTALL_LIBEXECDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_LOCALEDIR
+CMAKE_INSTALL_LOCALEDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_LOCALSTATEDIR
+CMAKE_INSTALL_LOCALSTATEDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_MANDIR
+CMAKE_INSTALL_MANDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_OLDINCLUDEDIR
+CMAKE_INSTALL_OLDINCLUDEDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_RUNSTATEDIR
+CMAKE_INSTALL_RUNSTATEDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_SBINDIR
+CMAKE_INSTALL_SBINDIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_INSTALL_SHAREDSTATEDIR
+CMAKE_INSTALL_SHAREDSTATEDIR-ADVANCED:INTERNAL=1
 //Install .so files without execute permission.
 CMAKE_INSTALL_SO_NO_EXE:INTERNAL=0
+//ADVANCED property for variable: CMAKE_INSTALL_SYSCONFDIR
+CMAKE_INSTALL_SYSCONFDIR-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_LINKER
 CMAKE_LINKER-ADVANCED:INTERNAL=1
 //Name of CMakeLists files to read
@@ -319,7 +825,7 @@ CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_NM
 CMAKE_NM-ADVANCED:INTERNAL=1
 //number of local generators
-CMAKE_NUMBER_OF_MAKEFILES:INTERNAL=1
+CMAKE_NUMBER_OF_MAKEFILES:INTERNAL=40
 //ADVANCED property for variable: CMAKE_OBJCOPY
 CMAKE_OBJCOPY-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_OBJDUMP
@@ -364,22 +870,108 @@ CMAKE_TAPI-ADVANCED:INTERNAL=1
 CMAKE_UNAME:INTERNAL=/usr/bin/uname
 //ADVANCED property for variable: CMAKE_VERBOSE_MAKEFILE
 CMAKE_VERBOSE_MAKEFILE-ADVANCED:INTERNAL=1
+//Details about finding MPI
+FIND_PACKAGE_MESSAGE_DETAILS_MPI:INTERNAL=[TRUE][ ][v3.1()]
+//Details about finding MPI_CXX
+FIND_PACKAGE_MESSAGE_DETAILS_MPI_CXX:INTERNAL=[/opt/cray/pe/mpich/8.1.31/ofi/cray/17.0/lib/libmpi_cray.so][mpi_cray][/opt/cray/pe/mpich/8.1.31/ofi/cray/17.0/include][TRUE][v3.1()]
 //Details about finding OpenMP
-FIND_PACKAGE_MESSAGE_DETAILS_OpenMP:INTERNAL=[TRUE][ ][v4.5()]
+FIND_PACKAGE_MESSAGE_DETAILS_OpenMP:INTERNAL=[TRUE][ ][v5.1()]
 //Details about finding OpenMP_CXX
-FIND_PACKAGE_MESSAGE_DETAILS_OpenMP_CXX:INTERNAL=[-fopenmp][/usr/lib64/gcc/x86_64-suse-linux/7/libgomp.so][/usr/lib64/libpthread.a][v4.5()]
+FIND_PACKAGE_MESSAGE_DETAILS_OpenMP_CXX:INTERNAL=[-fopenmp=libomp][/opt/rocm-6.2.4/lib/llvm/lib/libomp.so][/usr/lib64/libpthread.a][v5.1()]
+//Details about finding Python3
+FIND_PACKAGE_MESSAGE_DETAILS_Python3:INTERNAL=[/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/python3.11][found components: Interpreter ][v3.11.5()]
+//Details about finding Threads
+FIND_PACKAGE_MESSAGE_DETAILS_Threads:INTERNAL=[TRUE][v()]
+//Test HIP_CLANG_SUPPORTS_PARALLEL_JOBS
+HIP_CLANG_SUPPORTS_PARALLEL_JOBS:INTERNAL=1
+//ADVANCED property for variable: MPIEXEC_EXECUTABLE
+MPIEXEC_EXECUTABLE-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: MPIEXEC_MAX_NUMPROCS
+MPIEXEC_MAX_NUMPROCS-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: MPIEXEC_NUMPROC_FLAG
+MPIEXEC_NUMPROC_FLAG-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: MPIEXEC_POSTFLAGS
+MPIEXEC_POSTFLAGS-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: MPIEXEC_PREFLAGS
+MPIEXEC_PREFLAGS-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: MPI_CXX_ADDITIONAL_INCLUDE_DIRS
+MPI_CXX_ADDITIONAL_INCLUDE_DIRS-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: MPI_CXX_COMPILER
+MPI_CXX_COMPILER-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: MPI_CXX_COMPILER_INCLUDE_DIRS
+MPI_CXX_COMPILER_INCLUDE_DIRS-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: MPI_CXX_COMPILE_DEFINITIONS
+MPI_CXX_COMPILE_DEFINITIONS-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: MPI_CXX_COMPILE_OPTIONS
+MPI_CXX_COMPILE_OPTIONS-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: MPI_CXX_HEADER_DIR
+MPI_CXX_HEADER_DIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: MPI_CXX_LIB_NAMES
+MPI_CXX_LIB_NAMES-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: MPI_CXX_LINK_FLAGS
+MPI_CXX_LINK_FLAGS-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: MPI_CXX_SKIP_MPICXX
+MPI_CXX_SKIP_MPICXX-ADVANCED:INTERNAL=1
 //Result of TRY_COMPILE
-OpenMP_COMPILE_RESULT_CXX_fopenmp:INTERNAL=TRUE
+MPI_RESULT_CXX_test_mpi_MPICXX:INTERNAL=TRUE
+//Result of TRY_COMPILE
+MPI_RESULT_CXX_test_mpi_normal:INTERNAL=TRUE
+//ADVANCED property for variable: MPI_mpi_cray_LIBRARY
+MPI_mpi_cray_LIBRARY-ADVANCED:INTERNAL=1
+//Result of TRY_COMPILE
+OpenMP_COMPILE_RESULT_CXX_fopenmplibomp:INTERNAL=TRUE
+//Result of TRY_COMPILE
+OpenMP_COMPILE_RESULT_C_fopenmplibomp:INTERNAL=TRUE
 //ADVANCED property for variable: OpenMP_CXX_FLAGS
 OpenMP_CXX_FLAGS-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: OpenMP_CXX_LIB_NAMES
 OpenMP_CXX_LIB_NAMES-ADVANCED:INTERNAL=1
 //CXX compiler's OpenMP specification date
-OpenMP_CXX_SPEC_DATE:INTERNAL=201511
+OpenMP_CXX_SPEC_DATE:INTERNAL=202011
+//ADVANCED property for variable: OpenMP_C_FLAGS
+OpenMP_C_FLAGS-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: OpenMP_C_LIB_NAMES
+OpenMP_C_LIB_NAMES-ADVANCED:INTERNAL=1
+//C compiler's OpenMP specification date
+OpenMP_C_SPEC_DATE:INTERNAL=202011
 //Result of TRY_COMPILE
 OpenMP_SPECTEST_CXX_:INTERNAL=TRUE
-//ADVANCED property for variable: OpenMP_gomp_LIBRARY
-OpenMP_gomp_LIBRARY-ADVANCED:INTERNAL=1
+//Result of TRY_COMPILE
+OpenMP_SPECTEST_C_:INTERNAL=TRUE
+//ADVANCED property for variable: OpenMP_omp_LIBRARY
+OpenMP_omp_LIBRARY-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: OpenMP_pthread_LIBRARY
 OpenMP_pthread_LIBRARY-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: PKG_CONFIG_ARGN
+PKG_CONFIG_ARGN-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: PKG_CONFIG_EXECUTABLE
+PKG_CONFIG_EXECUTABLE-ADVANCED:INTERNAL=1
+//CMAKE_INSTALL_PREFIX during last run
+_GNUInstallDirs_LAST_CMAKE_INSTALL_PREFIX:INTERNAL=/usr/local
+//Compiler reason failure
+_Python3_Compiler_REASON_FAILURE:INTERNAL=
+//Development reason failure
+_Python3_Development_REASON_FAILURE:INTERNAL=
+//Path to a program.
+_Python3_EXECUTABLE:INTERNAL=/lustre/orion/syb111/proj-shared/Environments/miniconda3/bin/python3.11
+//Python3 Properties
+_Python3_INTERPRETER_PROPERTIES:INTERNAL=Python;3;11;5;64;32;<none>;cpython-311-x86_64-linux-gnu;abi3;/lustre/orion/syb111/proj-shared/Environments/miniconda3/lib/python3.11;/lustre/orion/syb111/proj-shared/Environments/miniconda3/lib/python3.11;/lustre/orion/syb111/proj-shared/Environments/miniconda3/lib/python3.11/site-packages;/lustre/orion/syb111/proj-shared/Environments/miniconda3/lib/python3.11/site-packages
+_Python3_INTERPRETER_SIGNATURE:INTERNAL=26c103a0b8aa7ffa82a88c288bebb8d7
+//NumPy reason failure
+_Python3_NumPy_REASON_FAILURE:INTERNAL=
+cmake_package_name:INTERNAL=GTest
+generated_dir:INTERNAL=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/_deps/googletest-build/googletest/generated
+//ADVANCED property for variable: gmock_build_tests
+gmock_build_tests-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: gtest_build_samples
+gtest_build_samples-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: gtest_build_tests
+gtest_build_tests-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: gtest_disable_pthreads
+gtest_disable_pthreads-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: gtest_force_shared_crt
+gtest_force_shared_crt-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: gtest_hide_internal_symbols
+gtest_hide_internal_symbols-ADVANCED:INTERNAL=1
+targets_export_name:INTERNAL=GTestTargets
 

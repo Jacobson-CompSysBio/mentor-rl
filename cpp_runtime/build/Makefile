@@ -85,6 +85,51 @@ rebuild_cache:
 rebuild_cache/fast: rebuild_cache
 .PHONY : rebuild_cache/fast
 
+# Special rule for the target list_install_components
+list_install_components:
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Available install components are: \"gmock\" \"gtest\""
+.PHONY : list_install_components
+
+# Special rule for the target list_install_components
+list_install_components/fast: list_install_components
+.PHONY : list_install_components/fast
+
+# Special rule for the target install
+install: preinstall
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Install the project..."
+	/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -P cmake_install.cmake
+.PHONY : install
+
+# Special rule for the target install
+install/fast: preinstall/fast
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Install the project..."
+	/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -P cmake_install.cmake
+.PHONY : install/fast
+
+# Special rule for the target install/local
+install/local: preinstall
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Installing only the local directory..."
+	/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -DCMAKE_INSTALL_LOCAL_ONLY=1 -P cmake_install.cmake
+.PHONY : install/local
+
+# Special rule for the target install/local
+install/local/fast: preinstall/fast
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Installing only the local directory..."
+	/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -DCMAKE_INSTALL_LOCAL_ONLY=1 -P cmake_install.cmake
+.PHONY : install/local/fast
+
+# Special rule for the target install/strip
+install/strip: preinstall
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Installing the project stripped..."
+	/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -DCMAKE_INSTALL_DO_STRIP=1 -P cmake_install.cmake
+.PHONY : install/strip
+
+# Special rule for the target install/strip
+install/strip/fast: preinstall/fast
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Installing the project stripped..."
+	/autofs/nccs-svm1_home1/krusepi/.local/lib/python3.11/site-packages/cmake/data/bin/cmake -DCMAKE_INSTALL_DO_STRIP=1 -P cmake_install.cmake
+.PHONY : install/strip/fast
+
 # The main all target
 all: cmake_check_build_system
 	$(CMAKE_COMMAND) -E cmake_progress_start /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build/CMakeFiles /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/build//CMakeFiles/progress.marks
@@ -128,6 +173,474 @@ mentor_runtime: cmake_check_build_system
 mentor_runtime/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/mentor_runtime.dir/build.make CMakeFiles/mentor_runtime.dir/build
 .PHONY : mentor_runtime/fast
+
+#=============================================================================
+# Target rules for targets named utils
+
+# Build rule for target.
+utils: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 utils
+.PHONY : utils
+
+# fast build rule for target.
+utils/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_utils/src/CMakeFiles/utils.dir/build.make rwr_hpc_utils/src/CMakeFiles/utils.dir/build
+.PHONY : utils/fast
+
+#=============================================================================
+# Target rules for targets named timer
+
+# Build rule for target.
+timer: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 timer
+.PHONY : timer
+
+# fast build rule for target.
+timer/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_timer/src/CMakeFiles/timer.dir/build.make rwr_hpc_timer/src/CMakeFiles/timer.dir/build
+.PHONY : timer/fast
+
+#=============================================================================
+# Target rules for targets named parallel
+
+# Build rule for target.
+parallel: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 parallel
+.PHONY : parallel
+
+# fast build rule for target.
+parallel/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_parallel/src/CMakeFiles/parallel.dir/build.make rwr_hpc_parallel/src/CMakeFiles/parallel.dir/build
+.PHONY : parallel/fast
+
+#=============================================================================
+# Target rules for targets named file_io
+
+# Build rule for target.
+file_io: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 file_io
+.PHONY : file_io
+
+# fast build rule for target.
+file_io/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_file_io/CMakeFiles/file_io.dir/build.make rwr_hpc_file_io/CMakeFiles/file_io.dir/build
+.PHONY : file_io/fast
+
+#=============================================================================
+# Target rules for targets named sparse
+
+# Build rule for target.
+sparse: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 sparse
+.PHONY : sparse
+
+# fast build rule for target.
+sparse/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_sparse/src/CMakeFiles/sparse.dir/build.make rwr_hpc_sparse/src/CMakeFiles/sparse.dir/build
+.PHONY : sparse/fast
+
+#=============================================================================
+# Target rules for targets named network
+
+# Build rule for target.
+network: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 network
+.PHONY : network
+
+# fast build rule for target.
+network/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_network/src/CMakeFiles/network.dir/build.make rwr_hpc_network/src/CMakeFiles/network.dir/build
+.PHONY : network/fast
+
+#=============================================================================
+# Target rules for targets named multiplex
+
+# Build rule for target.
+multiplex: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 multiplex
+.PHONY : multiplex
+
+# fast build rule for target.
+multiplex/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_multiplex/src/CMakeFiles/multiplex.dir/build.make rwr_hpc_multiplex/src/CMakeFiles/multiplex.dir/build
+.PHONY : multiplex/fast
+
+#=============================================================================
+# Target rules for targets named rank
+
+# Build rule for target.
+rank: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 rank
+.PHONY : rank
+
+# fast build rule for target.
+rank/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_rank/src/CMakeFiles/rank.dir/build.make rwr_hpc_rank/src/CMakeFiles/rank.dir/build
+.PHONY : rank/fast
+
+#=============================================================================
+# Target rules for targets named rwr
+
+# Build rule for target.
+rwr: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 rwr
+.PHONY : rwr
+
+# fast build rule for target.
+rwr/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_rwr/src/CMakeFiles/rwr.dir/build.make rwr_hpc_rwr/src/CMakeFiles/rwr.dir/build
+.PHONY : rwr/fast
+
+#=============================================================================
+# Target rules for targets named sampling
+
+# Build rule for target.
+sampling: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 sampling
+.PHONY : sampling
+
+# fast build rule for target.
+sampling/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_sampling/src/CMakeFiles/sampling.dir/build.make rwr_hpc_sampling/src/CMakeFiles/sampling.dir/build
+.PHONY : sampling/fast
+
+#=============================================================================
+# Target rules for targets named standard_math_obj
+
+# Build rule for target.
+standard_math_obj: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 standard_math_obj
+.PHONY : standard_math_obj
+
+# fast build rule for target.
+standard_math_obj/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_normalize/src/CMakeFiles/standard_math_obj.dir/build.make rwr_hpc_normalize/src/CMakeFiles/standard_math_obj.dir/build
+.PHONY : standard_math_obj/fast
+
+#=============================================================================
+# Target rules for targets named normalize
+
+# Build rule for target.
+normalize: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 normalize
+.PHONY : normalize
+
+# fast build rule for target.
+normalize/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_normalize/src/CMakeFiles/normalize.dir/build.make rwr_hpc_normalize/src/CMakeFiles/normalize.dir/build
+.PHONY : normalize/fast
+
+#=============================================================================
+# Target rules for targets named dot_math_obj
+
+# Build rule for target.
+dot_math_obj: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 dot_math_obj
+.PHONY : dot_math_obj
+
+# fast build rule for target.
+dot_math_obj/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_correlate/src/CMakeFiles/dot_math_obj.dir/build.make rwr_hpc_correlate/src/CMakeFiles/dot_math_obj.dir/build
+.PHONY : dot_math_obj/fast
+
+#=============================================================================
+# Target rules for targets named pearson_math_obj
+
+# Build rule for target.
+pearson_math_obj: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 pearson_math_obj
+.PHONY : pearson_math_obj
+
+# fast build rule for target.
+pearson_math_obj/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_correlate/src/CMakeFiles/pearson_math_obj.dir/build.make rwr_hpc_correlate/src/CMakeFiles/pearson_math_obj.dir/build
+.PHONY : pearson_math_obj/fast
+
+#=============================================================================
+# Target rules for targets named spearman_math_obj
+
+# Build rule for target.
+spearman_math_obj: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 spearman_math_obj
+.PHONY : spearman_math_obj
+
+# fast build rule for target.
+spearman_math_obj/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_correlate/src/CMakeFiles/spearman_math_obj.dir/build.make rwr_hpc_correlate/src/CMakeFiles/spearman_math_obj.dir/build
+.PHONY : spearman_math_obj/fast
+
+#=============================================================================
+# Target rules for targets named cosine_math_obj
+
+# Build rule for target.
+cosine_math_obj: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 cosine_math_obj
+.PHONY : cosine_math_obj
+
+# fast build rule for target.
+cosine_math_obj/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_correlate/src/CMakeFiles/cosine_math_obj.dir/build.make rwr_hpc_correlate/src/CMakeFiles/cosine_math_obj.dir/build
+.PHONY : cosine_math_obj/fast
+
+#=============================================================================
+# Target rules for targets named correlate
+
+# Build rule for target.
+correlate: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 correlate
+.PHONY : correlate
+
+# fast build rule for target.
+correlate/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_correlate/src/CMakeFiles/correlate.dir/build.make rwr_hpc_correlate/src/CMakeFiles/correlate.dir/build
+.PHONY : correlate/fast
+
+#=============================================================================
+# Target rules for targets named test_dot_local_math
+
+# Build rule for target.
+test_dot_local_math: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test_dot_local_math
+.PHONY : test_dot_local_math
+
+# fast build rule for target.
+test_dot_local_math/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_correlate/tests/CMakeFiles/test_dot_local_math.dir/build.make rwr_hpc_correlate/tests/CMakeFiles/test_dot_local_math.dir/build
+.PHONY : test_dot_local_math/fast
+
+#=============================================================================
+# Target rules for targets named test_dot_local_dispatch
+
+# Build rule for target.
+test_dot_local_dispatch: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test_dot_local_dispatch
+.PHONY : test_dot_local_dispatch
+
+# fast build rule for target.
+test_dot_local_dispatch/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_correlate/tests/CMakeFiles/test_dot_local_dispatch.dir/build.make rwr_hpc_correlate/tests/CMakeFiles/test_dot_local_dispatch.dir/build
+.PHONY : test_dot_local_dispatch/fast
+
+#=============================================================================
+# Target rules for targets named test_pearson_local_math
+
+# Build rule for target.
+test_pearson_local_math: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test_pearson_local_math
+.PHONY : test_pearson_local_math
+
+# fast build rule for target.
+test_pearson_local_math/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_correlate/tests/CMakeFiles/test_pearson_local_math.dir/build.make rwr_hpc_correlate/tests/CMakeFiles/test_pearson_local_math.dir/build
+.PHONY : test_pearson_local_math/fast
+
+#=============================================================================
+# Target rules for targets named test_pearson_local_dispatch
+
+# Build rule for target.
+test_pearson_local_dispatch: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test_pearson_local_dispatch
+.PHONY : test_pearson_local_dispatch
+
+# fast build rule for target.
+test_pearson_local_dispatch/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_correlate/tests/CMakeFiles/test_pearson_local_dispatch.dir/build.make rwr_hpc_correlate/tests/CMakeFiles/test_pearson_local_dispatch.dir/build
+.PHONY : test_pearson_local_dispatch/fast
+
+#=============================================================================
+# Target rules for targets named test_spearman_local_math
+
+# Build rule for target.
+test_spearman_local_math: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test_spearman_local_math
+.PHONY : test_spearman_local_math
+
+# fast build rule for target.
+test_spearman_local_math/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_correlate/tests/CMakeFiles/test_spearman_local_math.dir/build.make rwr_hpc_correlate/tests/CMakeFiles/test_spearman_local_math.dir/build
+.PHONY : test_spearman_local_math/fast
+
+#=============================================================================
+# Target rules for targets named test_spearman_local_dispatch
+
+# Build rule for target.
+test_spearman_local_dispatch: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test_spearman_local_dispatch
+.PHONY : test_spearman_local_dispatch
+
+# fast build rule for target.
+test_spearman_local_dispatch/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_correlate/tests/CMakeFiles/test_spearman_local_dispatch.dir/build.make rwr_hpc_correlate/tests/CMakeFiles/test_spearman_local_dispatch.dir/build
+.PHONY : test_spearman_local_dispatch/fast
+
+#=============================================================================
+# Target rules for targets named test_cos_local_math
+
+# Build rule for target.
+test_cos_local_math: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test_cos_local_math
+.PHONY : test_cos_local_math
+
+# fast build rule for target.
+test_cos_local_math/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_correlate/tests/CMakeFiles/test_cos_local_math.dir/build.make rwr_hpc_correlate/tests/CMakeFiles/test_cos_local_math.dir/build
+.PHONY : test_cos_local_math/fast
+
+#=============================================================================
+# Target rules for targets named test_cos_local_dispatch
+
+# Build rule for target.
+test_cos_local_dispatch: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test_cos_local_dispatch
+.PHONY : test_cos_local_dispatch
+
+# fast build rule for target.
+test_cos_local_dispatch/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_correlate/tests/CMakeFiles/test_cos_local_dispatch.dir/build.make rwr_hpc_correlate/tests/CMakeFiles/test_cos_local_dispatch.dir/build
+.PHONY : test_cos_local_dispatch/fast
+
+#=============================================================================
+# Target rules for targets named gmock
+
+# Build rule for target.
+gmock: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 gmock
+.PHONY : gmock
+
+# fast build rule for target.
+gmock/fast:
+	$(MAKE) $(MAKESILENT) -f _deps/googletest-build/googlemock/CMakeFiles/gmock.dir/build.make _deps/googletest-build/googlemock/CMakeFiles/gmock.dir/build
+.PHONY : gmock/fast
+
+#=============================================================================
+# Target rules for targets named gmock_main
+
+# Build rule for target.
+gmock_main: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 gmock_main
+.PHONY : gmock_main
+
+# fast build rule for target.
+gmock_main/fast:
+	$(MAKE) $(MAKESILENT) -f _deps/googletest-build/googlemock/CMakeFiles/gmock_main.dir/build.make _deps/googletest-build/googlemock/CMakeFiles/gmock_main.dir/build
+.PHONY : gmock_main/fast
+
+#=============================================================================
+# Target rules for targets named gtest
+
+# Build rule for target.
+gtest: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 gtest
+.PHONY : gtest
+
+# fast build rule for target.
+gtest/fast:
+	$(MAKE) $(MAKESILENT) -f _deps/googletest-build/googletest/CMakeFiles/gtest.dir/build.make _deps/googletest-build/googletest/CMakeFiles/gtest.dir/build
+.PHONY : gtest/fast
+
+#=============================================================================
+# Target rules for targets named gtest_main
+
+# Build rule for target.
+gtest_main: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 gtest_main
+.PHONY : gtest_main
+
+# fast build rule for target.
+gtest_main/fast:
+	$(MAKE) $(MAKESILENT) -f _deps/googletest-build/googletest/CMakeFiles/gtest_main.dir/build.make _deps/googletest-build/googletest/CMakeFiles/gtest_main.dir/build
+.PHONY : gtest_main/fast
+
+#=============================================================================
+# Target rules for targets named elbow_point
+
+# Build rule for target.
+elbow_point: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 elbow_point
+.PHONY : elbow_point
+
+# fast build rule for target.
+elbow_point/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_elbow_point/src/CMakeFiles/elbow_point.dir/build.make rwr_hpc_elbow_point/src/CMakeFiles/elbow_point.dir/build
+.PHONY : elbow_point/fast
+
+#=============================================================================
+# Target rules for targets named test_elbow_point
+
+# Build rule for target.
+test_elbow_point: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test_elbow_point
+.PHONY : test_elbow_point
+
+# fast build rule for target.
+test_elbow_point/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_elbow_point/tests/CMakeFiles/test_elbow_point.dir/build.make rwr_hpc_elbow_point/tests/CMakeFiles/test_elbow_point.dir/build
+.PHONY : test_elbow_point/fast
+
+#=============================================================================
+# Target rules for targets named split
+
+# Build rule for target.
+split: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 split
+.PHONY : split
+
+# fast build rule for target.
+split/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_split/src/CMakeFiles/split.dir/build.make rwr_hpc_split/src/CMakeFiles/split.dir/build
+.PHONY : split/fast
+
+#=============================================================================
+# Target rules for targets named test_split
+
+# Build rule for target.
+test_split: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test_split
+.PHONY : test_split
+
+# fast build rule for target.
+test_split/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_split/tests/CMakeFiles/test_split.dir/build.make rwr_hpc_split/tests/CMakeFiles/test_split.dir/build
+.PHONY : test_split/fast
+
+#=============================================================================
+# Target rules for targets named test_sort
+
+# Build rule for target.
+test_sort: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test_sort
+.PHONY : test_sort
+
+# fast build rule for target.
+test_sort/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_sort/tests/CMakeFiles/test_sort.dir/build.make rwr_hpc_sort/tests/CMakeFiles/test_sort.dir/build
+.PHONY : test_sort/fast
+
+#=============================================================================
+# Target rules for targets named test_batch_generator
+
+# Build rule for target.
+test_batch_generator: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test_batch_generator
+.PHONY : test_batch_generator
+
+# fast build rule for target.
+test_batch_generator/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_batch_generator/tests/CMakeFiles/test_batch_generator.dir/build.make rwr_hpc_batch_generator/tests/CMakeFiles/test_batch_generator.dir/build
+.PHONY : test_batch_generator/fast
+
+#=============================================================================
+# Target rules for targets named test_stats
+
+# Build rule for target.
+test_stats: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test_stats
+.PHONY : test_stats
+
+# fast build rule for target.
+test_stats/fast:
+	$(MAKE) $(MAKESILENT) -f rwr_hpc_stats/tests/CMakeFiles/test_stats.dir/build.make rwr_hpc_stats/tests/CMakeFiles/test_stats.dir/build
+.PHONY : test_stats/fast
 
 src/c_api.o: src/c_api.cpp.o
 .PHONY : src/c_api.o
@@ -177,6 +690,30 @@ src/graph_store.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/mentor_runtime.dir/build.make CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.s
 .PHONY : src/graph_store.cpp.s
 
+src/rwr_hpc_adapter.o: src/rwr_hpc_adapter.cpp.o
+.PHONY : src/rwr_hpc_adapter.o
+
+# target to build an object file
+src/rwr_hpc_adapter.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/mentor_runtime.dir/build.make CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.o
+.PHONY : src/rwr_hpc_adapter.cpp.o
+
+src/rwr_hpc_adapter.i: src/rwr_hpc_adapter.cpp.i
+.PHONY : src/rwr_hpc_adapter.i
+
+# target to preprocess a source file
+src/rwr_hpc_adapter.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/mentor_runtime.dir/build.make CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.i
+.PHONY : src/rwr_hpc_adapter.cpp.i
+
+src/rwr_hpc_adapter.s: src/rwr_hpc_adapter.cpp.s
+.PHONY : src/rwr_hpc_adapter.s
+
+# target to generate assembly for a file
+src/rwr_hpc_adapter.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/mentor_runtime.dir/build.make CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.s
+.PHONY : src/rwr_hpc_adapter.cpp.s
+
 src/tool_kernels.o: src/tool_kernels.cpp.o
 .PHONY : src/tool_kernels.o
 
@@ -208,14 +745,57 @@ help:
 	@echo "... clean"
 	@echo "... depend"
 	@echo "... edit_cache"
+	@echo "... install"
+	@echo "... install/local"
+	@echo "... install/strip"
+	@echo "... list_install_components"
 	@echo "... rebuild_cache"
+	@echo "... correlate"
+	@echo "... cosine_math_obj"
+	@echo "... dot_math_obj"
+	@echo "... elbow_point"
+	@echo "... file_io"
+	@echo "... gmock"
+	@echo "... gmock_main"
+	@echo "... gtest"
+	@echo "... gtest_main"
 	@echo "... mentor_runtime"
+	@echo "... multiplex"
+	@echo "... network"
+	@echo "... normalize"
+	@echo "... parallel"
+	@echo "... pearson_math_obj"
+	@echo "... rank"
+	@echo "... rwr"
+	@echo "... sampling"
+	@echo "... sparse"
+	@echo "... spearman_math_obj"
+	@echo "... split"
+	@echo "... standard_math_obj"
+	@echo "... test_batch_generator"
+	@echo "... test_cos_local_dispatch"
+	@echo "... test_cos_local_math"
+	@echo "... test_dot_local_dispatch"
+	@echo "... test_dot_local_math"
+	@echo "... test_elbow_point"
+	@echo "... test_pearson_local_dispatch"
+	@echo "... test_pearson_local_math"
+	@echo "... test_sort"
+	@echo "... test_spearman_local_dispatch"
+	@echo "... test_spearman_local_math"
+	@echo "... test_split"
+	@echo "... test_stats"
+	@echo "... timer"
+	@echo "... utils"
 	@echo "... src/c_api.o"
 	@echo "... src/c_api.i"
 	@echo "... src/c_api.s"
 	@echo "... src/graph_store.o"
 	@echo "... src/graph_store.i"
 	@echo "... src/graph_store.s"
+	@echo "... src/rwr_hpc_adapter.o"
+	@echo "... src/rwr_hpc_adapter.i"
+	@echo "... src/rwr_hpc_adapter.s"
 	@echo "... src/tool_kernels.o"
 	@echo "... src/tool_kernels.i"
 	@echo "... src/tool_kernels.s"

@@ -1,0 +1,2 @@
+/opt/rocm-6.2.4/llvm/bin/llvm-ar qc librwr.a CMakeFiles/rwr.dir/utils.cpp.o CMakeFiles/rwr.dir/RWR_Worker.hip.o
+/opt/rocm-6.2.4/llvm/bin/llvm-ranlib librwr.a
