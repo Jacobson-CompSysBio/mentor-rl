@@ -60,9 +60,9 @@ class RwrHpcAppBackend:
         if not self.build_dir.exists():
             raise FileNotFoundError(f"RWR-HPC build directory does not exist: {self.build_dir}")
         
-        if manifest_path is not None:
+        if manifest_path is None and build_dir is None:
             default_manifest_path = Path("data/runtime/rwr_hpc_apps.txt")
-            manifest_path = default_manifest if default_manifest.exists() else None
+            manifest_path = default_manifest_path if default_manifest_path.exists() else None
         
         self.manifest_path = Path(manifest_path).resolve() if manifest_path else None
         self.apps = self._discover_apps()

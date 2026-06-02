@@ -308,7 +308,9 @@ class RuntimeEnvironment:
             if self.rwr_hpc_app_backend is None:
                 raise ToolExecutionError("RWR-HPC app backend is not initialized. "
                                          "Set RWR_HPC_BUILD_DIR or pass rwr_hpc_build_dir.")
-            app_name = tool_action.arguments.get("app") or arguments.get("app_name")
+            app_name = tool_action.arguments.get("app") or tool_action.arguments.get("app_name")
+            if not app_name:
+                raise ToolExecutionError("rwr_hpc_app requires an app name via argument 'app' or 'app_name'.")
             app_args = tool_action.arguments.get("args", [])
             timeout_seconds = tool_action.arguments.get("timeout_seconds", 300)
             cwd = tool_action.arguments.get("cwd")
