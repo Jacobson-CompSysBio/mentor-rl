@@ -60,7 +60,8 @@ class RwrLoeRequest:
             "args",
             "cli_args",
             "app",
-            "flist"
+            "flist",
+            "output_dir"
         }
         bad = sorted(forbidden.intersection(args))
         if bad:
@@ -92,7 +93,9 @@ class RwrLoeRequest:
         if threshold <= 0:
             raise ValueError("threshold must be postive")
         
-        exclude_seed_genes = bool(args.get("exclude_seed_genes", True))
+        exclude_seed_genes = args.get("exclude_seed_genes", True)
+        if not isinstance(exclude_seed_genes, bool):
+            raise ValueError("exclude_seed_genes must be a boolean")
 
         return cls(
             seed_genes=seed_genes,
