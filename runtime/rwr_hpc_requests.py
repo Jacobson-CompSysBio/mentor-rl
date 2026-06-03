@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from typing import Any
 
 _ALLOWED_REDUCTION_METHODS = {"geometric", "arithmetic", "sum", "none"}
@@ -109,8 +109,17 @@ class RwrLoeRequest:
         )
     
     def to_payload(self) -> dict[str, Any]:
-        return asdict(self)
-    
+        return {
+            "seed_genes": list(self.seed_genes),
+            "query_genes": list(self.query_genes),
+            "top_k": self.top_k,
+            "restart": self.restart,
+            "delta": self.delta,
+            "reduction_method": self.reduction_method,
+            "threshold": self.threshold,
+            "exclude_seed_genes": self.exclude_seed_genes,
+        }
+
     def cache_key_payload(self) -> dict[str, Any]:
         return self.to_payload()
     
