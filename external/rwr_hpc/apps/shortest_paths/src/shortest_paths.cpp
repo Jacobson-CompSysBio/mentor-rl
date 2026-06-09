@@ -276,7 +276,20 @@ int main(int argc, char** argv) {
       }
     }
 
-    if (targets.empty()) {
+    if (!targets_file.empty()) {
+      std::vector<std::string> targets_raw;
+      read_seeds(targets_raw, targets_file, !no_set_ids, '\t');
+      fprintf(stderr, "Took %lf seconds to read %lu target nodes\n", timer.elapsed_wall_time(), targets_raw.size());
+      timer.restart();
+
+      for (auto t : targets_raw) {
+        if (mp_nodes_set.find(t) == mp_nodes_set.end()) {
+          fprintf(stderr, "Target label %s is not in multiplex\n", t.c_str());
+        } else {
+          targets.insert(t);
+        }
+      }
+    } else {
       targets = sources_in_mp;
     }
 

@@ -19,9 +19,16 @@ if str(REPO_ROOT) not in sys.path:
 from runtime import RuntimeEnvironment, SharedPrefixContext, initialize_state_from_corum_task
 from scripts.generate_trajectories import (
     DEFAULT_ACTOR_RATIONALE_MAX_TOKENS,
+    DEFAULT_FULL_BRAIN_RWR_HPC_FLIST,
+    DEFAULT_FULL_BRAIN_STORE_DIR,
     DEFAULT_GENERATOR_API_BASE,
     DEFAULT_GENERATOR_API_KEY_ENV,
+    DEFAULT_REQUIRE_RWR_HPC,
+    DEFAULT_RWR_HPC_BUILD_DIR,
+    DEFAULT_RWR_HPC_CACHE_DIR,
+    DEFAULT_RWR_HPC_EDGELIST_HAS_HEADERS,
     DEFAULT_STORE_DIR,
+    DEFAULT_USE_FULL_BRAIN_RWR_HPC,
     STRUCTURED_OUTPUT_MAX_TOKENS,
     DEFAULT_TASKS_PATH,
     ModelGeneratorConfig,
@@ -87,26 +94,69 @@ def _load_task(task_path: Path, *, task_id: str | None, task_index: int) -> dict
 
 def _build_environment(args: argparse.Namespace) -> RuntimeEnvironment:
     enrichment_background_gene_ids = _load_gene_id_background(args.enrichment_background_path)
-    if args.store_dir is not None:
+    rwr_hpc_flist = args.rwr_hpc_flist
+    if rwr_hpc_flist is None and args.use_full_brain_rwr_hpc:
+        rwr_hpc_flist = DEFAULT_FULL_BRAIN_RWR_HPC_FLIST
+
+    store_dir = args.store_dir
+    if store_dir is None and args.use_full_brain_rwr_hpc and args.full_brain_store_dir.exists():
+        store_dir = args.full_brain_store_dir
+
+    structured_backend_requested = rwr_hpc_flist is not None or args.multiplex_flist is not None
+    rwr_hpc_build_dir = args.rwr_hpc_build_dir
+    if rwr_hpc_build_dir is None and structured_backend_requested and DEFAULT_RWR_HPC_BUILD_DIR.exists():
+        rwr_hpc_build_dir = DEFAULT_RWR_HPC_BUILD_DIR
+
+    if args.require_rwr_hpc:
+        if rwr_hpc_flist is None and args.multiplex_flist is None:
+            raise ValueError(
+                "--require-rwr-hpc requires --rwr-hpc-flist, "
+                "--use-full-brain-rwr-hpc, or --multiplex-flist."
+            )
+        if rwr_hpc_build_dir is None:
+            raise ValueError(
+                "--require-rwr-hpc requires --rwr-hpc-build-dir or the default "
+                "external/rwr_hpc/build_frontier build."
+            )
+
+    common_runtime_kwargs = {
+        "mygene_cache_path": str(args.mygene_cache_path) if args.mygene_cache_path else None,
+        "allow_network_mygene": args.allow_network_mygene,
+        "enrichment_cache_path": str(args.enrichment_cache_path) if args.enrichment_cache_path else None,
+        "allow_network_enrichment": args.allow_network_enrichment,
+        "enrichment_background_gene_ids": enrichment_background_gene_ids,
+        "rwr_hpc_build_dir": str(rwr_hpc_build_dir) if rwr_hpc_build_dir else None,
+        "rwr_hpc_app_manifest_path": (
+            str(args.rwr_hpc_app_manifest_path) if args.rwr_hpc_app_manifest_path else None
+        ),
+        "rwr_hpc_flist": str(rwr_hpc_flist) if rwr_hpc_flist else None,
+        "rwr_hpc_cache_dir": str(args.rwr_hpc_cache_dir) if args.rwr_hpc_cache_dir else None,
+        "rwr_hpc_scratch_root": str(args.rwr_hpc_scratch_root) if args.rwr_hpc_scratch_root else None,
+        "rwr_hpc_build_id": args.rwr_hpc_build_id,
+        "rwr_hpc_no_edgelist_headers": not args.rwr_hpc_edgelist_has_headers,
+        "require_rwr_hpc_structured_tools": args.require_rwr_hpc,
+    }
+
+    if store_dir is not None:
         return RuntimeEnvironment(
-            store_dir=str(args.store_dir),
+            store_dir=str(store_dir),
             compiled_library_path=str(args.compiled_library_path) if args.compiled_library_path else None,
-            mygene_cache_path=str(args.mygene_cache_path) if args.mygene_cache_path else None,
-            allow_network_mygene=args.allow_network_mygene,
-            enrichment_cache_path=str(args.enrichment_cache_path) if args.enrichment_cache_path else None,
-            allow_network_enrichment=args.allow_network_enrichment,
-            enrichment_background_gene_ids=enrichment_background_gene_ids,
+            **common_runtime_kwargs,
         )
     if args.multiplex_flist is not None:
         return RuntimeEnvironment(
             multiplex_flist=str(args.multiplex_flist),
-            mygene_cache_path=str(args.mygene_cache_path) if args.mygene_cache_path else None,
-            allow_network_mygene=args.allow_network_mygene,
-            enrichment_cache_path=str(args.enrichment_cache_path) if args.enrichment_cache_path else None,
-            allow_network_enrichment=args.allow_network_enrichment,
-            enrichment_background_gene_ids=enrichment_background_gene_ids,
+            **common_runtime_kwargs,
         )
-    raise ValueError("Provide either --store-dir or --multiplex-flist.")
+    if rwr_hpc_flist is not None:
+        return RuntimeEnvironment(
+            **common_runtime_kwargs,
+        )
+    return RuntimeEnvironment(
+        store_dir=str(DEFAULT_STORE_DIR),
+        compiled_library_path=str(args.compiled_library_path) if args.compiled_library_path else None,
+        **common_runtime_kwargs,
+    )
 
 
 def _extract_visible_text(raw_text: str) -> str:
@@ -147,9 +197,49 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tasks-path", type=Path, default=DEFAULT_TASKS_PATH)
     parser.add_argument("--task-id", type=str, default=None)
     parser.add_argument("--task-index", type=int, default=0)
-    parser.add_argument("--store-dir", type=Path, default=DEFAULT_STORE_DIR)
+    parser.add_argument("--store-dir", type=Path, default=None)
     parser.add_argument("--compiled-library-path", type=Path, default=None)
     parser.add_argument("--multiplex-flist", type=Path, default=None)
+    parser.add_argument(
+        "--use-full-brain-rwr-hpc",
+        dest="use_full_brain_rwr_hpc",
+        action="store_true",
+        default=DEFAULT_USE_FULL_BRAIN_RWR_HPC,
+    )
+    parser.add_argument(
+        "--no-use-full-brain-rwr-hpc",
+        dest="use_full_brain_rwr_hpc",
+        action="store_false",
+    )
+    parser.add_argument("--rwr-hpc-flist", type=Path, default=None)
+    parser.add_argument("--full-brain-store-dir", type=Path, default=DEFAULT_FULL_BRAIN_STORE_DIR)
+    parser.add_argument("--rwr-hpc-build-dir", type=Path, default=None)
+    parser.add_argument("--rwr-hpc-app-manifest-path", type=Path, default=None)
+    parser.add_argument("--rwr-hpc-cache-dir", type=Path, default=DEFAULT_RWR_HPC_CACHE_DIR)
+    parser.add_argument("--rwr-hpc-scratch-root", type=Path, default=None)
+    parser.add_argument("--rwr-hpc-build-id", type=str, default=None)
+    parser.add_argument(
+        "--rwr-hpc-edgelist-has-headers",
+        dest="rwr_hpc_edgelist_has_headers",
+        action="store_true",
+        default=DEFAULT_RWR_HPC_EDGELIST_HAS_HEADERS,
+    )
+    parser.add_argument(
+        "--rwr-hpc-edgelist-no-headers",
+        dest="rwr_hpc_edgelist_has_headers",
+        action="store_false",
+    )
+    parser.add_argument(
+        "--require-rwr-hpc",
+        dest="require_rwr_hpc",
+        action="store_true",
+        default=DEFAULT_REQUIRE_RWR_HPC,
+    )
+    parser.add_argument(
+        "--no-require-rwr-hpc",
+        dest="require_rwr_hpc",
+        action="store_false",
+    )
     parser.add_argument("--mygene-cache-path", type=Path, default=None)
     parser.add_argument("--allow-network-mygene", action="store_true")
     parser.add_argument("--enrichment-cache-path", type=Path, default=None)

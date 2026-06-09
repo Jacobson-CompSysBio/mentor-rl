@@ -26,9 +26,23 @@ REPO_ROOT="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mento
 MODELS_ROOT="${MODELS_ROOT:-/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models}"
 MODEL_PATH_INPUT="${MODEL_PATH:-gpt-oss-120b}"
 TASKS_PATH="${TASKS_PATH:-${REPO_ROOT}/data/gw_dendrogram_corpus/tasks.train.jsonl}"
-STORE_DIR="${STORE_DIR:-${REPO_ROOT}/data/humannet_multiplex_store}"
-ENCODINGS_SHARED_DIR="${ENCODINGS_SHARED_DIR:-${REPO_ROOT}/data/tiktoken_encodings}"
 SCRATCH="${SCRATCH:-/lustre/orion/syb114/scratch/${USER}}"
+STORE_DIR="${STORE_DIR:-${REPO_ROOT}/data/runtime/full_brain_multiplex_store}"
+FULL_BRAIN_STORE_DIR="${FULL_BRAIN_STORE_DIR:-${REPO_ROOT}/data/runtime/full_brain_multiplex_store}"
+USE_FULL_BRAIN_RWR_HPC="${USE_FULL_BRAIN_RWR_HPC:-1}"
+REQUIRE_RWR_HPC="${REQUIRE_RWR_HPC:-1}"
+RWR_HPC_EDGELIST_HAS_HEADERS="${RWR_HPC_EDGELIST_HAS_HEADERS:-1}"
+RWR_HPC_FLIST="${RWR_HPC_FLIST:-/lustre/orion/syb111/proj-shared/Personal/smithkp/projects/PASC_2026/full_brain/data/full_brain_flist.tsv}"
+RWR_HPC_BUILD_DIR="${RWR_HPC_BUILD_DIR:-${REPO_ROOT}/external/rwr_hpc/build_frontier}"
+RWR_HPC_CACHE_DIR="${RWR_HPC_CACHE_DIR:-${REPO_ROOT}/data/runtime/rwr_hpc_cache}"
+RWR_HPC_SCRATCH_ROOT="${RWR_HPC_SCRATCH_ROOT:-${SCRATCH}/mentor_rl_rwr_hpc_scratch/${SLURM_JOB_ID}}"
+RWR_HPC_SERVICE_NODE_COUNT="${RWR_HPC_SERVICE_NODE_COUNT:-0}"
+RWR_HPC_SERVICE_PORT="${RWR_HPC_SERVICE_PORT:-51021}"
+RWR_HPC_SERVICE_URL="${RWR_HPC_SERVICE_URL:-}"
+RWR_HPC_SERVICE_TIMEOUT_SECONDS="${RWR_HPC_SERVICE_TIMEOUT_SECONDS:-600}"
+RWR_HPC_SERVICE_HEALTH_MAX_WAIT_SECONDS="${RWR_HPC_SERVICE_HEALTH_MAX_WAIT_SECONDS:-600}"
+RWR_HPC_SERVICE_HEALTH_POLL_SECONDS="${RWR_HPC_SERVICE_HEALTH_POLL_SECONDS:-5}"
+ENCODINGS_SHARED_DIR="${ENCODINGS_SHARED_DIR:-${REPO_ROOT}/data/tiktoken_encodings}"
 SIF="${SIF:-/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/vllm0141rocm72.sif}"
 
 abspath_dir() {
@@ -103,6 +117,7 @@ MODEL_BASENAME="$(basename "${MODEL_PATH}")"
 MODEL_SLUG="$(slugify_model_name "${MODEL_BASENAME}")"
 MODEL_USES_TIKTOKEN="$(infer_model_uses_tiktoken "${MODEL_BASENAME}")"
 OUT_DIR="${OUT_DIR:-${REPO_ROOT}/data/gw_dendrogram_trajectories/${MODEL_SLUG}_job_${SLURM_JOB_ID}}"
+RWR_HPC_SERVICE_METRICS_PATH="${RWR_HPC_SERVICE_METRICS_PATH:-${OUT_DIR}/rwr_hpc_service_metrics.json}"
 
 if [[ ! -f "${SIF}" ]]; then
   log "Missing vLLM Apptainer image: ${SIF}"
@@ -152,6 +167,16 @@ SMOKE_MAX_COMPLETION_TOKENS="${SMOKE_MAX_COMPLETION_TOKENS:-2048}"
 SMOKE_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS="${SMOKE_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS:-2048}"
 SMOKE_REASONING_EFFORT="${SMOKE_REASONING_EFFORT:-low}"
 SMOKE_ACTOR_SAMPLING_STRATEGY="${SMOKE_ACTOR_SAMPLING_STRATEGY:-${ACTOR_SAMPLING_STRATEGY}}"
+PRECOMPUTE_SMOKE_CACHES="${PRECOMPUTE_SMOKE_CACHES:-1}"
+REQUIRE_SMOKE_CACHE_PRECOMPUTE="${REQUIRE_SMOKE_CACHE_PRECOMPUTE:-1}"
+SMOKE_PRECOMPUTE_RWR_CACHE="${SMOKE_PRECOMPUTE_RWR_CACHE:-1}"
+SMOKE_PRECOMPUTE_NATIVE_STORE="${SMOKE_PRECOMPUTE_NATIVE_STORE:-1}"
+SMOKE_RWR_PRECOMPUTE_PROFILE="${SMOKE_RWR_PRECOMPUTE_PROFILE:-core}"
+SMOKE_RWR_TOP_K="${SMOKE_RWR_TOP_K:-${RECOVERY_RWR_TOP_K}}"
+SMOKE_RWR_LOE_TOP_K="${SMOKE_RWR_LOE_TOP_K:-20}"
+SMOKE_SHORTEST_PATHS_MAX_PAIRS="${SMOKE_SHORTEST_PATHS_MAX_PAIRS:-1}"
+SMOKE_SHORTEST_PATHS_MAX_PATHS="${SMOKE_SHORTEST_PATHS_MAX_PATHS:-20}"
+SMOKE_NATIVE_PRECOMPUTE_MAX_GENES="${SMOKE_NATIVE_PRECOMPUTE_MAX_GENES:-2}"
 
 RAY_PORT="${RAY_PORT:-6379}"
 RAY_DASHBOARD_PORT="${RAY_DASHBOARD_PORT:-8265}"
@@ -184,10 +209,47 @@ DISTRIBUTED_EXECUTOR_BACKEND="${DISTRIBUTED_EXECUTOR_BACKEND:-auto}"
 mkdir -p "${REPO_ROOT}/logs"
 mkdir -p "${OUT_DIR}"
 mkdir -p "${ENCODINGS_SHARED_DIR}"
+if [[ -n "${RWR_HPC_CACHE_DIR}" ]]; then
+  mkdir -p "${RWR_HPC_CACHE_DIR}"
+fi
+if [[ -n "${RWR_HPC_SCRATCH_ROOT}" ]]; then
+  mkdir -p "${RWR_HPC_SCRATCH_ROOT}"
+fi
 
 MAX_TASKS_ARG=()
 if [[ -n "${MAX_TASKS}" && "${MAX_TASKS}" != "all" && "${MAX_TASKS}" != "ALL" ]]; then
   MAX_TASKS_ARG=(--max-tasks "${MAX_TASKS}")
+fi
+RWR_HPC_ARGS=()
+if [[ "${USE_FULL_BRAIN_RWR_HPC}" == "1" ]]; then
+  RWR_HPC_ARGS+=(--use-full-brain-rwr-hpc)
+else
+  RWR_HPC_ARGS+=(--no-use-full-brain-rwr-hpc)
+fi
+if [[ "${REQUIRE_RWR_HPC}" == "1" ]]; then
+  RWR_HPC_ARGS+=(--require-rwr-hpc)
+else
+  RWR_HPC_ARGS+=(--no-require-rwr-hpc)
+fi
+if [[ -n "${FULL_BRAIN_STORE_DIR}" ]]; then
+  RWR_HPC_ARGS+=(--full-brain-store-dir "${FULL_BRAIN_STORE_DIR}")
+fi
+if [[ -n "${RWR_HPC_FLIST}" ]]; then
+  RWR_HPC_ARGS+=(--rwr-hpc-flist "${RWR_HPC_FLIST}")
+fi
+if [[ -n "${RWR_HPC_BUILD_DIR}" ]]; then
+  RWR_HPC_ARGS+=(--rwr-hpc-build-dir "${RWR_HPC_BUILD_DIR}")
+fi
+if [[ -n "${RWR_HPC_CACHE_DIR}" ]]; then
+  RWR_HPC_ARGS+=(--rwr-hpc-cache-dir "${RWR_HPC_CACHE_DIR}")
+fi
+if [[ -n "${RWR_HPC_SCRATCH_ROOT}" ]]; then
+  RWR_HPC_ARGS+=(--rwr-hpc-scratch-root "${RWR_HPC_SCRATCH_ROOT}")
+fi
+if [[ "${RWR_HPC_EDGELIST_HAS_HEADERS}" == "1" ]]; then
+  RWR_HPC_ARGS+=(--rwr-hpc-edgelist-has-headers)
+else
+  RWR_HPC_ARGS+=(--rwr-hpc-edgelist-no-headers)
 fi
 MYGENE_NETWORK_ARG=()
 if [[ "${ALLOW_NETWORK_MYGENE}" == "1" ]]; then
@@ -214,32 +276,88 @@ REQUIRE_PREFETCH_SUCCESS_ARG=()
 if [[ "${REQUIRE_PREFETCH_SUCCESS}" == "1" ]]; then
   REQUIRE_PREFETCH_SUCCESS_ARG=(--require-prefetch-success)
 fi
+REQUIRE_SMOKE_CACHE_PRECOMPUTE_ARG=()
+if [[ "${REQUIRE_SMOKE_CACHE_PRECOMPUTE}" == "1" ]]; then
+  REQUIRE_SMOKE_CACHE_PRECOMPUTE_ARG=(--require-success)
+fi
+SMOKE_RWR_PRECOMPUTE_ARG=()
+if [[ "${SMOKE_PRECOMPUTE_RWR_CACHE}" == "1" ]]; then
+  SMOKE_RWR_PRECOMPUTE_ARG=(
+    --precompute-rwr-cache
+    --rwr-precompute-profile "${SMOKE_RWR_PRECOMPUTE_PROFILE}"
+    --rwr-top-k "${SMOKE_RWR_TOP_K}"
+    --rwr-loe-top-k "${SMOKE_RWR_LOE_TOP_K}"
+    --shortest-paths-max-pairs "${SMOKE_SHORTEST_PATHS_MAX_PAIRS}"
+    --shortest-paths-max-paths "${SMOKE_SHORTEST_PATHS_MAX_PATHS}"
+  )
+fi
+SMOKE_NATIVE_PRECOMPUTE_ARG=()
+if [[ "${SMOKE_PRECOMPUTE_NATIVE_STORE}" == "1" ]]; then
+  SMOKE_NATIVE_PRECOMPUTE_ARG=(
+    --precompute-native-store
+    --native-precompute-max-genes "${SMOKE_NATIVE_PRECOMPUTE_MAX_GENES}"
+  )
+fi
 
 mapfile -t NODE_LIST < <(scontrol show hostnames "${SLURM_JOB_NODELIST}")
-HEAD_NODE="${NODE_LIST[0]}"
 
 resolve_hsn_ip() {
   local node_name="$1"
   getent hosts "${node_name}-hsn0" | awk '{print $1}'
 }
 
+if [[ "${RWR_HPC_SERVICE_NODE_COUNT}" != "0" && "${RWR_HPC_SERVICE_NODE_COUNT}" != "1" ]]; then
+  log "Only RWR_HPC_SERVICE_NODE_COUNT=0 or 1 is currently supported."
+  exit 1
+fi
+
+RWR_HPC_SERVICE_NODE=""
+RWR_HPC_SERVICE_IP=""
+if [[ "${RWR_HPC_SERVICE_NODE_COUNT}" == "1" ]]; then
+  if (( ${#NODE_LIST[@]} < 2 )); then
+    log "RWR_HPC_SERVICE_NODE_COUNT=1 requires at least 2 allocated nodes."
+    exit 1
+  fi
+  RWR_HPC_SERVICE_NODE="${NODE_LIST[$((${#NODE_LIST[@]} - 1))]}"
+  VLLM_NODE_LIST=("${NODE_LIST[@]:0:$((${#NODE_LIST[@]} - 1))}")
+  RWR_HPC_SERVICE_IP="$(resolve_hsn_ip "${RWR_HPC_SERVICE_NODE}")"
+  if [[ -z "${RWR_HPC_SERVICE_IP}" ]]; then
+    log "Failed to resolve RWR++ service node HSN IP for ${RWR_HPC_SERVICE_NODE}"
+    exit 1
+  fi
+  if [[ -z "${RWR_HPC_SERVICE_URL}" ]]; then
+    RWR_HPC_SERVICE_URL="http://${RWR_HPC_SERVICE_IP}:${RWR_HPC_SERVICE_PORT}"
+  fi
+else
+  VLLM_NODE_LIST=("${NODE_LIST[@]}")
+fi
+
+HEAD_NODE="${VLLM_NODE_LIST[0]}"
 HEAD_IP="$(resolve_hsn_ip "${HEAD_NODE}")"
 if [[ -z "${HEAD_IP}" ]]; then
   log "Failed to resolve head node HSN IP for ${HEAD_NODE}"
   exit 1
 fi
+VLLM_NODE_LIST_CSV="$(IFS=,; echo "${VLLM_NODE_LIST[*]}")"
+RWR_HPC_SERVICE_LOG="${OUT_DIR}/rwr_hpc_service.log"
 
 MENTOR_ALL_PROXY="${MENTOR_ALL_PROXY:-socks://proxy.ccs.ornl.gov:3128/}"
 MENTOR_FTP_PROXY="${MENTOR_FTP_PROXY:-ftp://proxy.ccs.ornl.gov:3128/}"
 MENTOR_HTTP_PROXY="${MENTOR_HTTP_PROXY:-http://proxy.ccs.ornl.gov:3128/}"
 MENTOR_HTTPS_PROXY="${MENTOR_HTTPS_PROXY:-http://proxy.ccs.ornl.gov:3128/}"
-MENTOR_NO_PROXY="${MENTOR_NO_PROXY:-localhost,127.0.0.0/8,${HEAD_IP},${HEAD_NODE},${HEAD_NODE}-hsn0,*.ccs.ornl.gov}"
+RWR_HPC_SERVICE_NO_PROXY=""
+if [[ -n "${RWR_HPC_SERVICE_NODE}" ]]; then
+  RWR_HPC_SERVICE_NO_PROXY=",${RWR_HPC_SERVICE_IP},${RWR_HPC_SERVICE_NODE},${RWR_HPC_SERVICE_NODE}-hsn0"
+fi
+MENTOR_NO_PROXY="${MENTOR_NO_PROXY:-localhost,127.0.0.0/8,${HEAD_IP},${HEAD_NODE},${HEAD_NODE}-hsn0${RWR_HPC_SERVICE_NO_PROXY},*.ccs.ornl.gov}"
 
 export all_proxy="${MENTOR_ALL_PROXY}"
 export ftp_proxy="${MENTOR_FTP_PROXY}"
 export http_proxy="${MENTOR_HTTP_PROXY}"
 export https_proxy="${MENTOR_HTTPS_PROXY}"
 export no_proxy="${MENTOR_NO_PROXY}"
+export RWR_HPC_SERVICE_URL
+export RWR_HPC_SERVICE_TIMEOUT_SECONDS
 export HF_HOME="${HF_HOME:-${SCRATCH}/hf_cache}"
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
 export HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-1}"
@@ -322,7 +440,7 @@ if [[ "${STAGE_MODEL_TO_NVME}" == "1" ]]; then
 fi
 
 if [[ "${DISTRIBUTED_EXECUTOR_BACKEND}" == "auto" ]]; then
-  if [[ "${SLURM_NNODES}" -gt 1 || "${PIPELINE_PARALLEL_SIZE}" -gt 1 ]]; then
+  if [[ "${#VLLM_NODE_LIST[@]}" -gt 1 || "${PIPELINE_PARALLEL_SIZE}" -gt 1 ]]; then
     EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND="ray"
   else
     EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND="mp"
@@ -343,6 +461,18 @@ log "SIF=${SIF}"
 log "SERVE_MODEL_PATH=${SERVE_MODEL_PATH}"
 log "SERVE_ENCODINGS_DIR=${SERVE_ENCODINGS_DIR}"
 log "TASKS_PATH=${TASKS_PATH}"
+log "STORE_DIR=${STORE_DIR}"
+log "FULL_BRAIN_STORE_DIR=${FULL_BRAIN_STORE_DIR}"
+log "USE_FULL_BRAIN_RWR_HPC=${USE_FULL_BRAIN_RWR_HPC}"
+log "REQUIRE_RWR_HPC=${REQUIRE_RWR_HPC}"
+log "RWR_HPC_FLIST=${RWR_HPC_FLIST}"
+log "RWR_HPC_BUILD_DIR=${RWR_HPC_BUILD_DIR}"
+log "RWR_HPC_CACHE_DIR=${RWR_HPC_CACHE_DIR}"
+log "RWR_HPC_SCRATCH_ROOT=${RWR_HPC_SCRATCH_ROOT}"
+log "RWR_HPC_SERVICE_NODE_COUNT=${RWR_HPC_SERVICE_NODE_COUNT}"
+log "RWR_HPC_SERVICE_NODE=${RWR_HPC_SERVICE_NODE:-<none>}"
+log "RWR_HPC_SERVICE_URL=${RWR_HPC_SERVICE_URL:-<disabled>}"
+log "RWR_HPC_SERVICE_METRICS_PATH=${RWR_HPC_SERVICE_METRICS_PATH}"
 log "OUT_DIR=${OUT_DIR}"
 log "TASK_SHARD_INDEX=${TASK_SHARD_INDEX}"
 log "TASK_SHARD_COUNT=${TASK_SHARD_COUNT}"
@@ -375,6 +505,16 @@ log "SMOKE_N_ACT=${SMOKE_N_ACT}"
 log "SMOKE_SEED=${SMOKE_SEED}"
 log "SMOKE_MAX_COMPLETION_TOKENS=${SMOKE_MAX_COMPLETION_TOKENS}"
 log "SMOKE_REASONING_EFFORT=${SMOKE_REASONING_EFFORT}"
+log "PRECOMPUTE_SMOKE_CACHES=${PRECOMPUTE_SMOKE_CACHES}"
+log "REQUIRE_SMOKE_CACHE_PRECOMPUTE=${REQUIRE_SMOKE_CACHE_PRECOMPUTE}"
+log "SMOKE_PRECOMPUTE_RWR_CACHE=${SMOKE_PRECOMPUTE_RWR_CACHE}"
+log "SMOKE_PRECOMPUTE_NATIVE_STORE=${SMOKE_PRECOMPUTE_NATIVE_STORE}"
+log "SMOKE_RWR_PRECOMPUTE_PROFILE=${SMOKE_RWR_PRECOMPUTE_PROFILE}"
+log "SMOKE_RWR_TOP_K=${SMOKE_RWR_TOP_K}"
+log "SMOKE_RWR_LOE_TOP_K=${SMOKE_RWR_LOE_TOP_K}"
+log "SMOKE_SHORTEST_PATHS_MAX_PAIRS=${SMOKE_SHORTEST_PATHS_MAX_PAIRS}"
+log "SMOKE_SHORTEST_PATHS_MAX_PATHS=${SMOKE_SHORTEST_PATHS_MAX_PATHS}"
+log "SMOKE_NATIVE_PRECOMPUTE_MAX_GENES=${SMOKE_NATIVE_PRECOMPUTE_MAX_GENES}"
 log "MAX_MODEL_LEN=${MAX_MODEL_LEN}"
 log "MAX_NUM_BATCHED_TOKENS=${MAX_NUM_BATCHED_TOKENS}"
 log "MAX_NUM_SEQS=${MAX_NUM_SEQS}"
@@ -387,6 +527,7 @@ log "VLLM_WORKER_MULTIPROC_METHOD=${VLLM_WORKER_MULTIPROC_METHOD}"
 log "VLLM_ROCM_USE_AITER=${VLLM_ROCM_USE_AITER}"
 log "VLLM_USE_TRITON_FLASH_ATTN=${VLLM_USE_TRITON_FLASH_ATTN}"
 log "EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND=${EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND}"
+log "VLLM_NODE_LIST=${VLLM_NODE_LIST_CSV}"
 
 if [[ "${SMOKE_TEST_ONLY}" == "1" && "${RUN_SMOKE_TEST}" != "1" ]]; then
   log "SMOKE_TEST_ONLY=1 requires RUN_SMOKE_TEST=1."
@@ -394,6 +535,9 @@ if [[ "${SMOKE_TEST_ONLY}" == "1" && "${RUN_SMOKE_TEST}" != "1" ]]; then
 fi
 
 cleanup() {
+  if [[ -n "${RWR_HPC_SERVICE_NODE:-}" && -n "${RWR_HPC_SERVICE_URL:-}" ]]; then
+    curl -sf "${RWR_HPC_SERVICE_URL}/metrics" -o "${RWR_HPC_SERVICE_METRICS_PATH}" >/dev/null 2>&1 || true
+  fi
   ray stop --force >/dev/null 2>&1 || true
   jobs -pr | xargs -r kill || true
 }
@@ -423,6 +567,58 @@ export GLOO_IPV6=0
 export VLLM_HOST_IF=hsn0
 export VLLM_CARRY_OVER_ENV_VARS="NCCL_SOCKET_IFNAME,NCCL_SOCKET_FAMILY,NCCL_IB_DISABLE,NCCL_CROSS_NIC,NCCL_SOCKET_NTHREADS,NCCL_NSOCKS_PERTHREAD,GLOO_SOCKET_IFNAME,GLOO_SOCKET_FAMILY,GLOO_IPV6,VLLM_USE_V1,VLLM_WORKER_MULTIPROC_METHOD,VLLM_USE_RAY_COMPILED_DAG,VLLM_USE_RAY_SPMD_WORKER,VLLM_HOST_IF,VLLM_ROCM_USE_AITER,VLLM_USE_TRITON_FLASH_ATTN,SAFETENSORS_FAST_GPU"
 
+if [[ -n "${RWR_HPC_SERVICE_NODE}" ]]; then
+  if [[ -z "${RWR_HPC_FLIST}" || -z "${RWR_HPC_BUILD_DIR}" ]]; then
+    log "RWR++ service mode requires RWR_HPC_FLIST and RWR_HPC_BUILD_DIR."
+    exit 1
+  fi
+  RWR_HPC_SERVICE_EDGELIST_ARG="--rwr-hpc-edgelist-has-headers"
+  if [[ "${RWR_HPC_EDGELIST_HAS_HEADERS}" != "1" ]]; then
+    RWR_HPC_SERVICE_EDGELIST_ARG="--rwr-hpc-edgelist-no-headers"
+  fi
+  log "Starting RWR++ service on ${RWR_HPC_SERVICE_NODE} at ${RWR_HPC_SERVICE_URL}"
+  srun --overlap -N1 -n1 -w "${RWR_HPC_SERVICE_NODE}" --export=ALL \
+    bash --noprofile --norc -c "
+      set -euo pipefail
+      source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
+      source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
+      cd '${REPO_ROOT}'
+      export PYTHONPATH='${REPO_ROOT}':\${PYTHONPATH:-}
+      python scripts/rwr_hpc_worker_service.py \
+        --host 0.0.0.0 \
+        --port '${RWR_HPC_SERVICE_PORT}' \
+        --store-dir '${STORE_DIR}' \
+        --rwr-hpc-flist '${RWR_HPC_FLIST}' \
+        --rwr-hpc-build-dir '${RWR_HPC_BUILD_DIR}' \
+        --rwr-hpc-cache-dir '${RWR_HPC_CACHE_DIR}' \
+        --rwr-hpc-scratch-root '${RWR_HPC_SCRATCH_ROOT}/service' \
+        ${RWR_HPC_SERVICE_EDGELIST_ARG} \
+        --metrics-path '${RWR_HPC_SERVICE_METRICS_PATH}'
+    " >"${RWR_HPC_SERVICE_LOG}" 2>&1 &
+  RWR_HPC_SERVICE_PID=$!
+
+  RWR_SERVICE_READY=0
+  MAX_RWR_SERVICE_ATTEMPTS=$(( (RWR_HPC_SERVICE_HEALTH_MAX_WAIT_SECONDS + RWR_HPC_SERVICE_HEALTH_POLL_SECONDS - 1) / RWR_HPC_SERVICE_HEALTH_POLL_SECONDS ))
+  for attempt in $(seq 1 "${MAX_RWR_SERVICE_ATTEMPTS}"); do
+    if curl -sf "${RWR_HPC_SERVICE_URL}/health" >/dev/null 2>&1; then
+      RWR_SERVICE_READY=1
+      break
+    fi
+    if ! kill -0 "${RWR_HPC_SERVICE_PID}" 2>/dev/null; then
+      log "RWR++ service exited before becoming healthy."
+      tail -200 "${RWR_HPC_SERVICE_LOG}" || true
+      exit 1
+    fi
+    sleep "${RWR_HPC_SERVICE_HEALTH_POLL_SECONDS}"
+  done
+  if [[ "${RWR_SERVICE_READY}" != "1" ]]; then
+    log "RWR++ service did not become healthy within ${RWR_HPC_SERVICE_HEALTH_MAX_WAIT_SECONDS}s."
+    tail -200 "${RWR_HPC_SERVICE_LOG}" || true
+    exit 1
+  fi
+  log "RWR++ service is healthy."
+fi
+
 if [[ "${EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND}" == "ray" ]]; then
   log "Starting Ray head on ${HEAD_NODE}"
   srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
@@ -447,7 +643,7 @@ if [[ "${EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND}" == "ray" ]]; then
 
   sleep 10
 
-  for WORKER_NODE in "${NODE_LIST[@]:1}"; do
+  for WORKER_NODE in "${VLLM_NODE_LIST[@]:1}"; do
     WORKER_IP="$(resolve_hsn_ip "${WORKER_NODE}")"
     if [[ -z "${WORKER_IP}" ]]; then
       log "Failed to resolve worker node HSN IP for ${WORKER_NODE}"
@@ -694,6 +890,7 @@ payload = {
         "enrichment_background_path": ${ENRICHMENT_BACKGROUND_PATH@Q},
         "allow_network_mygene": ${ALLOW_NETWORK_MYGENE@Q},
         "allow_network_enrichment": ${ALLOW_NETWORK_ENRICHMENT@Q},
+        "rwr_hpc_edgelist_has_headers": ${RWR_HPC_EDGELIST_HAS_HEADERS@Q},
         "prefetch_mechanism_cache": ${PREFETCH_MECHANISM_CACHE@Q},
         "prefetch_mygene_per_task": ${PREFETCH_MYGENE_PER_TASK@Q},
         "prefetch_enrichment_top_k": ${PREFETCH_ENRICHMENT_TOP_K@Q},
@@ -712,10 +909,33 @@ payload = {
         "smoke_n_act": ${SMOKE_N_ACT@Q},
         "smoke_seed": ${SMOKE_SEED@Q},
         "smoke_actor_sampling_strategy": ${SMOKE_ACTOR_SAMPLING_STRATEGY@Q},
+        "precompute_smoke_caches": ${PRECOMPUTE_SMOKE_CACHES@Q},
+        "require_smoke_cache_precompute": ${REQUIRE_SMOKE_CACHE_PRECOMPUTE@Q},
+        "smoke_precompute_rwr_cache": ${SMOKE_PRECOMPUTE_RWR_CACHE@Q},
+        "smoke_precompute_native_store": ${SMOKE_PRECOMPUTE_NATIVE_STORE@Q},
+        "smoke_rwr_precompute_profile": ${SMOKE_RWR_PRECOMPUTE_PROFILE@Q},
+        "smoke_rwr_top_k": ${SMOKE_RWR_TOP_K@Q},
+        "smoke_rwr_loe_top_k": ${SMOKE_RWR_LOE_TOP_K@Q},
+        "smoke_shortest_paths_max_pairs": ${SMOKE_SHORTEST_PATHS_MAX_PAIRS@Q},
+        "smoke_shortest_paths_max_paths": ${SMOKE_SHORTEST_PATHS_MAX_PATHS@Q},
+        "smoke_native_precompute_max_genes": ${SMOKE_NATIVE_PRECOMPUTE_MAX_GENES@Q},
+    },
+    "rwr_hpc_service": {
+        "enabled": ${RWR_HPC_SERVICE_NODE_COUNT@Q} == "1",
+        "node_count": ${RWR_HPC_SERVICE_NODE_COUNT@Q},
+        "node": ${RWR_HPC_SERVICE_NODE@Q},
+        "ip": ${RWR_HPC_SERVICE_IP@Q},
+        "url": ${RWR_HPC_SERVICE_URL@Q},
+        "port": ${RWR_HPC_SERVICE_PORT@Q},
+        "timeout_seconds": ${RWR_HPC_SERVICE_TIMEOUT_SECONDS@Q},
+        "metrics_path": ${RWR_HPC_SERVICE_METRICS_PATH@Q},
+        "log_path": ${RWR_HPC_SERVICE_LOG@Q},
+        "topology": "first_vllm_nodes_last_rwr_hpc_service_node"
     },
     "vllm": {
         "head_node": ${HEAD_NODE@Q},
         "head_ip": ${HEAD_IP@Q},
+        "vllm_node_list": [node for node in ${VLLM_NODE_LIST_CSV@Q}.split(",") if node],
         "http_port": ${VLLM_HTTP_PORT@Q},
         "tensor_parallel_size": ${TENSOR_PARALLEL_SIZE@Q},
         "pipeline_parallel_size": ${PIPELINE_PARALLEL_SIZE@Q},
@@ -762,6 +982,41 @@ if [[ "${RUN_SMOKE_TEST}" == "1" ]]; then
       log "Running preflight generator smoke test for task index: ${SMOKE_VALUE}"
     fi
 
+    if [[ "${PRECOMPUTE_SMOKE_CACHES}" == "1" ]]; then
+      SMOKE_REPORT_TOKEN="$(printf '%s_%s' "${SMOKE_SELECTOR}" "${SMOKE_VALUE}" | tr -c 'A-Za-z0-9_.-' '_')"
+      SMOKE_PRECOMPUTE_REPORT_PATH="${OUT_DIR}/smoke_cache_precompute_${SMOKE_REPORT_TOKEN}.json"
+      log "Precomputing smoke-test caches; report will be written to ${SMOKE_PRECOMPUTE_REPORT_PATH}"
+      if ! srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
+        bash --noprofile --norc -c "
+          set -euo pipefail
+          source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
+          source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
+          export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+          export HIP_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES}
+          unset ROCR_VISIBLE_DEVICES || true
+          cd '${REPO_ROOT}'
+          export PYTHONPATH='${REPO_ROOT}':\${PYTHONPATH:-}
+          python scripts/precompute_smoke_caches.py \
+            --tasks-path '${TASKS_PATH}' \
+            --store-dir '${STORE_DIR}' \
+            ${RWR_HPC_ARGS[*]@Q} \
+            --mygene-cache-path '${MYGENE_CACHE_PATH}' \
+            --enrichment-cache-path '${ENRICHMENT_CACHE_PATH}' \
+            ${MYGENE_NETWORK_ARG[*]@Q} \
+            ${ENRICHMENT_NETWORK_ARG[*]@Q} \
+            ${ENRICHMENT_BACKGROUND_ARG[*]@Q} \
+            ${PREFETCH_MECHANISM_ARG[*]@Q} \
+            ${SMOKE_RWR_PRECOMPUTE_ARG[*]@Q} \
+            ${SMOKE_NATIVE_PRECOMPUTE_ARG[*]@Q} \
+            ${REQUIRE_SMOKE_CACHE_PRECOMPUTE_ARG[*]@Q} \
+            --report-path '${SMOKE_PRECOMPUTE_REPORT_PATH}' \
+            ${SMOKE_TASK_FLAGS[*]@Q}
+        "; then
+        log "Smoke-test cache precompute failed. See ${SMOKE_PRECOMPUTE_REPORT_PATH} if it was written."
+        exit 1
+      fi
+    fi
+
     if ! srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
       bash --noprofile --norc -c "
         set -euo pipefail
@@ -775,6 +1030,7 @@ if [[ "${RUN_SMOKE_TEST}" == "1" ]]; then
         python scripts/smoke_test_generator.py \
           --tasks-path '${TASKS_PATH}' \
           --store-dir '${STORE_DIR}' \
+          ${RWR_HPC_ARGS[*]@Q} \
           --mygene-cache-path '${MYGENE_CACHE_PATH}' \
           --enrichment-cache-path '${ENRICHMENT_CACHE_PATH}' \
           ${MYGENE_NETWORK_ARG[*]@Q} \
@@ -821,6 +1077,7 @@ srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
       --tasks-path '${TASKS_PATH}' \
       --out-dir '${OUT_DIR}' \
       --store-dir '${STORE_DIR}' \
+      ${RWR_HPC_ARGS[*]@Q} \
       --mygene-cache-path '${MYGENE_CACHE_PATH}' \
       --enrichment-cache-path '${ENRICHMENT_CACHE_PATH}' \
       ${MYGENE_NETWORK_ARG[*]@Q} \

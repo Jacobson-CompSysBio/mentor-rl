@@ -27,6 +27,24 @@ KNOWN_TOOL_NAMES = (
     "query_mygene",
     "enrich_gene_set",
     "get_neighbors",
+    "get_distance",
+    "get_rank",
+    "get_spearman",
+    "get_pearson",
+    "get_dot_similarity",
+    "get_rank_vector_summary",
+    "get_encoding_summary",
+    "get_gene_layers",
+    "get_nodes_by_layer",
+    "get_layer_stats",
+    "get_path_layer_counts",
+    "get_component_summary",
+    "get_seed_essentiality",
+    "get_layer_ablation",
+    "get_node_perturbation",
+    "shortest_paths",
+    "rwr",
+    "rwr_loe",
     "shortest_path",
     "rwr_multiplex",
     "rwr_monoplex",
@@ -94,6 +112,7 @@ class LabelSource(StrEnum):
     """Where a mechanistic label came from."""
 
     GO = "go"
+    REACTOME = "reactome"
     FCGS = "fcgs"
     COMPLEX_NAME = "complex_name"
     FREE_TEXT = "free_text"

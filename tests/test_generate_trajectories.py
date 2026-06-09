@@ -21,27 +21,39 @@ from runtime import (
     ToolObservation,
     ToolObservationStatus,
     VerifierStep,
+    append_evidence_record,
     initialize_state_from_corum_task,
     replace_predicted_groups,
 )
 from runtime.environment import RuntimeEnvironment
 from scripts.generate_trajectories import (
+    DEFAULT_FULL_BRAIN_RWR_HPC_FLIST,
+    DEFAULT_REQUIRE_RWR_HPC,
+    DEFAULT_RWR_HPC_EDGELIST_HAS_HEADERS,
+    DEFAULT_STORE_DIR,
+    DEFAULT_USE_FULL_BRAIN_RWR_HPC,
     ModelGeneratorConfig,
     OpenAICompatibleCandidateGenerator,
     TrajectoryGenerationConfig,
     _actor_prompt_payload,
     _build_actor_step_from_model_candidate,
     _build_evidence_record,
+    _build_labels_from_model_payload,
     _load_gene_id_background,
     _load_task_rows,
     _normalize_runtime_tool_action,
     _observation_for_verifier_prompt,
     _pair_is_task_safe,
     _prefetch_mechanism_evidence_cache,
+    _resolve_rwr_hpc_build_dir,
+    _resolve_rwr_hpc_flist,
+    _resolve_store_dir,
     _runtime_tool_parameters,
     _task_shard_bucket,
+    _verifier_output_schema,
     _verifier_prompt_payload,
     generate_trajectories,
+    parse_args,
 )
 from utils.multiplex import Multiplex
 
@@ -189,8 +201,8 @@ class _FakeModelGenerator:
             return [
                 {
                     "reasoning_text": "Expand the current group with a restart walk.",
-                    "tool_action": {"tool_name": "rwr_multiplex", "arguments": {"seeds": ["ENSG1", "ENSG2"], "top_k": 5}},
-                    "raw_text": '{"reasoning_text":"Expand","tool_action":{"tool_name":"rwr_multiplex","arguments":{"seeds":["ENSG1","ENSG2"],"top_k":5}}}',
+                    "tool_action": {"tool_name": "rwr", "arguments": {"seed_genes": ["ENSG1", "ENSG2"], "top_k": 5}},
+                    "raw_text": '{"reasoning_text":"Expand","tool_action":{"tool_name":"rwr","arguments":{"seed_genes":["ENSG1","ENSG2"],"top_k":5}}}',
                     "generator_errors": [],
                 }
             ]
@@ -306,10 +318,10 @@ class _InvalidVerifierThenValidGenerator:
             {
                 "reasoning_text": "Expand the current group with a restart walk.",
                 "tool_action": {
-                    "tool_name": "rwr_multiplex",
-                    "arguments": {"seeds": ["ENSG1", "ENSG2"], "top_k": 5},
+                    "tool_name": "rwr",
+                    "arguments": {"seed_genes": ["ENSG1", "ENSG2"], "top_k": 5},
                 },
-                "raw_text": '{"reasoning_text":"Expand","tool_action":{"tool_name":"rwr_multiplex","arguments":{"seeds":["ENSG1","ENSG2"],"top_k":5}}}',
+                "raw_text": '{"reasoning_text":"Expand","tool_action":{"tool_name":"rwr","arguments":{"seed_genes":["ENSG1","ENSG2"],"top_k":5}}}',
                 "generator_errors": [],
             }
         ]
@@ -384,8 +396,8 @@ class _ToolCoverageRetryGenerator:
                 {
                     "reasoning_text": "Retry with a restart walk to recover missing members.",
                     "tool_action": {
-                        "tool_name": "rwr_multiplex",
-                        "arguments": {"seeds": ["ENSG1", "ENSG2"], "top_k": 5},
+                        "tool_name": "rwr",
+                        "arguments": {"seed_genes": ["ENSG1", "ENSG2"], "top_k": 5},
                     },
                     "raw_text": "{}",
                     "generator_errors": [],
@@ -508,6 +520,77 @@ class _BrokenFinalChannelTokenizer:
 
 
 class GenerateTrajectoriesTests(unittest.TestCase):
+    def test_verifier_schema_and_parser_accept_reactome_labels(self) -> None:
+        label_source_enum = _verifier_output_schema()["properties"]["updated_state"]["properties"][
+            "mechanistic_labels"
+        ]["items"]["properties"]["label_source"]["enum"]
+        labels, errors = _build_labels_from_model_payload(
+            {
+                "mechanistic_labels": [
+                    {
+                        "label_source": "reactome",
+                        "label_name": "Initial triggering of complement",
+                        "label_id": "REAC:R-HSA-166663",
+                        "evidence_ids": ["call_0"],
+                    }
+                ]
+            }
+        )
+
+        self.assertIn("reactome", label_source_enum)
+        self.assertEqual(errors, [])
+        self.assertEqual(labels[0].label_source.value, "reactome")
+
+    def test_parse_args_defaults_to_full_brain_required_rwr_hpc(self) -> None:
+        args = parse_args([])
+        rwr_hpc_flist = _resolve_rwr_hpc_flist(args)
+
+        self.assertTrue(DEFAULT_USE_FULL_BRAIN_RWR_HPC)
+        self.assertTrue(DEFAULT_REQUIRE_RWR_HPC)
+        self.assertTrue(DEFAULT_RWR_HPC_EDGELIST_HAS_HEADERS)
+        self.assertTrue(args.use_full_brain_rwr_hpc)
+        self.assertTrue(args.require_rwr_hpc)
+        self.assertTrue(args.rwr_hpc_edgelist_has_headers)
+        self.assertEqual(rwr_hpc_flist, DEFAULT_FULL_BRAIN_RWR_HPC_FLIST)
+
+    def test_parse_args_uses_default_store_only_after_rwr_hpc_opt_out(self) -> None:
+        args = parse_args(["--no-use-full-brain-rwr-hpc", "--no-require-rwr-hpc"])
+        rwr_hpc_flist = _resolve_rwr_hpc_flist(args)
+
+        self.assertIsNone(rwr_hpc_flist)
+        self.assertFalse(args.require_rwr_hpc)
+        self.assertEqual(_resolve_store_dir(args, rwr_hpc_flist), DEFAULT_STORE_DIR)
+
+    def test_parse_args_full_brain_rwr_hpc_suppresses_default_store(self) -> None:
+        args = parse_args(["--use-full-brain-rwr-hpc"])
+        rwr_hpc_flist = _resolve_rwr_hpc_flist(args)
+
+        self.assertEqual(rwr_hpc_flist, DEFAULT_FULL_BRAIN_RWR_HPC_FLIST)
+        self.assertIsNone(
+            _resolve_store_dir(
+                args,
+                rwr_hpc_flist,
+                default_full_brain_store_dir=Path("missing_full_brain_store"),
+            )
+        )
+
+    def test_parse_args_full_brain_rwr_hpc_uses_existing_binary_store(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_dir = Path(tmpdir) / "full_brain_store"
+            store_dir.mkdir()
+            args = parse_args(["--use-full-brain-rwr-hpc"])
+            rwr_hpc_flist = _resolve_rwr_hpc_flist(args)
+
+            self.assertEqual(
+                _resolve_store_dir(args, rwr_hpc_flist, default_full_brain_store_dir=store_dir),
+                store_dir,
+            )
+
+    def test_parse_args_can_override_rwr_hpc_build_dir(self) -> None:
+        args = parse_args(["--multiplex-flist", "toy.tsv", "--rwr-hpc-build-dir", "build_rwr"])
+
+        self.assertEqual(_resolve_rwr_hpc_build_dir(args, structured_backend_requested=True), Path("build_rwr"))
+
     def test_pair_filter_rejects_mechanism_improvement_with_worse_gene_correctness(self) -> None:
         task_row = _task_rows()[0]
         interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
@@ -612,15 +695,15 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertIn("ENSG2", reference["candidate_gene_ids"])
         self.assertEqual(reference["unavailable_candidate_gene_ids"], [])
         self.assertIn("ppi", reference["available_layer_names"])
-        self.assertIn("shortest_path source and target", " ".join(reference["rules"]))
+        self.assertIn("shortest_paths source_genes and target_genes", " ".join(reference["rules"]))
         self.assertIn("enrich_gene_set", reference["argument_shapes"])
         self.assertIn("query_mygene", reference["argument_shapes"])
 
     def test_runtime_tool_schemas_document_strict_argument_shapes(self) -> None:
-        shortest_path_schema = _runtime_tool_parameters("shortest_path")
-        self.assertEqual(shortest_path_schema["properties"]["source"]["minLength"], 1)
-        self.assertEqual(shortest_path_schema["properties"]["target"]["minLength"], 1)
-        self.assertIn("Never pass an array", shortest_path_schema["properties"]["source"]["description"])
+        shortest_path_schema = _runtime_tool_parameters("shortest_paths")
+        self.assertEqual(shortest_path_schema["properties"]["source_genes"]["minItems"], 1)
+        self.assertEqual(shortest_path_schema["properties"]["target_genes"]["minItems"], 1)
+        self.assertIn("one-element array", shortest_path_schema["properties"]["source_genes"]["description"])
 
         induce_subgraph_schema = _runtime_tool_parameters("induce_subgraph")
         self.assertEqual(induce_subgraph_schema["properties"]["genes"]["minItems"], 1)
@@ -629,6 +712,21 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         enrich_schema = _runtime_tool_parameters("enrich_gene_set")
         self.assertEqual(enrich_schema["properties"]["genes"]["minItems"], 1)
         self.assertIn("GO:BP", enrich_schema["properties"]["sources"]["description"])
+
+        rank_schema = _runtime_tool_parameters("get_rank")
+        self.assertEqual(rank_schema["required"], ["source_gene", "target_gene"])
+
+        distance_schema = _runtime_tool_parameters("get_distance")
+        self.assertEqual(distance_schema["properties"]["distance_metric"]["enum"], ["spearman", "pearson", "dot"])
+
+        spearman_schema = _runtime_tool_parameters("get_spearman")
+        self.assertEqual(spearman_schema["required"], ["gene_a", "gene_b"])
+
+        layer_stats_schema = _runtime_tool_parameters("get_layer_stats")
+        self.assertEqual(layer_stats_schema["properties"]["sort_by"]["enum"], ["edge_count", "node_count", "layer"])
+
+        perturbation_schema = _runtime_tool_parameters("get_node_perturbation")
+        self.assertEqual(perturbation_schema["required"], ["seed_genes", "perturb_genes"])
 
     def test_enrichment_observation_is_visible_and_recorded_as_evidence(self) -> None:
         observation = ToolObservation(
@@ -864,10 +962,10 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertIsNotNone(compact)
         assert compact is not None
         self.assertEqual(compact["provenance"]["queried_layers_count"], 60)
-        self.assertEqual(len(compact["provenance"]["queried_layers_sample"]), 12)
+        self.assertEqual(len(compact["provenance"]["queried_layers_sample"]), 8)
         self.assertEqual(compact["payload"]["unique_neighbor_count"], len(unique_neighbors))
-        self.assertEqual(len(compact["payload"]["unique_neighbors_sample"]), 20)
-        self.assertEqual(len(compact["payload"]["layers_with_neighbors_sample"]), 12)
+        self.assertEqual(len(compact["payload"]["unique_neighbors_sample"]), 12)
+        self.assertEqual(len(compact["payload"]["layers_with_neighbors_sample"]), 8)
         self.assertNotIn("layers", compact["payload"])
         self.assertNotIn("unique_neighbors", compact["payload"])
         self.assertLess(len(json.dumps(compact, sort_keys=True)), 7000)
@@ -904,6 +1002,61 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         )
         self.assertEqual(payload["ranked_non_seed_gene_ids"], ["ENSG3", "ENSG4"])
         self.assertIn("ranked_non_seed_gene_ids", payload["recovery_interpretation_hint"])
+
+    def test_prior_state_prompt_compacts_accumulated_rwr_evidence(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=6)
+        large_results = [
+            {"gene_id": "ENSG1", "score": 1.0},
+            {"gene_id": "ENSG2", "score": 0.9},
+        ] + [
+            {"gene_id": f"ENSG_NON_SEED_{index:03d}", "score": 0.5 / (index + 1)}
+            for index in range(500)
+        ]
+        observation = ToolObservation(
+            status=ToolObservationStatus.SUCCESS,
+            provenance={"tool_name": "rwr", "active_layers": [f"layer_{index}" for index in range(100)]},
+            call_id="call_rwr_large",
+            payload={
+                "seed_gene_ids": ["ENSG1", "ENSG2"],
+                "active_seed_gene_ids": ["ENSG1", "ENSG2"],
+                "active_layers": [f"layer_{index}" for index in range(100)],
+                "top_k": 500,
+                "results": large_results,
+            },
+        )
+        for index in range(6):
+            evidence = _build_evidence_record(
+                observation,
+                step_index=index,
+                branch_id=f"branch_{index}",
+                symbol_lookup={},
+            )
+            assert evidence is not None
+            state = append_evidence_record(state, evidence)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+
+        payload = _verifier_prompt_payload(
+            context,
+            actor_step=ActorStep(reasoning_text="Continue recovery.", tool_action=None),
+            observation=None,
+            step_index=3,
+            task_type="recovery",
+        )
+        prior_state = payload["prior_state"]
+        prompt_text = json.dumps(prior_state, sort_keys=True)
+
+        self.assertEqual(prior_state["evidence_log_omitted_count"], 3)
+        self.assertEqual(len(prior_state["evidence_log"]), 3)
+        self.assertIn("results_sample", prompt_text)
+        self.assertNotIn("ENSG_NON_SEED_499", prompt_text)
+        self.assertLess(len(prompt_text), 12000)
 
     def test_recovery_verifier_prompt_includes_expansion_guidance(self) -> None:
         task_row = _task_rows()[0]
@@ -1262,10 +1415,10 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                         },
                         {
                             "type": "function_call",
-                            "name": "rwr_multiplex",
+                            "name": "rwr",
                             "arguments": json.dumps(
                                 {
-                                    "seeds": ["ENSG1", "ENSG2"],
+                                    "seed_genes": ["ENSG1", "ENSG2"],
                                     "top_k": 5,
                                 }
                             ),
@@ -1330,7 +1483,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             seed=5,
         )
         self.assertEqual(generator.api_mode, "responses")
-        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr_multiplex")
+        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr")
         self.assertEqual(actor_candidates[0]["tool_action"]["arguments"]["top_k"], 5)
         first_request = generator.session.requests[0]["json"]
         self.assertTrue(generator.session.requests[0]["url"].endswith("/responses"))
@@ -1418,8 +1571,8 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                             "finish_reason": "stop",
                             "text": (
                                 "Use a restart walk to expand the current group.\n"
-                                'TOOL_ACTION: {"tool_name": "rwr_multiplex", '
-                                '"arguments": {"seeds": ["ENSG1", "ENSG2"], "top_k": 5}}'
+                                'TOOL_ACTION: {"tool_name": "rwr", '
+                                '"arguments": {"seed_genes": ["ENSG1", "ENSG2"], "top_k": 5}}'
                             ),
                             "token_ids": [1, 2, 3],
                         }
@@ -1441,7 +1594,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             )
 
         self.assertEqual(generator.api_mode, "completions")
-        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr_multiplex")
+        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr")
         self.assertIn("restart walk", actor_candidates[0]["reasoning_text"])
         first_request = generator.session.requests[0]["json"]
         self.assertTrue(generator.session.requests[0]["url"].endswith("/completions"))
@@ -1465,16 +1618,16 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         actor_candidate = {
             "reasoning_text": "A restart walk is the cheapest grounded expansion move.",
             "tool_action": {
-                "tool_name": "rwr_multiplex",
-                "arguments": {"seeds": ["ENSG1", "ENSG2"], "top_k": 5},
+                "tool_name": "rwr",
+                "arguments": {"seed_genes": ["ENSG1", "ENSG2"], "top_k": 5},
             },
             "generator_errors": [],
         }
         actor_step = ActorStep(
             reasoning_text=actor_candidate["reasoning_text"],
             tool_action=ToolAction(
-                tool_name="rwr_multiplex",
-                arguments={"seeds": ["ENSG1", "ENSG2"], "top_k": 5},
+                tool_name="rwr",
+                arguments={"seed_genes": ["ENSG1", "ENSG2"], "top_k": 5},
                 call_id="call_1",
             ),
         )
@@ -1645,10 +1798,10 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                                         "id": "call_rwr",
                                         "type": "function",
                                         "function": {
-                                            "name": "rwr_multiplex",
+                                            "name": "rwr",
                                             "arguments": json.dumps(
                                                 {
-                                                    "seeds": ["ENSG1", "ENSG2"],
+                                                    "seed_genes": ["ENSG1", "ENSG2"],
                                                     "top_k": 5,
                                                 }
                                             ),
@@ -1671,7 +1824,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         )
 
         self.assertEqual(generator.api_mode, "chat_completions")
-        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr_multiplex")
+        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr")
         first_request = generator.session.requests[0]["json"]
         self.assertTrue(generator.session.requests[0]["url"].endswith("/chat/completions"))
         self.assertIn("tools", first_request)
@@ -1758,10 +1911,10 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                                         "id": "call_rwr",
                                         "type": "function",
                                         "function": {
-                                            "name": "rwr_multiplex",
+                                            "name": "rwr",
                                             "arguments": json.dumps(
                                                 {
-                                                    "seeds": ["ENSG1", "ENSG2"],
+                                                    "seed_genes": ["ENSG1", "ENSG2"],
                                                     "top_k": 5,
                                                 }
                                             ),
@@ -1784,7 +1937,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         )
 
         self.assertEqual(generator.api_mode, "chat_completions")
-        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr_multiplex")
+        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr")
         self.assertIn("multiplex walk", actor_candidates[0]["reasoning_text"])
         self.assertEqual(len(generator.session.requests), 1)
         first_request = generator.session.requests[0]["json"]
@@ -1792,7 +1945,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertEqual(first_request["chat_template_kwargs"], {"enable_thinking": False})
         self.assertIn("tools", first_request)
         self.assertIn(
-            "rwr_multiplex",
+            "rwr",
             [tool["function"]["name"] for tool in first_request["tools"]],
         )
         self.assertEqual(first_request["tool_choice"], "auto")
@@ -1842,8 +1995,8 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                             "finish_reason": "stop",
                             "text": (
                                 "Inspect the current group with a multiplex walk.\n"
-                                'TOOL_ACTION: {"tool_name": "rwr_multiplex", '
-                                '"arguments": {"seeds": ["ENSG1", "ENSG2"], "top_k": 5}}'
+                                'TOOL_ACTION: {"tool_name": "rwr", '
+                                '"arguments": {"seed_genes": ["ENSG1", "ENSG2"], "top_k": 5}}'
                             ),
                             "token_ids": [7, 8, 9],
                         }
@@ -1864,7 +2017,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                 seed=5,
             )
 
-        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr_multiplex")
+        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr")
         self.assertEqual(actor_candidates[0]["generator_errors"], [])
         self.assertEqual(len(generator.session.requests), 2)
         self.assertTrue(generator.session.requests[0]["url"].endswith("/chat/completions"))
@@ -1890,16 +2043,16 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         actor_candidate = {
             "reasoning_text": "A restart walk is the cheapest grounded expansion move.",
             "tool_action": {
-                "tool_name": "rwr_multiplex",
-                "arguments": {"seeds": ["ENSG1", "ENSG2"], "top_k": 5},
+                "tool_name": "rwr",
+                "arguments": {"seed_genes": ["ENSG1", "ENSG2"], "top_k": 5},
             },
             "generator_errors": [],
         }
         actor_step = ActorStep(
             reasoning_text=actor_candidate["reasoning_text"],
             tool_action=ToolAction(
-                tool_name="rwr_multiplex",
-                arguments={"seeds": ["ENSG1", "ENSG2"], "top_k": 5},
+                tool_name="rwr",
+                arguments={"seed_genes": ["ENSG1", "ENSG2"], "top_k": 5},
                 call_id="call_1",
             ),
         )
@@ -2008,10 +2161,10 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                                         "id": "call_rwr",
                                         "type": "function",
                                         "function": {
-                                            "name": "rwr_multiplex",
+                                            "name": "rwr",
                                             "arguments": json.dumps(
                                                 {
-                                                    "seeds": ["ENSG1", "ENSG2"],
+                                                    "seed_genes": ["ENSG1", "ENSG2"],
                                                     "top_k": 5,
                                                 }
                                             ),
@@ -2033,7 +2186,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             seed=5,
         )
 
-        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr_multiplex")
+        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr")
         self.assertTrue(generator.session.requests[0]["url"].endswith("/responses"))
         self.assertTrue(generator.session.requests[1]["url"].endswith("/chat/completions"))
         self.assertIn("tools", generator.session.requests[1]["json"])
@@ -2131,7 +2284,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                 for branch in branch_pools[0]["branches"]
                 if branch["branch_id"] == branch_pools[0]["selected_branch_id"]
             )
-            self.assertEqual(selected["actor_step"]["tool_action"]["tool_name"], "rwr_multiplex")
+            self.assertEqual(selected["actor_step"]["tool_action"]["tool_name"], "rwr")
             self.assertEqual(selected["actor_step"]["tool_action"]["arguments"]["top_k"], 500)
             self.assertEqual(selected["metadata"]["selection_policy"], "task_quality")
             self.assertEqual(
@@ -2144,7 +2297,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             provenance = preference_pairs_raw[0]["provenance"]
             self.assertEqual(provenance["pair_mining_strategy"], "quality_balanced")
             self.assertEqual(provenance["pair_category"], "recovery_expansion")
-            self.assertEqual(provenance["chosen_tool_name"], "rwr_multiplex")
+            self.assertEqual(provenance["chosen_tool_name"], "rwr")
             self.assertEqual(provenance["rejected_tool_name"], "no_tool")
             self.assertGreater(provenance["chosen_gene_count"], provenance["rejected_gene_count"])
 

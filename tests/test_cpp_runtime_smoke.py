@@ -161,9 +161,15 @@ class CompiledRuntimeSmokeTests(unittest.TestCase):
             base_dir = Path(tmpdir)
             flist_path = _write_test_inputs(base_dir)
             store_dir = base_dir / "store"
-            build_store(multiplex_flist=str(flist_path), out_dir=str(store_dir))
+            build_store(
+                multiplex_flist=str(flist_path),
+                out_dir=str(store_dir),
+                write_legacy_text_metadata=False,
+            )
             library_path = _build_runtime_library(base_dir / "cpp_build")
 
+            self.assertFalse((store_dir / "genes.tsv").exists())
+            self.assertFalse((store_dir / "layers.tsv").exists())
             environment = RuntimeEnvironment(
                 store_dir=str(store_dir),
                 compiled_library_path=str(library_path),

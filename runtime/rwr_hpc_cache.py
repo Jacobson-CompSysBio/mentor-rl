@@ -47,6 +47,25 @@ def make_rwr_loe_cache_key(
     )
 
 
+def make_rwr_hpc_cache_key(
+    *,
+    tool_name: str,
+    request_payload: dict[str, Any],
+    network_flist_sha256: str,
+    rwr_hpc_build_id: str,
+) -> str:
+    """Build a cache key for a structured RWR-HPC request."""
+    return stable_json_hash(
+        {
+            "tool_name": tool_name,
+            **request_payload,
+            "network_flist_sha256": network_flist_sha256,
+            "rwr_hpc_build_id": rwr_hpc_build_id,
+            "cache_schema_version": CACHE_SCHEMA_VERSION,
+        }
+    )
+
+
 def _validate_safe_segment(name: str, value: str) -> None:
     if not isinstance(value, str) or not value:
         raise ValueError(f"{name} must be a non-empty string")

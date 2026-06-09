@@ -88,6 +88,15 @@ from runtime import (
 DEFAULT_TASKS_PATH = REPO_ROOT / "data" / "gw_dendrogram_corpus" / "tasks.train.jsonl"
 DEFAULT_OUT_DIR = REPO_ROOT / "data" / "gw_dendrogram_trajectories"
 DEFAULT_STORE_DIR = REPO_ROOT / "data" / "humannet_multiplex_store"
+DEFAULT_RWR_HPC_BUILD_DIR = REPO_ROOT / "external" / "rwr_hpc" / "build_frontier"
+DEFAULT_RWR_HPC_CACHE_DIR = REPO_ROOT / "data" / "runtime" / "rwr_hpc_cache"
+DEFAULT_FULL_BRAIN_RWR_HPC_FLIST = Path(
+    "/lustre/orion/syb111/proj-shared/Personal/smithkp/projects/PASC_2026/full_brain/data/full_brain_flist.tsv"
+)
+DEFAULT_FULL_BRAIN_STORE_DIR = REPO_ROOT / "data" / "runtime" / "full_brain_multiplex_store"
+DEFAULT_USE_FULL_BRAIN_RWR_HPC = True
+DEFAULT_REQUIRE_RWR_HPC = True
+DEFAULT_RWR_HPC_EDGELIST_HAS_HEADERS = True
 DEFAULT_PROGRESS_FILENAME = "progress.json"
 DEFAULT_GENERATOR_API_BASE = "http://127.0.0.1:8000/v1"
 DEFAULT_GENERATOR_API_KEY_ENV = "OPENAI_API_KEY"
@@ -97,17 +106,19 @@ DEFAULT_PREFERENCE_PAIR_MARGIN = 0.10
 DEFAULT_SELECTION_SCORE_EPSILON = 0.02
 DEFAULT_RECOVERY_RWR_TOP_K = 500
 GPT_OSS_FINAL_CHANNEL_PREFIX = "<|start|>assistant<|channel|>final<|message|>"
-PROMPT_TEXT_MAX_CHARS = 700
-PROMPT_ACTOR_REASONING_MAX_CHARS = 1200
-PROMPT_LIST_PREVIEW_LIMIT = 20
-PROMPT_RWR_RESULT_PREVIEW_LIMIT = 30
-PROMPT_RWR_NON_SEED_PREVIEW_LIMIT = 40
-PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT = 250
-PROMPT_LAYER_PREVIEW_LIMIT = 12
-PROMPT_EDGE_PREVIEW_LIMIT = 32
+PROMPT_TEXT_MAX_CHARS = 500
+PROMPT_ACTOR_REASONING_MAX_CHARS = 800
+PROMPT_LIST_PREVIEW_LIMIT = 12
+PROMPT_RWR_RESULT_PREVIEW_LIMIT = 8
+PROMPT_RWR_NON_SEED_PREVIEW_LIMIT = 10
+PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT = 40
+PROMPT_LAYER_PREVIEW_LIMIT = 8
+PROMPT_EDGE_PREVIEW_LIMIT = 12
 PROMPT_MYGENE_PREVIEW_LIMIT = 5
-PROMPT_TOOL_REFERENCE_GENE_LIMIT = 250
-PROMPT_TOOL_REFERENCE_LAYER_LIMIT = 40
+PROMPT_TOOL_REFERENCE_GENE_LIMIT = 80
+PROMPT_TOOL_REFERENCE_LAYER_LIMIT = 24
+PROMPT_EVIDENCE_LOG_RECENT_LIMIT = 3
+PROMPT_EVIDENCE_LOG_OMITTED_SUMMARY_LIMIT = 6
 ACTOR_SAMPLING_STRATEGIES = ("batch", "verbalized")
 SELECTION_POLICIES = ("score", "task_quality")
 PAIR_MINING_STRATEGIES = ("score_margin", "quality_balanced")
@@ -140,18 +151,18 @@ ACTOR_DIVERSITY_DIRECTIVES = (
     {
         "name": "pair_connectivity_probe",
         "instruction": (
-            "Explore pairwise connectivity. Prefer shortest_path between two informative "
+            "Explore pairwise connectivity. Prefer shortest_paths between two informative "
             "valid genes when at least two valid genes are available."
         ),
-        "preferred_tools": ["shortest_path"],
+        "preferred_tools": ["shortest_paths"],
     },
     {
         "name": "neighborhood_or_expansion_probe",
         "instruction": (
             "Explore local neighborhood or expansion evidence. Prefer get_neighbors for "
-            "explanation/none checks, and rwr_multiplex for recovery/refinement expansion."
+            "explanation/none checks, and rwr for recovery/refinement expansion."
         ),
-        "preferred_tools": ["get_neighbors", "rwr_multiplex"],
+        "preferred_tools": ["get_neighbors", "rwr"],
     },
 )
 TASK_ACTOR_DIVERSITY_DIRECTIVES = {
@@ -159,11 +170,11 @@ TASK_ACTOR_DIVERSITY_DIRECTIVES = {
         {
             "name": "recovery_rwr_expansion",
             "instruction": (
-                "Explore recovery expansion. Prefer rwr_multiplex from the current "
+                "Explore recovery expansion. Prefer rwr from the current "
                 "seed/candidate group with top_k at least 500 to identify plausible "
                 "missing complex members beyond the seeds."
             ),
-            "preferred_tools": ["rwr_multiplex"],
+            "preferred_tools": ["rwr"],
         },
         {
             "name": "recovery_neighbor_expansion",
@@ -185,9 +196,9 @@ TASK_ACTOR_DIVERSITY_DIRECTIVES = {
             "name": "recovery_pair_connectivity",
             "instruction": (
                 "Check pairwise graph support among informative candidate genes. Prefer "
-                "shortest_path when at least two valid genes are available."
+                "shortest_paths when at least two valid genes are available."
             ),
-            "preferred_tools": ["shortest_path"],
+            "preferred_tools": ["shortest_paths"],
         },
         {
             "name": "recovery_direct_decision",
@@ -211,17 +222,17 @@ TASK_ACTOR_DIVERSITY_DIRECTIVES = {
             "name": "refinement_rwr_support",
             "instruction": (
                 "Use restart-walk support to distinguish coherent members from weaker "
-                "ones. Prefer rwr_multiplex from the current candidate group."
+                "ones. Prefer rwr from the current candidate group."
             ),
-            "preferred_tools": ["rwr_multiplex"],
+            "preferred_tools": ["rwr"],
         },
         {
             "name": "refinement_pair_connectivity",
             "instruction": (
-                "Probe whether questionable gene pairs are connected. Prefer shortest_path "
+                "Probe whether questionable gene pairs are connected. Prefer shortest_paths "
                 "between two informative valid genes."
             ),
-            "preferred_tools": ["shortest_path"],
+            "preferred_tools": ["shortest_paths"],
         },
         {
             "name": "refinement_direct_decision",
@@ -244,10 +255,10 @@ TASK_ACTOR_DIVERSITY_DIRECTIVES = {
         {
             "name": "none_pair_disconfirmation",
             "instruction": (
-                "Test whether seed genes are connected. Prefer shortest_path when at least "
+                "Test whether seed genes are connected. Prefer shortest_paths when at least "
                 "two valid genes are available."
             ),
-            "preferred_tools": ["shortest_path"],
+            "preferred_tools": ["shortest_paths"],
         },
         {
             "name": "none_neighbor_check",
@@ -288,9 +299,9 @@ TASK_ACTOR_DIVERSITY_DIRECTIVES = {
             "name": "explanation_pair_connectivity",
             "instruction": (
                 "Probe pairwise connectivity when graph evidence would clarify the "
-                "mechanism. Prefer shortest_path."
+                "mechanism. Prefer shortest_paths."
             ),
-            "preferred_tools": ["shortest_path"],
+            "preferred_tools": ["shortest_paths"],
         },
         {
             "name": "explanation_neighbor_context",
@@ -308,19 +319,19 @@ TOOL_COVERAGE_DIRECTIVES = {
         "instruction": (
             "This retry exists because no usable tool-backed actor candidate was observed. "
             "Choose a valid runtime tool if any valid graph argument can be formed; prefer "
-            "rwr_multiplex with top_k at least 500 for recovery expansion, then "
+            "rwr with top_k at least 500 for recovery expansion, then "
             "get_neighbors or induce_subgraph."
         ),
-        "preferred_tools": ["rwr_multiplex", "get_neighbors", "induce_subgraph"],
+        "preferred_tools": ["rwr", "get_neighbors", "induce_subgraph"],
     },
     "refinement": {
         "name": "tool_coverage_refinement_probe",
         "instruction": (
             "This retry exists because no usable tool-backed actor candidate was observed. "
             "Choose a valid runtime tool if any valid graph argument can be formed; prefer "
-            "induce_subgraph for pruning evidence, then rwr_multiplex or shortest_path."
+            "induce_subgraph for pruning evidence, then rwr or shortest_paths."
         ),
-        "preferred_tools": ["induce_subgraph", "rwr_multiplex", "shortest_path"],
+        "preferred_tools": ["induce_subgraph", "rwr", "shortest_paths"],
     },
 }
 PAIR_CATEGORY_PRIORITIES = {
@@ -388,8 +399,8 @@ Actor rules:
   for a representative seed before stopping with a mechanism claim.
 - To query all graph layers, omit the `layers` or `layer` argument entirely.
   Never write "all", [], or null for layer selection.
-- For shortest_path, source and target must each be one string id, never a
-  list, tuple, comma-separated string, or missing value.
+- For shortest_paths, source_genes and target_genes must be arrays of canonical
+  gene ids. Use a one-element array for a pairwise path query.
 - Do not update relationship status, predicted groups, mechanistic labels, or
   other structured state fields. The verifier owns that structured update.
 
@@ -398,18 +409,47 @@ Tool guidance:
 - enrich_gene_set: test whether a candidate gene set is enriched for shared GO,
   pathway, or complex terms against the configured background
 - get_neighbors: inspect one seed gene's neighborhood
-- shortest_path: test whether two genes are closely connected
+- shortest_paths: test whether source genes are closely connected to target genes
 - induce_subgraph: inspect coherence inside a candidate group
-- rwr_monoplex: rank candidates on one named layer
-- rwr_multiplex: rank candidates across the multiplex; prefer for recovery or refinement
+- rwr: rank candidates with RWR++ across the multiplex or selected layers
+- rwr_loe: rank lines of evidence for seed/query gene sets with RWR++
+- get_rank: get one target gene's single-source RWR rank from another gene
+- get_distance: get RWR++ distance or dissimilarity between two genes
+- get_spearman: get Spearman correlation between two genes' RWR rank vectors
+- get_pearson: get Pearson correlation between two genes' RWR encoding vectors
+- get_dot_similarity: get dot similarity between two genes' RWR encoding vectors
+- get_rank_vector_summary: summarize a seed set's RWR rank vector
+- get_encoding_summary: summarize a seed set's RWR encoding scores
+- get_gene_layers/get_nodes_by_layer: report which multiplex layers contain a gene
+- get_layer_stats: summarize layer node and edge counts
+- get_path_layer_counts: summarize layer support for shortest paths
+- get_component_summary: summarize connected components in the merged multiplex
+- get_seed_essentiality: estimate GRIN leave-one-out seed sensitivity
+- get_layer_ablation: summarize how layer removal changes RWR distances
+- get_node_perturbation: summarize how perturbing genes changes RWR distances
 
 Allowed tools:
 - query_mygene: {"query": str, "fields": [str] optional}
 - enrich_gene_set: {"genes": [str], "sources": [str] optional, "user_threshold": float optional, "top_k": int optional}
 - get_neighbors: {"gene": str, "layers": [real layer name] optional; omit for all layers}
-- shortest_path: {"source": str, "target": str, "layer": real layer name optional; omit for all layers}
-- rwr_multiplex: {"seeds": [str], "top_k": int optional}
-- rwr_monoplex: {"seeds": [str], "layer": real layer name required, "top_k": int optional}
+- shortest_paths: {"source_genes": [str], "target_genes": [str] optional, "max_paths": int optional}
+- rwr: {"seed_genes": [str], "layers": [real layer name] optional, "top_k": int optional}
+- rwr_loe: {"seed_genes": [str], "query_genes": [str] optional, "top_k": int optional}
+- get_rank: {"source_gene": str, "target_gene": str, "layers": [real layer name] optional}
+- get_distance: {"gene_a": str, "gene_b": str, "layers": [real layer name] optional, "distance_metric": "spearman", "pearson", or "dot" optional}
+- get_spearman: {"gene_a": str, "gene_b": str, "layers": [real layer name] optional}
+- get_pearson: {"gene_a": str, "gene_b": str, "layers": [real layer name] optional}
+- get_dot_similarity: {"gene_a": str, "gene_b": str, "layers": [real layer name] optional}
+- get_rank_vector_summary: {"seed_genes": [str], "layers": [real layer name] optional, "top_k": int optional}
+- get_encoding_summary: {"seed_genes": [str], "layers": [real layer name] optional, "top_k": int optional}
+- get_gene_layers: {"gene": str}
+- get_nodes_by_layer: {"gene": str}
+- get_layer_stats: {"top_k": int optional, "sort_by": "edge_count", "node_count", or "layer" optional}
+- get_path_layer_counts: {"source_genes": [str], "target_genes": [str] optional, "max_paths": int optional, "top_k": int optional}
+- get_component_summary: {"genes": [str] optional, "max_components": int optional}
+- get_seed_essentiality: {"seed_genes": [str], "n_samples_null_dist": int optional, "top_k": int optional}
+- get_layer_ablation: {"seed_genes": [str], "distance_metric": "spearman", "pearson", or "cos" optional, "top_k": int optional}
+- get_node_perturbation: {"seed_genes": [str], "perturb_genes": [str], "distance_metric": "spearman", "pearson", "dot", or "cos" optional, "top_k": int optional}
 - induce_subgraph: {"genes": [str], "layers": [real layer name] optional; omit for all layers}
 
 If the serving backend supports tool calls, use a native tool call for the
@@ -508,11 +548,28 @@ RUNTIME_TOOL_NAMES = (
     "query_mygene",
     "enrich_gene_set",
     "get_neighbors",
-    "shortest_path",
-    "rwr_multiplex",
-    "rwr_monoplex",
+    "shortest_paths",
+    "rwr",
+    "rwr_loe",
+    "get_rank",
+    "get_distance",
+    "get_spearman",
+    "get_pearson",
+    "get_dot_similarity",
+    "get_rank_vector_summary",
+    "get_encoding_summary",
+    "get_gene_layers",
+    "get_nodes_by_layer",
+    "get_layer_stats",
+    "get_path_layer_counts",
+    "get_component_summary",
+    "get_seed_essentiality",
+    "get_layer_ablation",
+    "get_node_perturbation",
     "induce_subgraph",
 )
+RWR_RESULT_TOOL_NAMES = {"rwr", "rwr_loe", "rwr_multiplex", "rwr_monoplex"}
+SHORTEST_PATH_RESULT_TOOL_NAMES = {"shortest_paths", "shortest_path"}
 TOOL_ACTION_LINE_RE = re.compile(
     r"(?im)^\s*(?:TOOL_ACTION|ACTION)\s*:\s*(?P<payload>\{.*\})\s*$"
 )
@@ -621,7 +678,7 @@ def _preview_list(values: Any, *, limit: int = PROMPT_LIST_PREVIEW_LIMIT) -> lis
 def _rwr_result_gene_id(result: Any) -> str | None:
     if not isinstance(result, dict):
         return None
-    gene_id = result.get("gene_id")
+    gene_id = result.get("gene_id") or result.get("gene")
     return gene_id if isinstance(gene_id, str) and gene_id else None
 
 
@@ -639,8 +696,11 @@ def _compact_layer_list_payload(
 
 def _compact_provenance_for_prompt(provenance: dict[str, Any]) -> dict[str, Any]:
     compact: dict[str, Any] = {}
+    tool_name = _safe_text(provenance.get("tool_name"))
     for key, value in provenance.items():
-        if key in {"queried_layers", "active_layers"}:
+        if key == "payload" and isinstance(value, dict):
+            compact[key] = _compact_prior_evidence_payload_for_prompt(tool_name, value)
+        elif key in {"queried_layers", "active_layers"}:
             compact.update(
                 _compact_layer_list_payload(
                     value,
@@ -658,6 +718,125 @@ def _compact_provenance_for_prompt(provenance: dict[str, Any]) -> dict[str, Any]
     return compact
 
 
+def _compact_prior_evidence_payload_for_prompt(tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Return a bounded prompt view for an evidence-log provenance payload."""
+
+    if not isinstance(payload, dict):
+        return {}
+
+    compact: dict[str, Any] = {}
+    scalar_keys = (
+        "tool_name",
+        "query",
+        "query_gene_count",
+        "background_gene_count",
+        "organism",
+        "raw_result_count",
+        "top_k",
+        "combined_edge_count",
+        "unique_neighbor_count",
+        "path_count",
+        "target_rank",
+        "ranked_gene_count",
+        "distance_metric",
+        "distance",
+        "dissimilarity",
+        "spearman_correlation",
+        "spearman_distance",
+        "pearson_correlation",
+        "pearson_distance",
+        "dot_similarity",
+        "total_components",
+        "result_count",
+    )
+    for key in scalar_keys:
+        if key in payload:
+            compact[key] = payload[key]
+
+    for key in (
+        "query_gene_ids",
+        "present_gene_ids",
+        "missing_gene_ids",
+        "source_genes",
+        "target_genes",
+        "seed_gene_ids",
+        "seed_genes",
+        "active_seed_gene_ids",
+        "genes",
+        "perturb_genes",
+        "unique_neighbors",
+        "path_gene_ids",
+        "sources",
+        "layers",
+        "active_layers",
+    ):
+        value = payload.get(key)
+        if isinstance(value, list):
+            limit = PROMPT_LAYER_PREVIEW_LIMIT if "layer" in key else PROMPT_LIST_PREVIEW_LIMIT
+            if key in {"seed_gene_ids", "seed_genes", "query_gene_ids", "genes"}:
+                limit = PROMPT_TOOL_REFERENCE_GENE_LIMIT
+            compact[f"{key}_count"] = len(value)
+            compact[f"{key}_sample"] = _preview_list(value, limit=limit)
+
+    results = payload.get("results", payload.get("ranked_genes"))
+    if isinstance(results, list):
+        seed_gene_ids = set(
+            _safe_list_of_strings(payload.get("seed_gene_ids"))
+            or _safe_list_of_strings(payload.get("seed_genes"))
+        )
+        result_limit = PROMPT_RWR_RESULT_PREVIEW_LIMIT if tool_name in RWR_RESULT_TOOL_NAMES else PROMPT_LIST_PREVIEW_LIMIT
+        compact["result_count"] = len(results)
+        compact["results_sample"] = _preview_list(results, limit=result_limit)
+        if tool_name in RWR_RESULT_TOOL_NAMES:
+            non_seed_gene_ids = [
+                gene_id
+                for result in results
+                if (gene_id := _rwr_result_gene_id(result)) is not None and gene_id not in seed_gene_ids
+            ]
+            compact["ranked_non_seed_gene_ids_sample"] = non_seed_gene_ids[:PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT]
+
+    paths = payload.get("paths")
+    if isinstance(paths, list):
+        compact["path_count"] = len(paths)
+        compact["paths_sample"] = _preview_list(paths, limit=PROMPT_LIST_PREVIEW_LIMIT)
+
+    return compact
+
+
+def _compact_evidence_record_for_model_prompt(record: dict[str, Any]) -> dict[str, Any]:
+    compact = {
+        "evidence_id": record.get("evidence_id"),
+        "source_type": record.get("source_type"),
+        "summary": _truncate_prompt_text(record.get("summary"), max_chars=240),
+        "tool_call_id": record.get("tool_call_id"),
+    }
+    compact["supporting_gene_ids"] = _preview_list(
+        record.get("supporting_gene_ids"),
+        limit=PROMPT_LIST_PREVIEW_LIMIT,
+    )
+    compact["supporting_gene_symbols"] = _preview_list(
+        record.get("supporting_gene_symbols"),
+        limit=PROMPT_LIST_PREVIEW_LIMIT,
+    )
+    provenance = record.get("provenance")
+    if isinstance(provenance, dict):
+        compact["provenance"] = _compact_provenance_for_prompt(provenance)
+    return compact
+
+
+def _compact_omitted_evidence_record_for_model_prompt(record: dict[str, Any]) -> dict[str, Any]:
+    provenance = record.get("provenance") if isinstance(record.get("provenance"), dict) else {}
+    return {
+        "evidence_id": record.get("evidence_id"),
+        "tool_name": provenance.get("tool_name"),
+        "summary": _truncate_prompt_text(record.get("summary"), max_chars=180),
+        "supporting_gene_ids_sample": _preview_list(
+            record.get("supporting_gene_ids"),
+            limit=6,
+        ),
+    }
+
+
 def _state_payload_for_model_prompt(state: Any) -> dict[str, Any]:
     state_payload = state.to_dict()
     state_payload.pop("user_anchors", None)
@@ -666,21 +845,26 @@ def _state_payload_for_model_prompt(state: Any) -> dict[str, Any]:
         if isinstance(group, dict):
             group["rationale"] = _truncate_prompt_text(group.get("rationale"), max_chars=280)
 
-    for record in state_payload.get("evidence_log", []):
-        if not isinstance(record, dict):
-            continue
-        record["summary"] = _truncate_prompt_text(record.get("summary"), max_chars=280)
-        record["supporting_gene_ids"] = _preview_list(
-            record.get("supporting_gene_ids"),
-            limit=PROMPT_LIST_PREVIEW_LIMIT,
-        )
-        record["supporting_gene_symbols"] = _preview_list(
-            record.get("supporting_gene_symbols"),
-            limit=PROMPT_LIST_PREVIEW_LIMIT,
-        )
-        provenance = record.get("provenance")
-        if isinstance(provenance, dict):
-            record["provenance"] = _compact_provenance_for_prompt(provenance)
+    evidence_log = [
+        record
+        for record in state_payload.get("evidence_log", [])
+        if isinstance(record, dict)
+    ]
+    if len(evidence_log) > PROMPT_EVIDENCE_LOG_RECENT_LIMIT:
+        omitted = evidence_log[:-PROMPT_EVIDENCE_LOG_RECENT_LIMIT]
+        recent = evidence_log[-PROMPT_EVIDENCE_LOG_RECENT_LIMIT:]
+        state_payload["evidence_log_omitted_count"] = len(omitted)
+        state_payload["evidence_log_omitted_summaries"] = [
+            _compact_omitted_evidence_record_for_model_prompt(record)
+            for record in omitted[-PROMPT_EVIDENCE_LOG_OMITTED_SUMMARY_LIMIT:]
+        ]
+    else:
+        recent = evidence_log
+        state_payload["evidence_log_omitted_count"] = 0
+    state_payload["evidence_log"] = [
+        _compact_evidence_record_for_model_prompt(record)
+        for record in recent
+    ]
 
     return state_payload
 
@@ -737,9 +921,11 @@ def _tool_argument_reference_payload(
             "Use query_mygene for one representative gene when identifier metadata or gene summaries are needed.",
             "Use enrich_gene_set on candidate_gene_ids when a group-level mechanism is needed.",
             "For all graph layers, omit layer/layers entirely; do not pass null, [], 'all', or '*' values.",
-            "shortest_path source and target must each be one non-empty string id.",
+            "shortest_paths source_genes and target_genes must be arrays of one or more non-empty string ids.",
             "get_neighbors gene must be one non-empty string id.",
-            "induce_subgraph genes and RWR seeds must be non-empty arrays of string ids.",
+            "induce_subgraph genes and RWR++ seed_genes must be non-empty arrays of string ids.",
+            "Pairwise RWR++ tools use canonical Ensembl ids: get_rank source_gene/target_gene and get_distance/get_spearman/get_pearson/get_dot_similarity gene_a/gene_b.",
+            "Heavy RWR++ summary tools should use small top_k/max_components values during smoke runs.",
         ],
         "argument_shapes": {
             "query_mygene": {"query": "string", "fields": "optional non-empty string array"},
@@ -750,17 +936,42 @@ def _tool_argument_reference_payload(
                 "top_k": "optional positive integer",
             },
             "get_neighbors": {"gene": "string", "layers": "optional non-empty layer-name array"},
-            "shortest_path": {
-                "source": "string",
-                "target": "string",
-                "layer": "optional layer-name string",
+            "shortest_paths": {
+                "source_genes": "non-empty string array",
+                "target_genes": "optional non-empty string array",
+                "max_paths": "optional positive integer",
             },
-            "rwr_multiplex": {"seeds": "non-empty string array", "top_k": "optional positive integer"},
-            "rwr_monoplex": {
-                "seeds": "non-empty string array",
-                "layer": "required layer-name string",
+            "rwr": {
+                "seed_genes": "non-empty string array",
+                "layers": "optional non-empty layer-name array",
                 "top_k": "optional positive integer",
             },
+            "rwr_loe": {"seed_genes": "non-empty string array", "query_genes": "optional string array", "top_k": "optional positive integer"},
+            "get_rank": {"source_gene": "string", "target_gene": "string", "layers": "optional non-empty layer-name array"},
+            "get_distance": {
+                "gene_a": "string",
+                "gene_b": "string",
+                "layers": "optional non-empty layer-name array",
+                "distance_metric": "optional spearman, pearson, or dot",
+            },
+            "get_spearman": {"gene_a": "string", "gene_b": "string", "layers": "optional non-empty layer-name array"},
+            "get_pearson": {"gene_a": "string", "gene_b": "string", "layers": "optional non-empty layer-name array"},
+            "get_dot_similarity": {"gene_a": "string", "gene_b": "string", "layers": "optional non-empty layer-name array"},
+            "get_rank_vector_summary": {"seed_genes": "non-empty string array", "layers": "optional non-empty layer-name array", "top_k": "optional positive integer"},
+            "get_encoding_summary": {"seed_genes": "non-empty string array", "layers": "optional non-empty layer-name array", "top_k": "optional positive integer"},
+            "get_gene_layers": {"gene": "string"},
+            "get_nodes_by_layer": {"gene": "string"},
+            "get_layer_stats": {"top_k": "optional positive integer", "sort_by": "optional edge_count, node_count, or layer"},
+            "get_path_layer_counts": {
+                "source_genes": "non-empty string array",
+                "target_genes": "optional non-empty string array",
+                "max_paths": "optional positive integer",
+                "top_k": "optional positive integer",
+            },
+            "get_component_summary": {"genes": "optional string array", "max_components": "optional positive integer"},
+            "get_seed_essentiality": {"seed_genes": "non-empty string array", "n_samples_null_dist": "optional non-negative integer", "top_k": "optional positive integer"},
+            "get_layer_ablation": {"seed_genes": "non-empty string array", "distance_metric": "optional spearman, pearson, or cos", "top_k": "optional positive integer"},
+            "get_node_perturbation": {"seed_genes": "non-empty string array", "perturb_genes": "non-empty string array", "distance_metric": "optional spearman, pearson, dot, or cos", "top_k": "optional positive integer"},
             "induce_subgraph": {"genes": "non-empty string array", "layers": "optional non-empty layer-name array"},
         },
         "candidate_gene_ids": graph_candidate_gene_ids[:PROMPT_TOOL_REFERENCE_GENE_LIMIT],
@@ -806,7 +1017,7 @@ def _actor_tool_coverage_directive_payload(
                 "Choose a valid runtime tool if any valid graph argument can be formed; "
                 "otherwise explain why no tool is currently useful."
             ),
-            "preferred_tools": ["induce_subgraph", "shortest_path", "get_neighbors"],
+            "preferred_tools": ["induce_subgraph", "shortest_paths", "get_neighbors"],
         }
     return {
         "strategy": "tool_coverage_retry",
@@ -927,10 +1138,21 @@ def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dic
             "hop_count": payload.get("hop_count"),
             "layer_name": payload.get("layer_name"),
         }
-    elif tool_name in {"rwr_multiplex", "rwr_monoplex"}:
-        seed_gene_ids = _safe_list_of_strings(payload.get("seed_gene_ids"))
+    elif tool_name == "shortest_paths":
+        paths = payload.get("paths", [])
+        path_list = paths if isinstance(paths, list) else []
+        compact_payload = {
+            "source_genes": _preview_list(payload.get("source_genes")),
+            "target_genes": _preview_list(payload.get("target_genes")),
+            "merge_method": payload.get("merge_method"),
+            "ignore_weights": payload.get("ignore_weights"),
+            "path_count": len(path_list),
+            "paths": _preview_list(path_list, limit=PROMPT_LIST_PREVIEW_LIMIT),
+        }
+    elif tool_name in RWR_RESULT_TOOL_NAMES:
+        seed_gene_ids = _safe_list_of_strings(payload.get("seed_gene_ids")) or _safe_list_of_strings(payload.get("seed_genes"))
         seed_gene_set = set(seed_gene_ids)
-        results = payload.get("results", [])
+        results = payload.get("results", payload.get("ranked_genes", []))
         result_list = results if isinstance(results, list) else []
         non_seed_results = [
             result
@@ -973,6 +1195,8 @@ def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dic
         }
         if "layer_name" in payload:
             compact_payload["layer_name"] = payload.get("layer_name")
+        if "layers" in payload:
+            compact_payload["layers"] = _preview_list(payload.get("layers"))
         if "active_layers" in payload:
             compact_payload.update(
                 _compact_layer_list_payload(
@@ -981,6 +1205,67 @@ def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dic
                     sample_key="active_layers_sample",
                 )
             )
+    elif tool_name == "get_rank":
+        compact_payload = {
+            "source_gene": payload.get("source_gene"),
+            "target_gene": payload.get("target_gene"),
+            "layers": _preview_list(payload.get("layers")),
+            "target_rank": payload.get("target_rank"),
+            "ranked_gene_count": payload.get("ranked_gene_count"),
+            "rank_result": payload.get("rank_result"),
+        }
+    elif tool_name == "get_distance":
+        compact_payload = {
+            "gene_a": payload.get("gene_a"),
+            "gene_b": payload.get("gene_b"),
+            "layers": _preview_list(payload.get("layers")),
+            "distance_metric": payload.get("distance_metric"),
+            "distance": payload.get("distance"),
+            "dissimilarity": payload.get("dissimilarity"),
+        }
+    elif tool_name == "get_spearman":
+        compact_payload = {
+            "gene_a": payload.get("gene_a"),
+            "gene_b": payload.get("gene_b"),
+            "layers": _preview_list(payload.get("layers")),
+            "spearman_correlation": payload.get("spearman_correlation"),
+            "spearman_distance": payload.get("spearman_distance"),
+        }
+    elif tool_name == "get_pearson":
+        compact_payload = {
+            "gene_a": payload.get("gene_a"),
+            "gene_b": payload.get("gene_b"),
+            "layers": _preview_list(payload.get("layers")),
+            "pearson_correlation": payload.get("pearson_correlation"),
+            "pearson_distance": payload.get("pearson_distance"),
+        }
+    elif tool_name == "get_dot_similarity":
+        compact_payload = {
+            "gene_a": payload.get("gene_a"),
+            "gene_b": payload.get("gene_b"),
+            "layers": _preview_list(payload.get("layers")),
+            "dot_similarity": payload.get("dot_similarity"),
+        }
+    elif tool_name in {
+        "get_rank_vector_summary",
+        "get_encoding_summary",
+        "get_gene_layers",
+        "get_nodes_by_layer",
+        "get_layer_stats",
+        "get_path_layer_counts",
+        "get_component_summary",
+        "get_seed_essentiality",
+        "get_layer_ablation",
+        "get_node_perturbation",
+    }:
+        compact_payload = {
+            "seed_genes": _preview_list(payload.get("seed_genes")),
+            "gene": payload.get("gene"),
+            "genes": _preview_list(payload.get("genes")),
+            "layers": _preview_list(payload.get("layers"), limit=PROMPT_LAYER_PREVIEW_LIMIT),
+            "result_count": len(payload.get("results", []) if isinstance(payload.get("results"), list) else []),
+            "results": _preview_list(payload.get("results"), limit=PROMPT_LIST_PREVIEW_LIMIT),
+        }
     elif tool_name == "query_mygene":
         compact_payload = {
             "query": payload.get("query"),
@@ -1512,6 +1797,33 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
             "required": ["source", "target"],
             "additionalProperties": False,
         }
+    if tool_name == "shortest_paths":
+        return {
+            "type": "object",
+            "properties": {
+                "source_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Canonical Ensembl source gene ids. Use a one-element array for pairwise shortest path queries.",
+                },
+                "target_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Optional canonical Ensembl target gene ids.",
+                },
+                "merge_method": {
+                    "type": "string",
+                    "enum": ["max", "min", "all", "sum", "mean"],
+                    "description": "How RWR++ merges multiplex edges before shortest path search.",
+                },
+                "ignore_weights": {"type": "boolean"},
+                "max_paths": {"type": "integer", "minimum": 1},
+            },
+            "required": ["source_genes"],
+            "additionalProperties": False,
+        }
     if tool_name == "rwr_multiplex":
         return {
             "type": "object",
@@ -1527,6 +1839,363 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
             "required": ["seeds"],
             "additionalProperties": False,
         }
+    if tool_name == "rwr":
+        return {
+            "type": "object",
+            "properties": {
+                "seed_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Canonical Ensembl seed gene ids from candidate_gene_ids or prior successful tool observations.",
+                },
+                "layers": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Optional concrete layer names. Omit this field to run on the full multiplex.",
+                },
+                "top_k": {"type": "integer", "minimum": 1},
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["seed_genes"],
+            "additionalProperties": False,
+        }
+    if tool_name == "rwr_loe":
+        return {
+            "type": "object",
+            "properties": {
+                "seed_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Canonical Ensembl seed gene ids.",
+                },
+                "query_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "description": "Optional canonical Ensembl query genes to restrict the returned lines of evidence.",
+                },
+                "top_k": {"type": "integer", "minimum": 1},
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+                "exclude_seed_genes": {"type": "boolean"},
+            },
+            "required": ["seed_genes"],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_rank":
+        return {
+            "type": "object",
+            "properties": {
+                "source_gene": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Canonical Ensembl source gene id used as the single RWR seed.",
+                },
+                "target_gene": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Canonical Ensembl target gene id whose rank should be returned.",
+                },
+                "layers": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Optional concrete layer names. Omit this field to run on the full multiplex.",
+                },
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["source_gene", "target_gene"],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_distance":
+        return {
+            "type": "object",
+            "properties": {
+                "gene_a": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "First canonical Ensembl gene id.",
+                },
+                "gene_b": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Second canonical Ensembl gene id.",
+                },
+                "layers": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Optional concrete layer names. Omit this field to run on the full multiplex.",
+                },
+                "distance_metric": {
+                    "type": "string",
+                    "enum": ["spearman", "pearson", "dot"],
+                    "description": "RWR++ metric. Spearman/Pearson are distances; dot is a similarity matrix value.",
+                },
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["gene_a", "gene_b"],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_spearman":
+        return {
+            "type": "object",
+            "properties": {
+                "gene_a": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "First canonical Ensembl gene id.",
+                },
+                "gene_b": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Second canonical Ensembl gene id.",
+                },
+                "layers": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Optional concrete layer names. Omit this field to run on the full multiplex.",
+                },
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["gene_a", "gene_b"],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_pearson":
+        return {
+            "type": "object",
+            "properties": {
+                "gene_a": {"type": "string", "minLength": 1},
+                "gene_b": {"type": "string", "minLength": 1},
+                "layers": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Optional concrete layer names. Omit this field to run on the full multiplex.",
+                },
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["gene_a", "gene_b"],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_dot_similarity":
+        return {
+            "type": "object",
+            "properties": {
+                "gene_a": {"type": "string", "minLength": 1},
+                "gene_b": {"type": "string", "minLength": 1},
+                "layers": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Optional concrete layer names. Omit this field to run on the full multiplex.",
+                },
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["gene_a", "gene_b"],
+            "additionalProperties": False,
+        }
+    if tool_name in {"get_rank_vector_summary", "get_encoding_summary"}:
+        return {
+            "type": "object",
+            "properties": {
+                "seed_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Canonical Ensembl seed gene ids.",
+                },
+                "layers": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Optional concrete layer names. Omit this field to run on the full multiplex.",
+                },
+                "top_k": {"type": "integer", "minimum": 1},
+                "include_seed_genes": {"type": "boolean"},
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["seed_genes"],
+            "additionalProperties": False,
+        }
+    if tool_name in {"get_gene_layers", "get_nodes_by_layer"}:
+        return {
+            "type": "object",
+            "properties": {
+                "gene": {"type": "string", "minLength": 1},
+            },
+            "required": ["gene"],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_layer_stats":
+        return {
+            "type": "object",
+            "properties": {
+                "top_k": {"type": "integer", "minimum": 1},
+                "sort_by": {"type": "string", "enum": ["edge_count", "node_count", "layer"]},
+                "descending": {"type": "boolean"},
+            },
+            "required": [],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_path_layer_counts":
+        return {
+            "type": "object",
+            "properties": {
+                "source_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                },
+                "target_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                },
+                "merge_method": {"type": "string", "enum": ["max", "min", "all", "sum", "mean"]},
+                "ignore_weights": {"type": "boolean"},
+                "max_paths": {"type": "integer", "minimum": 1},
+                "top_k": {"type": "integer", "minimum": 1},
+            },
+            "required": ["source_genes"],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_component_summary":
+        return {
+            "type": "object",
+            "properties": {
+                "genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                },
+                "max_components": {"type": "integer", "minimum": 1},
+            },
+            "required": [],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_seed_essentiality":
+        return {
+            "type": "object",
+            "properties": {
+                "seed_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                },
+                "n_samples_null_dist": {"type": "integer", "minimum": 0},
+                "seed": {"type": "integer", "minimum": 0},
+                "top_k": {"type": "integer", "minimum": 1},
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["seed_genes"],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_layer_ablation":
+        return {
+            "type": "object",
+            "properties": {
+                "seed_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                },
+                "distance_metric": {"type": "string", "enum": ["spearman", "pearson", "cos"]},
+                "top_k": {"type": "integer", "minimum": 1},
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["seed_genes"],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_node_perturbation":
+        return {
+            "type": "object",
+            "properties": {
+                "seed_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                },
+                "perturb_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                },
+                "distance_metric": {"type": "string", "enum": ["spearman", "pearson", "dot", "cos"]},
+                "top_k": {"type": "integer", "minimum": 1},
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["seed_genes", "perturb_genes"],
+            "additionalProperties": False,
+        }
     if tool_name == "rwr_monoplex":
         return {
             "type": "object",
@@ -1540,7 +2209,7 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
                 "layer": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "A concrete layer name. Use rwr_multiplex instead when querying across all layers.",
+                    "description": "A concrete layer name. Use rwr instead when querying across all layers.",
                 },
                 "top_k": {"type": "integer", "minimum": 1},
             },
@@ -1575,6 +2244,24 @@ def _runtime_tool_description(tool_name: str) -> str:
         "query_mygene": "Retrieve gene identifier and metadata information for one query string.",
         "enrich_gene_set": "Run group-level functional enrichment for a gene set against the configured background.",
         "get_neighbors": "Retrieve direct graph neighbors for one gene.",
+        "shortest_paths": "Compute shortest paths between source and target gene sets with RWR++.",
+        "rwr": "Rank genes by RWR++ across the multiplex or selected layers.",
+        "rwr_loe": "Rank lines of evidence for seed/query gene sets with RWR++.",
+        "get_rank": "Return one target gene's single-source RWR++ rank from another gene.",
+        "get_distance": "Return RWR++ distance or dissimilarity between two genes.",
+        "get_spearman": "Return Spearman correlation between two genes' RWR++ rank vectors.",
+        "get_pearson": "Return Pearson correlation between two genes' RWR++ encoding vectors.",
+        "get_dot_similarity": "Return dot similarity between two genes' RWR++ encoding vectors.",
+        "get_rank_vector_summary": "Return a compact summary of a seed set's RWR++ rank vector.",
+        "get_encoding_summary": "Return a compact summary of a seed set's RWR++ encoding scores.",
+        "get_gene_layers": "Return the multiplex layers containing one gene.",
+        "get_nodes_by_layer": "Return the multiplex layers containing one gene.",
+        "get_layer_stats": "Return compact node and edge statistics for multiplex layers.",
+        "get_path_layer_counts": "Return layer support counts for RWR++ shortest paths.",
+        "get_component_summary": "Return connected-component summaries for the merged multiplex.",
+        "get_seed_essentiality": "Return GRIN leave-one-out seed sensitivity summaries.",
+        "get_layer_ablation": "Return layer-ablation effects on RWR++ distances.",
+        "get_node_perturbation": "Return node-perturbation effects on RWR++ distances.",
         "shortest_path": "Compute a shortest path between two genes.",
         "rwr_multiplex": "Rank genes by random walk with restart across the multiplex.",
         "rwr_monoplex": "Rank genes by random walk with restart on one named layer.",
@@ -2979,14 +3666,117 @@ def _summarize_observation(observation: ToolObservation | None) -> tuple[str, li
             f"Found a path of {payload.get('hop_count')} hops between the queried genes.",
             path_gene_ids[:10],
         )
-    if tool_name in {"rwr_multiplex", "rwr_monoplex"}:
-        seed_gene_ids = set(_safe_list_of_strings(payload.get("seed_gene_ids")))
-        ranked_gene_ids = [item.get("gene_id") for item in payload.get("results", []) if item.get("gene_id")]
+    if tool_name == "shortest_paths":
+        paths = payload.get("paths", [])
+        path_list = paths if isinstance(paths, list) else []
+        if not path_list:
+            return ("No shortest paths were found for the queried genes.", [])
+        path_gene_ids: list[str] = []
+        for path in path_list[:3]:
+            if isinstance(path, dict):
+                _append_unique_strings(path_gene_ids, _safe_list_of_strings(path.get("path_genes")))
+        return (
+            f"Found {len(path_list)} shortest path records for the queried genes.",
+            path_gene_ids[:10],
+        )
+    if tool_name in RWR_RESULT_TOOL_NAMES:
+        seed_gene_ids = set(_safe_list_of_strings(payload.get("seed_gene_ids")) or _safe_list_of_strings(payload.get("seed_genes")))
+        results = payload.get("results", payload.get("ranked_genes", []))
+        result_list = results if isinstance(results, list) else []
+        ranked_gene_ids = [
+            gene_id
+            for item in result_list
+            if (gene_id := _rwr_result_gene_id(item)) is not None
+        ]
         non_seed_gene_ids = [gene_id for gene_id in ranked_gene_ids if gene_id not in seed_gene_ids]
         return (
             f"Ranked {len(ranked_gene_ids)} genes from the seed set with restart walk.",
             non_seed_gene_ids[:PROMPT_TOOL_REFERENCE_GENE_LIMIT],
         )
+    if tool_name == "get_rank":
+        source_gene = payload.get("source_gene")
+        target_gene = payload.get("target_gene")
+        target_rank = payload.get("target_rank")
+        if target_rank is None:
+            return (f"No RWR rank was found for {target_gene} from {source_gene}.", [])
+        return (
+            f"RWR ranked {target_gene} at {target_rank} from source {source_gene}.",
+            [gene for gene in (source_gene, target_gene) if isinstance(gene, str)],
+        )
+    if tool_name == "get_distance":
+        gene_a = payload.get("gene_a")
+        gene_b = payload.get("gene_b")
+        metric = payload.get("distance_metric", "spearman")
+        return (
+            f"RWR++ {metric} distance between {gene_a} and {gene_b} was {payload.get('distance')}.",
+            [gene for gene in (gene_a, gene_b) if isinstance(gene, str)],
+        )
+    if tool_name == "get_spearman":
+        gene_a = payload.get("gene_a")
+        gene_b = payload.get("gene_b")
+        return (
+            f"RWR rank-vector Spearman correlation between {gene_a} and {gene_b} was {payload.get('spearman_correlation')}.",
+            [gene for gene in (gene_a, gene_b) if isinstance(gene, str)],
+        )
+    if tool_name == "get_pearson":
+        gene_a = payload.get("gene_a")
+        gene_b = payload.get("gene_b")
+        return (
+            f"RWR encoding-vector Pearson correlation between {gene_a} and {gene_b} was {payload.get('pearson_correlation')}.",
+            [gene for gene in (gene_a, gene_b) if isinstance(gene, str)],
+        )
+    if tool_name == "get_dot_similarity":
+        gene_a = payload.get("gene_a")
+        gene_b = payload.get("gene_b")
+        return (
+            f"RWR encoding-vector dot similarity between {gene_a} and {gene_b} was {payload.get('dot_similarity')}.",
+            [gene for gene in (gene_a, gene_b) if isinstance(gene, str)],
+        )
+    if tool_name in {"get_rank_vector_summary", "get_encoding_summary"}:
+        results = payload.get("results", [])
+        result_list = results if isinstance(results, list) else []
+        gene_ids = [
+            gene_id
+            for item in result_list
+            if isinstance(item, dict)
+            and isinstance((gene_id := item.get("gene")), str)
+        ]
+        return (
+            f"{tool_name} returned {len(result_list)} compact RWR++ vector entries.",
+            gene_ids[:PROMPT_TOOL_REFERENCE_GENE_LIMIT],
+        )
+    if tool_name in {"get_gene_layers", "get_nodes_by_layer"}:
+        gene = payload.get("gene")
+        layers = payload.get("layers", [])
+        layer_list = layers if isinstance(layers, list) else []
+        return (f"{gene} was present in {len(layer_list)} multiplex layers.", [gene] if isinstance(gene, str) else [])
+    if tool_name == "get_layer_stats":
+        results = payload.get("results", [])
+        result_list = results if isinstance(results, list) else []
+        return (f"Summarized {len(result_list)} multiplex layers by node/edge counts.", [])
+    if tool_name == "get_path_layer_counts":
+        results = payload.get("results", [])
+        result_list = results if isinstance(results, list) else []
+        genes = _safe_list_of_strings(payload.get("source_genes")) + _safe_list_of_strings(payload.get("target_genes"))
+        return (f"Found layer support counts for {len(result_list)} shortest-path layers.", genes[:PROMPT_TOOL_REFERENCE_GENE_LIMIT])
+    if tool_name == "get_component_summary":
+        genes = _safe_list_of_strings(payload.get("genes"))
+        return (f"Summarized {payload.get('total_components', 0)} connected components.", genes[:PROMPT_TOOL_REFERENCE_GENE_LIMIT])
+    if tool_name == "get_seed_essentiality":
+        genes = _safe_list_of_strings(payload.get("seed_genes"))
+        results = payload.get("results", [])
+        result_list = results if isinstance(results, list) else []
+        return (f"GRIN leave-one-out returned {len(result_list)} seed essentiality rows.", genes[:PROMPT_TOOL_REFERENCE_GENE_LIMIT])
+    if tool_name == "get_layer_ablation":
+        genes = _safe_list_of_strings(payload.get("seed_genes"))
+        results = payload.get("results", [])
+        result_list = results if isinstance(results, list) else []
+        return (f"Layer ablation returned {len(result_list)} ranked layer effects.", genes[:PROMPT_TOOL_REFERENCE_GENE_LIMIT])
+    if tool_name == "get_node_perturbation":
+        genes = _safe_list_of_strings(payload.get("seed_genes")) + _safe_list_of_strings(payload.get("perturb_genes"))
+        results = payload.get("results", [])
+        result_list = results if isinstance(results, list) else []
+        return (f"Node perturbation returned {len(result_list)} ranked perturbation effects.", genes[:PROMPT_TOOL_REFERENCE_GENE_LIMIT])
     if tool_name == "query_mygene":
         return (
             f"Retrieved {payload.get('result_count', 0)} MyGene hits for {payload.get('query')}.",
@@ -3046,12 +3836,90 @@ def _evidence_payload_for_record(observation: ToolObservation) -> dict[str, Any]
             "path_gene_ids": _preview_list(payload.get("path_gene_ids")),
             "hop_count": payload.get("hop_count"),
         }
-    if tool_name in {"rwr_multiplex", "rwr_monoplex"}:
+    if tool_name == "shortest_paths":
         return {
-            "seed_gene_ids": _preview_list(payload.get("seed_gene_ids"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "source_genes": _preview_list(payload.get("source_genes"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "target_genes": _preview_list(payload.get("target_genes"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "merge_method": payload.get("merge_method"),
+            "path_count": len(payload.get("paths", []) if isinstance(payload.get("paths"), list) else []),
+            "paths": _preview_list(payload.get("paths"), limit=10),
+        }
+    if tool_name in RWR_RESULT_TOOL_NAMES:
+        return {
+            "seed_gene_ids": _preview_list(payload.get("seed_gene_ids") or payload.get("seed_genes"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
             "active_seed_gene_ids": _preview_list(payload.get("active_seed_gene_ids")),
             "top_k": payload.get("top_k"),
+            "results": _preview_list(payload.get("results") or payload.get("ranked_genes"), limit=PROMPT_RWR_RESULT_PREVIEW_LIMIT),
+        }
+    if tool_name == "get_rank":
+        return {
+            "source_gene": payload.get("source_gene"),
+            "target_gene": payload.get("target_gene"),
+            "layers": _preview_list(payload.get("layers"), limit=PROMPT_LAYER_PREVIEW_LIMIT),
+            "target_rank": payload.get("target_rank"),
+            "rank_result": payload.get("rank_result"),
+            "ranked_gene_count": payload.get("ranked_gene_count"),
+        }
+    if tool_name == "get_distance":
+        return {
+            "gene_a": payload.get("gene_a"),
+            "gene_b": payload.get("gene_b"),
+            "layers": _preview_list(payload.get("layers"), limit=PROMPT_LAYER_PREVIEW_LIMIT),
+            "distance_metric": payload.get("distance_metric"),
+            "distance": payload.get("distance"),
+            "dissimilarity": payload.get("dissimilarity"),
+        }
+    if tool_name == "get_spearman":
+        return {
+            "gene_a": payload.get("gene_a"),
+            "gene_b": payload.get("gene_b"),
+            "layers": _preview_list(payload.get("layers"), limit=PROMPT_LAYER_PREVIEW_LIMIT),
+            "spearman_correlation": payload.get("spearman_correlation"),
+            "spearman_distance": payload.get("spearman_distance"),
+        }
+    if tool_name == "get_pearson":
+        return {
+            "gene_a": payload.get("gene_a"),
+            "gene_b": payload.get("gene_b"),
+            "layers": _preview_list(payload.get("layers"), limit=PROMPT_LAYER_PREVIEW_LIMIT),
+            "pearson_correlation": payload.get("pearson_correlation"),
+            "pearson_distance": payload.get("pearson_distance"),
+        }
+    if tool_name == "get_dot_similarity":
+        return {
+            "gene_a": payload.get("gene_a"),
+            "gene_b": payload.get("gene_b"),
+            "layers": _preview_list(payload.get("layers"), limit=PROMPT_LAYER_PREVIEW_LIMIT),
+            "dot_similarity": payload.get("dot_similarity"),
+        }
+    if tool_name in {"get_rank_vector_summary", "get_encoding_summary"}:
+        return {
+            "seed_genes": _preview_list(payload.get("seed_genes"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "layers": _preview_list(payload.get("layers"), limit=PROMPT_LAYER_PREVIEW_LIMIT),
+            "top_k": payload.get("top_k"),
             "results": _preview_list(payload.get("results"), limit=PROMPT_RWR_RESULT_PREVIEW_LIMIT),
+        }
+    if tool_name in {"get_gene_layers", "get_nodes_by_layer"}:
+        return {
+            "gene": payload.get("gene"),
+            "layer_count": payload.get("layer_count"),
+            "layers": _preview_list(payload.get("layers"), limit=PROMPT_LAYER_PREVIEW_LIMIT),
+        }
+    if tool_name in {
+        "get_layer_stats",
+        "get_path_layer_counts",
+        "get_component_summary",
+        "get_seed_essentiality",
+        "get_layer_ablation",
+        "get_node_perturbation",
+    }:
+        return {
+            "seed_genes": _preview_list(payload.get("seed_genes"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "genes": _preview_list(payload.get("genes"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "perturb_genes": _preview_list(payload.get("perturb_genes"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "total_components": payload.get("total_components"),
+            "result_count": len(payload.get("results", []) if isinstance(payload.get("results"), list) else []),
+            "results": _preview_list(payload.get("results"), limit=PROMPT_LIST_PREVIEW_LIMIT),
         }
     if tool_name == "get_neighbors":
         return {
@@ -3124,8 +3992,14 @@ def _positive_group_update(
     payload = observation.payload or {}
     tool_name = observation.provenance.get("tool_name")
 
-    if tool_name == "rwr_multiplex" or tool_name == "rwr_monoplex":
-        ranked_gene_ids = [item.get("gene_id") for item in payload.get("results", []) if item.get("gene_id")]
+    if tool_name in RWR_RESULT_TOOL_NAMES:
+        results = payload.get("results", payload.get("ranked_genes", []))
+        result_list = results if isinstance(results, list) else []
+        ranked_gene_ids = [
+            gene_id
+            for item in result_list
+            if (gene_id := _rwr_result_gene_id(item)) is not None
+        ]
         if task_type == "recovery":
             add_limit = 1 if conservative else 2
             additions = [gene_id for gene_id in ranked_gene_ids if gene_id not in current_gene_ids][:add_limit]
@@ -3184,8 +4058,16 @@ def _positive_group_update(
         status = RelationshipStatus.VALIDATED_GROUP if overlap else RelationshipStatus.UNKNOWN
         return current_gene_ids, status
 
-    if tool_name == "shortest_path":
-        path_gene_ids = [gene_id for gene_id in payload.get("path_gene_ids", []) if gene_id]
+    if tool_name in SHORTEST_PATH_RESULT_TOOL_NAMES:
+        if tool_name == "shortest_paths":
+            paths = payload.get("paths", [])
+            path_list = paths if isinstance(paths, list) else []
+            first_path = path_list[0] if path_list and isinstance(path_list[0], dict) else {}
+            path_gene_ids = [gene_id for gene_id in first_path.get("path_genes", []) if gene_id]
+            path_length = first_path.get("path_length")
+        else:
+            path_gene_ids = [gene_id for gene_id in payload.get("path_gene_ids", []) if gene_id]
+            path_length = payload.get("hop_count")
         if not path_gene_ids:
             return current_gene_ids, RelationshipStatus.UNKNOWN
         additions = [gene_id for gene_id in path_gene_ids if gene_id not in current_gene_ids]
@@ -3193,7 +4075,7 @@ def _positive_group_update(
             current_gene_ids = _unique(current_gene_ids + additions[:1])
         status = (
             RelationshipStatus.VALIDATED_GROUP
-            if payload.get("hop_count") is not None and payload.get("hop_count") <= 2
+            if path_length is not None and path_length <= 2
             else RelationshipStatus.PARTIALLY_OBSERVED_GROUP
         )
         return current_gene_ids, status
@@ -3245,8 +4127,14 @@ def _none_group_update(
             return [], RelationshipStatus.INSUFFICIENT_SUPPORT
         return current_gene_ids, RelationshipStatus.PARTIALLY_OBSERVED_GROUP
 
-    if tool_name == "shortest_path":
-        if payload.get("hop_count") is None:
+    if tool_name in SHORTEST_PATH_RESULT_TOOL_NAMES:
+        if tool_name == "shortest_paths":
+            paths = payload.get("paths", [])
+            path_list = paths if isinstance(paths, list) else []
+            has_path = bool(path_list)
+        else:
+            has_path = payload.get("hop_count") is not None
+        if not has_path:
             return [], RelationshipStatus.INSUFFICIENT_SUPPORT
         return current_gene_ids, RelationshipStatus.PARTIALLY_OBSERVED_GROUP
 
@@ -3887,9 +4775,9 @@ def _actor_templates_for_step(
             add_template(
                 "rwr_expand_group",
                 "Rank candidate genes from the current seed set with multiplex restart walk.",
-                tool_name="rwr_multiplex",
+                tool_name="rwr",
                 arguments={
-                    "seeds": current_gene_ids,
+                    "seed_genes": current_gene_ids,
                     "top_k": recovery_rwr_top_k if task_type == "recovery" else 10,
                 },
             )
@@ -3898,8 +4786,11 @@ def _actor_templates_for_step(
         add_template(
             "shortest_path_seed_pair",
             "Check whether the first two genes are connected by a short path.",
-            tool_name="shortest_path",
-            arguments={"source": current_gene_ids[0], "target": current_gene_ids[1]},
+            tool_name="shortest_paths",
+            arguments={
+                "source_genes": [current_gene_ids[0]],
+                "target_genes": [current_gene_ids[1]],
+            },
         )
 
     add_template(
@@ -4005,7 +4896,7 @@ def _apply_task_tool_defaults(
     action = actor_step.tool_action
     if action is None:
         return {}
-    if task_type == "recovery" and action.tool_name == "rwr_multiplex":
+    if task_type == "recovery" and action.tool_name in {"rwr", "rwr_multiplex"}:
         old_top_k = action.arguments.get("top_k")
         if not isinstance(old_top_k, int) or old_top_k < recovery_rwr_top_k:
             action.arguments["top_k"] = recovery_rwr_top_k
@@ -4443,24 +5334,29 @@ def _branch_quality_features(
 def _tool_preference_rank(task_type: str, tool_name: str) -> int:
     task_preferences = {
         "recovery": {
+            "rwr": 4,
             "rwr_multiplex": 4,
             "enrich_gene_set": 4,
             "get_neighbors": 3,
             "query_mygene": 3,
             "induce_subgraph": 2,
+            "shortest_paths": 1,
             "shortest_path": 1,
         },
         "refinement": {
             "induce_subgraph": 4,
             "enrich_gene_set": 4,
+            "rwr": 3,
             "rwr_multiplex": 3,
             "query_mygene": 2,
+            "shortest_paths": 2,
             "shortest_path": 2,
             "get_neighbors": 1,
         },
         "none": {
             "induce_subgraph": 3,
             "enrich_gene_set": 2,
+            "shortest_paths": 2,
             "shortest_path": 2,
             "get_neighbors": 1,
             "query_mygene": 1,
@@ -4469,6 +5365,7 @@ def _tool_preference_rank(task_type: str, tool_name: str) -> int:
             "enrich_gene_set": 4,
             "query_mygene": 3,
             "induce_subgraph": 2,
+            "shortest_paths": 2,
             "shortest_path": 2,
             "get_neighbors": 1,
         },
@@ -5443,7 +6340,44 @@ def generate_trajectories(
         raise
 
 
-def parse_args() -> argparse.Namespace:
+def _resolve_rwr_hpc_flist(args: argparse.Namespace) -> Path | None:
+    """Resolve the RWR-HPC flist requested by CLI flags."""
+
+    if args.rwr_hpc_flist is not None:
+        return args.rwr_hpc_flist
+    if args.use_full_brain_rwr_hpc:
+        return DEFAULT_FULL_BRAIN_RWR_HPC_FLIST
+    return None
+
+
+def _resolve_store_dir(
+    args: argparse.Namespace,
+    rwr_hpc_flist: Path | None,
+    *,
+    default_full_brain_store_dir: Path = DEFAULT_FULL_BRAIN_STORE_DIR,
+) -> Path | None:
+    """Use the default compiled store only when no flist backend was requested."""
+
+    if args.store_dir is not None:
+        return args.store_dir
+    if args.use_full_brain_rwr_hpc and default_full_brain_store_dir.exists():
+        return default_full_brain_store_dir
+    if args.multiplex_flist is None and rwr_hpc_flist is None:
+        return DEFAULT_STORE_DIR
+    return None
+
+
+def _resolve_rwr_hpc_build_dir(args: argparse.Namespace, structured_backend_requested: bool) -> Path | None:
+    """Resolve the RWR++ app build directory for structured tool execution."""
+
+    if args.rwr_hpc_build_dir is not None:
+        return args.rwr_hpc_build_dir
+    if structured_backend_requested and DEFAULT_RWR_HPC_BUILD_DIR.exists():
+        return DEFAULT_RWR_HPC_BUILD_DIR
+    return None
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments for trajectory generation."""
 
     parser = argparse.ArgumentParser(description="Generate shared-prefix MENTOR-RL trajectories.")
@@ -5462,8 +6396,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--store-dir",
         type=Path,
-        default=DEFAULT_STORE_DIR,
-        help="Compiled multiplex store directory. Use this for the full HumanNet runtime.",
+        default=None,
+        help=(
+            "Compiled multiplex store directory. If omitted, the default HumanNet "
+            "store is used only when no flist or RWR-HPC flist is requested."
+        ),
     )
     parser.add_argument(
         "--compiled-library-path",
@@ -5476,6 +6413,96 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Optional text flist for the Python reference backend.",
+    )
+    parser.add_argument(
+        "--use-full-brain-rwr-hpc",
+        dest="use_full_brain_rwr_hpc",
+        action="store_true",
+        default=DEFAULT_USE_FULL_BRAIN_RWR_HPC,
+        help=(
+            "Use Ken's updated full-brain multiplex flist as the RWR-HPC "
+            "structured backend. Enabled by default."
+        ),
+    )
+    parser.add_argument(
+        "--no-use-full-brain-rwr-hpc",
+        dest="use_full_brain_rwr_hpc",
+        action="store_false",
+        help="Disable the default full-brain RWR-HPC backend for local or toy runs.",
+    )
+    parser.add_argument(
+        "--rwr-hpc-flist",
+        type=Path,
+        default=None,
+        help="Flist used by structured RWR++ model tools. Overrides --use-full-brain-rwr-hpc.",
+    )
+    parser.add_argument(
+        "--full-brain-store-dir",
+        type=Path,
+        default=DEFAULT_FULL_BRAIN_STORE_DIR,
+        help=(
+            "Compiled binary store for Ken's full-brain multiplex. Used automatically "
+            "with --use-full-brain-rwr-hpc when it exists and --store-dir is omitted."
+        ),
+    )
+    parser.add_argument(
+        "--rwr-hpc-build-dir",
+        type=Path,
+        default=None,
+        help="RWR++ build directory containing standalone app binaries.",
+    )
+    parser.add_argument(
+        "--rwr-hpc-app-manifest-path",
+        type=Path,
+        default=None,
+        help="Optional manifest listing RWR++ app executable paths.",
+    )
+    parser.add_argument(
+        "--rwr-hpc-cache-dir",
+        type=Path,
+        default=DEFAULT_RWR_HPC_CACHE_DIR,
+        help="Disk cache directory for structured RWR++ tool results.",
+    )
+    parser.add_argument(
+        "--rwr-hpc-scratch-root",
+        type=Path,
+        default=None,
+        help="Optional scratch directory for current RWR++ app-fallback temp files.",
+    )
+    parser.add_argument(
+        "--rwr-hpc-build-id",
+        type=str,
+        default=None,
+        help="Stable build identifier to include in RWR++ cache keys.",
+    )
+    parser.add_argument(
+        "--rwr-hpc-edgelist-has-headers",
+        dest="rwr_hpc_edgelist_has_headers",
+        action="store_true",
+        default=DEFAULT_RWR_HPC_EDGELIST_HAS_HEADERS,
+        help="Set when RWR++ input edge lists include headers. Enabled by default.",
+    )
+    parser.add_argument(
+        "--rwr-hpc-edgelist-no-headers",
+        dest="rwr_hpc_edgelist_has_headers",
+        action="store_false",
+        help="Use when RWR++ input edge lists do not include headers.",
+    )
+    parser.add_argument(
+        "--require-rwr-hpc",
+        dest="require_rwr_hpc",
+        action="store_true",
+        default=DEFAULT_REQUIRE_RWR_HPC,
+        help=(
+            "Fail fast unless model-facing RWR++ tools use the structured "
+            "RWR++ backend. Enabled by default."
+        ),
+    )
+    parser.add_argument(
+        "--no-require-rwr-hpc",
+        dest="require_rwr_hpc",
+        action="store_false",
+        help="Allow legacy graph-tool fallback for local tests and toy runs.",
     )
     parser.add_argument(
         "--mygene-cache-path",
@@ -5631,7 +6658,7 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_RECOVERY_RWR_TOP_K,
         help=(
-            "Minimum rwr_multiplex top_k used for recovery actor branches so the "
+            "Minimum rwr top_k used for recovery actor branches so the "
             "verifier can inspect a broader non-seed candidate list."
         ),
     )
@@ -5716,7 +6743,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional path for the progress JSON file.",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main() -> None:
@@ -5762,28 +6789,62 @@ def main() -> None:
         )
 
     enrichment_background_gene_ids = _load_gene_id_background(args.enrichment_background_path)
+    rwr_hpc_flist = _resolve_rwr_hpc_flist(args)
+    store_dir = _resolve_store_dir(
+        args,
+        rwr_hpc_flist,
+        default_full_brain_store_dir=args.full_brain_store_dir,
+    )
+    structured_backend_requested = rwr_hpc_flist is not None or args.multiplex_flist is not None
+    rwr_hpc_build_dir = _resolve_rwr_hpc_build_dir(args, structured_backend_requested)
 
-    if args.store_dir is not None:
+    if args.require_rwr_hpc:
+        if rwr_hpc_flist is None and args.multiplex_flist is None:
+            raise ValueError(
+                "--require-rwr-hpc requires --rwr-hpc-flist, --use-full-brain-rwr-hpc, "
+                "or --multiplex-flist."
+            )
+        if rwr_hpc_build_dir is None and not os.environ.get("RWR_HPC_BUILD_DIR"):
+            raise ValueError(
+                "--require-rwr-hpc requires --rwr-hpc-build-dir, an existing default "
+                "external/rwr_hpc/build_frontier build, or RWR_HPC_BUILD_DIR."
+            )
+
+    common_runtime_kwargs = {
+        "mygene_cache_path": str(args.mygene_cache_path) if args.mygene_cache_path else None,
+        "allow_network_mygene": args.allow_network_mygene,
+        "enrichment_cache_path": str(args.enrichment_cache_path) if args.enrichment_cache_path else None,
+        "allow_network_enrichment": args.allow_network_enrichment,
+        "enrichment_background_gene_ids": enrichment_background_gene_ids,
+        "rwr_hpc_build_dir": str(rwr_hpc_build_dir) if rwr_hpc_build_dir else None,
+        "rwr_hpc_app_manifest_path": (
+            str(args.rwr_hpc_app_manifest_path) if args.rwr_hpc_app_manifest_path else None
+        ),
+        "rwr_hpc_flist": str(rwr_hpc_flist) if rwr_hpc_flist else None,
+        "rwr_hpc_cache_dir": str(args.rwr_hpc_cache_dir) if args.rwr_hpc_cache_dir else None,
+        "rwr_hpc_scratch_root": str(args.rwr_hpc_scratch_root) if args.rwr_hpc_scratch_root else None,
+        "rwr_hpc_build_id": args.rwr_hpc_build_id,
+        "rwr_hpc_no_edgelist_headers": not args.rwr_hpc_edgelist_has_headers,
+        "require_rwr_hpc_structured_tools": args.require_rwr_hpc,
+    }
+
+    if store_dir is not None:
         environment = RuntimeEnvironment(
-            store_dir=str(args.store_dir),
+            store_dir=str(store_dir),
             compiled_library_path=str(args.compiled_library_path) if args.compiled_library_path else None,
-            mygene_cache_path=str(args.mygene_cache_path) if args.mygene_cache_path else None,
-            allow_network_mygene=args.allow_network_mygene,
-            enrichment_cache_path=str(args.enrichment_cache_path) if args.enrichment_cache_path else None,
-            allow_network_enrichment=args.allow_network_enrichment,
-            enrichment_background_gene_ids=enrichment_background_gene_ids,
+            **common_runtime_kwargs,
         )
     elif args.multiplex_flist is not None:
         environment = RuntimeEnvironment(
             multiplex_flist=str(args.multiplex_flist),
-            mygene_cache_path=str(args.mygene_cache_path) if args.mygene_cache_path else None,
-            allow_network_mygene=args.allow_network_mygene,
-            enrichment_cache_path=str(args.enrichment_cache_path) if args.enrichment_cache_path else None,
-            allow_network_enrichment=args.allow_network_enrichment,
-            enrichment_background_gene_ids=enrichment_background_gene_ids,
+            **common_runtime_kwargs,
+        )
+    elif rwr_hpc_flist is not None:
+        environment = RuntimeEnvironment(
+            **common_runtime_kwargs,
         )
     else:
-        raise ValueError("Provide either --store-dir or --multiplex-flist.")
+        raise ValueError("Provide --store-dir, --multiplex-flist, or an RWR-HPC flist.")
 
     prefetch_report = None
     if args.prefetch_mechanism_cache:
@@ -5801,6 +6862,20 @@ def main() -> None:
         "task_shard_index": args.task_shard_index,
         "task_shard_count": args.task_shard_count,
         "task_shard_strategy": "sha256_module_key_mod",
+        "store_dir": str(store_dir) if store_dir else None,
+        "multiplex_flist": str(args.multiplex_flist) if args.multiplex_flist else None,
+        "use_full_brain_rwr_hpc": args.use_full_brain_rwr_hpc,
+        "full_brain_store_dir": str(args.full_brain_store_dir) if args.full_brain_store_dir else None,
+        "rwr_hpc_flist": str(rwr_hpc_flist) if rwr_hpc_flist else None,
+        "rwr_hpc_build_dir": str(rwr_hpc_build_dir) if rwr_hpc_build_dir else None,
+        "rwr_hpc_app_manifest_path": (
+            str(args.rwr_hpc_app_manifest_path) if args.rwr_hpc_app_manifest_path else None
+        ),
+        "rwr_hpc_cache_dir": str(args.rwr_hpc_cache_dir) if args.rwr_hpc_cache_dir else None,
+        "rwr_hpc_scratch_root": str(args.rwr_hpc_scratch_root) if args.rwr_hpc_scratch_root else None,
+        "rwr_hpc_build_id": args.rwr_hpc_build_id,
+        "rwr_hpc_no_edgelist_headers": not args.rwr_hpc_edgelist_has_headers,
+        "require_rwr_hpc": args.require_rwr_hpc,
         "mygene_cache_path": str(args.mygene_cache_path) if args.mygene_cache_path else None,
         "allow_network_mygene": args.allow_network_mygene,
         "enrichment_cache_path": str(args.enrichment_cache_path) if args.enrichment_cache_path else None,

@@ -2,6 +2,28 @@
 
 from .backend import CompiledRuntimeBackend, find_default_runtime_library
 from .environment import RuntimeEnvironment
+from .rwr_hpc_app_backend import RwrHpcAppBackend, RwrHpcAppResult
+from .rwr_hpc_cache import RwrHpcCache
+from .rwr_hpc_requests import (
+    ComponentSummaryRequest,
+    GeneLayersRequest,
+    LayerAblationRequest,
+    LayerStatsRequest,
+    NodePerturbationRequest,
+    PathLayerCountsRequest,
+    RwrDistanceRequest,
+    RwrDotSimilarityRequest,
+    RwrEncodingSummaryRequest,
+    RwrLoeRequest,
+    RwrPearsonRequest,
+    RwrRankRequest,
+    RwrRankVectorSummaryRequest,
+    RwrRequest,
+    RwrSpearmanRequest,
+    SeedEssentialityRequest,
+    ShortestPathsRequest,
+)
+from .rwr_hpc_structured_backend import RwrHpcStructuredBackend
 from .scoring import (
     DEFAULT_LOCAL_SCORING_CONFIG,
     DEFAULT_TERMINAL_SCORING_CONFIG,
@@ -101,6 +123,27 @@ __all__ = [
     "RUNTIME_SCHEMA_VERSION",
     "CompiledRuntimeBackend",
     "RuntimeEnvironment",
+    "RwrHpcAppBackend",
+    "RwrHpcAppResult",
+    "RwrHpcCache",
+    "RwrHpcStructuredBackend",
+    "ComponentSummaryRequest",
+    "GeneLayersRequest",
+    "LayerAblationRequest",
+    "LayerStatsRequest",
+    "NodePerturbationRequest",
+    "PathLayerCountsRequest",
+    "RwrDistanceRequest",
+    "RwrDotSimilarityRequest",
+    "RwrEncodingSummaryRequest",
+    "RwrLoeRequest",
+    "RwrPearsonRequest",
+    "RwrRankRequest",
+    "RwrRankVectorSummaryRequest",
+    "RwrRequest",
+    "RwrSpearmanRequest",
+    "SeedEssentialityRequest",
+    "ShortestPathsRequest",
     "ActorStep",
     "CandidateBranch",
     "ContinuationState",

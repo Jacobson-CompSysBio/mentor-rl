@@ -18,6 +18,25 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
+from .rwr_hpc_requests import (
+    ComponentSummaryRequest,
+    GeneLayersRequest,
+    LayerAblationRequest,
+    LayerStatsRequest,
+    NodePerturbationRequest,
+    PathLayerCountsRequest,
+    RwrDistanceRequest,
+    RwrDotSimilarityRequest,
+    RwrEncodingSummaryRequest,
+    RwrLoeRequest,
+    RwrPearsonRequest,
+    RwrRankRequest,
+    RwrRankVectorSummaryRequest,
+    RwrRequest,
+    SeedEssentialityRequest,
+    RwrSpearmanRequest,
+    ShortestPathsRequest,
+)
 from .schemas import (
     KNOWN_TOOL_NAMES,
     CandidateBranch,
@@ -102,6 +121,20 @@ def normalize_tool_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[
     elif tool_name == "shortest_path":
         if "layer" in normalized and _is_all_layer_list(normalized["layer"]):
             normalized.pop("layer")
+    elif tool_name in {
+        "rwr",
+        "get_distance",
+        "get_rank",
+        "get_spearman",
+        "get_pearson",
+        "get_dot_similarity",
+        "get_rank_vector_summary",
+        "get_encoding_summary",
+    }:
+        if "layers" in normalized and _is_all_layer_list(normalized["layers"]):
+            normalized.pop("layers")
+        if "layer" in normalized and _is_all_layer_list(normalized["layer"]):
+            normalized.pop("layer")
     return normalized
 
 
@@ -127,6 +160,19 @@ def _reject_unknown_arguments(
         if key not in allowed:
             result.add_error(f"Unexpected argument for tool call: {key}.")
     return result
+
+
+def _validate_structured_request(
+    result: ValidationResult,
+    parser: Any,
+    arguments: dict[str, Any],
+) -> None:
+    if not result.valid:
+        return
+    try:
+        parser(arguments)
+    except (TypeError, ValueError) as exc:
+        result.add_error(str(exc))
 
 
 def validate_tool_name(tool_name: str) -> ValidationResult:
@@ -188,6 +234,300 @@ def validate_tool_action_schema(tool_action: ToolAction) -> ValidationResult:
             result.add_error("shortest_path requires a non-empty string field named 'target'.")
         if "layer" in arguments and not _is_non_empty_string(arguments["layer"]):
             result.add_error("shortest_path 'layer' must be a non-empty string when provided.")
+
+    elif tool_action.tool_name == "shortest_paths":
+        result.extend(
+            _reject_unknown_arguments(
+                arguments,
+                allowed={
+                    "source_genes",
+                    "target_genes",
+                    "source",
+                    "target",
+                    "merge_method",
+                    "ignore_weights",
+                    "max_paths",
+                },
+            )
+        )
+        _validate_structured_request(result, ShortestPathsRequest.from_tool_arguments, arguments)
+
+    elif tool_action.tool_name == "rwr":
+        result.extend(
+            _reject_unknown_arguments(
+                arguments,
+                allowed={
+                    "seed_genes",
+                    "seeds",
+                    "layer",
+                    "layers",
+                    "top_k",
+                    "restart",
+                    "delta",
+                    "reduction_method",
+                    "threshold",
+                },
+            )
+        )
+        _validate_structured_request(result, RwrRequest.from_tool_arguments, arguments)
+
+    elif tool_action.tool_name == "rwr_loe":
+        result.extend(
+            _reject_unknown_arguments(
+                arguments,
+                allowed={
+                    "seed_genes",
+                    "query_genes",
+                    "top_k",
+                    "restart",
+                    "delta",
+                    "reduction_method",
+                    "threshold",
+                    "exclude_seed_genes",
+                },
+            )
+        )
+        _validate_structured_request(result, RwrLoeRequest.from_tool_arguments, arguments)
+
+    elif tool_action.tool_name == "get_rank":
+        result.extend(
+            _reject_unknown_arguments(
+                arguments,
+                allowed={
+                    "source_gene",
+                    "target_gene",
+                    "source",
+                    "target",
+                    "gene_a",
+                    "gene_b",
+                    "layer",
+                    "layers",
+                    "restart",
+                    "delta",
+                    "reduction_method",
+                    "threshold",
+                },
+            )
+        )
+        _validate_structured_request(result, RwrRankRequest.from_tool_arguments, arguments)
+
+    elif tool_action.tool_name == "get_distance":
+        result.extend(
+            _reject_unknown_arguments(
+                arguments,
+                allowed={
+                    "gene_a",
+                    "gene_b",
+                    "source_gene",
+                    "target_gene",
+                    "source",
+                    "target",
+                    "layer",
+                    "layers",
+                    "distance_metric",
+                    "restart",
+                    "delta",
+                    "reduction_method",
+                    "threshold",
+                },
+            )
+        )
+        _validate_structured_request(result, RwrDistanceRequest.from_tool_arguments, arguments)
+
+    elif tool_action.tool_name == "get_spearman":
+        result.extend(
+            _reject_unknown_arguments(
+                arguments,
+                allowed={
+                    "gene_a",
+                    "gene_b",
+                    "source_gene",
+                    "target_gene",
+                    "source",
+                    "target",
+                    "layer",
+                    "layers",
+                    "restart",
+                    "delta",
+                    "reduction_method",
+                    "threshold",
+                },
+            )
+        )
+        _validate_structured_request(result, RwrSpearmanRequest.from_tool_arguments, arguments)
+
+    elif tool_action.tool_name == "get_pearson":
+        result.extend(
+            _reject_unknown_arguments(
+                arguments,
+                allowed={
+                    "gene_a",
+                    "gene_b",
+                    "source_gene",
+                    "target_gene",
+                    "source",
+                    "target",
+                    "layer",
+                    "layers",
+                    "restart",
+                    "delta",
+                    "reduction_method",
+                    "threshold",
+                },
+            )
+        )
+        _validate_structured_request(result, RwrPearsonRequest.from_tool_arguments, arguments)
+
+    elif tool_action.tool_name == "get_dot_similarity":
+        result.extend(
+            _reject_unknown_arguments(
+                arguments,
+                allowed={
+                    "gene_a",
+                    "gene_b",
+                    "source_gene",
+                    "target_gene",
+                    "source",
+                    "target",
+                    "layer",
+                    "layers",
+                    "restart",
+                    "delta",
+                    "reduction_method",
+                    "threshold",
+                },
+            )
+        )
+        _validate_structured_request(result, RwrDotSimilarityRequest.from_tool_arguments, arguments)
+
+    elif tool_action.tool_name == "get_rank_vector_summary":
+        result.extend(
+            _reject_unknown_arguments(
+                arguments,
+                allowed={
+                    "seed_genes",
+                    "seeds",
+                    "layer",
+                    "layers",
+                    "top_k",
+                    "include_seed_genes",
+                    "restart",
+                    "delta",
+                    "reduction_method",
+                    "threshold",
+                },
+            )
+        )
+        _validate_structured_request(result, RwrRankVectorSummaryRequest.from_tool_arguments, arguments)
+
+    elif tool_action.tool_name == "get_encoding_summary":
+        result.extend(
+            _reject_unknown_arguments(
+                arguments,
+                allowed={
+                    "seed_genes",
+                    "seeds",
+                    "layer",
+                    "layers",
+                    "top_k",
+                    "include_seed_genes",
+                    "restart",
+                    "delta",
+                    "reduction_method",
+                    "threshold",
+                },
+            )
+        )
+        _validate_structured_request(result, RwrEncodingSummaryRequest.from_tool_arguments, arguments)
+
+    elif tool_action.tool_name in {"get_gene_layers", "get_nodes_by_layer"}:
+        result.extend(_reject_unknown_arguments(arguments, allowed={"gene", "gene_id"}))
+        _validate_structured_request(result, GeneLayersRequest.from_tool_arguments, arguments)
+
+    elif tool_action.tool_name == "get_layer_stats":
+        result.extend(
+            _reject_unknown_arguments(arguments, allowed={"top_k", "sort_by", "descending"})
+        )
+        _validate_structured_request(result, LayerStatsRequest.from_tool_arguments, arguments)
+
+    elif tool_action.tool_name == "get_path_layer_counts":
+        result.extend(
+            _reject_unknown_arguments(
+                arguments,
+                allowed={
+                    "source_genes",
+                    "target_genes",
+                    "source",
+                    "target",
+                    "merge_method",
+                    "ignore_weights",
+                    "max_paths",
+                    "top_k",
+                },
+            )
+        )
+        _validate_structured_request(result, PathLayerCountsRequest.from_tool_arguments, arguments)
+
+    elif tool_action.tool_name == "get_component_summary":
+        result.extend(_reject_unknown_arguments(arguments, allowed={"genes", "max_components"}))
+        _validate_structured_request(result, ComponentSummaryRequest.from_tool_arguments, arguments)
+
+    elif tool_action.tool_name == "get_seed_essentiality":
+        result.extend(
+            _reject_unknown_arguments(
+                arguments,
+                allowed={
+                    "seed_genes",
+                    "seeds",
+                    "n_samples_null_dist",
+                    "seed",
+                    "top_k",
+                    "restart",
+                    "delta",
+                    "reduction_method",
+                    "threshold",
+                },
+            )
+        )
+        _validate_structured_request(result, SeedEssentialityRequest.from_tool_arguments, arguments)
+
+    elif tool_action.tool_name == "get_layer_ablation":
+        result.extend(
+            _reject_unknown_arguments(
+                arguments,
+                allowed={
+                    "seed_genes",
+                    "seeds",
+                    "distance_metric",
+                    "top_k",
+                    "restart",
+                    "delta",
+                    "reduction_method",
+                    "threshold",
+                },
+            )
+        )
+        _validate_structured_request(result, LayerAblationRequest.from_tool_arguments, arguments)
+
+    elif tool_action.tool_name == "get_node_perturbation":
+        result.extend(
+            _reject_unknown_arguments(
+                arguments,
+                allowed={
+                    "seed_genes",
+                    "seeds",
+                    "perturb_genes",
+                    "genes",
+                    "distance_metric",
+                    "top_k",
+                    "restart",
+                    "delta",
+                    "reduction_method",
+                    "threshold",
+                },
+            )
+        )
+        _validate_structured_request(result, NodePerturbationRequest.from_tool_arguments, arguments)
 
     elif tool_action.tool_name == "rwr_multiplex":
         result.extend(_reject_unknown_arguments(arguments, allowed={"seeds", "top_k"}))
@@ -272,6 +612,71 @@ def validate_tool_action_semantics(
         gene_fields.extend([arguments["source"], arguments["target"]])
         if "layer" in arguments:
             layer_fields.append(arguments["layer"])
+    elif tool_action.tool_name == "shortest_paths":
+        if "source_genes" in arguments:
+            gene_fields.extend(arguments["source_genes"])
+        elif "source" in arguments:
+            gene_fields.append(arguments["source"])
+        if "target_genes" in arguments:
+            gene_fields.extend(arguments["target_genes"])
+        elif "target" in arguments:
+            gene_fields.append(arguments["target"])
+    elif tool_action.tool_name == "rwr":
+        gene_fields.extend(arguments.get("seed_genes", arguments.get("seeds", [])))
+        layer_fields.extend(arguments.get("layers", []))
+        if "layer" in arguments:
+            layer_fields.append(arguments["layer"])
+    elif tool_action.tool_name == "rwr_loe":
+        gene_fields.extend(arguments["seed_genes"])
+        gene_fields.extend(arguments.get("query_genes", []))
+    elif tool_action.tool_name == "get_rank":
+        request = RwrRankRequest.from_tool_arguments(arguments)
+        gene_fields.extend([request.source_gene, request.target_gene])
+        layer_fields.extend(request.layers)
+    elif tool_action.tool_name == "get_distance":
+        request = RwrDistanceRequest.from_tool_arguments(arguments)
+        gene_fields.extend([request.gene_a, request.gene_b])
+        layer_fields.extend(request.layers)
+    elif tool_action.tool_name == "get_spearman":
+        request = RwrSpearmanRequest.from_tool_arguments(arguments)
+        gene_fields.extend([request.gene_a, request.gene_b])
+        layer_fields.extend(request.layers)
+    elif tool_action.tool_name == "get_pearson":
+        request = RwrPearsonRequest.from_tool_arguments(arguments)
+        gene_fields.extend([request.gene_a, request.gene_b])
+        layer_fields.extend(request.layers)
+    elif tool_action.tool_name == "get_dot_similarity":
+        request = RwrDotSimilarityRequest.from_tool_arguments(arguments)
+        gene_fields.extend([request.gene_a, request.gene_b])
+        layer_fields.extend(request.layers)
+    elif tool_action.tool_name == "get_rank_vector_summary":
+        request = RwrRankVectorSummaryRequest.from_tool_arguments(arguments)
+        gene_fields.extend(request.seed_genes)
+        layer_fields.extend(request.layers)
+    elif tool_action.tool_name == "get_encoding_summary":
+        request = RwrEncodingSummaryRequest.from_tool_arguments(arguments)
+        gene_fields.extend(request.seed_genes)
+        layer_fields.extend(request.layers)
+    elif tool_action.tool_name in {"get_gene_layers", "get_nodes_by_layer"}:
+        request = GeneLayersRequest.from_tool_arguments(arguments)
+        gene_fields.append(request.gene)
+    elif tool_action.tool_name == "get_path_layer_counts":
+        request = PathLayerCountsRequest.from_tool_arguments(arguments)
+        gene_fields.extend(request.source_genes)
+        gene_fields.extend(request.target_genes)
+    elif tool_action.tool_name == "get_component_summary":
+        request = ComponentSummaryRequest.from_tool_arguments(arguments)
+        gene_fields.extend(request.genes)
+    elif tool_action.tool_name == "get_seed_essentiality":
+        request = SeedEssentialityRequest.from_tool_arguments(arguments)
+        gene_fields.extend(request.seed_genes)
+    elif tool_action.tool_name == "get_layer_ablation":
+        request = LayerAblationRequest.from_tool_arguments(arguments)
+        gene_fields.extend(request.seed_genes)
+    elif tool_action.tool_name == "get_node_perturbation":
+        request = NodePerturbationRequest.from_tool_arguments(arguments)
+        gene_fields.extend(request.seed_genes)
+        gene_fields.extend(request.perturb_genes)
     elif tool_action.tool_name == "rwr_multiplex":
         gene_fields.extend(arguments["seeds"])
     elif tool_action.tool_name == "rwr_monoplex":

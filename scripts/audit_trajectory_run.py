@@ -60,6 +60,32 @@ CONTEXT_LIMIT_RE = re.compile(
     r"maximum context length is (?P<limit>\d+) tokens.*request has (?P<input>\d+) input tokens",
     re.IGNORECASE,
 )
+RWR_HPC_TOOL_NAMES = frozenset(
+    {
+        "rwr",
+        "rwr_loe",
+        "shortest_paths",
+        "get_rank",
+        "get_distance",
+        "get_spearman",
+        "get_pearson",
+        "get_dot_similarity",
+        "get_rank_vector_summary",
+        "get_encoding_summary",
+        "get_gene_layers",
+        "get_nodes_by_layer",
+        "get_layer_stats",
+        "get_path_layer_counts",
+        "get_component_summary",
+        "get_seed_essentiality",
+        "get_layer_ablation",
+        "get_node_perturbation",
+        "rwr_multiplex",
+        "rwr_monoplex",
+    }
+)
+WEAK_VALIDATED_ENRICHMENT_PRECISION = 0.20
+STRONG_NATIVE_GRAPH_EDGE_DENSITY = 1.0
 
 
 @dataclass
@@ -96,6 +122,11 @@ class AuditConfig:
     min_none_success_rate: float | None = None
     min_explanation_success_rate: float | None = None
     min_recovery_refinement_partial_rate: float | None = None
+    min_selected_rwr_hpc_tool_rate: float | None = None
+    min_rwr_hpc_candidate_rate: float | None = None
+    min_rwr_hpc_supported_pair_rate: float | None = None
+    max_rwr_hpc_observation_error_rate: float | None = None
+    max_validated_weak_evidence_rate: float | None = None
 
 
 @dataclass
@@ -365,6 +396,76 @@ def _final_summary_alignment(
     }
 
 
+def _max_enrichment_precision(payload: dict[str, Any]) -> float | None:
+    results = payload.get("results")
+    if not isinstance(results, list):
+        return None
+    precisions: list[float] = []
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        precision = result.get("precision")
+        if isinstance(precision, (int, float)):
+            precisions.append(float(precision))
+            continue
+        intersection_size = result.get("intersection_size")
+        query_size = result.get("query_size") or payload.get("query_gene_count")
+        if isinstance(intersection_size, (int, float)) and isinstance(query_size, (int, float)) and query_size:
+            precisions.append(float(intersection_size) / float(query_size))
+    return max(precisions) if precisions else None
+
+
+def _validated_group_weak_evidence(summary: dict[str, Any]) -> bool:
+    final_state = summary.get("final_state")
+    if not isinstance(final_state, dict):
+        return False
+    if final_state.get("relationship_status") != "validated_group":
+        return False
+    evidence_log = final_state.get("evidence_log")
+    if not isinstance(evidence_log, list) or not evidence_log:
+        return True
+
+    enrichment_precisions: list[float] = []
+    has_strong_native_graph_evidence = False
+    has_non_enrichment_tool_evidence = False
+    for evidence in evidence_log:
+        if not isinstance(evidence, dict):
+            continue
+        provenance = evidence.get("provenance")
+        if not isinstance(provenance, dict):
+            continue
+        tool_name = provenance.get("tool_name")
+        payload = provenance.get("payload")
+        if not isinstance(payload, dict):
+            payload = {}
+        if tool_name == "enrich_gene_set":
+            precision = _max_enrichment_precision(payload)
+            if precision is not None:
+                enrichment_precisions.append(precision)
+            continue
+        if isinstance(tool_name, str):
+            has_non_enrichment_tool_evidence = True
+        if tool_name == "induce_subgraph":
+            edge_count = payload.get("combined_edge_count")
+            query_gene_ids = payload.get("query_gene_ids")
+            query_gene_count = len(query_gene_ids) if isinstance(query_gene_ids, list) else payload.get("query_gene_count")
+            if (
+                isinstance(edge_count, (int, float))
+                and isinstance(query_gene_count, (int, float))
+                and query_gene_count
+                and float(edge_count) / float(query_gene_count) >= STRONG_NATIVE_GRAPH_EDGE_DENSITY
+            ):
+                has_strong_native_graph_evidence = True
+
+    if has_strong_native_graph_evidence:
+        return False
+    if has_non_enrichment_tool_evidence and not enrichment_precisions:
+        return False
+    if not enrichment_precisions:
+        return True
+    return max(enrichment_precisions) <= WEAK_VALIDATED_ENRICHMENT_PRECISION
+
+
 def _mean(values: list[float]) -> float | None:
     return sum(values) / len(values) if values else None
 
@@ -494,6 +595,35 @@ def _branch_tool_name(branch_payload: dict[str, Any]) -> str:
     return "no_tool"
 
 
+def _is_rwr_hpc_tool_name(tool_name: Any) -> bool:
+    return isinstance(tool_name, str) and tool_name in RWR_HPC_TOOL_NAMES
+
+
+def _branch_observation(branch_payload: dict[str, Any]) -> dict[str, Any] | None:
+    observation = branch_payload.get("observation")
+    return observation if isinstance(observation, dict) else None
+
+
+def _observation_status(observation: dict[str, Any] | None) -> str | None:
+    if observation is None:
+        return None
+    status = observation.get("status")
+    return status if isinstance(status, str) else None
+
+
+def _observation_provenance(observation: dict[str, Any] | None) -> dict[str, Any]:
+    if observation is None:
+        return {}
+    provenance = observation.get("provenance")
+    return provenance if isinstance(provenance, dict) else {}
+
+
+def _branch_has_successful_rwr_hpc_observation(branch_payload: dict[str, Any]) -> bool:
+    if not _is_rwr_hpc_tool_name(_branch_tool_name(branch_payload)):
+        return False
+    return _observation_status(_branch_observation(branch_payload)) == "success"
+
+
 def _predicted_gene_count(branch_payload: dict[str, Any]) -> int:
     state = branch_payload.get("verifier_step", {}).get("updated_state", {})
     groups = state.get("predicted_groups") if isinstance(state, dict) else None
@@ -516,6 +646,9 @@ def _audit_branch_pools(rows: list[dict[str, Any]], report: AuditReport, config:
     generator_error_count = 0
     fallback_branch_count = 0
     total_branches = 0
+    rwr_hpc_candidate_branch_count = 0
+    rwr_hpc_candidate_tool_counts: Counter[str] = Counter()
+    selected_rwr_hpc_tool_count = 0
     all_tie_count = 0
     top_tie_count = 0
     no_pair_step_keys: set[tuple[str, int]] = set()
@@ -564,6 +697,11 @@ def _audit_branch_pools(rows: list[dict[str, Any]], report: AuditReport, config:
             validation = validate_candidate_branch(branch)
             if not validation.valid:
                 report.error("branch_validation", "; ".join(validation.errors), artifact="branch_pools.jsonl", row_index=row_index)
+
+            branch_tool_name = _branch_tool_name(branch_payload)
+            if _is_rwr_hpc_tool_name(branch_tool_name):
+                rwr_hpc_candidate_branch_count += 1
+                rwr_hpc_candidate_tool_counts[branch_tool_name] += 1
 
             score_metadata = branch.local_score.score_metadata
             if score_metadata.get("schema_valid") is False:
@@ -632,6 +770,8 @@ def _audit_branch_pools(rows: list[dict[str, Any]], report: AuditReport, config:
 
             selected_tool_name = _branch_tool_name(selected_branch)
             selected_tool_counts[selected_tool_name] += 1
+            if _is_rwr_hpc_tool_name(selected_tool_name):
+                selected_rwr_hpc_tool_count += 1
             if isinstance(task_type, str):
                 selected_tool_counts_by_task[f"{task_type}/{selected_tool_name}"] += 1
             selected_gene_counts[_predicted_gene_count(selected_branch)] += 1
@@ -695,6 +835,36 @@ def _audit_branch_pools(rows: list[dict[str, Any]], report: AuditReport, config:
             "positive_selected_no_tool_rate_high",
             f"Recovery/refinement selected no-tool rate {positive_selected_no_tool_rate:.3f} exceeds {config.max_positive_selected_no_tool_rate:.3f}.",
         )
+    selected_rwr_hpc_tool_rate = (
+        selected_rwr_hpc_tool_count / selected_count if selected_count else 0.0
+    )
+    rwr_hpc_candidate_rate = (
+        rwr_hpc_candidate_branch_count / total_branches if total_branches else 0.0
+    )
+    if (
+        config.min_selected_rwr_hpc_tool_rate is not None
+        and selected_rwr_hpc_tool_rate < config.min_selected_rwr_hpc_tool_rate
+    ):
+        report.error(
+            "selected_rwr_hpc_tool_rate_low",
+            (
+                "Selected RWR++ tool rate "
+                f"{selected_rwr_hpc_tool_rate:.3f} is below "
+                f"{config.min_selected_rwr_hpc_tool_rate:.3f}."
+            ),
+        )
+    if (
+        config.min_rwr_hpc_candidate_rate is not None
+        and rwr_hpc_candidate_rate < config.min_rwr_hpc_candidate_rate
+    ):
+        report.error(
+            "rwr_hpc_candidate_rate_low",
+            (
+                "RWR++ candidate branch rate "
+                f"{rwr_hpc_candidate_rate:.3f} is below "
+                f"{config.min_rwr_hpc_candidate_rate:.3f}."
+            ),
+        )
 
     missing_task_types = sorted(set(config.required_task_types) - set(task_type_counts))
     if missing_task_types:
@@ -720,6 +890,11 @@ def _audit_branch_pools(rows: list[dict[str, Any]], report: AuditReport, config:
             "selected_tool_counts_by_task": _counter_to_sorted_dict(selected_tool_counts_by_task),
             "selected_no_tool_rate": selected_no_tool_rate,
             "positive_selected_no_tool_rate": positive_selected_no_tool_rate,
+            "selected_rwr_hpc_tool_count": selected_rwr_hpc_tool_count,
+            "selected_rwr_hpc_tool_rate": selected_rwr_hpc_tool_rate,
+            "rwr_hpc_candidate_branch_count": rwr_hpc_candidate_branch_count,
+            "rwr_hpc_candidate_rate": rwr_hpc_candidate_rate,
+            "rwr_hpc_candidate_tool_counts": _counter_to_sorted_dict(rwr_hpc_candidate_tool_counts),
             "selected_gene_count_distribution": _counter_to_sorted_dict(selected_gene_counts),
             "selected_relationship_counts": _counter_to_sorted_dict(relationship_counts),
         }
@@ -727,8 +902,13 @@ def _audit_branch_pools(rows: list[dict[str, Any]], report: AuditReport, config:
     return branch_pool_lookup
 
 
-def _audit_turns(rows: list[dict[str, Any]], report: AuditReport) -> None:
+def _audit_turns(rows: list[dict[str, Any]], report: AuditReport, config: AuditConfig) -> None:
     selected_false = 0
+    rwr_hpc_observation_count = 0
+    rwr_hpc_observation_error_count = 0
+    rwr_hpc_observation_cache_known_count = 0
+    rwr_hpc_observation_cache_hit_count = 0
+    rwr_hpc_observation_tool_counts: Counter[str] = Counter()
     for row_index, row in enumerate(rows, start=1):
         try:
             turn = TrajectoryTurn.from_dict(row)
@@ -740,9 +920,61 @@ def _audit_turns(rows: list[dict[str, Any]], report: AuditReport) -> None:
         validation = validate_candidate_branch(turn.branch)
         if not validation.valid:
             report.error("turn_branch_validation", "; ".join(validation.errors), artifact="trajectory_turns.jsonl", row_index=row_index)
+        branch_payload = row.get("branch")
+        if not isinstance(branch_payload, dict):
+            continue
+        tool_name = _branch_tool_name(branch_payload)
+        if not _is_rwr_hpc_tool_name(tool_name):
+            continue
+        rwr_hpc_observation_count += 1
+        rwr_hpc_observation_tool_counts[tool_name] += 1
+        observation = _branch_observation(branch_payload)
+        status = _observation_status(observation)
+        if status != "success":
+            rwr_hpc_observation_error_count += 1
+        provenance = _observation_provenance(observation)
+        cache_hit = provenance.get("cache_hit")
+        if isinstance(cache_hit, bool):
+            rwr_hpc_observation_cache_known_count += 1
+            if cache_hit:
+                rwr_hpc_observation_cache_hit_count += 1
     if selected_false:
         report.error("unselected_turn", f"{selected_false} trajectory turns have selected=false.", artifact="trajectory_turns.jsonl")
+    rwr_hpc_observation_error_rate = (
+        rwr_hpc_observation_error_count / rwr_hpc_observation_count
+        if rwr_hpc_observation_count
+        else 0.0
+    )
+    rwr_hpc_cache_hit_rate = (
+        rwr_hpc_observation_cache_hit_count / rwr_hpc_observation_cache_known_count
+        if rwr_hpc_observation_cache_known_count
+        else None
+    )
+    if (
+        config.max_rwr_hpc_observation_error_rate is not None
+        and rwr_hpc_observation_error_rate > config.max_rwr_hpc_observation_error_rate
+    ):
+        report.error(
+            "rwr_hpc_observation_error_rate_high",
+            (
+                "RWR++ selected observation error rate "
+                f"{rwr_hpc_observation_error_rate:.3f} exceeds "
+                f"{config.max_rwr_hpc_observation_error_rate:.3f}."
+            ),
+            artifact="trajectory_turns.jsonl",
+        )
     report.metrics["trajectory_turn_count"] = len(rows)
+    report.metrics.update(
+        {
+            "rwr_hpc_observation_count": rwr_hpc_observation_count,
+            "rwr_hpc_observation_error_count": rwr_hpc_observation_error_count,
+            "rwr_hpc_observation_error_rate": rwr_hpc_observation_error_rate,
+            "rwr_hpc_observation_cache_known_count": rwr_hpc_observation_cache_known_count,
+            "rwr_hpc_observation_cache_hit_count": rwr_hpc_observation_cache_hit_count,
+            "rwr_hpc_cache_hit_rate": rwr_hpc_cache_hit_rate,
+            "rwr_hpc_observation_tool_counts": _counter_to_sorted_dict(rwr_hpc_observation_tool_counts),
+        }
+    )
 
 
 def _audit_final_summaries(
@@ -764,6 +996,8 @@ def _audit_final_summaries(
     precision_values: list[float] = []
     recall_values: list[float] = []
     jaccard_values: list[float] = []
+    validated_group_count = 0
+    validated_weak_evidence_count = 0
     for row_index, row in enumerate(rows, start=1):
         task_type = row.get("task_type")
         evidence_mode = row.get("evidence_mode")
@@ -784,6 +1018,11 @@ def _audit_final_summaries(
                 report.error("summary_missing_score", f"final_summaries row is missing numeric {key}.", artifact="final_summaries.jsonl", row_index=row_index)
         if isinstance(row.get("terminal_reward"), (int, float)):
             rewards.append(float(row["terminal_reward"]))
+        final_state = row.get("final_state")
+        if isinstance(final_state, dict) and final_state.get("relationship_status") == "validated_group":
+            validated_group_count += 1
+            if _validated_group_weak_evidence(row):
+                validated_weak_evidence_count += 1
         if "task_success_level" not in row:
             report.warning(
                 "summary_missing_task_success",
@@ -849,6 +1088,11 @@ def _audit_final_summaries(
         if recovery_refinement_total
         else None
     )
+    validated_weak_evidence_rate = (
+        validated_weak_evidence_count / validated_group_count
+        if validated_group_count
+        else 0.0
+    )
 
     if (
         config.min_none_success_rate is not None
@@ -884,6 +1128,19 @@ def _audit_final_summaries(
             ),
             artifact="final_summaries.jsonl",
         )
+    if (
+        config.max_validated_weak_evidence_rate is not None
+        and validated_weak_evidence_rate > config.max_validated_weak_evidence_rate
+    ):
+        report.error(
+            "validated_weak_evidence_rate_high",
+            (
+                "Weak-evidence validated_group rate "
+                f"{validated_weak_evidence_rate:.3f} exceeds "
+                f"{config.max_validated_weak_evidence_rate:.3f}."
+            ),
+            artifact="final_summaries.jsonl",
+        )
 
     report.metrics.update(
         {
@@ -898,6 +1155,9 @@ def _audit_final_summaries(
             "none_success_rate": none_success_rate,
             "explanation_success_rate": explanation_success_rate,
             "recovery_refinement_partial_or_better_rate": recovery_refinement_partial_rate,
+            "validated_group_count": validated_group_count,
+            "validated_weak_evidence_count": validated_weak_evidence_count,
+            "validated_weak_evidence_rate": validated_weak_evidence_rate,
             "terminal_precision_mean": _mean(precision_values),
             "terminal_recall_mean": _mean(recall_values),
             "terminal_jaccard_mean": _mean(jaccard_values),
@@ -925,6 +1185,8 @@ def _audit_preference_pairs(
     rejected_gene_counts: Counter[int] = Counter()
     decision_step_counts: Counter[int] = Counter()
     pair_step_keys: set[tuple[str, int]] = set()
+    rwr_hpc_pair_count = 0
+    rwr_hpc_supported_pair_count = 0
     margins: list[float] = []
     for row_index, row in enumerate(rows, start=1):
         try:
@@ -964,6 +1226,17 @@ def _audit_preference_pairs(
         pair_category_counts[category] += 1
         pair_category_counts_by_task[f"{pair.task_type.value}/{category}"] += 1
         pair_tool_counts[f"{pair.provenance.get('chosen_tool_name', 'unknown')}->{pair.provenance.get('rejected_tool_name', 'unknown')}"] += 1
+        chosen_payload = row.get("chosen") if isinstance(row.get("chosen"), dict) else pair.chosen.to_dict()
+        rejected_payload = row.get("rejected") if isinstance(row.get("rejected"), dict) else pair.rejected.to_dict()
+        chosen_is_rwr_hpc = _is_rwr_hpc_tool_name(_branch_tool_name(chosen_payload))
+        rejected_is_rwr_hpc = _is_rwr_hpc_tool_name(_branch_tool_name(rejected_payload))
+        if chosen_is_rwr_hpc or rejected_is_rwr_hpc:
+            rwr_hpc_pair_count += 1
+        if (
+            _branch_has_successful_rwr_hpc_observation(chosen_payload)
+            or _branch_has_successful_rwr_hpc_observation(rejected_payload)
+        ):
+            rwr_hpc_supported_pair_count += 1
         chosen_gene_count = pair.provenance.get("chosen_gene_count")
         rejected_gene_count = pair.provenance.get("rejected_gene_count")
         if isinstance(chosen_gene_count, int):
@@ -1008,6 +1281,9 @@ def _audit_preference_pairs(
             mechanism_evidence_improvement_pairs / total_pairs if total_pairs else 0.0
         )
         step0_pair_rate = step0_pairs / total_pairs if total_pairs else 0.0
+        rwr_hpc_supported_pair_rate = (
+            rwr_hpc_supported_pair_count / total_pairs if total_pairs else 0.0
+        )
 
         if (
             config.min_recovery_expansion_pair_rate is not None
@@ -1055,6 +1331,19 @@ def _audit_preference_pairs(
                 f"Step-0 pair rate {step0_pair_rate:.3f} exceeds {config.max_step0_pair_rate:.3f}.",
                 artifact=artifact_name,
             )
+        if (
+            config.min_rwr_hpc_supported_pair_rate is not None
+            and rwr_hpc_supported_pair_rate < config.min_rwr_hpc_supported_pair_rate
+        ):
+            report.error(
+                "rwr_hpc_supported_pair_rate_low",
+                (
+                    "RWR++-supported preference-pair rate "
+                    f"{rwr_hpc_supported_pair_rate:.3f} is below "
+                    f"{config.min_rwr_hpc_supported_pair_rate:.3f}."
+                ),
+                artifact=artifact_name,
+            )
 
         report.metrics.update(
             {
@@ -1071,6 +1360,9 @@ def _audit_preference_pairs(
                 "mechanism_label_only_pair_rate": mechanism_label_only_pair_rate,
                 "mechanism_evidence_improvement_pair_rate": mechanism_evidence_improvement_pair_rate,
                 "step0_pair_rate": step0_pair_rate,
+                "rwr_hpc_pair_count": rwr_hpc_pair_count,
+                "rwr_hpc_supported_pair_count": rwr_hpc_supported_pair_count,
+                "rwr_hpc_supported_pair_rate": rwr_hpc_supported_pair_rate,
                 "preference_pair_margin_min": min(margins) if margins else None,
                 "preference_pair_margin_mean": (sum(margins) / len(margins)) if margins else None,
                 "preference_pair_margin_max": max(margins) if margins else None,
@@ -1081,6 +1373,8 @@ def _audit_preference_pairs(
             {
                 "raw_preference_pair_count": len(rows),
                 "raw_preference_pair_bins": {f"{task_type}/{difficulty}": count for (task_type, difficulty), count in sorted(pair_bins.items())},
+                "raw_rwr_hpc_pair_count": rwr_hpc_pair_count,
+                "raw_rwr_hpc_supported_pair_count": rwr_hpc_supported_pair_count,
             }
         )
     return pair_step_keys
@@ -1107,7 +1401,7 @@ def audit_run(run_dir: Path, config: AuditConfig) -> AuditReport:
 
     _audit_logs(run_dir, report)
     branch_pool_lookup = _audit_branch_pools(rows_by_file["branch_pools.jsonl"], report, config)
-    _audit_turns(rows_by_file["trajectory_turns.jsonl"], report)
+    _audit_turns(rows_by_file["trajectory_turns.jsonl"], report, config)
     task_index = _load_task_index_for_run(report)
     _audit_final_summaries(rows_by_file["final_summaries.jsonl"], report, manifest, task_index, config)
     raw_pair_steps = _audit_preference_pairs(
@@ -1191,6 +1485,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-none-success-rate", type=float, default=None)
     parser.add_argument("--min-explanation-success-rate", type=float, default=None)
     parser.add_argument("--min-recovery-refinement-partial-rate", type=float, default=None)
+    parser.add_argument("--min-selected-rwr-hpc-tool-rate", type=float, default=None)
+    parser.add_argument("--min-rwr-hpc-candidate-rate", type=float, default=None)
+    parser.add_argument("--min-rwr-hpc-supported-pair-rate", type=float, default=None)
+    parser.add_argument("--max-rwr-hpc-observation-error-rate", type=float, default=None)
+    parser.add_argument("--max-validated-weak-evidence-rate", type=float, default=None)
     parser.add_argument(
         "--dpo-pair-gate",
         action="store_true",
@@ -1219,10 +1518,16 @@ def _print_human(report: AuditReport) -> None:
         "terminal_jaccard_mean",
         "selected_no_tool_rate",
         "positive_selected_no_tool_rate",
+        "selected_rwr_hpc_tool_rate",
+        "rwr_hpc_candidate_rate",
+        "rwr_hpc_observation_error_rate",
+        "rwr_hpc_cache_hit_rate",
         "recovery_expansion_pair_rate",
         "tool_supported_pair_rate",
+        "rwr_hpc_supported_pair_rate",
         "mechanism_label_only_pair_rate",
         "mechanism_evidence_improvement_pair_rate",
+        "validated_weak_evidence_rate",
         "step0_pair_rate",
         "branch_pool_steps_without_raw_pairs",
         "vllm_400_count",
@@ -1237,6 +1542,8 @@ def _print_human(report: AuditReport) -> None:
     print(f"  final_summary_size_bin_counts: {report.metrics.get('final_summary_size_bin_counts')}")
     print(f"  task_success_level_counts_by_task: {report.metrics.get('task_success_level_counts_by_task')}")
     print(f"  selected_tool_counts: {report.metrics.get('selected_tool_counts')}")
+    print(f"  rwr_hpc_candidate_tool_counts: {report.metrics.get('rwr_hpc_candidate_tool_counts')}")
+    print(f"  rwr_hpc_observation_tool_counts: {report.metrics.get('rwr_hpc_observation_tool_counts')}")
     print(f"  preference_pair_category_counts: {report.metrics.get('preference_pair_category_counts')}")
     print("Freeze:")
     print(f"  current_git_sha: {report.freeze.get('current_git_sha')}")
@@ -1282,6 +1589,11 @@ def main() -> None:
         min_none_success_rate=args.min_none_success_rate,
         min_explanation_success_rate=args.min_explanation_success_rate,
         min_recovery_refinement_partial_rate=args.min_recovery_refinement_partial_rate,
+        min_selected_rwr_hpc_tool_rate=args.min_selected_rwr_hpc_tool_rate,
+        min_rwr_hpc_candidate_rate=args.min_rwr_hpc_candidate_rate,
+        min_rwr_hpc_supported_pair_rate=args.min_rwr_hpc_supported_pair_rate,
+        max_rwr_hpc_observation_error_rate=args.max_rwr_hpc_observation_error_rate,
+        max_validated_weak_evidence_rate=args.max_validated_weak_evidence_rate,
     )
     report = audit_run(args.run_dir, config)
     if args.json:

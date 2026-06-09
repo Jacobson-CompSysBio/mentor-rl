@@ -162,6 +162,37 @@ class VerificationGateTests(unittest.TestCase):
             self.assertIn("preference_pair_category_counts", report.metrics)
             self.assertTrue(any(finding.code == "selected_no_tool_rate_high" for finding in report.findings))
 
+    def test_audit_reports_rwr_hpc_and_weak_evidence_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "run"
+            _generate_small_run(out_dir)
+
+            report = audit_run(
+                out_dir,
+                AuditConfig(
+                    max_all_tie_rate=1.0,
+                    max_top_tie_rate=1.0,
+                    min_balanced_pair_bins=0,
+                    require_pairs=False,
+                    required_task_types=("recovery", "none"),
+                    required_evidence_modes=("contextual",),
+                    min_selected_rwr_hpc_tool_rate=1.1,
+                    min_rwr_hpc_candidate_rate=1.1,
+                    min_rwr_hpc_supported_pair_rate=1.1,
+                    max_rwr_hpc_observation_error_rate=0.0,
+                    max_validated_weak_evidence_rate=0.0,
+                ),
+            )
+
+            self.assertFalse(report.ok)
+            self.assertIn("selected_rwr_hpc_tool_rate", report.metrics)
+            self.assertIn("rwr_hpc_candidate_rate", report.metrics)
+            self.assertIn("rwr_hpc_observation_error_rate", report.metrics)
+            self.assertIn("rwr_hpc_cache_hit_rate", report.metrics)
+            self.assertIn("rwr_hpc_supported_pair_rate", report.metrics)
+            self.assertIn("validated_weak_evidence_rate", report.metrics)
+            self.assertTrue(any(finding.code == "selected_rwr_hpc_tool_rate_low" for finding in report.findings))
+
     def test_audit_rejects_hidden_supervision_leak(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "run"

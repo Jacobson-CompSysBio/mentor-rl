@@ -692,16 +692,26 @@ def _network_support(state: StructuredState) -> dict[str, Any]:
         if isinstance(payload, dict) and int(payload.get("combined_edge_count") or 0) > 0:
             score = max(score, 0.8)
             signals.append("induce_subgraph_edges")
-    for item in _evidence_by_tool(state).get("shortest_path", []):
-        payload = item.get("payload")
-        if isinstance(payload, dict) and payload.get("hop_count") is not None:
-            hop_count = int(payload.get("hop_count"))
-            score = max(score, 1.0 if hop_count <= 2 else 0.6)
-            signals.append("shortest_path")
-    for tool_name in ("rwr_multiplex", "rwr_monoplex"):
+    for tool_name in ("shortest_paths", "shortest_path"):
         for item in _evidence_by_tool(state).get(tool_name, []):
             payload = item.get("payload")
-            if isinstance(payload, dict) and payload.get("results"):
+            if not isinstance(payload, dict):
+                continue
+            if tool_name == "shortest_paths":
+                paths = payload.get("paths")
+                if isinstance(paths, list) and paths:
+                    first_path = paths[0] if isinstance(paths[0], dict) else {}
+                    path_length = first_path.get("path_length")
+                    score = max(score, 1.0 if path_length is not None and int(path_length) <= 2 else 0.6)
+                    signals.append(tool_name)
+            elif payload.get("hop_count") is not None:
+                hop_count = int(payload.get("hop_count"))
+                score = max(score, 1.0 if hop_count <= 2 else 0.6)
+                signals.append(tool_name)
+    for tool_name in ("rwr", "rwr_loe", "rwr_multiplex", "rwr_monoplex"):
+        for item in _evidence_by_tool(state).get(tool_name, []):
+            payload = item.get("payload")
+            if isinstance(payload, dict) and (payload.get("results") or payload.get("ranked_genes")):
                 score = max(score, 0.7)
                 signals.append(tool_name)
     return {"score": score, "signals": sorted(set(signals))}
@@ -796,7 +806,12 @@ def _specificity_score(labels: list[MechanisticLabel], claim_text: str) -> dict[
             generic_labels.append(label.label_name)
         if label.label_id:
             label_scores.append(1.0 if not is_generic else 0.35)
-        elif label.label_source in (LabelSource.GO, LabelSource.FCGS, LabelSource.COMPLEX_NAME):
+        elif label.label_source in (
+            LabelSource.GO,
+            LabelSource.REACTOME,
+            LabelSource.FCGS,
+            LabelSource.COMPLEX_NAME,
+        ):
             label_scores.append(0.8 if not is_generic else 0.3)
         else:
             label_scores.append(0.55 if not is_generic and len(normalized.split()) >= 2 else 0.2)
