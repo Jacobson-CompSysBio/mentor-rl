@@ -9,7 +9,11 @@ from runtime.environment import RuntimeEnvironment
 from scripts.audit_trajectory_run import AuditConfig, audit_run
 from scripts.dpo_pair_loader_smoke import smoke_load_pairs
 from scripts.generate_trajectories import TrajectoryGenerationConfig, generate_trajectories
-from scripts.select_verification_tasks import select_pilot_rows, select_smoke_task_ids
+from scripts.select_verification_tasks import (
+    select_pilot_rows,
+    select_smoke_task_ids,
+    size_bin_for_task_row,
+)
 from utils.multiplex import Multiplex
 
 
@@ -103,6 +107,8 @@ class VerificationGateTests(unittest.TestCase):
 
             self.assertTrue(report.ok, [finding.to_dict() for finding in report.findings])
             self.assertEqual(report.metrics["final_summary_count"], 2)
+            self.assertIn("task_success_level_counts_by_task", report.metrics)
+            self.assertIn("terminal_jaccard_mean", report.metrics)
 
     def test_audit_can_downgrade_tie_rate_for_dpo_pair_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -155,6 +161,37 @@ class VerificationGateTests(unittest.TestCase):
             self.assertIn("selected_no_tool_rate", report.metrics)
             self.assertIn("preference_pair_category_counts", report.metrics)
             self.assertTrue(any(finding.code == "selected_no_tool_rate_high" for finding in report.findings))
+
+    def test_audit_reports_rwr_hpc_and_weak_evidence_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "run"
+            _generate_small_run(out_dir)
+
+            report = audit_run(
+                out_dir,
+                AuditConfig(
+                    max_all_tie_rate=1.0,
+                    max_top_tie_rate=1.0,
+                    min_balanced_pair_bins=0,
+                    require_pairs=False,
+                    required_task_types=("recovery", "none"),
+                    required_evidence_modes=("contextual",),
+                    min_selected_rwr_hpc_tool_rate=1.1,
+                    min_rwr_hpc_candidate_rate=1.1,
+                    min_rwr_hpc_supported_pair_rate=1.1,
+                    max_rwr_hpc_observation_error_rate=0.0,
+                    max_validated_weak_evidence_rate=0.0,
+                ),
+            )
+
+            self.assertFalse(report.ok)
+            self.assertIn("selected_rwr_hpc_tool_rate", report.metrics)
+            self.assertIn("rwr_hpc_candidate_rate", report.metrics)
+            self.assertIn("rwr_hpc_observation_error_rate", report.metrics)
+            self.assertIn("rwr_hpc_cache_hit_rate", report.metrics)
+            self.assertIn("rwr_hpc_supported_pair_rate", report.metrics)
+            self.assertIn("validated_weak_evidence_rate", report.metrics)
+            self.assertTrue(any(finding.code == "selected_rwr_hpc_tool_rate_low" for finding in report.findings))
 
     def test_audit_rejects_hidden_supervision_leak(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -244,6 +281,28 @@ class VerificationGateTests(unittest.TestCase):
 
         self.assertEqual(difficulty_counts, {"easy": 2, "hard": 2, "medium": 2})
         self.assertGreater(len(complex_ids), 1)
+
+    def test_select_verification_tasks_stratifies_by_dendrogram_size_bin(self) -> None:
+        rows = []
+        for size, gene_count in (("small", 6), ("medium", 12), ("large", 20)):
+            for task_type in ("explanation", "recovery"):
+                rows.append(
+                    {
+                        "task_id": f"gw_dendrogram_module_{size}.{task_type}.easy.graph",
+                        "task_type": task_type,
+                        "evidence_mode": "graph",
+                        "difficulty": "easy",
+                        "hidden_target": {
+                            "relationship_status": "validated_group",
+                            "target_gene_ids": [f"ENSG{size}{index}" for index in range(gene_count)],
+                        },
+                    }
+                )
+
+        pilot_rows = select_pilot_rows(rows, pilot_size=6, seed=11)
+
+        self.assertEqual({size_bin_for_task_row(row) for row in pilot_rows}, {"small", "medium", "large"})
+        self.assertEqual(len(pilot_rows), 6)
 
 
 if __name__ == "__main__":

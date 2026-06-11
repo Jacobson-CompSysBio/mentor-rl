@@ -16,12 +16,22 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from runtime import RuntimeEnvironment, SharedPrefixContext, initialize_state_from_corum_task
+from runtime import ActorStep, RuntimeEnvironment, SharedPrefixContext, initialize_state_from_corum_task
 from scripts.generate_trajectories import (
     DEFAULT_ACTOR_RATIONALE_MAX_TOKENS,
+    DEFAULT_FULL_BRAIN_RWR_HPC_FLIST,
+    DEFAULT_FULL_BRAIN_STORE_DIR,
     DEFAULT_GENERATOR_API_BASE,
     DEFAULT_GENERATOR_API_KEY_ENV,
+    DEFAULT_GENERATOR_PROMPT_TOKEN_LIMIT,
+    DEFAULT_ACTOR_TOOL_REPAIR_RETRY_COUNT,
+    DEFAULT_REQUIRE_RWR_HPC,
+    DEFAULT_RWR_HPC_BUILD_DIR,
+    DEFAULT_RWR_HPC_CACHE_DIR,
+    DEFAULT_RWR_HPC_EDGELIST_HAS_HEADERS,
     DEFAULT_STORE_DIR,
+    DEFAULT_USE_FULL_BRAIN_RWR_HPC,
+    DEFAULT_VERIFIER_REPAIR_RETRY_COUNT,
     STRUCTURED_OUTPUT_MAX_TOKENS,
     DEFAULT_TASKS_PATH,
     ModelGeneratorConfig,
@@ -29,8 +39,11 @@ from scripts.generate_trajectories import (
     _actor_candidate_is_usable,
     _build_actor_step_from_model_candidate,
     _build_branch_from_model_output,
+    _expand_tool_action_gene_set_handles,
     _gene_symbol_lookup,
+    _load_gene_id_background,
     _normalize_branch_pool,
+    _prefetch_mechanism_evidence_cache,
     _score_branch,
     _select_best_branch,
     _unique,
@@ -84,14 +97,71 @@ def _load_task(task_path: Path, *, task_id: str | None, task_index: int) -> dict
 
 
 def _build_environment(args: argparse.Namespace) -> RuntimeEnvironment:
-    if args.store_dir is not None:
+    enrichment_background_gene_ids = _load_gene_id_background(args.enrichment_background_path)
+    rwr_hpc_flist = args.rwr_hpc_flist
+    if rwr_hpc_flist is None and args.use_full_brain_rwr_hpc:
+        rwr_hpc_flist = DEFAULT_FULL_BRAIN_RWR_HPC_FLIST
+
+    store_dir = args.store_dir
+    if store_dir is None and args.use_full_brain_rwr_hpc and args.full_brain_store_dir.exists():
+        store_dir = args.full_brain_store_dir
+
+    structured_backend_requested = rwr_hpc_flist is not None or args.multiplex_flist is not None
+    rwr_hpc_build_dir = args.rwr_hpc_build_dir
+    if rwr_hpc_build_dir is None and structured_backend_requested and DEFAULT_RWR_HPC_BUILD_DIR.exists():
+        rwr_hpc_build_dir = DEFAULT_RWR_HPC_BUILD_DIR
+
+    if args.require_rwr_hpc:
+        if rwr_hpc_flist is None and args.multiplex_flist is None:
+            raise ValueError(
+                "--require-rwr-hpc requires --rwr-hpc-flist, "
+                "--use-full-brain-rwr-hpc, or --multiplex-flist."
+            )
+        if rwr_hpc_build_dir is None:
+            raise ValueError(
+                "--require-rwr-hpc requires --rwr-hpc-build-dir or the default "
+                "external/rwr_hpc/build_frontier build."
+            )
+
+    common_runtime_kwargs = {
+        "mygene_cache_path": str(args.mygene_cache_path) if args.mygene_cache_path else None,
+        "allow_network_mygene": args.allow_network_mygene,
+        "enrichment_cache_path": str(args.enrichment_cache_path) if args.enrichment_cache_path else None,
+        "allow_network_enrichment": args.allow_network_enrichment,
+        "enrichment_background_gene_ids": enrichment_background_gene_ids,
+        "rwr_hpc_build_dir": str(rwr_hpc_build_dir) if rwr_hpc_build_dir else None,
+        "rwr_hpc_app_manifest_path": (
+            str(args.rwr_hpc_app_manifest_path) if args.rwr_hpc_app_manifest_path else None
+        ),
+        "rwr_hpc_flist": str(rwr_hpc_flist) if rwr_hpc_flist else None,
+        "rwr_hpc_cache_dir": str(args.rwr_hpc_cache_dir) if args.rwr_hpc_cache_dir else None,
+        "rwr_hpc_scratch_root": str(args.rwr_hpc_scratch_root) if args.rwr_hpc_scratch_root else None,
+        "rwr_hpc_build_id": args.rwr_hpc_build_id,
+        "rwr_hpc_no_edgelist_headers": not args.rwr_hpc_edgelist_has_headers,
+        "require_rwr_hpc_structured_tools": args.require_rwr_hpc,
+        "rwr_hpc_app_timeout_seconds": args.rwr_hpc_app_timeout_seconds,
+    }
+
+    if store_dir is not None:
         return RuntimeEnvironment(
-            store_dir=str(args.store_dir),
+            store_dir=str(store_dir),
             compiled_library_path=str(args.compiled_library_path) if args.compiled_library_path else None,
+            **common_runtime_kwargs,
         )
     if args.multiplex_flist is not None:
-        return RuntimeEnvironment(multiplex_flist=str(args.multiplex_flist))
-    raise ValueError("Provide either --store-dir or --multiplex-flist.")
+        return RuntimeEnvironment(
+            multiplex_flist=str(args.multiplex_flist),
+            **common_runtime_kwargs,
+        )
+    if rwr_hpc_flist is not None:
+        return RuntimeEnvironment(
+            **common_runtime_kwargs,
+        )
+    return RuntimeEnvironment(
+        store_dir=str(DEFAULT_STORE_DIR),
+        compiled_library_path=str(args.compiled_library_path) if args.compiled_library_path else None,
+        **common_runtime_kwargs,
+    )
 
 
 def _extract_visible_text(raw_text: str) -> str:
@@ -132,9 +202,69 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tasks-path", type=Path, default=DEFAULT_TASKS_PATH)
     parser.add_argument("--task-id", type=str, default=None)
     parser.add_argument("--task-index", type=int, default=0)
-    parser.add_argument("--store-dir", type=Path, default=DEFAULT_STORE_DIR)
+    parser.add_argument("--store-dir", type=Path, default=None)
     parser.add_argument("--compiled-library-path", type=Path, default=None)
     parser.add_argument("--multiplex-flist", type=Path, default=None)
+    parser.add_argument(
+        "--use-full-brain-rwr-hpc",
+        dest="use_full_brain_rwr_hpc",
+        action="store_true",
+        default=DEFAULT_USE_FULL_BRAIN_RWR_HPC,
+    )
+    parser.add_argument(
+        "--no-use-full-brain-rwr-hpc",
+        dest="use_full_brain_rwr_hpc",
+        action="store_false",
+    )
+    parser.add_argument("--rwr-hpc-flist", type=Path, default=None)
+    parser.add_argument("--full-brain-store-dir", type=Path, default=DEFAULT_FULL_BRAIN_STORE_DIR)
+    parser.add_argument("--rwr-hpc-build-dir", type=Path, default=None)
+    parser.add_argument("--rwr-hpc-app-manifest-path", type=Path, default=None)
+    parser.add_argument("--rwr-hpc-cache-dir", type=Path, default=DEFAULT_RWR_HPC_CACHE_DIR)
+    parser.add_argument("--rwr-hpc-scratch-root", type=Path, default=None)
+    parser.add_argument("--rwr-hpc-build-id", type=str, default=None)
+    parser.add_argument(
+        "--rwr-hpc-edgelist-has-headers",
+        dest="rwr_hpc_edgelist_has_headers",
+        action="store_true",
+        default=DEFAULT_RWR_HPC_EDGELIST_HAS_HEADERS,
+    )
+    parser.add_argument(
+        "--rwr-hpc-edgelist-no-headers",
+        dest="rwr_hpc_edgelist_has_headers",
+        action="store_false",
+    )
+    parser.add_argument(
+        "--require-rwr-hpc",
+        dest="require_rwr_hpc",
+        action="store_true",
+        default=DEFAULT_REQUIRE_RWR_HPC,
+    )
+    parser.add_argument(
+        "--no-require-rwr-hpc",
+        dest="require_rwr_hpc",
+        action="store_false",
+    )
+    parser.add_argument(
+        "--rwr-hpc-app-timeout-seconds",
+        type=int,
+        default=1800,
+        help="Timeout for each structured RWR++ app-backed CLI call.",
+    )
+    parser.add_argument("--mygene-cache-path", type=Path, default=None)
+    parser.add_argument("--allow-network-mygene", action="store_true")
+    parser.add_argument("--enrichment-cache-path", type=Path, default=None)
+    parser.add_argument("--allow-network-enrichment", action="store_true")
+    parser.add_argument("--enrichment-background-path", type=Path, default=None)
+    parser.add_argument("--prefetch-mechanism-cache", action="store_true")
+    parser.add_argument("--prefetch-mygene-per-task", type=int, default=3)
+    parser.add_argument("--prefetch-enrichment-top-k", type=int, default=10)
+    parser.add_argument("--prefetch-max-tasks", type=int, default=None)
+    parser.add_argument(
+        "--require-prefetch-success",
+        action="store_true",
+        help="Fail the smoke test if annotation/enrichment cache prefetching reports API errors.",
+    )
     parser.add_argument("--generator-api-base", type=str, default=DEFAULT_GENERATOR_API_BASE)
     parser.add_argument(
         "--generator-api-mode",
@@ -155,6 +285,21 @@ def parse_args() -> argparse.Namespace:
         "--generator-actor-rationale-max-completion-tokens",
         type=int,
         default=DEFAULT_ACTOR_RATIONALE_MAX_TOKENS,
+    )
+    parser.add_argument(
+        "--generator-verifier-repair-retry-count",
+        type=int,
+        default=DEFAULT_VERIFIER_REPAIR_RETRY_COUNT,
+    )
+    parser.add_argument(
+        "--generator-actor-tool-repair-retry-count",
+        type=int,
+        default=DEFAULT_ACTOR_TOOL_REPAIR_RETRY_COUNT,
+    )
+    parser.add_argument(
+        "--generator-prompt-token-limit",
+        type=int,
+        default=DEFAULT_GENERATOR_PROMPT_TOKEN_LIMIT,
     )
     parser.add_argument(
         "--generator-reasoning-effort",
@@ -182,6 +327,18 @@ def main() -> None:
     except ValueError as error:
         raise SystemExit(str(error)) from error
 
+    prefetch_report = None
+    if args.prefetch_mechanism_cache:
+        prefetch_report = _prefetch_mechanism_evidence_cache(
+            [task_row],
+            environment,
+            mygene_per_task=args.prefetch_mygene_per_task,
+            enrichment_top_k=args.prefetch_enrichment_top_k,
+        )
+        if args.require_prefetch_success and int(prefetch_report.get("error_count", 0) or 0) > 0:
+            print(json.dumps({"error": "prefetch_failed", "prefetch_report": prefetch_report}, indent=2), file=sys.stderr)
+            raise SystemExit(1)
+
     interpretation, state = initialize_state_from_corum_task(task_row, max_budget=1)
     context = SharedPrefixContext(
         query_text=task_row["query_text"],
@@ -202,6 +359,9 @@ def main() -> None:
             top_p=args.generator_top_p,
             max_completion_tokens=args.generator_max_completion_tokens,
             actor_rationale_max_completion_tokens=args.generator_actor_rationale_max_completion_tokens,
+            verifier_repair_retry_count=args.generator_verifier_repair_retry_count,
+            actor_tool_repair_retry_count=args.generator_actor_tool_repair_retry_count,
+            prompt_token_limit=args.generator_prompt_token_limit,
             reasoning_effort=args.generator_reasoning_effort,
             actor_sampling_strategy=args.actor_sampling_strategy,
         )
@@ -233,6 +393,7 @@ def main() -> None:
                 "model_name": generator.model_name,
                 "actor_candidate_count": len(actor_candidates),
                 "runtime": environment.describe(),
+                "prefetch_report": prefetch_report,
             },
             indent=2,
             sort_keys=True,
@@ -249,6 +410,15 @@ def main() -> None:
             step_index=args.step_index,
             actor_index=actor_index,
         )
+        expanded_tool_action = _expand_tool_action_gene_set_handles(
+            actor_step.tool_action,
+            context=context,
+        )
+        if expanded_tool_action is not actor_step.tool_action:
+            actor_step = ActorStep(
+                reasoning_text=actor_step.reasoning_text,
+                tool_action=expanded_tool_action,
+            )
         actor_generation_errors = _unique(actor_errors + list(actor_candidate.get("generator_errors", [])))
         actor_corruption = _classify_corrupted_output(actor_candidate.get("raw_text", ""))
         if actor_corruption is not None:

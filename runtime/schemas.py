@@ -25,11 +25,31 @@ from typing import Any
 RUNTIME_SCHEMA_VERSION = "mentor-rl-runtime-v1"
 KNOWN_TOOL_NAMES = (
     "query_mygene",
+    "enrich_gene_set",
     "get_neighbors",
+    "get_distance",
+    "get_rank",
+    "get_spearman",
+    "get_pearson",
+    "get_dot_similarity",
+    "get_rank_vector_summary",
+    "get_encoding_summary",
+    "get_gene_layers",
+    "get_nodes_by_layer",
+    "get_layer_stats",
+    "get_path_layer_counts",
+    "get_component_summary",
+    "get_seed_essentiality",
+    "get_layer_ablation",
+    "get_node_perturbation",
+    "shortest_paths",
+    "rwr",
+    "rwr_loe",
     "shortest_path",
     "rwr_multiplex",
     "rwr_monoplex",
     "induce_subgraph",
+    "rwr_hpc_app",
 )
 
 
@@ -92,6 +112,7 @@ class LabelSource(StrEnum):
     """Where a mechanistic label came from."""
 
     GO = "go"
+    REACTOME = "reactome"
     FCGS = "fcgs"
     COMPLEX_NAME = "complex_name"
     FREE_TEXT = "free_text"
@@ -568,6 +589,8 @@ class LocalScoreBreakdown(SchemaMixin):
     efficiency_penalty: float
     total_score: float
     normalized_score: float | None = None
+    mechanism_evidence_delta: float = 0.0
+    mechanism_evidence_score: float = 0.0
     score_metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -584,6 +607,12 @@ class LocalScoreBreakdown(SchemaMixin):
             self.normalized_score = _require_real("normalized_score", self.normalized_score)
             if not 0.0 <= self.normalized_score <= 1.0:
                 _fail("normalized_score must be in [0, 1].")
+        self.mechanism_evidence_delta = _require_real(
+            "mechanism_evidence_delta", self.mechanism_evidence_delta
+        )
+        self.mechanism_evidence_score = _require_real(
+            "mechanism_evidence_score", self.mechanism_evidence_score
+        )
         self.score_metadata = _require_mapping("score_metadata", self.score_metadata)
 
     @classmethod
@@ -596,6 +625,8 @@ class LocalScoreBreakdown(SchemaMixin):
             efficiency_penalty=payload["efficiency_penalty"],
             total_score=payload["total_score"],
             normalized_score=payload.get("normalized_score"),
+            mechanism_evidence_delta=payload.get("mechanism_evidence_delta", 0.0),
+            mechanism_evidence_score=payload.get("mechanism_evidence_score", 0.0),
             score_metadata=payload.get("score_metadata", {}),
         )
 

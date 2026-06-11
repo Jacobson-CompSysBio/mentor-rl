@@ -146,6 +146,20 @@ class RuntimeSchemaTests(unittest.TestCase):
         self.assertEqual(restored.remaining_budget, 8)
         self.assertEqual(restored.continuation_state, ContinuationState.CONTINUE)
 
+    def test_mechanistic_label_accepts_reactome_source(self) -> None:
+        label = MechanisticLabel(
+            label_source="reactome",
+            label_name="Initial triggering of complement",
+            label_id="REAC:R-HSA-166663",
+            evidence_ids=["evidence_0"],
+        )
+
+        self.assertEqual(label.label_source, LabelSource.REACTOME)
+        self.assertEqual(
+            MechanisticLabel.from_dict(label.to_dict()).label_source,
+            LabelSource.REACTOME,
+        )
+
     def test_verifier_step_requires_state_and_decision_alignment(self) -> None:
         state = _build_base_state()
         state.continuation_state = ContinuationState.STOP

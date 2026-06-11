@@ -13,6 +13,7 @@ import csv
 import json
 import math
 import random
+import struct
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -271,9 +272,28 @@ def stratified_split_counts(size: int) -> tuple[int, int, int]:
 
 
 def load_store_gene_universe(store_dir: Path) -> list[str]:
+    binary_data_path = store_dir / "genes_data.bin"
+    binary_offsets_path = store_dir / "genes_offsets.bin"
+    if binary_data_path.exists() and binary_offsets_path.exists():
+        data = binary_data_path.read_bytes()
+        offsets_bytes = binary_offsets_path.read_bytes()
+        if len(offsets_bytes) % 8 != 0:
+            raise ValueError(f"Malformed binary gene offsets file: {binary_offsets_path}")
+        offsets = struct.unpack(f"<{len(offsets_bytes) // 8}Q", offsets_bytes)
+        if offsets and offsets[-1] != len(data):
+            raise ValueError(f"Binary gene offsets do not match data length: {binary_offsets_path}")
+        gene_ids = [
+            data[int(start):int(end)].decode("utf-8")
+            for start, end in zip(offsets[:-1], offsets[1:])
+        ]
+        return sorted(set(gene_ids))
+
     genes_path = store_dir / "genes.tsv"
     if not genes_path.exists():
-        raise FileNotFoundError(f"HumanNet store gene table not found: {genes_path}")
+        raise FileNotFoundError(
+            "HumanNet store gene table not found. Expected binary metadata "
+            f"({binary_data_path}, {binary_offsets_path}) or text table {genes_path}."
+        )
 
     gene_ids = []
     with genes_path.open("r", encoding="utf-8", newline="") as handle:

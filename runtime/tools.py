@@ -13,6 +13,9 @@ The environment wrapper turns these results into runtime observations.
 from __future__ import annotations
 
 import json
+import hashlib
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -26,7 +29,28 @@ from utils.multiplex import Multiplex
 
 DEFAULT_RESTART_PROBABILITY = 0.35
 DEFAULT_TOP_K = 20
-DEFAULT_MYGENE_FIELDS = ("symbol", "name", "entrezgene", "uniprot", "ensembl")
+DEFAULT_MYGENE_FIELDS = (
+    "symbol",
+    "name",
+    "summary",
+    "type_of_gene",
+    "entrezgene",
+    "uniprot",
+    "ensembl",
+    "go",
+    "pathway",
+    "pfam",
+    "interpro",
+    "prosite",
+)
+DEFAULT_GPROFILER_URL = "https://biit.cs.ut.ee/gprofiler/api/gost/profile/"
+DEFAULT_GPROFILER_ORGANISM = "hsapiens"
+DEFAULT_GPROFILER_SOURCES = ("GO:BP", "GO:MF", "GO:CC", "REAC", "WP", "KEGG")
+DEFAULT_ENRICHMENT_TOP_K = 10
+DEFAULT_ENRICHMENT_USER_THRESHOLD = 0.05
+DEFAULT_MYGENE_TIMEOUT_SECONDS = 45
+DEFAULT_GPROFILER_TIMEOUT_SECONDS = 120
+DEFAULT_ANNOTATION_REQUEST_RETRIES = 3
 
 
 class ToolExecutionError(RuntimeError):
@@ -139,6 +163,40 @@ def save_mygene_cache(cache: dict[str, list[dict[str, Any]]], cache_path: str | 
         json.dump(cache, handle, sort_keys=True, indent=2)
 
 
+def load_enrichment_cache(cache_path: str | None) -> dict[str, dict[str, Any]]:
+    """Load cached g:Profiler enrichment payloads keyed by request hash."""
+
+    if not cache_path:
+        return {}
+
+    path = Path(cache_path)
+    if not path.exists():
+        return {}
+
+    with path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+
+    if not isinstance(payload, dict):
+        raise ToolExecutionError("Enrichment cache file must contain a JSON object.")
+    return {
+        str(cache_key): cache_value
+        for cache_key, cache_value in payload.items()
+        if isinstance(cache_value, dict)
+    }
+
+
+def save_enrichment_cache(cache: dict[str, dict[str, Any]], cache_path: str | None) -> None:
+    """Write cached g:Profiler enrichment payloads to disk."""
+
+    if not cache_path:
+        return
+
+    path = Path(cache_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump(cache, handle, sort_keys=True, indent=2)
+
+
 def _unique_preserving_order(values: list[str]) -> list[str]:
     seen: set[str] = set()
     unique_values: list[str] = []
@@ -228,22 +286,171 @@ def _filter_mygene_hit(hit: dict[str, Any], fields: list[str] | None) -> dict[st
     return filtered
 
 
+def _read_json_request(
+    request: urllib.request.Request,
+    *,
+    timeout: int,
+    retries: int = DEFAULT_ANNOTATION_REQUEST_RETRIES,
+) -> dict[str, Any]:
+    """Read a JSON HTTP response with a few retries for flaky annotation APIs."""
+
+    last_error: Exception | None = None
+    for attempt_index in range(max(1, retries)):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ToolExecutionError("Annotation API response must be a JSON object.")
+            return payload
+        except ToolExecutionError:
+            raise
+        except (TimeoutError, urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
+            last_error = exc
+            if attempt_index + 1 >= max(1, retries):
+                break
+            time.sleep(min(2.0 ** attempt_index, 8.0))
+        except json.JSONDecodeError as exc:
+            raise ToolExecutionError(f"Annotation API returned invalid JSON: {exc}") from exc
+
+    raise ToolExecutionError(f"Annotation API request failed after {max(1, retries)} attempts: {last_error}")
+
+
 def _fetch_mygene_hits(query: str, fields: list[str] | None) -> list[dict[str, Any]]:
+    request_query = f"ensembl.gene:{query}" if query.startswith("ENSG") and ":" not in query else query
     query_params = {
-        "q": query,
+        "q": request_query,
         "species": "human",
         "size": "10",
         "fields": ",".join(fields or DEFAULT_MYGENE_FIELDS),
     }
     url = "https://mygene.info/v3/query?" + urllib.parse.urlencode(query_params)
-    request = urllib.request.Request(url, headers={"Accept": "application/json"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "mentor-rl/1.0",
+        },
+    )
+    payload = _read_json_request(request, timeout=DEFAULT_MYGENE_TIMEOUT_SECONDS)
 
     hits = payload.get("hits", [])
     if not isinstance(hits, list):
         raise ToolExecutionError("MyGene response did not contain a valid 'hits' list.")
     return [hit for hit in hits if isinstance(hit, dict)]
+
+
+def _stable_payload_hash(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _normalize_sources(sources: list[str] | None) -> list[str]:
+    if not sources:
+        return list(DEFAULT_GPROFILER_SOURCES)
+    aliases = {
+        "GO": ("GO:BP", "GO:MF", "GO:CC"),
+        "GOBP": ("GO:BP",),
+        "GO_BP": ("GO:BP",),
+        "GO:BP": ("GO:BP",),
+        "GOMF": ("GO:MF",),
+        "GO_MF": ("GO:MF",),
+        "GO:MF": ("GO:MF",),
+        "GOCC": ("GO:CC",),
+        "GO_CC": ("GO:CC",),
+        "GO:CC": ("GO:CC",),
+        "REACTOME": ("REAC",),
+        "REAC": ("REAC",),
+        "WIKIPATHWAYS": ("WP",),
+        "WP": ("WP",),
+        "KEGG": ("KEGG",),
+    }
+    normalized: list[str] = []
+    for source in sources:
+        source_text = str(source).strip()
+        if not source_text:
+            continue
+        if source_text.upper() == "CORUM":
+            continue
+        normalized.extend(aliases.get(source_text.upper(), (source_text,)))
+    return _unique_preserving_order(normalized)
+
+
+def _normalize_gprofiler_result(item: dict[str, Any]) -> dict[str, Any]:
+    keep_fields = (
+        "source",
+        "native",
+        "name",
+        "description",
+        "p_value",
+        "significant",
+        "effective_domain_size",
+        "intersection_size",
+        "term_size",
+        "query_size",
+        "precision",
+        "recall",
+        "intersections",
+        "parents",
+        "query",
+    )
+    return {field_name: item.get(field_name) for field_name in keep_fields if field_name in item}
+
+
+def _fetch_gprofiler_enrichment(
+    genes: list[str],
+    *,
+    background_gene_ids: list[str],
+    organism: str,
+    sources: list[str],
+    user_threshold: float,
+    top_k: int,
+) -> dict[str, Any]:
+    request_payload = {
+        "organism": organism,
+        "query": genes,
+        "sources": sources,
+        "user_threshold": user_threshold,
+        "all_results": False,
+        "ordered": False,
+        "no_evidences": True,
+        "domain_scope": "custom",
+        "background": background_gene_ids,
+        "significance_threshold_method": "fdr",
+        "output": "json",
+    }
+    request = urllib.request.Request(
+        DEFAULT_GPROFILER_URL,
+        data=json.dumps(request_payload).encode("utf-8"),
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "mentor-rl/1.0",
+        },
+        method="POST",
+    )
+    response_payload = _read_json_request(request, timeout=DEFAULT_GPROFILER_TIMEOUT_SECONDS)
+
+    raw_results = response_payload.get("result", [])
+    if not isinstance(raw_results, list):
+        raise ToolExecutionError("g:Profiler response did not contain a valid 'result' list.")
+
+    normalized_results = [
+        _normalize_gprofiler_result(item)
+        for item in raw_results
+        if isinstance(item, dict)
+    ]
+    normalized_results.sort(
+        key=lambda item: (
+            float(item.get("p_value", 1.0) if item.get("p_value") is not None else 1.0),
+            str(item.get("source", "")),
+            str(item.get("native", "")),
+        )
+    )
+    return {
+        "results": normalized_results[:top_k],
+        "raw_result_count": len(normalized_results),
+        "meta": response_payload.get("meta") if isinstance(response_payload.get("meta"), dict) else {},
+    }
 
 
 def query_mygene(
@@ -291,6 +498,107 @@ def query_mygene(
         payload=payload,
         provenance=provenance,
         is_empty=len(filtered_hits) == 0,
+    )
+
+
+def enrich_gene_set(
+    genes: list[str],
+    *,
+    background_gene_ids: list[str],
+    organism: str = DEFAULT_GPROFILER_ORGANISM,
+    sources: list[str] | None = None,
+    user_threshold: float = DEFAULT_ENRICHMENT_USER_THRESHOLD,
+    top_k: int = DEFAULT_ENRICHMENT_TOP_K,
+    cache: dict[str, dict[str, Any]] | None = None,
+    cache_path: str | None = None,
+    allow_network: bool = False,
+) -> ToolExecutionResult:
+    """Run g:Profiler enrichment for one gene set using a custom background."""
+
+    query_gene_ids = _unique_preserving_order([str(gene) for gene in genes if str(gene)])
+    if not query_gene_ids:
+        raise ToolExecutionError("enrich_gene_set requires at least one gene.")
+    if not background_gene_ids:
+        raise ToolExecutionError("enrich_gene_set requires a non-empty background gene set.")
+    if top_k <= 0:
+        raise ToolExecutionError("enrich_gene_set top_k must be positive.")
+    if user_threshold <= 0 or user_threshold > 1:
+        raise ToolExecutionError("enrich_gene_set user_threshold must be in (0, 1].")
+
+    background = _unique_preserving_order([str(gene) for gene in background_gene_ids if str(gene)])
+    selected_sources = _normalize_sources(sources)
+    if not selected_sources:
+        raise ToolExecutionError("enrich_gene_set received no supported enrichment sources.")
+    background_hash = _stable_payload_hash({"background": background})
+    request_fingerprint = {
+        "genes": query_gene_ids,
+        "background_hash": background_hash,
+        "organism": organism,
+        "sources": selected_sources,
+        "user_threshold": user_threshold,
+        "top_k": top_k,
+    }
+    cache_key = _stable_payload_hash(request_fingerprint)
+    if cache is None:
+        cache = {}
+
+    provenance_source = "cache"
+    cached_payload = cache.get(cache_key)
+    if cached_payload is not None:
+        result_payload = cached_payload
+    elif allow_network:
+        fetched = _fetch_gprofiler_enrichment(
+            query_gene_ids,
+            background_gene_ids=background,
+            organism=organism,
+            sources=selected_sources,
+            user_threshold=user_threshold,
+            top_k=top_k,
+        )
+        result_payload = {
+            "query_gene_ids": query_gene_ids,
+            "query_gene_count": len(query_gene_ids),
+            "background_gene_count": len(background),
+            "background_hash": background_hash,
+            "organism": organism,
+            "sources": selected_sources,
+            "user_threshold": user_threshold,
+            "top_k": top_k,
+            **fetched,
+        }
+        cache[cache_key] = result_payload
+        save_enrichment_cache(cache, cache_path)
+        provenance_source = "network"
+    else:
+        result_payload = {
+            "query_gene_ids": query_gene_ids,
+            "query_gene_count": len(query_gene_ids),
+            "background_gene_count": len(background),
+            "background_hash": background_hash,
+            "organism": organism,
+            "sources": selected_sources,
+            "user_threshold": user_threshold,
+            "top_k": top_k,
+            "results": [],
+            "raw_result_count": 0,
+            "meta": {},
+        }
+        provenance_source = "cache_miss"
+
+    provenance = {
+        "tool_name": "enrich_gene_set",
+        "source": provenance_source,
+        "network_used": provenance_source == "network",
+        "cache_hit": provenance_source == "cache",
+        "cache_key": cache_key,
+        "organism": organism,
+        "sources": selected_sources,
+        "background_hash": background_hash,
+    }
+    return ToolExecutionResult(
+        payload=result_payload,
+        provenance=provenance,
+        is_empty=len(result_payload.get("results", [])) == 0,
     )
 
 
@@ -547,18 +855,25 @@ def rwr_multiplex(
 
 __all__ = [
     "DEFAULT_MYGENE_FIELDS",
+    "DEFAULT_GPROFILER_ORGANISM",
+    "DEFAULT_GPROFILER_SOURCES",
+    "DEFAULT_ENRICHMENT_TOP_K",
+    "DEFAULT_ENRICHMENT_USER_THRESHOLD",
     "DEFAULT_RESTART_PROBABILITY",
     "DEFAULT_TOP_K",
     "MultiplexIndex",
     "ToolExecutionError",
     "ToolExecutionResult",
     "build_multiplex_index",
+    "enrich_gene_set",
     "get_neighbors",
     "induce_subgraph",
+    "load_enrichment_cache",
     "load_mygene_cache",
     "query_mygene",
     "rwr_monoplex",
     "rwr_multiplex",
+    "save_enrichment_cache",
     "save_mygene_cache",
     "shortest_path",
 ]

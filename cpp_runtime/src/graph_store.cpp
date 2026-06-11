@@ -1,5 +1,6 @@
 #include "graph_store.hpp"
 
+#include <iomanip>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -35,6 +36,53 @@ std::vector<T> read_binary_vector(const std::string& path) {
   std::vector<T> values(byte_size / sizeof(T));
   if (!values.empty()) {
     handle.read(reinterpret_cast<char*>(values.data()), static_cast<std::streamsize>(byte_size));
+  }
+  return values;
+}
+
+bool file_exists(const std::string& path) {
+  std::ifstream handle(path, std::ios::binary);
+  return static_cast<bool>(handle);
+}
+
+std::string layer_file_name(const std::size_t layer_index, const std::string& suffix) {
+  std::ostringstream stream;
+  stream << "layer_" << std::setw(4) << std::setfill('0') << layer_index << "_" << suffix << ".bin";
+  return stream.str();
+}
+
+std::vector<std::string> read_binary_string_table(
+    const std::string& data_path,
+    const std::string& offsets_path) {
+  const auto offsets = read_binary_vector<std::uint64_t>(offsets_path);
+  if (offsets.empty()) {
+    return {};
+  }
+
+  std::ifstream data_handle(data_path, std::ios::binary | std::ios::ate);
+  if (!data_handle) {
+    throw std::runtime_error("Could not open string table data file: " + data_path);
+  }
+  const auto data_size = static_cast<std::size_t>(data_handle.tellg());
+  data_handle.seekg(0, std::ios::beg);
+  std::string data(data_size, '\0');
+  if (data_size > 0U) {
+    data_handle.read(data.data(), static_cast<std::streamsize>(data_size));
+  }
+
+  if (offsets.back() != data.size()) {
+    throw std::runtime_error("String table offsets do not match data size: " + offsets_path);
+  }
+
+  std::vector<std::string> values;
+  values.reserve(offsets.size() - 1U);
+  for (std::size_t index = 0; index + 1U < offsets.size(); ++index) {
+    const auto start = offsets[index];
+    const auto end = offsets[index + 1U];
+    if (end < start || end > data.size()) {
+      throw std::runtime_error("Invalid string table offsets in: " + offsets_path);
+    }
+    values.emplace_back(data.substr(static_cast<std::size_t>(start), static_cast<std::size_t>(end - start)));
   }
   return values;
 }
@@ -88,87 +136,148 @@ LayerCsr read_layer(
   return layer;
 }
 
+std::vector<std::string> load_binary_genes(const std::string& store_dir) {
+  return read_binary_string_table(
+      join_path(store_dir, "genes_data.bin"),
+      join_path(store_dir, "genes_offsets.bin"));
+}
+
+std::vector<std::string> load_text_genes(const std::string& store_dir) {
+  std::ifstream gene_file(join_path(store_dir, "genes.tsv"));
+  if (!gene_file) {
+    throw std::runtime_error("Could not open genes.tsv or binary gene metadata in store directory.");
+  }
+
+  std::vector<std::string> gene_ids;
+  std::string line;
+  while (std::getline(gene_file, line)) {
+    if (line.empty()) {
+      continue;
+    }
+    const auto parts = split_tab_line(line);
+    if (parts.size() < 2) {
+      throw std::runtime_error("Invalid line in genes.tsv: " + line);
+    }
+    const auto index = static_cast<std::uint32_t>(std::stoul(parts[0]));
+    const auto& gene_id = parts[1];
+    if (index != gene_ids.size()) {
+      throw std::runtime_error("genes.tsv must use consecutive zero-based indices.");
+    }
+    gene_ids.push_back(gene_id);
+  }
+  return gene_ids;
+}
+
+std::vector<LayerCsr> load_binary_layers(const std::string& store_dir, const std::size_t gene_count) {
+  const auto layer_names = read_binary_string_table(
+      join_path(store_dir, "layer_names_data.bin"),
+      join_path(store_dir, "layer_names_offsets.bin"));
+  const auto node_counts = read_binary_vector<std::uint32_t>(join_path(store_dir, "layer_node_counts.bin"));
+  const auto edge_counts = read_binary_vector<std::uint64_t>(join_path(store_dir, "layer_undirected_edge_counts.bin"));
+  const auto stored_nnzs = read_binary_vector<std::uint64_t>(join_path(store_dir, "layer_stored_nnz.bin"));
+
+  const auto layer_count = layer_names.size();
+  if (node_counts.size() != layer_count || edge_counts.size() != layer_count || stored_nnzs.size() != layer_count) {
+    throw std::runtime_error("Binary layer metadata length mismatch.");
+  }
+
+  std::vector<LayerCsr> layers;
+  layers.reserve(layer_count);
+  for (std::size_t layer_index = 0; layer_index < layer_count; ++layer_index) {
+    auto layer = read_layer(
+        store_dir,
+        layer_names[layer_index],
+        layer_file_name(layer_index, "indptr"),
+        layer_file_name(layer_index, "indices"),
+        layer_file_name(layer_index, "weights"),
+        node_counts[layer_index],
+        edge_counts[layer_index],
+        stored_nnzs[layer_index]);
+    if (!layer.indptr.empty() && layer.indptr.size() != gene_count + 1U) {
+      throw std::runtime_error("Layer indptr length does not match gene count for layer: " + layer.name);
+    }
+    layers.push_back(std::move(layer));
+  }
+  return layers;
+}
+
+std::vector<LayerCsr> load_text_layers(const std::string& store_dir, const std::size_t gene_count) {
+  std::ifstream layer_file(join_path(store_dir, "layers.tsv"));
+  if (!layer_file) {
+    throw std::runtime_error("Could not open layers.tsv or binary layer metadata in store directory.");
+  }
+
+  std::vector<LayerCsr> layers;
+  std::string line;
+  bool header_skipped = false;
+  while (std::getline(layer_file, line)) {
+    if (line.empty()) {
+      continue;
+    }
+    if (!header_skipped) {
+      header_skipped = true;
+      continue;
+    }
+
+    const auto parts = split_tab_line(line);
+    if (parts.size() < 8) {
+      throw std::runtime_error("Invalid line in layers.tsv: " + line);
+    }
+
+    const auto layer_index = static_cast<std::size_t>(std::stoul(parts[0]));
+    const auto& layer_name = parts[1];
+    const auto& indptr_file = parts[2];
+    const auto& indices_file = parts[3];
+    const auto& weights_file = parts[4];
+    const auto node_count = static_cast<std::uint32_t>(std::stoul(parts[5]));
+    const auto undirected_edge_count = static_cast<std::uint64_t>(std::stoull(parts[6]));
+    const auto stored_nnz = static_cast<std::uint64_t>(std::stoull(parts[7]));
+
+    if (layer_index != layers.size()) {
+      throw std::runtime_error("layers.tsv must use consecutive zero-based layer indices.");
+    }
+
+    auto layer = read_layer(
+        store_dir,
+        layer_name,
+        indptr_file,
+        indices_file,
+        weights_file,
+        node_count,
+        undirected_edge_count,
+        stored_nnz);
+    if (!layer.indptr.empty() && layer.indptr.size() != gene_count + 1U) {
+      throw std::runtime_error("Layer indptr length does not match gene count for layer: " + layer_name);
+    }
+
+    layers.push_back(std::move(layer));
+  }
+  return layers;
+}
+
 }  // namespace
 
 GraphStore GraphStore::load(const std::string& store_dir) {
   GraphStore store;
 
-  {
-    std::ifstream gene_file(join_path(store_dir, "genes.tsv"));
-    if (!gene_file) {
-      throw std::runtime_error("Could not open genes.tsv in store directory.");
-    }
-
-    std::string line;
-    while (std::getline(gene_file, line)) {
-      if (line.empty()) {
-        continue;
-      }
-      const auto parts = split_tab_line(line);
-      if (parts.size() < 2) {
-        throw std::runtime_error("Invalid line in genes.tsv: " + line);
-      }
-      const auto index = static_cast<std::uint32_t>(std::stoul(parts[0]));
-      const auto& gene_id = parts[1];
-      if (index != store.gene_ids_.size()) {
-        throw std::runtime_error("genes.tsv must use consecutive zero-based indices.");
-      }
-      store.gene_to_index_[gene_id] = index;
-      store.gene_ids_.push_back(gene_id);
-    }
+  if (file_exists(join_path(store_dir, "genes_data.bin")) &&
+      file_exists(join_path(store_dir, "genes_offsets.bin"))) {
+    store.gene_ids_ = load_binary_genes(store_dir);
+  } else {
+    store.gene_ids_ = load_text_genes(store_dir);
+  }
+  for (std::size_t index = 0; index < store.gene_ids_.size(); ++index) {
+    store.gene_to_index_[store.gene_ids_[index]] = static_cast<std::uint32_t>(index);
   }
 
-  {
-    std::ifstream layer_file(join_path(store_dir, "layers.tsv"));
-    if (!layer_file) {
-      throw std::runtime_error("Could not open layers.tsv in store directory.");
-    }
-
-    std::string line;
-    bool header_skipped = false;
-    while (std::getline(layer_file, line)) {
-      if (line.empty()) {
-        continue;
-      }
-      if (!header_skipped) {
-        header_skipped = true;
-        continue;
-      }
-
-      const auto parts = split_tab_line(line);
-      if (parts.size() < 8) {
-        throw std::runtime_error("Invalid line in layers.tsv: " + line);
-      }
-
-      const auto layer_index = static_cast<std::size_t>(std::stoul(parts[0]));
-      const auto& layer_name = parts[1];
-      const auto& indptr_file = parts[2];
-      const auto& indices_file = parts[3];
-      const auto& weights_file = parts[4];
-      const auto node_count = static_cast<std::uint32_t>(std::stoul(parts[5]));
-      const auto undirected_edge_count = static_cast<std::uint64_t>(std::stoull(parts[6]));
-      const auto stored_nnz = static_cast<std::uint64_t>(std::stoull(parts[7]));
-
-      if (layer_index != store.layers_.size()) {
-        throw std::runtime_error("layers.tsv must use consecutive zero-based layer indices.");
-      }
-
-      auto layer = read_layer(
-          store_dir,
-          layer_name,
-          indptr_file,
-          indices_file,
-          weights_file,
-          node_count,
-          undirected_edge_count,
-          stored_nnz);
-      if (!layer.indptr.empty() && layer.indptr.size() != store.gene_ids_.size() + 1U) {
-        throw std::runtime_error("Layer indptr length does not match gene count for layer: " + layer_name);
-      }
-
-      store.layer_name_to_index_[layer_name] = layer_index;
-      store.layers_.push_back(std::move(layer));
-    }
+  if (file_exists(join_path(store_dir, "layer_names_data.bin")) &&
+      file_exists(join_path(store_dir, "layer_names_offsets.bin"))) {
+    store.layers_ = load_binary_layers(store_dir, store.gene_ids_.size());
+  } else {
+    store.layers_ = load_text_layers(store_dir, store.gene_ids_.size());
+  }
+  for (std::size_t layer_index = 0; layer_index < store.layers_.size(); ++layer_index) {
+    store.layer_name_to_index_[store.layers_[layer_index].name] = layer_index;
   }
 
   store.aggregate_layer_ = read_layer(

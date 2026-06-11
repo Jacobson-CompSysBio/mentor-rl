@@ -6,5 +6,5 @@ CXX_DEFINES = -Dmentor_runtime_EXPORTS
 
 CXX_INCLUDES = -I/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/cpp_runtime/include
 
-CXX_FLAGS = -std=gnu++1z -fPIC -fopenmp
+CXX_FLAGS = -O3 -DNDEBUG -std=gnu++1z -fPIC -fopenmp
 

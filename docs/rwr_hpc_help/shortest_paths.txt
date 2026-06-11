@@ -1,0 +1,21 @@
+Shortest paths
+Usage: /lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/external/rwr_hpc/build_frontier/apps/shortest_paths/shortest_paths [OPTIONS]
+
+Options:
+  -h,--help                   Print this help message and exit
+  -f,--flist TEXT REQUIRED    Path to the file containing paths to and names of each layer in the multiplex
+  --no_edgelist_headers       Indicates that the edge lists contains no headers
+  -s,--sources_file TEXT REQUIRED
+                              Tab delimited file containing nodes that act as shortest paths sources.
+                              
+  -t,--targets_file TEXT      Tab delimited file containing nodes that act as shortest paths targets.
+                              If no targets file is provided sources will act as targets
+                              
+  --no_set_ids                Indicates that the sources and targets files contains no set ids
+                              .These ids are stored as the first value in each row.
+  --merge_method TEXT:{max,min,all,sum,mean} [max] 
+                              Indicates method used to merge edges in multiplex to single layer
+  -o,--output_dir TEXT [./]   Output directory
+  --runtag TEXT REQUIRED      Name pre-pended to output_files specifiying run.
+  --ignore_weights            Ignore weights when finding the shortest paths
+  --multifile                 Indicates that multpile node sets will be runExpects: `sources_file` to point to a file, where each line contains a file to a set of source nodes       : `targets_file` is empty or points to a file, where each line contains a file to a set of target nodes       : `run_tag` to point to files where each line contains a run tag       : `output_dir` to point to files where each line contains a output_dir

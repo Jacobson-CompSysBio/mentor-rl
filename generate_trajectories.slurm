@@ -25,10 +25,25 @@ module load rocm/6.3.1
 REPO_ROOT="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl"
 MODELS_ROOT="${MODELS_ROOT:-/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models}"
 MODEL_PATH_INPUT="${MODEL_PATH:-gpt-oss-120b}"
-TASKS_PATH="${TASKS_PATH:-${REPO_ROOT}/data/corum_corpus/tasks.train.jsonl}"
-STORE_DIR="${STORE_DIR:-${REPO_ROOT}/data/humannet_multiplex_store}"
-ENCODINGS_SHARED_DIR="${ENCODINGS_SHARED_DIR:-${REPO_ROOT}/data/tiktoken_encodings}"
+TASKS_PATH="${TASKS_PATH:-${REPO_ROOT}/data/gw_dendrogram_corpus/tasks.train.jsonl}"
 SCRATCH="${SCRATCH:-/lustre/orion/syb114/scratch/${USER}}"
+STORE_DIR="${STORE_DIR:-${REPO_ROOT}/data/runtime/full_brain_multiplex_store}"
+FULL_BRAIN_STORE_DIR="${FULL_BRAIN_STORE_DIR:-${REPO_ROOT}/data/runtime/full_brain_multiplex_store}"
+USE_FULL_BRAIN_RWR_HPC="${USE_FULL_BRAIN_RWR_HPC:-1}"
+REQUIRE_RWR_HPC="${REQUIRE_RWR_HPC:-1}"
+RWR_HPC_EDGELIST_HAS_HEADERS="${RWR_HPC_EDGELIST_HAS_HEADERS:-1}"
+RWR_HPC_FLIST="${RWR_HPC_FLIST:-/lustre/orion/syb111/proj-shared/Personal/smithkp/projects/PASC_2026/full_brain/data/full_brain_flist.tsv}"
+RWR_HPC_BUILD_DIR="${RWR_HPC_BUILD_DIR:-${REPO_ROOT}/external/rwr_hpc/build_frontier}"
+RWR_HPC_CACHE_DIR="${RWR_HPC_CACHE_DIR:-${REPO_ROOT}/data/runtime/rwr_hpc_cache}"
+RWR_HPC_SCRATCH_ROOT="${RWR_HPC_SCRATCH_ROOT:-${SCRATCH}/mentor_rl_rwr_hpc_scratch/${SLURM_JOB_ID}}"
+RWR_HPC_APP_TIMEOUT_SECONDS="${RWR_HPC_APP_TIMEOUT_SECONDS:-1800}"
+RWR_HPC_SERVICE_NODE_COUNT="${RWR_HPC_SERVICE_NODE_COUNT:-0}"
+RWR_HPC_SERVICE_PORT="${RWR_HPC_SERVICE_PORT:-51021}"
+RWR_HPC_SERVICE_URL="${RWR_HPC_SERVICE_URL:-}"
+RWR_HPC_SERVICE_TIMEOUT_SECONDS="${RWR_HPC_SERVICE_TIMEOUT_SECONDS:-600}"
+RWR_HPC_SERVICE_HEALTH_MAX_WAIT_SECONDS="${RWR_HPC_SERVICE_HEALTH_MAX_WAIT_SECONDS:-600}"
+RWR_HPC_SERVICE_HEALTH_POLL_SECONDS="${RWR_HPC_SERVICE_HEALTH_POLL_SECONDS:-5}"
+ENCODINGS_SHARED_DIR="${ENCODINGS_SHARED_DIR:-${REPO_ROOT}/data/tiktoken_encodings}"
 SIF="${SIF:-/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/vllm0141rocm72.sif}"
 
 abspath_dir() {
@@ -83,7 +98,7 @@ infer_default_max_model_len() {
   local model_name
   model_name="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
   if [[ "${model_name}" == *"gpt-oss"* ]]; then
-    echo "8192"
+    echo "16384"
   else
     echo "16384"
   fi
@@ -102,7 +117,8 @@ fi
 MODEL_BASENAME="$(basename "${MODEL_PATH}")"
 MODEL_SLUG="$(slugify_model_name "${MODEL_BASENAME}")"
 MODEL_USES_TIKTOKEN="$(infer_model_uses_tiktoken "${MODEL_BASENAME}")"
-OUT_DIR="${OUT_DIR:-${REPO_ROOT}/data/corum_trajectories/${MODEL_SLUG}_job_${SLURM_JOB_ID}}"
+OUT_DIR="${OUT_DIR:-${REPO_ROOT}/data/gw_dendrogram_trajectories/${MODEL_SLUG}_job_${SLURM_JOB_ID}}"
+RWR_HPC_SERVICE_METRICS_PATH="${RWR_HPC_SERVICE_METRICS_PATH:-${OUT_DIR}/rwr_hpc_service_metrics.json}"
 
 if [[ ! -f "${SIF}" ]]; then
   log "Missing vLLM Apptainer image: ${SIF}"
@@ -113,14 +129,16 @@ fi
 MAX_TASKS="${MAX_TASKS:-8}"
 TASK_SHARD_INDEX="${TASK_SHARD_INDEX:-0}"
 TASK_SHARD_COUNT="${TASK_SHARD_COUNT:-1}"
-MAX_STEPS="${MAX_STEPS:-4}"
-N_ACT="${N_ACT:-4}"
+MAX_STEPS="${MAX_STEPS:-6}"
+N_ACT="${N_ACT:-6}"
 N_VER="${N_VER:-2}"
-TASK_CONCURRENCY="${TASK_CONCURRENCY:-4}"
+TASK_CONCURRENCY="${TASK_CONCURRENCY:-1}"
 GENERATOR_TEMPERATURE="${GENERATOR_TEMPERATURE:-0.8}"
 GENERATOR_TOP_P="${GENERATOR_TOP_P:-0.95}"
 GENERATOR_MAX_COMPLETION_TOKENS="${GENERATOR_MAX_COMPLETION_TOKENS:-4096}"
 GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS="${GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS:-2048}"
+GENERATOR_VERIFIER_REPAIR_RETRY_COUNT="${GENERATOR_VERIFIER_REPAIR_RETRY_COUNT:-1}"
+GENERATOR_ACTOR_TOOL_REPAIR_RETRY_COUNT="${GENERATOR_ACTOR_TOOL_REPAIR_RETRY_COUNT:-1}"
 GENERATOR_API_MODE="${GENERATOR_API_MODE:-auto}"
 GENERATOR_REASONING_EFFORT="${GENERATOR_REASONING_EFFORT:-medium}"
 ACTOR_SAMPLING_STRATEGY="${ACTOR_SAMPLING_STRATEGY:-verbalized}"
@@ -129,6 +147,17 @@ SELECTION_SCORE_EPSILON="${SELECTION_SCORE_EPSILON:-0.02}"
 PAIR_MINING_STRATEGY="${PAIR_MINING_STRATEGY:-quality_balanced}"
 TOOL_COVERAGE_RETRY_COUNT="${TOOL_COVERAGE_RETRY_COUNT:-2}"
 RECOVERY_RWR_TOP_K="${RECOVERY_RWR_TOP_K:-500}"
+ALLOW_MODEL_FALLBACK="${ALLOW_MODEL_FALLBACK:-0}"
+MYGENE_CACHE_PATH="${MYGENE_CACHE_PATH:-${OUT_DIR}/mygene_cache.json}"
+ENRICHMENT_CACHE_PATH="${ENRICHMENT_CACHE_PATH:-${OUT_DIR}/gprofiler_enrichment_cache.json}"
+ENRICHMENT_BACKGROUND_PATH="${ENRICHMENT_BACKGROUND_PATH:-${REPO_ROOT}/data/gw_dendrogram_corpus/modules.jsonl}"
+ALLOW_NETWORK_MYGENE="${ALLOW_NETWORK_MYGENE:-1}"
+ALLOW_NETWORK_ENRICHMENT="${ALLOW_NETWORK_ENRICHMENT:-1}"
+PREFETCH_MECHANISM_CACHE="${PREFETCH_MECHANISM_CACHE:-1}"
+PREFETCH_MYGENE_PER_TASK="${PREFETCH_MYGENE_PER_TASK:-3}"
+PREFETCH_ENRICHMENT_TOP_K="${PREFETCH_ENRICHMENT_TOP_K:-10}"
+PREFETCH_MAX_TASKS="${PREFETCH_MAX_TASKS:-20}"
+REQUIRE_PREFETCH_SUCCESS="${REQUIRE_PREFETCH_SUCCESS:-1}"
 GENERATOR_TIMEOUT_SECONDS="${GENERATOR_TIMEOUT_SECONDS:-3600}"
 RUN_SMOKE_TEST="${RUN_SMOKE_TEST:-1}"
 SMOKE_TEST_ONLY="${SMOKE_TEST_ONLY:-0}"
@@ -142,6 +171,16 @@ SMOKE_MAX_COMPLETION_TOKENS="${SMOKE_MAX_COMPLETION_TOKENS:-2048}"
 SMOKE_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS="${SMOKE_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS:-2048}"
 SMOKE_REASONING_EFFORT="${SMOKE_REASONING_EFFORT:-low}"
 SMOKE_ACTOR_SAMPLING_STRATEGY="${SMOKE_ACTOR_SAMPLING_STRATEGY:-${ACTOR_SAMPLING_STRATEGY}}"
+PRECOMPUTE_SMOKE_CACHES="${PRECOMPUTE_SMOKE_CACHES:-1}"
+REQUIRE_SMOKE_CACHE_PRECOMPUTE="${REQUIRE_SMOKE_CACHE_PRECOMPUTE:-1}"
+SMOKE_PRECOMPUTE_RWR_CACHE="${SMOKE_PRECOMPUTE_RWR_CACHE:-1}"
+SMOKE_PRECOMPUTE_NATIVE_STORE="${SMOKE_PRECOMPUTE_NATIVE_STORE:-1}"
+SMOKE_RWR_PRECOMPUTE_PROFILE="${SMOKE_RWR_PRECOMPUTE_PROFILE:-core}"
+SMOKE_RWR_TOP_K="${SMOKE_RWR_TOP_K:-${RECOVERY_RWR_TOP_K}}"
+SMOKE_RWR_LOE_TOP_K="${SMOKE_RWR_LOE_TOP_K:-20}"
+SMOKE_SHORTEST_PATHS_MAX_PAIRS="${SMOKE_SHORTEST_PATHS_MAX_PAIRS:-1}"
+SMOKE_SHORTEST_PATHS_MAX_PATHS="${SMOKE_SHORTEST_PATHS_MAX_PATHS:-20}"
+SMOKE_NATIVE_PRECOMPUTE_MAX_GENES="${SMOKE_NATIVE_PRECOMPUTE_MAX_GENES:-2}"
 
 RAY_PORT="${RAY_PORT:-6379}"
 RAY_DASHBOARD_PORT="${RAY_DASHBOARD_PORT:-8265}"
@@ -151,6 +190,12 @@ PIPELINE_PARALLEL_SIZE="${PIPELINE_PARALLEL_SIZE:-1}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.90}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-$(infer_default_max_model_len "${MODEL_BASENAME}")}"
 MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-${MAX_MODEL_LEN}}"
+if [[ -z "${GENERATOR_PROMPT_TOKEN_LIMIT:-}" ]]; then
+  GENERATOR_PROMPT_TOKEN_LIMIT=$((MAX_MODEL_LEN - 2304))
+  if (( GENERATOR_PROMPT_TOKEN_LIMIT < 1024 )); then
+    GENERATOR_PROMPT_TOKEN_LIMIT=1024
+  fi
+fi
 MAX_NUM_SEQS="${MAX_NUM_SEQS:-64}"
 ENABLE_CHUNKED_PREFILL="${ENABLE_CHUNKED_PREFILL:-0}"
 ENABLE_PREFIX_CACHING="${ENABLE_PREFIX_CACHING:-0}"
@@ -174,26 +219,161 @@ DISTRIBUTED_EXECUTOR_BACKEND="${DISTRIBUTED_EXECUTOR_BACKEND:-auto}"
 mkdir -p "${REPO_ROOT}/logs"
 mkdir -p "${OUT_DIR}"
 mkdir -p "${ENCODINGS_SHARED_DIR}"
+if [[ -n "${RWR_HPC_CACHE_DIR}" ]]; then
+  mkdir -p "${RWR_HPC_CACHE_DIR}"
+fi
+if [[ -n "${RWR_HPC_SCRATCH_ROOT}" ]]; then
+  mkdir -p "${RWR_HPC_SCRATCH_ROOT}"
+fi
+
+MAX_TASKS_ARG=()
+if [[ -n "${MAX_TASKS}" && "${MAX_TASKS}" != "all" && "${MAX_TASKS}" != "ALL" ]]; then
+  MAX_TASKS_ARG=(--max-tasks "${MAX_TASKS}")
+fi
+RWR_HPC_ARGS=()
+if [[ "${USE_FULL_BRAIN_RWR_HPC}" == "1" ]]; then
+  RWR_HPC_ARGS+=(--use-full-brain-rwr-hpc)
+else
+  RWR_HPC_ARGS+=(--no-use-full-brain-rwr-hpc)
+fi
+if [[ "${REQUIRE_RWR_HPC}" == "1" ]]; then
+  RWR_HPC_ARGS+=(--require-rwr-hpc)
+else
+  RWR_HPC_ARGS+=(--no-require-rwr-hpc)
+fi
+if [[ -n "${FULL_BRAIN_STORE_DIR}" ]]; then
+  RWR_HPC_ARGS+=(--full-brain-store-dir "${FULL_BRAIN_STORE_DIR}")
+fi
+if [[ -n "${RWR_HPC_FLIST}" ]]; then
+  RWR_HPC_ARGS+=(--rwr-hpc-flist "${RWR_HPC_FLIST}")
+fi
+if [[ -n "${RWR_HPC_BUILD_DIR}" ]]; then
+  RWR_HPC_ARGS+=(--rwr-hpc-build-dir "${RWR_HPC_BUILD_DIR}")
+fi
+if [[ -n "${RWR_HPC_CACHE_DIR}" ]]; then
+  RWR_HPC_ARGS+=(--rwr-hpc-cache-dir "${RWR_HPC_CACHE_DIR}")
+fi
+if [[ -n "${RWR_HPC_SCRATCH_ROOT}" ]]; then
+  RWR_HPC_ARGS+=(--rwr-hpc-scratch-root "${RWR_HPC_SCRATCH_ROOT}")
+fi
+RWR_HPC_ARGS+=(--rwr-hpc-app-timeout-seconds "${RWR_HPC_APP_TIMEOUT_SECONDS}")
+if [[ "${RWR_HPC_EDGELIST_HAS_HEADERS}" == "1" ]]; then
+  RWR_HPC_ARGS+=(--rwr-hpc-edgelist-has-headers)
+else
+  RWR_HPC_ARGS+=(--rwr-hpc-edgelist-no-headers)
+fi
+MYGENE_NETWORK_ARG=()
+if [[ "${ALLOW_NETWORK_MYGENE}" == "1" ]]; then
+  MYGENE_NETWORK_ARG=(--allow-network-mygene)
+fi
+ENRICHMENT_NETWORK_ARG=()
+if [[ "${ALLOW_NETWORK_ENRICHMENT}" == "1" ]]; then
+  ENRICHMENT_NETWORK_ARG=(--allow-network-enrichment)
+fi
+ENRICHMENT_BACKGROUND_ARG=()
+if [[ -n "${ENRICHMENT_BACKGROUND_PATH}" ]]; then
+  ENRICHMENT_BACKGROUND_ARG=(--enrichment-background-path "${ENRICHMENT_BACKGROUND_PATH}")
+fi
+PREFETCH_MECHANISM_ARG=()
+if [[ "${PREFETCH_MECHANISM_CACHE}" == "1" ]]; then
+  PREFETCH_MECHANISM_ARG=(
+    --prefetch-mechanism-cache
+    --prefetch-mygene-per-task "${PREFETCH_MYGENE_PER_TASK}"
+    --prefetch-enrichment-top-k "${PREFETCH_ENRICHMENT_TOP_K}"
+    --prefetch-max-tasks "${PREFETCH_MAX_TASKS}"
+  )
+fi
+MODEL_FALLBACK_ARG=()
+if [[ "${ALLOW_MODEL_FALLBACK}" == "1" ]]; then
+  MODEL_FALLBACK_ARG=(--allow-model-fallback)
+fi
+REQUIRE_PREFETCH_SUCCESS_ARG=()
+if [[ "${REQUIRE_PREFETCH_SUCCESS}" == "1" ]]; then
+  REQUIRE_PREFETCH_SUCCESS_ARG=(--require-prefetch-success)
+fi
+REQUIRE_SMOKE_CACHE_PRECOMPUTE_ARG=()
+if [[ "${REQUIRE_SMOKE_CACHE_PRECOMPUTE}" == "1" ]]; then
+  REQUIRE_SMOKE_CACHE_PRECOMPUTE_ARG=(--require-success)
+fi
+SMOKE_RWR_PRECOMPUTE_ARG=()
+if [[ "${SMOKE_PRECOMPUTE_RWR_CACHE}" == "1" ]]; then
+  SMOKE_RWR_PRECOMPUTE_ARG=(
+    --precompute-rwr-cache
+    --rwr-precompute-profile "${SMOKE_RWR_PRECOMPUTE_PROFILE}"
+    --rwr-top-k "${SMOKE_RWR_TOP_K}"
+    --rwr-loe-top-k "${SMOKE_RWR_LOE_TOP_K}"
+    --shortest-paths-max-pairs "${SMOKE_SHORTEST_PATHS_MAX_PAIRS}"
+    --shortest-paths-max-paths "${SMOKE_SHORTEST_PATHS_MAX_PATHS}"
+  )
+fi
+SMOKE_NATIVE_PRECOMPUTE_ARG=()
+if [[ "${SMOKE_PRECOMPUTE_NATIVE_STORE}" == "1" ]]; then
+  SMOKE_NATIVE_PRECOMPUTE_ARG=(
+    --precompute-native-store
+    --native-precompute-max-genes "${SMOKE_NATIVE_PRECOMPUTE_MAX_GENES}"
+  )
+fi
 
 mapfile -t NODE_LIST < <(scontrol show hostnames "${SLURM_JOB_NODELIST}")
-HEAD_NODE="${NODE_LIST[0]}"
 
 resolve_hsn_ip() {
   local node_name="$1"
   getent hosts "${node_name}-hsn0" | awk '{print $1}'
 }
 
+if [[ "${RWR_HPC_SERVICE_NODE_COUNT}" != "0" && "${RWR_HPC_SERVICE_NODE_COUNT}" != "1" ]]; then
+  log "Only RWR_HPC_SERVICE_NODE_COUNT=0 or 1 is currently supported."
+  exit 1
+fi
+
+RWR_HPC_SERVICE_NODE=""
+RWR_HPC_SERVICE_IP=""
+if [[ "${RWR_HPC_SERVICE_NODE_COUNT}" == "1" ]]; then
+  if (( ${#NODE_LIST[@]} < 2 )); then
+    log "RWR_HPC_SERVICE_NODE_COUNT=1 requires at least 2 allocated nodes."
+    exit 1
+  fi
+  RWR_HPC_SERVICE_NODE="${NODE_LIST[$((${#NODE_LIST[@]} - 1))]}"
+  VLLM_NODE_LIST=("${NODE_LIST[@]:0:$((${#NODE_LIST[@]} - 1))}")
+  RWR_HPC_SERVICE_IP="$(resolve_hsn_ip "${RWR_HPC_SERVICE_NODE}")"
+  if [[ -z "${RWR_HPC_SERVICE_IP}" ]]; then
+    log "Failed to resolve RWR++ service node HSN IP for ${RWR_HPC_SERVICE_NODE}"
+    exit 1
+  fi
+  if [[ -z "${RWR_HPC_SERVICE_URL}" ]]; then
+    RWR_HPC_SERVICE_URL="http://${RWR_HPC_SERVICE_IP}:${RWR_HPC_SERVICE_PORT}"
+  fi
+else
+  VLLM_NODE_LIST=("${NODE_LIST[@]}")
+fi
+
+HEAD_NODE="${VLLM_NODE_LIST[0]}"
 HEAD_IP="$(resolve_hsn_ip "${HEAD_NODE}")"
 if [[ -z "${HEAD_IP}" ]]; then
   log "Failed to resolve head node HSN IP for ${HEAD_NODE}"
   exit 1
 fi
+VLLM_NODE_LIST_CSV="$(IFS=,; echo "${VLLM_NODE_LIST[*]}")"
+RWR_HPC_SERVICE_LOG="${OUT_DIR}/rwr_hpc_service.log"
 
-export all_proxy=socks://proxy.ccs.ornl.gov:3128/
-export ftp_proxy=ftp://proxy.ccs.ornl.gov:3128/
-export http_proxy=http://proxy.ccs.ornl.gov:3128/
-export https_proxy=http://proxy.ccs.ornl.gov:3128/
-export no_proxy='localhost,127.0.0.0/8,*.ccs.ornl.gov'
+MENTOR_ALL_PROXY="${MENTOR_ALL_PROXY:-socks://proxy.ccs.ornl.gov:3128/}"
+MENTOR_FTP_PROXY="${MENTOR_FTP_PROXY:-ftp://proxy.ccs.ornl.gov:3128/}"
+MENTOR_HTTP_PROXY="${MENTOR_HTTP_PROXY:-http://proxy.ccs.ornl.gov:3128/}"
+MENTOR_HTTPS_PROXY="${MENTOR_HTTPS_PROXY:-http://proxy.ccs.ornl.gov:3128/}"
+RWR_HPC_SERVICE_NO_PROXY=""
+if [[ -n "${RWR_HPC_SERVICE_NODE}" ]]; then
+  RWR_HPC_SERVICE_NO_PROXY=",${RWR_HPC_SERVICE_IP},${RWR_HPC_SERVICE_NODE},${RWR_HPC_SERVICE_NODE}-hsn0"
+fi
+MENTOR_NO_PROXY="${MENTOR_NO_PROXY:-localhost,127.0.0.0/8,${HEAD_IP},${HEAD_NODE},${HEAD_NODE}-hsn0${RWR_HPC_SERVICE_NO_PROXY},*.ccs.ornl.gov}"
+
+export all_proxy="${MENTOR_ALL_PROXY}"
+export ftp_proxy="${MENTOR_FTP_PROXY}"
+export http_proxy="${MENTOR_HTTP_PROXY}"
+export https_proxy="${MENTOR_HTTPS_PROXY}"
+export no_proxy="${MENTOR_NO_PROXY}"
+export RWR_HPC_SERVICE_URL
+export RWR_HPC_APP_TIMEOUT_SECONDS
+export RWR_HPC_SERVICE_TIMEOUT_SECONDS
 export HF_HOME="${HF_HOME:-${SCRATCH}/hf_cache}"
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
 export HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-1}"
@@ -276,7 +456,7 @@ if [[ "${STAGE_MODEL_TO_NVME}" == "1" ]]; then
 fi
 
 if [[ "${DISTRIBUTED_EXECUTOR_BACKEND}" == "auto" ]]; then
-  if [[ "${SLURM_NNODES}" -gt 1 || "${PIPELINE_PARALLEL_SIZE}" -gt 1 ]]; then
+  if [[ "${#VLLM_NODE_LIST[@]}" -gt 1 || "${PIPELINE_PARALLEL_SIZE}" -gt 1 ]]; then
     EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND="ray"
   else
     EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND="mp"
@@ -297,12 +477,29 @@ log "SIF=${SIF}"
 log "SERVE_MODEL_PATH=${SERVE_MODEL_PATH}"
 log "SERVE_ENCODINGS_DIR=${SERVE_ENCODINGS_DIR}"
 log "TASKS_PATH=${TASKS_PATH}"
+log "STORE_DIR=${STORE_DIR}"
+log "FULL_BRAIN_STORE_DIR=${FULL_BRAIN_STORE_DIR}"
+log "USE_FULL_BRAIN_RWR_HPC=${USE_FULL_BRAIN_RWR_HPC}"
+log "REQUIRE_RWR_HPC=${REQUIRE_RWR_HPC}"
+log "RWR_HPC_FLIST=${RWR_HPC_FLIST}"
+log "RWR_HPC_BUILD_DIR=${RWR_HPC_BUILD_DIR}"
+log "RWR_HPC_CACHE_DIR=${RWR_HPC_CACHE_DIR}"
+log "RWR_HPC_SCRATCH_ROOT=${RWR_HPC_SCRATCH_ROOT}"
+log "RWR_HPC_APP_TIMEOUT_SECONDS=${RWR_HPC_APP_TIMEOUT_SECONDS}"
+log "RWR_HPC_SERVICE_NODE_COUNT=${RWR_HPC_SERVICE_NODE_COUNT}"
+log "RWR_HPC_SERVICE_NODE=${RWR_HPC_SERVICE_NODE:-<none>}"
+log "RWR_HPC_SERVICE_URL=${RWR_HPC_SERVICE_URL:-<disabled>}"
+log "RWR_HPC_SERVICE_METRICS_PATH=${RWR_HPC_SERVICE_METRICS_PATH}"
 log "OUT_DIR=${OUT_DIR}"
 log "TASK_SHARD_INDEX=${TASK_SHARD_INDEX}"
 log "TASK_SHARD_COUNT=${TASK_SHARD_COUNT}"
+log "MAX_TASKS_ARG=${MAX_TASKS_ARG[*]:-(full shard)}"
 log "TASK_CONCURRENCY=${TASK_CONCURRENCY}"
 log "GENERATOR_API_MODE=${GENERATOR_API_MODE}"
 log "GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS=${GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS}"
+log "GENERATOR_VERIFIER_REPAIR_RETRY_COUNT=${GENERATOR_VERIFIER_REPAIR_RETRY_COUNT}"
+log "GENERATOR_ACTOR_TOOL_REPAIR_RETRY_COUNT=${GENERATOR_ACTOR_TOOL_REPAIR_RETRY_COUNT}"
+log "GENERATOR_PROMPT_TOKEN_LIMIT=${GENERATOR_PROMPT_TOKEN_LIMIT}"
 log "GENERATOR_REASONING_EFFORT=${GENERATOR_REASONING_EFFORT}"
 log "ACTOR_SAMPLING_STRATEGY=${ACTOR_SAMPLING_STRATEGY}"
 log "SELECTION_POLICY=${SELECTION_POLICY}"
@@ -310,6 +507,12 @@ log "SELECTION_SCORE_EPSILON=${SELECTION_SCORE_EPSILON}"
 log "PAIR_MINING_STRATEGY=${PAIR_MINING_STRATEGY}"
 log "TOOL_COVERAGE_RETRY_COUNT=${TOOL_COVERAGE_RETRY_COUNT}"
 log "RECOVERY_RWR_TOP_K=${RECOVERY_RWR_TOP_K}"
+log "ALLOW_MODEL_FALLBACK=${ALLOW_MODEL_FALLBACK}"
+log "PREFETCH_MECHANISM_CACHE=${PREFETCH_MECHANISM_CACHE}"
+log "PREFETCH_MYGENE_PER_TASK=${PREFETCH_MYGENE_PER_TASK}"
+log "PREFETCH_ENRICHMENT_TOP_K=${PREFETCH_ENRICHMENT_TOP_K}"
+log "PREFETCH_MAX_TASKS=${PREFETCH_MAX_TASKS}"
+log "REQUIRE_PREFETCH_SUCCESS=${REQUIRE_PREFETCH_SUCCESS}"
 log "GENERATOR_TIMEOUT_SECONDS=${GENERATOR_TIMEOUT_SECONDS}"
 log "RUN_SMOKE_TEST=${RUN_SMOKE_TEST}"
 log "SMOKE_TEST_ONLY=${SMOKE_TEST_ONLY}"
@@ -323,6 +526,16 @@ log "SMOKE_N_ACT=${SMOKE_N_ACT}"
 log "SMOKE_SEED=${SMOKE_SEED}"
 log "SMOKE_MAX_COMPLETION_TOKENS=${SMOKE_MAX_COMPLETION_TOKENS}"
 log "SMOKE_REASONING_EFFORT=${SMOKE_REASONING_EFFORT}"
+log "PRECOMPUTE_SMOKE_CACHES=${PRECOMPUTE_SMOKE_CACHES}"
+log "REQUIRE_SMOKE_CACHE_PRECOMPUTE=${REQUIRE_SMOKE_CACHE_PRECOMPUTE}"
+log "SMOKE_PRECOMPUTE_RWR_CACHE=${SMOKE_PRECOMPUTE_RWR_CACHE}"
+log "SMOKE_PRECOMPUTE_NATIVE_STORE=${SMOKE_PRECOMPUTE_NATIVE_STORE}"
+log "SMOKE_RWR_PRECOMPUTE_PROFILE=${SMOKE_RWR_PRECOMPUTE_PROFILE}"
+log "SMOKE_RWR_TOP_K=${SMOKE_RWR_TOP_K}"
+log "SMOKE_RWR_LOE_TOP_K=${SMOKE_RWR_LOE_TOP_K}"
+log "SMOKE_SHORTEST_PATHS_MAX_PAIRS=${SMOKE_SHORTEST_PATHS_MAX_PAIRS}"
+log "SMOKE_SHORTEST_PATHS_MAX_PATHS=${SMOKE_SHORTEST_PATHS_MAX_PATHS}"
+log "SMOKE_NATIVE_PRECOMPUTE_MAX_GENES=${SMOKE_NATIVE_PRECOMPUTE_MAX_GENES}"
 log "MAX_MODEL_LEN=${MAX_MODEL_LEN}"
 log "MAX_NUM_BATCHED_TOKENS=${MAX_NUM_BATCHED_TOKENS}"
 log "MAX_NUM_SEQS=${MAX_NUM_SEQS}"
@@ -335,6 +548,7 @@ log "VLLM_WORKER_MULTIPROC_METHOD=${VLLM_WORKER_MULTIPROC_METHOD}"
 log "VLLM_ROCM_USE_AITER=${VLLM_ROCM_USE_AITER}"
 log "VLLM_USE_TRITON_FLASH_ATTN=${VLLM_USE_TRITON_FLASH_ATTN}"
 log "EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND=${EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND}"
+log "VLLM_NODE_LIST=${VLLM_NODE_LIST_CSV}"
 
 if [[ "${SMOKE_TEST_ONLY}" == "1" && "${RUN_SMOKE_TEST}" != "1" ]]; then
   log "SMOKE_TEST_ONLY=1 requires RUN_SMOKE_TEST=1."
@@ -342,6 +556,9 @@ if [[ "${SMOKE_TEST_ONLY}" == "1" && "${RUN_SMOKE_TEST}" != "1" ]]; then
 fi
 
 cleanup() {
+  if [[ -n "${RWR_HPC_SERVICE_NODE:-}" && -n "${RWR_HPC_SERVICE_URL:-}" ]]; then
+    curl -sf "${RWR_HPC_SERVICE_URL}/metrics" -o "${RWR_HPC_SERVICE_METRICS_PATH}" >/dev/null 2>&1 || true
+  fi
   ray stop --force >/dev/null 2>&1 || true
   jobs -pr | xargs -r kill || true
 }
@@ -371,6 +588,58 @@ export GLOO_IPV6=0
 export VLLM_HOST_IF=hsn0
 export VLLM_CARRY_OVER_ENV_VARS="NCCL_SOCKET_IFNAME,NCCL_SOCKET_FAMILY,NCCL_IB_DISABLE,NCCL_CROSS_NIC,NCCL_SOCKET_NTHREADS,NCCL_NSOCKS_PERTHREAD,GLOO_SOCKET_IFNAME,GLOO_SOCKET_FAMILY,GLOO_IPV6,VLLM_USE_V1,VLLM_WORKER_MULTIPROC_METHOD,VLLM_USE_RAY_COMPILED_DAG,VLLM_USE_RAY_SPMD_WORKER,VLLM_HOST_IF,VLLM_ROCM_USE_AITER,VLLM_USE_TRITON_FLASH_ATTN,SAFETENSORS_FAST_GPU"
 
+if [[ -n "${RWR_HPC_SERVICE_NODE}" ]]; then
+  if [[ -z "${RWR_HPC_FLIST}" || -z "${RWR_HPC_BUILD_DIR}" ]]; then
+    log "RWR++ service mode requires RWR_HPC_FLIST and RWR_HPC_BUILD_DIR."
+    exit 1
+  fi
+  RWR_HPC_SERVICE_EDGELIST_ARG="--rwr-hpc-edgelist-has-headers"
+  if [[ "${RWR_HPC_EDGELIST_HAS_HEADERS}" != "1" ]]; then
+    RWR_HPC_SERVICE_EDGELIST_ARG="--rwr-hpc-edgelist-no-headers"
+  fi
+  log "Starting RWR++ service on ${RWR_HPC_SERVICE_NODE} at ${RWR_HPC_SERVICE_URL}"
+  srun --overlap -N1 -n1 -w "${RWR_HPC_SERVICE_NODE}" --export=ALL \
+    bash --noprofile --norc -c "
+      set -euo pipefail
+      source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
+      source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
+      cd '${REPO_ROOT}'
+      export PYTHONPATH='${REPO_ROOT}':\${PYTHONPATH:-}
+      python scripts/rwr_hpc_worker_service.py \
+        --host 0.0.0.0 \
+        --port '${RWR_HPC_SERVICE_PORT}' \
+        --store-dir '${STORE_DIR}' \
+        --rwr-hpc-flist '${RWR_HPC_FLIST}' \
+        --rwr-hpc-build-dir '${RWR_HPC_BUILD_DIR}' \
+        --rwr-hpc-cache-dir '${RWR_HPC_CACHE_DIR}' \
+        --rwr-hpc-scratch-root '${RWR_HPC_SCRATCH_ROOT}/service' \
+        ${RWR_HPC_SERVICE_EDGELIST_ARG} \
+        --metrics-path '${RWR_HPC_SERVICE_METRICS_PATH}'
+    " >"${RWR_HPC_SERVICE_LOG}" 2>&1 &
+  RWR_HPC_SERVICE_PID=$!
+
+  RWR_SERVICE_READY=0
+  MAX_RWR_SERVICE_ATTEMPTS=$(( (RWR_HPC_SERVICE_HEALTH_MAX_WAIT_SECONDS + RWR_HPC_SERVICE_HEALTH_POLL_SECONDS - 1) / RWR_HPC_SERVICE_HEALTH_POLL_SECONDS ))
+  for attempt in $(seq 1 "${MAX_RWR_SERVICE_ATTEMPTS}"); do
+    if curl -sf "${RWR_HPC_SERVICE_URL}/health" >/dev/null 2>&1; then
+      RWR_SERVICE_READY=1
+      break
+    fi
+    if ! kill -0 "${RWR_HPC_SERVICE_PID}" 2>/dev/null; then
+      log "RWR++ service exited before becoming healthy."
+      tail -200 "${RWR_HPC_SERVICE_LOG}" || true
+      exit 1
+    fi
+    sleep "${RWR_HPC_SERVICE_HEALTH_POLL_SECONDS}"
+  done
+  if [[ "${RWR_SERVICE_READY}" != "1" ]]; then
+    log "RWR++ service did not become healthy within ${RWR_HPC_SERVICE_HEALTH_MAX_WAIT_SECONDS}s."
+    tail -200 "${RWR_HPC_SERVICE_LOG}" || true
+    exit 1
+  fi
+  log "RWR++ service is healthy."
+fi
+
 if [[ "${EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND}" == "ray" ]]; then
   log "Starting Ray head on ${HEAD_NODE}"
   srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
@@ -395,7 +664,7 @@ if [[ "${EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND}" == "ray" ]]; then
 
   sleep 10
 
-  for WORKER_NODE in "${NODE_LIST[@]:1}"; do
+  for WORKER_NODE in "${VLLM_NODE_LIST[@]:1}"; do
     WORKER_IP="$(resolve_hsn_ip "${WORKER_NODE}")"
     if [[ -z "${WORKER_IP}" ]]; then
       log "Failed to resolve worker node HSN IP for ${WORKER_NODE}"
@@ -540,6 +809,13 @@ PY
 )"
 log "SERVED_MODEL_ID=${SERVED_MODEL_ID}"
 
+export all_proxy="${MENTOR_ALL_PROXY}"
+export ftp_proxy="${MENTOR_FTP_PROXY}"
+export http_proxy="${MENTOR_HTTP_PROXY}"
+export https_proxy="${MENTOR_HTTPS_PROXY}"
+export no_proxy="${MENTOR_NO_PROXY}"
+log "Restored proxy environment for trajectory annotation APIs; no_proxy=${MENTOR_NO_PROXY}"
+
 RUN_FREEZE_PATH="${OUT_DIR}/run_freeze.json"
 python3 - <<PY
 import json
@@ -589,6 +865,7 @@ payload = {
         "max_tasks": ${MAX_TASKS@Q},
         "task_shard_index": ${TASK_SHARD_INDEX@Q},
         "task_shard_count": ${TASK_SHARD_COUNT@Q},
+        "task_shard_strategy": "sha256_module_key_mod",
     },
     "generation": {
         "max_steps": ${MAX_STEPS@Q},
@@ -600,6 +877,9 @@ payload = {
         "generator_top_p": ${GENERATOR_TOP_P@Q},
         "generator_max_completion_tokens": ${GENERATOR_MAX_COMPLETION_TOKENS@Q},
         "generator_actor_rationale_max_completion_tokens": ${GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS@Q},
+        "generator_verifier_repair_retry_count": ${GENERATOR_VERIFIER_REPAIR_RETRY_COUNT@Q},
+        "generator_actor_tool_repair_retry_count": ${GENERATOR_ACTOR_TOOL_REPAIR_RETRY_COUNT@Q},
+        "generator_prompt_token_limit": ${GENERATOR_PROMPT_TOKEN_LIMIT@Q},
         "generator_reasoning_effort": ${GENERATOR_REASONING_EFFORT@Q},
         "actor_sampling_strategy": ${ACTOR_SAMPLING_STRATEGY@Q},
         "selection_policy": ${SELECTION_POLICY@Q},
@@ -607,6 +887,43 @@ payload = {
         "pair_mining_strategy": ${PAIR_MINING_STRATEGY@Q},
         "tool_coverage_retry_count": ${TOOL_COVERAGE_RETRY_COUNT@Q},
         "recovery_rwr_top_k": ${RECOVERY_RWR_TOP_K@Q},
+        "allow_model_fallback": ${ALLOW_MODEL_FALLBACK@Q},
+        "mechanism_evidence_score_weights": {
+            "specific_claim": {
+                "grounding": 0.25,
+                "consensus": 0.25,
+                "specificity": 0.18,
+                "network_agreement": 0.12,
+                "stability": 0.10,
+                "cross_tool_agreement": 0.10,
+                "unsupported_claim_multiplier": 0.35
+            },
+            "abstention": {
+                "abstention": 0.60,
+                "network_agreement": 0.20,
+                "grounding": 0.20
+            },
+            "evidence_strength": {
+                "mygene_scale": 0.75,
+                "network_scale": 0.50,
+                "network_without_consensus_scale": 0.35,
+                "unsupported_threshold": 0.05
+            }
+        },
+        "mygene_cache_path": ${MYGENE_CACHE_PATH@Q},
+        "enrichment_cache_path": ${ENRICHMENT_CACHE_PATH@Q},
+        "enrichment_background_path": ${ENRICHMENT_BACKGROUND_PATH@Q},
+        "allow_network_mygene": ${ALLOW_NETWORK_MYGENE@Q},
+        "allow_network_enrichment": ${ALLOW_NETWORK_ENRICHMENT@Q},
+        "rwr_hpc_edgelist_has_headers": ${RWR_HPC_EDGELIST_HAS_HEADERS@Q},
+        "rwr_hpc_app_timeout_seconds": ${RWR_HPC_APP_TIMEOUT_SECONDS@Q},
+        "prefetch_mechanism_cache": ${PREFETCH_MECHANISM_CACHE@Q},
+        "prefetch_mygene_per_task": ${PREFETCH_MYGENE_PER_TASK@Q},
+        "prefetch_enrichment_top_k": ${PREFETCH_ENRICHMENT_TOP_K@Q},
+        "prefetch_max_tasks": ${PREFETCH_MAX_TASKS@Q},
+        "require_prefetch_success": ${REQUIRE_PREFETCH_SUCCESS@Q},
+        "proxy_env_restored_for_generation": "1",
+        "no_proxy": ${MENTOR_NO_PROXY@Q},
         "generator_timeout_seconds": ${GENERATOR_TIMEOUT_SECONDS@Q},
     },
     "smoke": {
@@ -618,10 +935,33 @@ payload = {
         "smoke_n_act": ${SMOKE_N_ACT@Q},
         "smoke_seed": ${SMOKE_SEED@Q},
         "smoke_actor_sampling_strategy": ${SMOKE_ACTOR_SAMPLING_STRATEGY@Q},
+        "precompute_smoke_caches": ${PRECOMPUTE_SMOKE_CACHES@Q},
+        "require_smoke_cache_precompute": ${REQUIRE_SMOKE_CACHE_PRECOMPUTE@Q},
+        "smoke_precompute_rwr_cache": ${SMOKE_PRECOMPUTE_RWR_CACHE@Q},
+        "smoke_precompute_native_store": ${SMOKE_PRECOMPUTE_NATIVE_STORE@Q},
+        "smoke_rwr_precompute_profile": ${SMOKE_RWR_PRECOMPUTE_PROFILE@Q},
+        "smoke_rwr_top_k": ${SMOKE_RWR_TOP_K@Q},
+        "smoke_rwr_loe_top_k": ${SMOKE_RWR_LOE_TOP_K@Q},
+        "smoke_shortest_paths_max_pairs": ${SMOKE_SHORTEST_PATHS_MAX_PAIRS@Q},
+        "smoke_shortest_paths_max_paths": ${SMOKE_SHORTEST_PATHS_MAX_PATHS@Q},
+        "smoke_native_precompute_max_genes": ${SMOKE_NATIVE_PRECOMPUTE_MAX_GENES@Q},
+    },
+    "rwr_hpc_service": {
+        "enabled": ${RWR_HPC_SERVICE_NODE_COUNT@Q} == "1",
+        "node_count": ${RWR_HPC_SERVICE_NODE_COUNT@Q},
+        "node": ${RWR_HPC_SERVICE_NODE@Q},
+        "ip": ${RWR_HPC_SERVICE_IP@Q},
+        "url": ${RWR_HPC_SERVICE_URL@Q},
+        "port": ${RWR_HPC_SERVICE_PORT@Q},
+        "timeout_seconds": ${RWR_HPC_SERVICE_TIMEOUT_SECONDS@Q},
+        "metrics_path": ${RWR_HPC_SERVICE_METRICS_PATH@Q},
+        "log_path": ${RWR_HPC_SERVICE_LOG@Q},
+        "topology": "first_vllm_nodes_last_rwr_hpc_service_node"
     },
     "vllm": {
         "head_node": ${HEAD_NODE@Q},
         "head_ip": ${HEAD_IP@Q},
+        "vllm_node_list": [node for node in ${VLLM_NODE_LIST_CSV@Q}.split(",") if node],
         "http_port": ${VLLM_HTTP_PORT@Q},
         "tensor_parallel_size": ${TENSOR_PARALLEL_SIZE@Q},
         "pipeline_parallel_size": ${PIPELINE_PARALLEL_SIZE@Q},
@@ -668,6 +1008,41 @@ if [[ "${RUN_SMOKE_TEST}" == "1" ]]; then
       log "Running preflight generator smoke test for task index: ${SMOKE_VALUE}"
     fi
 
+    if [[ "${PRECOMPUTE_SMOKE_CACHES}" == "1" ]]; then
+      SMOKE_REPORT_TOKEN="$(printf '%s_%s' "${SMOKE_SELECTOR}" "${SMOKE_VALUE}" | tr -c 'A-Za-z0-9_.-' '_')"
+      SMOKE_PRECOMPUTE_REPORT_PATH="${OUT_DIR}/smoke_cache_precompute_${SMOKE_REPORT_TOKEN}.json"
+      log "Precomputing smoke-test caches; report will be written to ${SMOKE_PRECOMPUTE_REPORT_PATH}"
+      if ! srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
+        bash --noprofile --norc -c "
+          set -euo pipefail
+          source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
+          source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
+          export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+          export HIP_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES}
+          unset ROCR_VISIBLE_DEVICES || true
+          cd '${REPO_ROOT}'
+          export PYTHONPATH='${REPO_ROOT}':\${PYTHONPATH:-}
+          python scripts/precompute_smoke_caches.py \
+            --tasks-path '${TASKS_PATH}' \
+            --store-dir '${STORE_DIR}' \
+            ${RWR_HPC_ARGS[*]@Q} \
+            --mygene-cache-path '${MYGENE_CACHE_PATH}' \
+            --enrichment-cache-path '${ENRICHMENT_CACHE_PATH}' \
+            ${MYGENE_NETWORK_ARG[*]@Q} \
+            ${ENRICHMENT_NETWORK_ARG[*]@Q} \
+            ${ENRICHMENT_BACKGROUND_ARG[*]@Q} \
+            ${PREFETCH_MECHANISM_ARG[*]@Q} \
+            ${SMOKE_RWR_PRECOMPUTE_ARG[*]@Q} \
+            ${SMOKE_NATIVE_PRECOMPUTE_ARG[*]@Q} \
+            ${REQUIRE_SMOKE_CACHE_PRECOMPUTE_ARG[*]@Q} \
+            --report-path '${SMOKE_PRECOMPUTE_REPORT_PATH}' \
+            ${SMOKE_TASK_FLAGS[*]@Q}
+        "; then
+        log "Smoke-test cache precompute failed. See ${SMOKE_PRECOMPUTE_REPORT_PATH} if it was written."
+        exit 1
+      fi
+    fi
+
     if ! srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
       bash --noprofile --norc -c "
         set -euo pipefail
@@ -681,6 +1056,14 @@ if [[ "${RUN_SMOKE_TEST}" == "1" ]]; then
         python scripts/smoke_test_generator.py \
           --tasks-path '${TASKS_PATH}' \
           --store-dir '${STORE_DIR}' \
+          ${RWR_HPC_ARGS[*]@Q} \
+          --mygene-cache-path '${MYGENE_CACHE_PATH}' \
+          --enrichment-cache-path '${ENRICHMENT_CACHE_PATH}' \
+          ${MYGENE_NETWORK_ARG[*]@Q} \
+          ${ENRICHMENT_NETWORK_ARG[*]@Q} \
+          ${ENRICHMENT_BACKGROUND_ARG[*]@Q} \
+          ${PREFETCH_MECHANISM_ARG[*]@Q} \
+          ${REQUIRE_PREFETCH_SUCCESS_ARG[*]@Q} \
           --generator-api-base 'http://${HEAD_IP}:${VLLM_HTTP_PORT}/v1' \
           --generator-model '${SERVED_MODEL_ID}' \
           --generator-api-mode ${GENERATOR_API_MODE} \
@@ -690,6 +1073,9 @@ if [[ "${RUN_SMOKE_TEST}" == "1" ]]; then
           --generator-temperature ${SMOKE_GENERATOR_TEMPERATURE} \
           --generator-max-completion-tokens ${SMOKE_MAX_COMPLETION_TOKENS} \
           --generator-actor-rationale-max-completion-tokens ${SMOKE_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS} \
+          --generator-verifier-repair-retry-count ${GENERATOR_VERIFIER_REPAIR_RETRY_COUNT} \
+          --generator-actor-tool-repair-retry-count ${GENERATOR_ACTOR_TOOL_REPAIR_RETRY_COUNT} \
+          --generator-prompt-token-limit ${GENERATOR_PROMPT_TOKEN_LIMIT} \
           --generator-reasoning-effort ${SMOKE_REASONING_EFFORT} \
           --actor-sampling-strategy ${SMOKE_ACTOR_SAMPLING_STRATEGY} \
           ${SMOKE_TASK_FLAGS[*]@Q}
@@ -720,6 +1106,13 @@ srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
       --tasks-path '${TASKS_PATH}' \
       --out-dir '${OUT_DIR}' \
       --store-dir '${STORE_DIR}' \
+      ${RWR_HPC_ARGS[*]@Q} \
+      --mygene-cache-path '${MYGENE_CACHE_PATH}' \
+      --enrichment-cache-path '${ENRICHMENT_CACHE_PATH}' \
+      ${MYGENE_NETWORK_ARG[*]@Q} \
+      ${ENRICHMENT_NETWORK_ARG[*]@Q} \
+      ${ENRICHMENT_BACKGROUND_ARG[*]@Q} \
+      ${PREFETCH_MECHANISM_ARG[*]@Q} \
       --candidate-source model_vllm \
       --generator-api-base 'http://${HEAD_IP}:${VLLM_HTTP_PORT}/v1' \
       --generator-model '${SERVED_MODEL_ID}' \
@@ -728,6 +1121,9 @@ srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
       --generator-top-p ${GENERATOR_TOP_P} \
       --generator-max-completion-tokens ${GENERATOR_MAX_COMPLETION_TOKENS} \
       --generator-actor-rationale-max-completion-tokens ${GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS} \
+      --generator-verifier-repair-retry-count ${GENERATOR_VERIFIER_REPAIR_RETRY_COUNT} \
+      --generator-actor-tool-repair-retry-count ${GENERATOR_ACTOR_TOOL_REPAIR_RETRY_COUNT} \
+      --generator-prompt-token-limit ${GENERATOR_PROMPT_TOKEN_LIMIT} \
       --generator-reasoning-effort ${GENERATOR_REASONING_EFFORT} \
       --actor-sampling-strategy ${ACTOR_SAMPLING_STRATEGY} \
       --selection-policy ${SELECTION_POLICY} \
@@ -735,8 +1131,9 @@ srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
       --pair-mining-strategy ${PAIR_MINING_STRATEGY} \
       --tool-coverage-retry-count ${TOOL_COVERAGE_RETRY_COUNT} \
       --recovery-rwr-top-k ${RECOVERY_RWR_TOP_K} \
+      ${MODEL_FALLBACK_ARG[*]@Q} \
       --generator-timeout-seconds ${GENERATOR_TIMEOUT_SECONDS} \
-      --max-tasks ${MAX_TASKS} \
+      ${MAX_TASKS_ARG[*]@Q} \
       --task-shard-index ${TASK_SHARD_INDEX} \
       --task-shard-count ${TASK_SHARD_COUNT} \
       --max-steps ${MAX_STEPS} \

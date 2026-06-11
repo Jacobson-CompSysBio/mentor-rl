@@ -26,7 +26,12 @@ import numpy as np
 from scipy import sparse
 
 
-STORE_FORMAT_VERSION = "mentor-rl-multiplex-store-v1"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+STORE_FORMAT_VERSION = "mentor-rl-multiplex-store-v2"
+DEFAULT_FULL_BRAIN_RWR_HPC_FLIST = Path(
+    "/lustre/orion/syb111/proj-shared/Personal/smithkp/projects/PASC_2026/full_brain/data/full_brain_flist.tsv"
+)
+DEFAULT_FULL_BRAIN_STORE_DIR = REPO_ROOT / "data" / "runtime" / "full_brain_multiplex_store"
 WEIGHT_DTYPE = np.float32
 INDEX_DTYPE = np.uint32
 INDPTR_DTYPE = np.uint64
@@ -269,6 +274,76 @@ def write_binary_array(path: Path, array: np.ndarray) -> None:
     contiguous.tofile(path)
 
 
+def write_binary_string_table(
+    values: list[str],
+    out_dir: Path,
+    *,
+    data_filename: str,
+    offsets_filename: str,
+) -> dict[str, str]:
+    """Write UTF-8 strings as binary data plus uint64 offsets."""
+
+    data = bytearray()
+    offsets = [0]
+    for value in values:
+        encoded = str(value).encode("utf-8")
+        data.extend(encoded)
+        offsets.append(len(data))
+
+    data_path = out_dir / data_filename
+    offsets_path = out_dir / offsets_filename
+    data_path.parent.mkdir(parents=True, exist_ok=True)
+    data_path.write_bytes(bytes(data))
+    write_binary_array(offsets_path, np.asarray(offsets, dtype=INDPTR_DTYPE))
+    return {
+        "data_file": data_filename,
+        "offsets_file": offsets_filename,
+    }
+
+
+def read_binary_string_table(data_path: Path, offsets_path: Path) -> list[str]:
+    """Read a binary string table produced by `write_binary_string_table`."""
+
+    offsets = np.fromfile(offsets_path, dtype=INDPTR_DTYPE)
+    if len(offsets) == 0:
+        return []
+    data = data_path.read_bytes()
+    if int(offsets[-1]) != len(data):
+        raise ValueError(f"String table offsets do not match data length: {offsets_path}")
+    values = []
+    for start, end in zip(offsets[:-1], offsets[1:]):
+        values.append(data[int(start):int(end)].decode("utf-8"))
+    return values
+
+
+def write_binary_layer_metadata(rows: list[dict[str, object]], out_dir: Path) -> dict[str, str]:
+    """Write fixed-width layer metadata and layer names as binary files."""
+
+    layer_names = [str(row["layer_name"]) for row in rows]
+    files = write_binary_string_table(
+        layer_names,
+        out_dir,
+        data_filename="layer_names_data.bin",
+        offsets_filename="layer_names_offsets.bin",
+    )
+    node_counts = np.asarray([int(row["node_count"]) for row in rows], dtype=INDEX_DTYPE)
+    edge_counts = np.asarray([int(row["undirected_edge_count"]) for row in rows], dtype=INDPTR_DTYPE)
+    stored_nnzs = np.asarray([int(row["stored_nnz"]) for row in rows], dtype=INDPTR_DTYPE)
+
+    write_binary_array(out_dir / "layer_node_counts.bin", node_counts)
+    write_binary_array(out_dir / "layer_undirected_edge_counts.bin", edge_counts)
+    write_binary_array(out_dir / "layer_stored_nnz.bin", stored_nnzs)
+
+    files.update(
+        {
+            "node_counts_file": "layer_node_counts.bin",
+            "undirected_edge_counts_file": "layer_undirected_edge_counts.bin",
+            "stored_nnz_file": "layer_stored_nnz.bin",
+        }
+    )
+    return files
+
+
 def write_gene_table(genes: list[str], out_dir: Path) -> Path:
     """Write the global gene vocabulary as a simple TSV lookup table."""
 
@@ -325,6 +400,7 @@ def build_store(
     out_dir: str,
     limit_layers: int | None = None,
     progress_path: str | None = None,
+    write_legacy_text_metadata: bool = True,
 ) -> dict[str, object]:
     """Build the binary multiplex store and return the manifest payload."""
 
@@ -341,6 +417,7 @@ def build_store(
             "source_flist": multiplex_flist,
             "out_dir": str(out_path),
             "limit_layers": limit_layers,
+            "write_legacy_text_metadata": write_legacy_text_metadata,
         },
     )
     current_stage = "parse_flist"
@@ -380,18 +457,29 @@ def build_store(
         current_stage = "write_gene_table"
         progress.update(
             current_stage,
-            "Writing global gene table.",
+            "Writing global gene metadata.",
             completed_in_stage=0,
             total_in_stage=1,
             metrics={"num_genes": num_genes},
         )
-        write_gene_table(genes, out_path)
+        gene_binary_files = write_binary_string_table(
+            genes,
+            out_path,
+            data_filename="genes_data.bin",
+            offsets_filename="genes_offsets.bin",
+        )
+        gene_table_path = write_gene_table(genes, out_path) if write_legacy_text_metadata else None
         progress.update(
             current_stage,
-            "Global gene table written.",
+            "Global gene metadata written.",
             completed_in_stage=1,
             total_in_stage=1,
-            metrics={"num_genes": num_genes, "gene_table": "genes.tsv"},
+            metrics={
+                "num_genes": num_genes,
+                "gene_data_file": gene_binary_files["data_file"],
+                "gene_offsets_file": gene_binary_files["offsets_file"],
+                "gene_table": gene_table_path.name if gene_table_path is not None else None,
+            },
         )
 
         current_stage = "build_layers"
@@ -496,10 +584,11 @@ def build_store(
             aggregate_csr.data.astype(WEIGHT_DTYPE, copy=False),
         )
 
-        write_layer_table(layer_rows, out_path)
+        layer_binary_files = write_binary_layer_metadata(layer_rows, out_path)
+        layer_table_path = write_layer_table(layer_rows, out_path) if write_legacy_text_metadata else None
         progress.update(
             current_stage,
-            "Aggregate graph arrays and layer table written.",
+            "Aggregate graph arrays and layer metadata written.",
             completed_in_stage=1,
             total_in_stage=1,
             metrics={
@@ -531,8 +620,12 @@ def build_store(
                 "indptr": str(np.dtype(INDPTR_DTYPE)),
             },
             "files": {
-                "gene_table": "genes.tsv",
-                "layer_table": "layers.tsv",
+                "gene_table": gene_table_path.name if gene_table_path is not None else None,
+                "layer_table": layer_table_path.name if layer_table_path is not None else None,
+                "binary_metadata": {
+                    "genes": gene_binary_files,
+                    "layers": layer_binary_files,
+                },
                 "aggregate": {
                     "indptr_file": "aggregate_indptr.bin",
                     "indices_file": "aggregate_indices.bin",
@@ -542,6 +635,7 @@ def build_store(
                 },
             },
             "layers": manifest_layers,
+            "write_legacy_text_metadata": write_legacy_text_metadata,
             "build_time_seconds": round(time.time() - start_time, 3),
         }
         with (out_path / "manifest.json").open("w", encoding="utf-8") as handle:
@@ -575,8 +669,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     """Create the command-line interface for store building."""
 
     parser = argparse.ArgumentParser(description="Build a binary multiplex CSR store.")
-    parser.add_argument("--multiplex-flist", required=True, help="Path to the multiplex flist.")
-    parser.add_argument("--out-dir", required=True, help="Directory where the store will be written.")
+    parser.add_argument("--multiplex-flist", default=None, help="Path to the multiplex flist.")
+    parser.add_argument("--out-dir", default=None, help="Directory where the store will be written.")
+    parser.add_argument(
+        "--use-full-brain-rwr-hpc",
+        action="store_true",
+        help="Build from Ken's updated full-brain RWR-HPC flist.",
+    )
     parser.add_argument(
         "--limit-layers",
         type=int,
@@ -588,7 +687,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional JSON file used to track build progress. Defaults to OUT_DIR/progress.json.",
     )
+    parser.add_argument(
+        "--no-legacy-text-metadata",
+        action="store_true",
+        help="Do not write genes.tsv or layers.tsv; emit binary metadata only.",
+    )
     return parser
+
+
+def resolve_build_inputs(args: argparse.Namespace) -> tuple[Path, Path]:
+    """Resolve flist and output paths for CLI builds."""
+
+    if args.use_full_brain_rwr_hpc:
+        multiplex_flist = Path(args.multiplex_flist) if args.multiplex_flist else DEFAULT_FULL_BRAIN_RWR_HPC_FLIST
+        out_dir = Path(args.out_dir) if args.out_dir else DEFAULT_FULL_BRAIN_STORE_DIR
+        return multiplex_flist, out_dir
+
+    if args.multiplex_flist is None or args.out_dir is None:
+        raise ValueError("Provide --multiplex-flist and --out-dir, or use --use-full-brain-rwr-hpc.")
+    return Path(args.multiplex_flist), Path(args.out_dir)
 
 
 def main() -> None:
@@ -596,11 +713,13 @@ def main() -> None:
 
     parser = build_arg_parser()
     args = parser.parse_args()
+    multiplex_flist, out_dir = resolve_build_inputs(args)
     manifest = build_store(
-        multiplex_flist=args.multiplex_flist,
-        out_dir=args.out_dir,
+        multiplex_flist=str(multiplex_flist),
+        out_dir=str(out_dir),
         limit_layers=args.limit_layers,
         progress_path=args.progress_path,
+        write_legacy_text_metadata=not args.no_legacy_text_metadata,
     )
     print(
         json.dumps(
@@ -608,7 +727,7 @@ def main() -> None:
                 "format_version": manifest["format_version"],
                 "num_genes": manifest["num_genes"],
                 "num_layers": manifest["num_layers"],
-                "out_dir": args.out_dir,
+                "out_dir": str(out_dir),
             },
             sort_keys=True,
         )

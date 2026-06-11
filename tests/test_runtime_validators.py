@@ -166,6 +166,186 @@ class RuntimeValidatorTests(unittest.TestCase):
         self.assertFalse(result.valid)
         self.assertGreaterEqual(len(result.errors), 2)
 
+    def test_validate_tool_action_schema_accepts_rwr_plus_plus_names(self) -> None:
+        actions = [
+            ToolAction(
+                tool_name="rwr",
+                arguments={"seed_genes": ["ENSG00000068024"], "layers": ["ppi"], "top_k": 5},
+                call_id="call_rwr",
+            ),
+            ToolAction(
+                tool_name="rwr",
+                arguments={"seed_genes": ["ENSG00000068024"], "layer": "ppi", "top_k": 5},
+                call_id="call_rwr_layer_alias",
+            ),
+            ToolAction(
+                tool_name="rwr_loe",
+                arguments={
+                    "seed_genes": ["ENSG00000068024"],
+                    "query_genes": ["ENSG00000113916"],
+                    "top_k": 5,
+                },
+                call_id="call_rwr_loe",
+            ),
+            ToolAction(
+                tool_name="shortest_paths",
+                arguments={
+                    "source_genes": ["ENSG00000068024"],
+                    "target_genes": ["ENSG00000113916"],
+                    "merge_method": "max",
+                },
+                call_id="call_shortest_paths",
+            ),
+            ToolAction(
+                tool_name="get_rank",
+                arguments={
+                    "source_gene": "ENSG00000068024",
+                    "target_gene": "ENSG00000113916",
+                },
+                call_id="call_get_rank",
+            ),
+            ToolAction(
+                tool_name="get_distance",
+                arguments={
+                    "gene_a": "ENSG00000068024",
+                    "gene_b": "ENSG00000113916",
+                    "distance_metric": "spearman",
+                },
+                call_id="call_get_distance",
+            ),
+            ToolAction(
+                tool_name="get_spearman",
+                arguments={
+                    "gene_a": "ENSG00000068024",
+                    "gene_b": "ENSG00000113916",
+                },
+                call_id="call_get_spearman",
+            ),
+            ToolAction(
+                tool_name="get_pearson",
+                arguments={
+                    "gene_a": "ENSG00000068024",
+                    "gene_b": "ENSG00000113916",
+                },
+                call_id="call_get_pearson",
+            ),
+            ToolAction(
+                tool_name="get_dot_similarity",
+                arguments={
+                    "gene_a": "ENSG00000068024",
+                    "gene_b": "ENSG00000113916",
+                },
+                call_id="call_get_dot_similarity",
+            ),
+            ToolAction(
+                tool_name="get_rank_vector_summary",
+                arguments={"seed_genes": ["ENSG00000068024"], "top_k": 5},
+                call_id="call_get_rank_vector_summary",
+            ),
+            ToolAction(
+                tool_name="get_encoding_summary",
+                arguments={"seed_genes": ["ENSG00000068024"], "top_k": 5},
+                call_id="call_get_encoding_summary",
+            ),
+            ToolAction(
+                tool_name="get_gene_layers",
+                arguments={"gene": "ENSG00000068024"},
+                call_id="call_get_gene_layers",
+            ),
+            ToolAction(
+                tool_name="get_nodes_by_layer",
+                arguments={"gene": "ENSG00000068024"},
+                call_id="call_get_nodes_by_layer",
+            ),
+            ToolAction(
+                tool_name="get_layer_stats",
+                arguments={"top_k": 5},
+                call_id="call_get_layer_stats",
+            ),
+            ToolAction(
+                tool_name="get_path_layer_counts",
+                arguments={
+                    "source_genes": ["ENSG00000068024"],
+                    "target_genes": ["ENSG00000113916"],
+                    "top_k": 5,
+                },
+                call_id="call_get_path_layer_counts",
+            ),
+            ToolAction(
+                tool_name="get_component_summary",
+                arguments={"genes": ["ENSG00000068024"], "max_components": 5},
+                call_id="call_get_component_summary",
+            ),
+            ToolAction(
+                tool_name="get_seed_essentiality",
+                arguments={"seed_genes": ["ENSG00000068024", "ENSG00000113916"], "top_k": 2},
+                call_id="call_get_seed_essentiality",
+            ),
+            ToolAction(
+                tool_name="get_layer_ablation",
+                arguments={"seed_genes": ["ENSG00000068024"], "top_k": 5},
+                call_id="call_get_layer_ablation",
+            ),
+            ToolAction(
+                tool_name="get_node_perturbation",
+                arguments={
+                    "seed_genes": ["ENSG00000068024"],
+                    "perturb_genes": ["ENSG00000113916"],
+                    "top_k": 5,
+                },
+                call_id="call_get_node_perturbation",
+            ),
+        ]
+
+        for action in actions:
+            with self.subTest(tool_name=action.tool_name):
+                result = validate_tool_action_schema(action)
+
+                self.assertTrue(result.valid, result.errors)
+
+    def test_validate_tool_action_schema_rejects_low_level_rwr_plus_plus_args(self) -> None:
+        action = ToolAction(
+            tool_name="rwr",
+            arguments={"seed_genes": ["ENSG00000068024"], "seed_file": "/tmp/seeds.txt"},
+            call_id="call_rwr",
+        )
+
+        result = validate_tool_action_schema(action)
+
+        self.assertFalse(result.valid)
+        self.assertTrue(any("Unexpected argument" in error for error in result.errors))
+
+    def test_validate_tool_action_semantics_checks_rwr_plus_plus_genes_and_layers(self) -> None:
+        action = ToolAction(
+            tool_name="rwr",
+            arguments={"seed_genes": ["ENSG00000068024"], "layers": ["unknown_layer"]},
+            call_id="call_rwr",
+        )
+
+        result = validate_tool_action_semantics(
+            action,
+            available_gene_ids={"ENSG00000068024"},
+            available_layers={"ppi"},
+        )
+
+        self.assertFalse(result.valid)
+        self.assertTrue(any("unknown layers" in error for error in result.errors))
+
+    def test_validate_tool_action_semantics_checks_rwr_single_layer_alias(self) -> None:
+        action = ToolAction(
+            tool_name="rwr",
+            arguments={"seed_genes": ["ENSG00000068024"], "layer": "ppi"},
+            call_id="call_rwr",
+        )
+
+        result = validate_tool_action_semantics(
+            action,
+            available_gene_ids={"ENSG00000068024"},
+            available_layers={"ppi"},
+        )
+
+        self.assertTrue(result.valid, result.errors)
+
     def test_validate_tool_action_semantics_checks_gene_and_layer_membership(self) -> None:
         interpretation, state = initialize_state_from_corum_task(_build_task_row(), max_budget=4)
         action = ToolAction(

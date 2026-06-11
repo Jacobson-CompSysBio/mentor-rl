@@ -2,11 +2,15 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import networkx as nx
 
 from runtime.tools import (
+    DEFAULT_GPROFILER_SOURCES,
+    ToolExecutionError,
     build_multiplex_index,
+    enrich_gene_set,
     get_neighbors,
     induce_subgraph,
     load_mygene_cache,
@@ -136,6 +140,111 @@ class RuntimeToolsTests(unittest.TestCase):
             loaded = load_mygene_cache(str(cache_path))
 
         self.assertEqual(json.dumps(loaded, sort_keys=True), json.dumps(cache, sort_keys=True))
+
+    def test_query_mygene_network_expands_default_fields_and_writes_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = Path(tmpdir) / "mygene_cache.json"
+
+            with patch(
+                "runtime.tools._fetch_mygene_hits",
+                return_value=[
+                    {
+                        "_id": "1",
+                        "query": "ENSG1",
+                        "symbol": "GENE1",
+                        "summary": "A useful annotation.",
+                        "type_of_gene": "protein-coding",
+                        "go": {"BP": [{"id": "GO:1", "term": "toy process"}]},
+                    }
+                ],
+            ) as fetch:
+                result = query_mygene(
+                    "ENSG1",
+                    cache={},
+                    cache_path=str(cache_path),
+                    allow_network=True,
+                )
+
+            self.assertTrue(cache_path.exists())
+
+        self.assertFalse(result.is_empty)
+        self.assertEqual(result.provenance["source"], "network")
+        self.assertIn("summary", result.payload["requested_fields"])
+        self.assertIn("go", result.payload["requested_fields"])
+        self.assertEqual(result.payload["results"][0]["type_of_gene"], "protein-coding")
+        fetch.assert_called_once()
+
+    def test_enrich_gene_set_uses_network_cache_and_custom_background(self) -> None:
+        cache: dict[str, dict] = {}
+        with patch(
+            "runtime.tools._fetch_gprofiler_enrichment",
+            return_value={
+                "results": [
+                    {
+                        "source": "GO:BP",
+                        "native": "GO:0000001",
+                        "name": "toy process",
+                        "p_value": 0.001,
+                        "significant": True,
+                        "intersection_size": 2,
+                        "query_size": 3,
+                        "precision": 0.67,
+                    }
+                ],
+                "raw_result_count": 1,
+                "meta": {"version": "fake"},
+            },
+        ) as fetch:
+            first = enrich_gene_set(
+                ["ENSG1", "ENSG2", "ENSG3"],
+                background_gene_ids=["ENSG1", "ENSG2", "ENSG3", "ENSG4"],
+                sources=["GO:BP"],
+                cache=cache,
+                allow_network=True,
+            )
+            second = enrich_gene_set(
+                ["ENSG1", "ENSG2", "ENSG3"],
+                background_gene_ids=["ENSG1", "ENSG2", "ENSG3", "ENSG4"],
+                sources=["GO:BP"],
+                cache=cache,
+                allow_network=False,
+            )
+
+        self.assertFalse(first.is_empty)
+        self.assertEqual(first.provenance["source"], "network")
+        self.assertEqual(second.provenance["source"], "cache")
+        self.assertEqual(first.payload["background_gene_count"], 4)
+        self.assertEqual(first.payload["results"][0]["native"], "GO:0000001")
+        fetch.assert_called_once()
+
+    def test_enrich_gene_set_default_sources_exclude_corum(self) -> None:
+        self.assertNotIn("CORUM", DEFAULT_GPROFILER_SOURCES)
+
+        with patch(
+            "runtime.tools._fetch_gprofiler_enrichment",
+            return_value={"results": [], "raw_result_count": 0, "meta": {}},
+        ) as fetch:
+            enrich_gene_set(
+                ["ENSG1", "ENSG2"],
+                background_gene_ids=["ENSG1", "ENSG2", "ENSG3"],
+                sources=None,
+                cache={},
+                allow_network=True,
+            )
+
+        requested_sources = fetch.call_args.kwargs["sources"]
+        self.assertEqual(requested_sources, list(DEFAULT_GPROFILER_SOURCES))
+        self.assertNotIn("CORUM", requested_sources)
+
+    def test_enrich_gene_set_rejects_corum_only_sources(self) -> None:
+        with self.assertRaisesRegex(ToolExecutionError, "no supported enrichment sources"):
+            enrich_gene_set(
+                ["ENSG1", "ENSG2"],
+                background_gene_ids=["ENSG1", "ENSG2", "ENSG3"],
+                sources=["CORUM"],
+                cache={},
+                allow_network=True,
+            )
 
 
 if __name__ == "__main__":

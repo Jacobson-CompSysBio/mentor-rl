@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Generate shared-prefix trajectories from canonical CORUM tasks.
+"""Generate shared-prefix trajectories from canonical MENTOR-RL tasks.
 
 This script is the first end-to-end trajectory generator for the DPO pipeline.
 It uses the existing runtime, state, validation, and scoring layers to:
 
-1. load canonical CORUM tasks
+1. load canonical task rows
 2. initialize the visible runtime state
 3. build deterministic actor candidates
 4. execute tool calls in the runtime
@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import json
 import math
 import os
@@ -71,7 +72,7 @@ from runtime import (
     clone_interpretation,
     clone_state,
     decrement_budget,
-    initialize_state_from_corum_task,
+    initialize_state_from_corum_task as initialize_state_from_task,
     normalize_tool_arguments,
     record_tool_call,
     replace_mechanistic_labels,
@@ -84,33 +85,64 @@ from runtime import (
 )
 
 
-DEFAULT_TASKS_PATH = REPO_ROOT / "data" / "corum_corpus" / "tasks.train.jsonl"
-DEFAULT_OUT_DIR = REPO_ROOT / "data" / "corum_trajectories"
+DEFAULT_TASKS_PATH = REPO_ROOT / "data" / "gw_dendrogram_corpus" / "tasks.train.jsonl"
+DEFAULT_OUT_DIR = REPO_ROOT / "data" / "gw_dendrogram_trajectories"
 DEFAULT_STORE_DIR = REPO_ROOT / "data" / "humannet_multiplex_store"
+DEFAULT_RWR_HPC_BUILD_DIR = REPO_ROOT / "external" / "rwr_hpc" / "build_frontier"
+DEFAULT_RWR_HPC_CACHE_DIR = REPO_ROOT / "data" / "runtime" / "rwr_hpc_cache"
+DEFAULT_FULL_BRAIN_RWR_HPC_FLIST = Path(
+    "/lustre/orion/syb111/proj-shared/Personal/smithkp/projects/PASC_2026/full_brain/data/full_brain_flist.tsv"
+)
+DEFAULT_FULL_BRAIN_STORE_DIR = REPO_ROOT / "data" / "runtime" / "full_brain_multiplex_store"
+DEFAULT_USE_FULL_BRAIN_RWR_HPC = True
+DEFAULT_REQUIRE_RWR_HPC = True
+DEFAULT_RWR_HPC_EDGELIST_HAS_HEADERS = True
 DEFAULT_PROGRESS_FILENAME = "progress.json"
 DEFAULT_GENERATOR_API_BASE = "http://127.0.0.1:8000/v1"
 DEFAULT_GENERATOR_API_KEY_ENV = "OPENAI_API_KEY"
 STRUCTURED_OUTPUT_MAX_TOKENS = 2048
 DEFAULT_ACTOR_RATIONALE_MAX_TOKENS = 2048
+DEFAULT_VERIFIER_REPAIR_RETRY_COUNT = 1
 DEFAULT_PREFERENCE_PAIR_MARGIN = 0.10
 DEFAULT_SELECTION_SCORE_EPSILON = 0.02
 DEFAULT_RECOVERY_RWR_TOP_K = 500
 GPT_OSS_FINAL_CHANNEL_PREFIX = "<|start|>assistant<|channel|>final<|message|>"
-PROMPT_TEXT_MAX_CHARS = 700
-PROMPT_ACTOR_REASONING_MAX_CHARS = 1200
-PROMPT_LIST_PREVIEW_LIMIT = 20
-PROMPT_RWR_RESULT_PREVIEW_LIMIT = 30
-PROMPT_RWR_NON_SEED_PREVIEW_LIMIT = 40
-PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT = 250
-PROMPT_LAYER_PREVIEW_LIMIT = 12
-PROMPT_EDGE_PREVIEW_LIMIT = 32
+PROMPT_TEXT_MAX_CHARS = 500
+PROMPT_ACTOR_REASONING_MAX_CHARS = 800
+PROMPT_LIST_PREVIEW_LIMIT = 12
+PROMPT_RWR_RESULT_PREVIEW_LIMIT = 8
+PROMPT_RWR_NON_SEED_PREVIEW_LIMIT = 10
+PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT = 40
+PROMPT_LAYER_PREVIEW_LIMIT = 8
+PROMPT_EDGE_PREVIEW_LIMIT = 12
 PROMPT_MYGENE_PREVIEW_LIMIT = 5
-PROMPT_TOOL_REFERENCE_GENE_LIMIT = 250
-PROMPT_TOOL_REFERENCE_LAYER_LIMIT = 40
+PROMPT_TOOL_REFERENCE_GENE_LIMIT = 80
+PROMPT_TOOL_REFERENCE_LAYER_LIMIT = 24
+PROMPT_EVIDENCE_SUMMARY_LIMIT = 8
+PROMPT_EVIDENCE_SUPPORT_GENE_LIMIT = 20
+PROMPT_LABEL_EVIDENCE_ID_LIMIT = 6
+PROMPT_GENE_SET_HANDLE_SAMPLE_LIMIT = 12
+PROMPT_PRIOR_TOOL_ACTION_LIMIT = 8
+PROMPT_QUERY_TEXT_MAX_CHARS = 800
+DEFAULT_GENERATOR_PROMPT_TOKEN_LIMIT = 0
+DEFAULT_ACTOR_TOOL_REPAIR_RETRY_COUNT = 1
+VERIFIER_REPAIR_RAW_TEXT_MAX_CHARS = 4000
+ACTOR_REPAIR_RAW_TEXT_MAX_CHARS = 4000
 ACTOR_SAMPLING_STRATEGIES = ("batch", "verbalized")
 SELECTION_POLICIES = ("score", "task_quality")
 PAIR_MINING_STRATEGIES = ("score_margin", "quality_balanced")
+VISIBLE_SEED_GENES_HANDLE = "__visible_seed_genes__"
+CURRENT_CANDIDATE_GROUP_HANDLE = "__current_candidate_group__"
 ACTOR_DIVERSITY_DIRECTIVES = (
+    {
+        "name": "mechanism_annotation_probe",
+        "instruction": (
+            "If the mechanism is not already grounded in observed annotations or enrichment, "
+            "prefer enrich_gene_set for the current candidate group or query_mygene for one "
+            "representative Ensembl seed before making a specific mechanism claim."
+        ),
+        "preferred_tools": ["enrich_gene_set", "query_mygene"],
+    },
     {
         "name": "best_direct_decision",
         "instruction": (
@@ -130,18 +162,18 @@ ACTOR_DIVERSITY_DIRECTIVES = (
     {
         "name": "pair_connectivity_probe",
         "instruction": (
-            "Explore pairwise connectivity. Prefer shortest_path between two informative "
+            "Explore pairwise connectivity. Prefer shortest_paths between two informative "
             "valid genes when at least two valid genes are available."
         ),
-        "preferred_tools": ["shortest_path"],
+        "preferred_tools": ["shortest_paths"],
     },
     {
         "name": "neighborhood_or_expansion_probe",
         "instruction": (
             "Explore local neighborhood or expansion evidence. Prefer get_neighbors for "
-            "explanation/none checks, and rwr_multiplex for recovery/refinement expansion."
+            "explanation/none checks, and rwr for recovery/refinement expansion."
         ),
-        "preferred_tools": ["get_neighbors", "rwr_multiplex"],
+        "preferred_tools": ["get_neighbors", "rwr"],
     },
 )
 TASK_ACTOR_DIVERSITY_DIRECTIVES = {
@@ -149,11 +181,11 @@ TASK_ACTOR_DIVERSITY_DIRECTIVES = {
         {
             "name": "recovery_rwr_expansion",
             "instruction": (
-                "Explore recovery expansion. Prefer rwr_multiplex from the current "
+                "Explore recovery expansion. Prefer rwr from the current "
                 "seed/candidate group with top_k at least 500 to identify plausible "
                 "missing complex members beyond the seeds."
             ),
-            "preferred_tools": ["rwr_multiplex"],
+            "preferred_tools": ["rwr"],
         },
         {
             "name": "recovery_neighbor_expansion",
@@ -175,9 +207,9 @@ TASK_ACTOR_DIVERSITY_DIRECTIVES = {
             "name": "recovery_pair_connectivity",
             "instruction": (
                 "Check pairwise graph support among informative candidate genes. Prefer "
-                "shortest_path when at least two valid genes are available."
+                "shortest_paths when at least two valid genes are available."
             ),
-            "preferred_tools": ["shortest_path"],
+            "preferred_tools": ["shortest_paths"],
         },
         {
             "name": "recovery_direct_decision",
@@ -201,17 +233,17 @@ TASK_ACTOR_DIVERSITY_DIRECTIVES = {
             "name": "refinement_rwr_support",
             "instruction": (
                 "Use restart-walk support to distinguish coherent members from weaker "
-                "ones. Prefer rwr_multiplex from the current candidate group."
+                "ones. Prefer rwr from the current candidate group."
             ),
-            "preferred_tools": ["rwr_multiplex"],
+            "preferred_tools": ["rwr"],
         },
         {
             "name": "refinement_pair_connectivity",
             "instruction": (
-                "Probe whether questionable gene pairs are connected. Prefer shortest_path "
+                "Probe whether questionable gene pairs are connected. Prefer shortest_paths "
                 "between two informative valid genes."
             ),
-            "preferred_tools": ["shortest_path"],
+            "preferred_tools": ["shortest_paths"],
         },
         {
             "name": "refinement_direct_decision",
@@ -234,10 +266,10 @@ TASK_ACTOR_DIVERSITY_DIRECTIVES = {
         {
             "name": "none_pair_disconfirmation",
             "instruction": (
-                "Test whether seed genes are connected. Prefer shortest_path when at least "
+                "Test whether seed genes are connected. Prefer shortest_paths when at least "
                 "two valid genes are available."
             ),
-            "preferred_tools": ["shortest_path"],
+            "preferred_tools": ["shortest_paths"],
         },
         {
             "name": "none_neighbor_check",
@@ -260,10 +292,11 @@ TASK_ACTOR_DIVERSITY_DIRECTIVES = {
         {
             "name": "explanation_annotation_decision",
             "instruction": (
-                "Use visible annotations and context to decide the strongest shared "
-                "mechanism when they are already sufficient."
+                "Ground the mechanism in annotation evidence. Prefer enrich_gene_set for "
+                "the seed set, or query_mygene for one representative Ensembl seed when "
+                "no enrichment or annotation evidence has been observed yet."
             ),
-            "preferred_tools": [],
+            "preferred_tools": ["enrich_gene_set", "query_mygene"],
         },
         {
             "name": "explanation_subgraph_validation",
@@ -277,9 +310,9 @@ TASK_ACTOR_DIVERSITY_DIRECTIVES = {
             "name": "explanation_pair_connectivity",
             "instruction": (
                 "Probe pairwise connectivity when graph evidence would clarify the "
-                "mechanism. Prefer shortest_path."
+                "mechanism. Prefer shortest_paths."
             ),
-            "preferred_tools": ["shortest_path"],
+            "preferred_tools": ["shortest_paths"],
         },
         {
             "name": "explanation_neighbor_context",
@@ -295,34 +328,42 @@ TOOL_COVERAGE_DIRECTIVES = {
     "recovery": {
         "name": "tool_coverage_recovery_expansion",
         "instruction": (
-            "This retry exists because no usable tool-backed actor candidate was observed. "
+            "This retry exists because no usable RWR++ actor candidate was observed. "
             "Choose a valid runtime tool if any valid graph argument can be formed; prefer "
-            "rwr_multiplex with top_k at least 500 for recovery expansion, then "
+            "rwr with top_k at least 500 for recovery expansion, then "
             "get_neighbors or induce_subgraph."
         ),
-        "preferred_tools": ["rwr_multiplex", "get_neighbors", "induce_subgraph"],
+        "preferred_tools": ["rwr", "get_neighbors", "induce_subgraph"],
     },
     "refinement": {
         "name": "tool_coverage_refinement_probe",
         "instruction": (
-            "This retry exists because no usable tool-backed actor candidate was observed. "
+            "This retry exists because no usable RWR++ actor candidate was observed. "
             "Choose a valid runtime tool if any valid graph argument can be formed; prefer "
-            "induce_subgraph for pruning evidence, then rwr_multiplex or shortest_path."
+            "rwr for multiplex support, then shortest_paths, then induce_subgraph for pruning evidence."
         ),
-        "preferred_tools": ["induce_subgraph", "rwr_multiplex", "shortest_path"],
+        "preferred_tools": ["rwr", "shortest_paths", "induce_subgraph"],
     },
 }
 PAIR_CATEGORY_PRIORITIES = {
     "recovery_expansion": 0,
-    "tool_supported_improvement": 1,
-    "refinement_precision": 2,
-    "none_abstention": 3,
-    "score_margin": 4,
-    "mechanism_label_only": 5,
-    "conservative_stop": 6,
+    "refinement_precision": 1,
+    "tool_supported_improvement": 2,
+    "task_correctness_improvement": 3,
+    "explanation_preservation": 4,
+    "recovery_recall": 5,
+    "refinement_jaccard": 6,
+    "abstention_correct": 7,
+    "calibrated_abstention": 8,
+    "mechanism_evidence_improvement": 9,
+    "unsupported_mechanism_rejected": 10,
+    "none_abstention": 11,
+    "score_margin": 12,
+    "mechanism_label_only": 13,
+    "conservative_stop": 14,
 }
 TRAJECTORY_STAGES = (
-    ("load_tasks", "Load canonical CORUM tasks"),
+    ("load_tasks", "Load canonical task rows"),
     ("initialize_runtime", "Initialize deterministic runtime"),
     ("generate_trajectories", "Generate shared-prefix trajectories"),
     ("write_manifest", "Write run manifest"),
@@ -355,27 +396,71 @@ Actor rules:
   previous successful tool observation. Do not invent new ENSG ids.
 - Prefer the cheapest action that is most likely to reduce uncertainty.
 - If current visible evidence is already enough, do not call a tool.
+- For explanation tasks, the visible seed set is the module to preserve. Do
+  not replace it with a smaller submodule just because only a subset has
+  stronger annotation evidence; keep the full candidate group and describe any
+  submodule support as partial mechanism evidence or uncertainty.
+- For recovery and refinement tasks, separate the gene-membership decision
+  from the mechanism-labeling decision. A correct or improving gene set may
+  still have an unresolved mechanism.
+- For explanation, recovery, and refinement tasks, a specific biological
+  mechanism is not sufficiently grounded by Ensembl IDs or graph membership
+  alone. If no annotation, MyGene, or enrichment evidence has been observed,
+  prefer `enrich_gene_set` for the current candidate group or `query_mygene`
+  for a representative seed before stopping with a mechanism claim.
 - To query all graph layers, omit the `layers` or `layer` argument entirely.
   Never write "all", [], or null for layer selection.
-- For shortest_path, source and target must each be one string id, never a
-  list, tuple, comma-separated string, or missing value.
+- For shortest_paths, source_genes and target_genes must be arrays of canonical
+  gene ids. Use a one-element array for a pairwise path query.
 - Do not update relationship status, predicted groups, mechanistic labels, or
   other structured state fields. The verifier owns that structured update.
 
 Tool guidance:
 - query_mygene: look up identifiers or metadata for one gene or alias string
+- enrich_gene_set: test whether a candidate gene set is enriched for shared GO,
+  pathway, or complex terms against the configured background
 - get_neighbors: inspect one seed gene's neighborhood
-- shortest_path: test whether two genes are closely connected
+- shortest_paths: test whether source genes are closely connected to target genes
 - induce_subgraph: inspect coherence inside a candidate group
-- rwr_monoplex: rank candidates on one named layer
-- rwr_multiplex: rank candidates across the multiplex; prefer for recovery or refinement
+- rwr: rank candidates with RWR++ across the multiplex or selected layers
+- rwr_loe: rank lines of evidence for seed/query gene sets with RWR++
+- get_rank: get one target gene's single-source RWR rank from another gene
+- get_distance: get RWR++ distance or dissimilarity between two genes
+- get_spearman: get Spearman correlation between two genes' RWR rank vectors
+- get_pearson: get Pearson correlation between two genes' RWR encoding vectors
+- get_dot_similarity: get dot similarity between two genes' RWR encoding vectors
+- get_rank_vector_summary: summarize a seed set's RWR rank vector
+- get_encoding_summary: summarize a seed set's RWR encoding scores
+- get_gene_layers/get_nodes_by_layer: report which multiplex layers contain a gene
+- get_layer_stats: summarize layer node and edge counts
+- get_path_layer_counts: summarize layer support for shortest paths
+- get_component_summary: summarize connected components in the merged multiplex
+- get_seed_essentiality: estimate GRIN leave-one-out seed sensitivity
+- get_layer_ablation: summarize how layer removal changes RWR distances
+- get_node_perturbation: summarize how perturbing genes changes RWR distances
 
 Allowed tools:
 - query_mygene: {"query": str, "fields": [str] optional}
+- enrich_gene_set: {"genes": [str], "sources": [str] optional, "user_threshold": float optional, "top_k": int optional}
 - get_neighbors: {"gene": str, "layers": [real layer name] optional; omit for all layers}
-- shortest_path: {"source": str, "target": str, "layer": real layer name optional; omit for all layers}
-- rwr_multiplex: {"seeds": [str], "top_k": int optional}
-- rwr_monoplex: {"seeds": [str], "layer": real layer name required, "top_k": int optional}
+- shortest_paths: {"source_genes": [str], "target_genes": [str] optional, "max_paths": int optional}
+- rwr: {"seed_genes": [str], "layers": [real layer name] optional, "top_k": int optional}
+- rwr_loe: {"seed_genes": [str], "query_genes": [str] optional, "top_k": int optional}
+- get_rank: {"source_gene": str, "target_gene": str, "layers": [real layer name] optional}
+- get_distance: {"gene_a": str, "gene_b": str, "layers": [real layer name] optional, "distance_metric": "spearman", "pearson", or "dot" optional}
+- get_spearman: {"gene_a": str, "gene_b": str, "layers": [real layer name] optional}
+- get_pearson: {"gene_a": str, "gene_b": str, "layers": [real layer name] optional}
+- get_dot_similarity: {"gene_a": str, "gene_b": str, "layers": [real layer name] optional}
+- get_rank_vector_summary: {"seed_genes": [str], "layers": [real layer name] optional, "top_k": int optional}
+- get_encoding_summary: {"seed_genes": [str], "layers": [real layer name] optional, "top_k": int optional}
+- get_gene_layers: {"gene": str}
+- get_nodes_by_layer: {"gene": str}
+- get_layer_stats: {"top_k": int optional, "sort_by": "edge_count", "node_count", or "layer" optional}
+- get_path_layer_counts: {"source_genes": [str], "target_genes": [str] optional, "max_paths": int optional, "top_k": int optional}
+- get_component_summary: {"genes": [str] optional, "max_components": int optional}
+- get_seed_essentiality: {"seed_genes": [str], "n_samples_null_dist": int optional, "top_k": int optional}
+- get_layer_ablation: {"seed_genes": [str], "distance_metric": "spearman", "pearson", or "cos" optional, "top_k": int optional}
+- get_node_perturbation: {"seed_genes": [str], "perturb_genes": [str], "distance_metric": "spearman", "pearson", "dot", or "cos" optional, "top_k": int optional}
 - induce_subgraph: {"genes": [str], "layers": [real layer name] optional; omit for all layers}
 
 If the serving backend supports tool calls, use a native tool call for the
@@ -419,6 +504,7 @@ Continuation decision meanings:
 
 Label source meanings:
 - go: Gene Ontology label
+- reactome: Reactome pathway label (use this for observed REAC sources)
 - fcgs: FCGS label
 - complex_name: complex-name-derived label
 - free_text: grounded free-text label
@@ -426,16 +512,27 @@ Label source meanings:
 
 State update guidance:
 - predicted_gene_ids should contain the best current coherent group.
-- For explanation, the predicted group often matches the visible seed set.
+- For explanation, preserve the full visible seed module in predicted_gene_ids
+  unless the final conclusion is explicit abstention. If evidence supports only
+  a submodule, keep the full module as the predicted group and describe the
+  submodule as partial mechanistic support in the interpretation.
 - For recovery, add genes only when the observation supports them.
   When an RWR observation is available, explicitly evaluate the top non-seed
   candidates before declaring the seed group complete. Add only candidates that
   have credible visible support; otherwise explain why the non-seed candidates
   are too weak and continue if another check could help.
 - For refinement, remove genes that look unsupported or off-module.
+- For recovery and refinement, decide module membership first; mechanism labels
+  should not force an unsupported expansion or pruning decision.
 - For none tasks, prefer "insufficient_support" or "multiple_groups" when one coherent mechanism is not supported.
 - If relationship_status is insufficient_support, an empty predicted_gene_ids list is acceptable.
 - Prefer GO or FCGS labels when visible annotations support them.
+- Mechanistic labels must be copied from or directly summarized from observed
+  annotation/enrichment evidence. Generic labels such as "network module",
+  "connected subgraph", "co-expression", or "protein binding" are uncertainty
+  statements, not sufficient mechanisms.
+- For tool-derived labels, include evidence_ids that point to the supporting
+  evidence records already visible in the state.
 
 Output schema:
 {
@@ -449,7 +546,7 @@ Output schema:
     "relationship_status": str,
     "predicted_gene_ids": [str],
     "mechanistic_labels": [
-      {"label_source": str, "label_name": str, "label_id": str or null}
+      {"label_source": str, "label_name": str, "label_id": str or null, "evidence_ids": [str]}
     ],
     "continuation_decision": str,
     "verifier_notes": str
@@ -461,12 +558,54 @@ ACTOR_OUTPUT_TOOL_NAME = "emit_actor_step"
 VERIFIER_OUTPUT_TOOL_NAME = "emit_verifier_update"
 RUNTIME_TOOL_NAMES = (
     "query_mygene",
+    "enrich_gene_set",
     "get_neighbors",
-    "shortest_path",
-    "rwr_multiplex",
-    "rwr_monoplex",
+    "shortest_paths",
+    "rwr",
+    "rwr_loe",
+    "get_rank",
+    "get_distance",
+    "get_spearman",
+    "get_pearson",
+    "get_dot_similarity",
+    "get_rank_vector_summary",
+    "get_encoding_summary",
+    "get_gene_layers",
+    "get_nodes_by_layer",
+    "get_layer_stats",
+    "get_path_layer_counts",
+    "get_component_summary",
+    "get_seed_essentiality",
+    "get_layer_ablation",
+    "get_node_perturbation",
     "induce_subgraph",
 )
+RWR_HPC_MODEL_TOOL_NAMES = frozenset(
+    {
+        "rwr",
+        "rwr_loe",
+        "shortest_paths",
+        "get_rank",
+        "get_distance",
+        "get_spearman",
+        "get_pearson",
+        "get_dot_similarity",
+        "get_rank_vector_summary",
+        "get_encoding_summary",
+        "get_gene_layers",
+        "get_nodes_by_layer",
+        "get_layer_stats",
+        "get_path_layer_counts",
+        "get_component_summary",
+        "get_seed_essentiality",
+        "get_layer_ablation",
+        "get_node_perturbation",
+        "rwr_multiplex",
+        "rwr_monoplex",
+    }
+)
+RWR_RESULT_TOOL_NAMES = {"rwr", "rwr_loe", "rwr_multiplex", "rwr_monoplex"}
+SHORTEST_PATH_RESULT_TOOL_NAMES = {"shortest_paths", "shortest_path"}
 TOOL_ACTION_LINE_RE = re.compile(
     r"(?im)^\s*(?:TOOL_ACTION|ACTION)\s*:\s*(?P<payload>\{.*\})\s*$"
 )
@@ -575,8 +714,57 @@ def _preview_list(values: Any, *, limit: int = PROMPT_LIST_PREVIEW_LIMIT) -> lis
 def _rwr_result_gene_id(result: Any) -> str | None:
     if not isinstance(result, dict):
         return None
-    gene_id = result.get("gene_id")
+    gene_id = result.get("gene_id") or result.get("gene")
     return gene_id if isinstance(gene_id, str) and gene_id else None
+
+
+def _compact_result_item_for_prompt(item: Any) -> dict[str, Any]:
+    if not isinstance(item, dict):
+        return {"value": _truncate_prompt_text(str(item), max_chars=160)}
+    keep_keys = (
+        "gene_id",
+        "gene",
+        "symbol",
+        "name",
+        "score",
+        "rank",
+        "distance",
+        "dissimilarity",
+        "source",
+        "native",
+        "p_value",
+        "significant",
+        "intersection_size",
+        "query_size",
+        "precision",
+        "recall",
+        "term_size",
+        "edge_count",
+        "node_count",
+        "layer_name",
+        "component_size",
+    )
+    compact: dict[str, Any] = {}
+    for key in keep_keys:
+        if key not in item:
+            continue
+        value = item[key]
+        if isinstance(value, str):
+            compact[key] = _truncate_prompt_text(value, max_chars=180)
+        elif isinstance(value, list):
+            compact[f"{key}_count"] = len(value)
+            compact[f"{key}_sample"] = value[:PROMPT_LIST_PREVIEW_LIMIT]
+        else:
+            compact[key] = value
+    if "description" in item and isinstance(item["description"], str):
+        compact["description"] = _truncate_prompt_text(item["description"], max_chars=220)
+    return compact
+
+
+def _compact_result_list_for_prompt(values: Any, *, limit: int) -> list[dict[str, Any]]:
+    if not isinstance(values, list):
+        return []
+    return [_compact_result_item_for_prompt(item) for item in values[:limit]]
 
 
 def _compact_layer_list_payload(
@@ -593,8 +781,11 @@ def _compact_layer_list_payload(
 
 def _compact_provenance_for_prompt(provenance: dict[str, Any]) -> dict[str, Any]:
     compact: dict[str, Any] = {}
+    tool_name = _safe_text(provenance.get("tool_name"))
     for key, value in provenance.items():
-        if key in {"queried_layers", "active_layers"}:
+        if key == "payload" and isinstance(value, dict):
+            compact[key] = _compact_prior_evidence_payload_for_prompt(tool_name, value)
+        elif key in {"queried_layers", "active_layers"}:
             compact.update(
                 _compact_layer_list_payload(
                     value,
@@ -612,23 +803,277 @@ def _compact_provenance_for_prompt(provenance: dict[str, Any]) -> dict[str, Any]
     return compact
 
 
-def _state_payload_for_model_prompt(state: Any) -> dict[str, Any]:
-    state_payload = state.to_dict()
-    state_payload.pop("user_anchors", None)
+def _compact_prior_evidence_payload_for_prompt(tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Return a bounded prompt view for an evidence-log provenance payload."""
 
-    for group in state_payload.get("predicted_groups", []):
-        if isinstance(group, dict):
-            group["rationale"] = _truncate_prompt_text(group.get("rationale"), max_chars=280)
+    if not isinstance(payload, dict):
+        return {}
 
-    for record in state_payload.get("evidence_log", []):
-        if not isinstance(record, dict):
+    compact: dict[str, Any] = {}
+    scalar_keys = (
+        "tool_name",
+        "query",
+        "query_gene_count",
+        "background_gene_count",
+        "organism",
+        "raw_result_count",
+        "top_k",
+        "combined_edge_count",
+        "unique_neighbor_count",
+        "path_count",
+        "target_rank",
+        "ranked_gene_count",
+        "distance_metric",
+        "distance",
+        "dissimilarity",
+        "spearman_correlation",
+        "spearman_distance",
+        "pearson_correlation",
+        "pearson_distance",
+        "dot_similarity",
+        "total_components",
+        "result_count",
+    )
+    for key in scalar_keys:
+        if key in payload:
+            compact[key] = payload[key]
+
+    for key in (
+        "query_gene_ids",
+        "present_gene_ids",
+        "missing_gene_ids",
+        "source_genes",
+        "target_genes",
+        "seed_gene_ids",
+        "seed_genes",
+        "active_seed_gene_ids",
+        "genes",
+        "perturb_genes",
+        "unique_neighbors",
+        "path_gene_ids",
+        "sources",
+        "layers",
+        "active_layers",
+    ):
+        value = payload.get(key)
+        if isinstance(value, list):
+            limit = PROMPT_LAYER_PREVIEW_LIMIT if "layer" in key else PROMPT_LIST_PREVIEW_LIMIT
+            if key in {"seed_gene_ids", "seed_genes", "query_gene_ids", "genes"}:
+                limit = PROMPT_TOOL_REFERENCE_GENE_LIMIT
+            compact[f"{key}_count"] = len(value)
+            compact[f"{key}_sample"] = _preview_list(value, limit=limit)
+
+    results = payload.get("results", payload.get("ranked_genes"))
+    if isinstance(results, list):
+        seed_gene_ids = set(
+            _safe_list_of_strings(payload.get("seed_gene_ids"))
+            or _safe_list_of_strings(payload.get("seed_genes"))
+        )
+        result_limit = PROMPT_RWR_RESULT_PREVIEW_LIMIT if tool_name in RWR_RESULT_TOOL_NAMES else PROMPT_LIST_PREVIEW_LIMIT
+        compact["result_count"] = len(results)
+        compact["results_sample"] = _preview_list(results, limit=result_limit)
+        if tool_name in RWR_RESULT_TOOL_NAMES:
+            non_seed_gene_ids = [
+                gene_id
+                for result in results
+                if (gene_id := _rwr_result_gene_id(result)) is not None and gene_id not in seed_gene_ids
+            ]
+            compact["ranked_non_seed_gene_ids_sample"] = non_seed_gene_ids[:PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT]
+
+    paths = payload.get("paths")
+    if isinstance(paths, list):
+        compact["path_count"] = len(paths)
+        compact["paths_sample"] = _preview_list(paths, limit=PROMPT_LIST_PREVIEW_LIMIT)
+
+    return compact
+
+
+def _compact_evidence_record_for_model_prompt(record: dict[str, Any]) -> dict[str, Any]:
+    compact = {
+        "evidence_id": record.get("evidence_id"),
+        "source_type": record.get("source_type"),
+        "summary": _truncate_prompt_text(record.get("summary"), max_chars=240),
+        "tool_call_id": record.get("tool_call_id"),
+    }
+    compact["supporting_gene_ids"] = _preview_list(
+        record.get("supporting_gene_ids"),
+        limit=PROMPT_LIST_PREVIEW_LIMIT,
+    )
+    compact["supporting_gene_symbols"] = _preview_list(
+        record.get("supporting_gene_symbols"),
+        limit=PROMPT_LIST_PREVIEW_LIMIT,
+    )
+    provenance = record.get("provenance")
+    if isinstance(provenance, dict):
+        compact["provenance"] = _compact_provenance_for_prompt(provenance)
+    return compact
+
+
+def _preview_unique_strings(values: Iterable[Any], *, limit: int) -> list[str]:
+    output: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not isinstance(value, str) or not value or value in seen:
             continue
-        record["summary"] = _truncate_prompt_text(record.get("summary"), max_chars=280)
-        provenance = record.get("provenance")
-        if isinstance(provenance, dict):
-            record["provenance"] = _compact_provenance_for_prompt(provenance)
+        output.append(value)
+        seen.add(value)
+        if len(output) >= limit:
+            break
+    return output
 
-    return state_payload
+
+def _compact_gene_group_for_prompt(group: Any) -> dict[str, Any]:
+    payload = group.to_dict() if hasattr(group, "to_dict") else _safe_dict(group)
+    gene_ids = _safe_list_of_strings(payload.get("gene_ids"))
+    gene_symbols = _safe_list_of_strings(payload.get("gene_symbols"))
+    return {
+        "group_id": payload.get("group_id"),
+        "gene_count": len(gene_ids),
+        "gene_ids_sample": gene_ids[:PROMPT_LIST_PREVIEW_LIMIT],
+        "gene_symbols_sample": gene_symbols[:PROMPT_LIST_PREVIEW_LIMIT],
+        "rationale": _truncate_prompt_text(payload.get("rationale"), max_chars=220),
+    }
+
+
+def _compact_mechanistic_label_for_prompt(label: Any) -> dict[str, Any]:
+    payload = label.to_dict() if hasattr(label, "to_dict") else _safe_dict(label)
+    evidence_ids = _safe_list_of_strings(payload.get("evidence_ids"))
+    return {
+        "label_source": payload.get("label_source"),
+        "label_name": _truncate_prompt_text(payload.get("label_name"), max_chars=180),
+        "label_id": payload.get("label_id"),
+        "evidence_ids": evidence_ids[:PROMPT_LABEL_EVIDENCE_ID_LIMIT],
+        "evidence_id_count": len(evidence_ids),
+    }
+
+
+def _tool_name_from_evidence_record(record: EvidenceRecord) -> str:
+    tool_name = record.provenance.get("tool_name")
+    if isinstance(tool_name, str) and tool_name:
+        return tool_name
+    return str(record.source_type.value if hasattr(record.source_type, "value") else record.source_type)
+
+
+def _evidence_digest_for_model_prompt(state: Any) -> dict[str, Any]:
+    evidence_log = list(getattr(state, "evidence_log", []) or [])
+    tool_counts = Counter(
+        _tool_name_from_evidence_record(record)
+        for record in evidence_log
+        if isinstance(record, EvidenceRecord)
+    )
+    supporting_gene_ids: list[str] = []
+    recent: list[dict[str, Any]] = []
+    for record in evidence_log:
+        if not isinstance(record, EvidenceRecord):
+            continue
+        _append_unique_strings(supporting_gene_ids, record.supporting_gene_ids)
+    for record in evidence_log[-PROMPT_EVIDENCE_SUMMARY_LIMIT:]:
+        if not isinstance(record, EvidenceRecord):
+            continue
+        recent.append(
+            {
+                "evidence_id": record.evidence_id,
+                "tool_name": _tool_name_from_evidence_record(record),
+                "source_type": str(record.source_type.value if hasattr(record.source_type, "value") else record.source_type),
+                "summary": _truncate_prompt_text(record.summary, max_chars=220),
+                "supporting_gene_ids_sample": record.supporting_gene_ids[:PROMPT_LIST_PREVIEW_LIMIT],
+                "supporting_gene_count": len(record.supporting_gene_ids),
+            }
+        )
+    return {
+        "evidence_count": len(evidence_log),
+        "tool_counts": dict(sorted(tool_counts.items())),
+        "supporting_gene_id_count": len(supporting_gene_ids),
+        "supporting_gene_ids_sample": supporting_gene_ids[:PROMPT_EVIDENCE_SUPPORT_GENE_LIMIT],
+        "recent_evidence_summaries": recent,
+        "omitted_full_payloads": True,
+    }
+
+
+def _prompt_state_payload_for_model_prompt(state: Any) -> dict[str, Any]:
+    predicted_groups = [
+        _compact_gene_group_for_prompt(group)
+        for group in (getattr(state, "predicted_groups", []) or [])
+    ]
+    mechanistic_labels = [
+        _compact_mechanistic_label_for_prompt(label)
+        for label in (getattr(state, "mechanistic_labels", []) or [])
+    ]
+    relationship_status = getattr(state, "relationship_status", None)
+    continuation_state = getattr(state, "continuation_state", None)
+    termination_reason = getattr(state, "termination_reason", None)
+    return {
+        "state_contract": (
+            "Markov prompt state. Full prior tool observations and evidence payloads "
+            "are omitted from the prompt and retained only in trajectory artifacts. "
+            "Use evidence IDs, summaries, labels, counters, gene-set handles, and the "
+            "current deterministic observation to update the next state."
+        ),
+        "relationship_status": str(relationship_status.value if hasattr(relationship_status, "value") else relationship_status),
+        "continuation_state": str(continuation_state.value if hasattr(continuation_state, "value") else continuation_state),
+        "remaining_budget": getattr(state, "remaining_budget", None),
+        "tool_counters": {
+            "total_tool_call_count": getattr(state, "total_tool_call_count", 0),
+            "invalid_tool_call_count": getattr(state, "invalid_tool_call_count", 0),
+        },
+        "predicted_groups": predicted_groups,
+        "mechanistic_labels": mechanistic_labels,
+        "evidence_digest": _evidence_digest_for_model_prompt(state),
+        "termination_reason": (
+            str(termination_reason.value if hasattr(termination_reason, "value") else termination_reason)
+            if termination_reason is not None
+            else None
+        ),
+    }
+
+
+def _compact_graph_query_spec_for_model_prompt(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    compact: dict[str, Any] = {}
+    for key, item in value.items():
+        if key in {"seed_gene_ids", "seed_gene_symbols"} and isinstance(item, list):
+            compact[f"{key}_count"] = len(item)
+            compact[f"{key}_sample"] = item[:PROMPT_LIST_PREVIEW_LIMIT]
+        elif isinstance(item, str):
+            compact[key] = _truncate_prompt_text(item, max_chars=240)
+        elif isinstance(item, list):
+            compact[f"{key}_count"] = len(item)
+            compact[f"{key}_sample"] = item[:PROMPT_LIST_PREVIEW_LIMIT]
+        else:
+            compact[key] = item
+    return compact
+
+
+def _compact_visible_inputs_for_model_prompt(user_evidence: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    for key, value in user_evidence.items():
+        if key in {"seed_gene_ids", "seed_gene_symbols"} and isinstance(value, list):
+            compact[f"{key}_count"] = len(value)
+            compact[f"{key}_sample"] = value[:PROMPT_LIST_PREVIEW_LIMIT]
+        elif key == "graph_query_spec":
+            compact_graph_query_spec = _compact_graph_query_spec_for_model_prompt(value)
+            if compact_graph_query_spec is not None:
+                compact[key] = compact_graph_query_spec
+        elif key == "structured_annotations" and isinstance(value, dict):
+            compact[key] = {
+                annotation_key: _preview_list(annotation_value)
+                if isinstance(annotation_value, list)
+                else annotation_value
+                for annotation_key, annotation_value in value.items()
+            }
+        elif isinstance(value, str):
+            compact[key] = _truncate_prompt_text(value, max_chars=PROMPT_TEXT_MAX_CHARS)
+        elif isinstance(value, list):
+            compact[f"{key}_count"] = len(value)
+            compact[f"{key}_sample"] = value[:PROMPT_LIST_PREVIEW_LIMIT]
+        else:
+            compact[key] = value
+    return compact
+
+
+def _query_text_for_model_prompt(query_text: str) -> str:
+    return _truncate_prompt_text(query_text, max_chars=PROMPT_QUERY_TEXT_MAX_CHARS)
 
 
 def _interpretation_payload_for_model_prompt(interpretation: Interpretation) -> dict[str, Any]:
@@ -657,10 +1102,108 @@ def _candidate_gene_ids_for_tool_reference(context: SharedPrefixContext) -> list
     return gene_ids
 
 
+def _visible_seed_gene_ids_for_context(context: SharedPrefixContext) -> list[str]:
+    visible_inputs = context.user_evidence if isinstance(context.user_evidence, dict) else {}
+    return _safe_list_of_strings(visible_inputs.get("seed_gene_ids"))
+
+
+def _current_candidate_group_gene_ids_for_context(context: SharedPrefixContext) -> list[str]:
+    predicted_gene_ids = _flatten_predicted_gene_ids(context.state)
+    if predicted_gene_ids:
+        return predicted_gene_ids
+    return _visible_seed_gene_ids_for_context(context)
+
+
+def _gene_set_handles_for_context(context: SharedPrefixContext) -> dict[str, list[str]]:
+    return {
+        VISIBLE_SEED_GENES_HANDLE: _visible_seed_gene_ids_for_context(context),
+        CURRENT_CANDIDATE_GROUP_HANDLE: _current_candidate_group_gene_ids_for_context(context),
+    }
+
+
+def _gene_set_handle_reference_payload(context: SharedPrefixContext) -> dict[str, Any]:
+    return {
+        handle: {
+            "gene_count": len(gene_ids),
+            "gene_ids_sample": gene_ids[:PROMPT_GENE_SET_HANDLE_SAMPLE_LIMIT],
+        }
+        for handle, gene_ids in _gene_set_handles_for_context(context).items()
+    }
+
+
+def _compact_tool_action_payload(tool_action: ToolAction | None) -> dict[str, Any] | None:
+    if tool_action is None:
+        return None
+    try:
+        arguments = normalize_tool_arguments(tool_action.tool_name, tool_action.arguments)
+    except Exception:
+        arguments = dict(tool_action.arguments)
+    return {
+        "tool_name": tool_action.tool_name,
+        "arguments": arguments,
+    }
+
+
+def _prior_tool_action_reference_payload(
+    prior_actions: Iterable[ToolAction] | None,
+) -> list[dict[str, Any]]:
+    if prior_actions is None:
+        return []
+    compact: list[dict[str, Any]] = []
+    for index, action in enumerate(list(prior_actions)[-PROMPT_PRIOR_TOOL_ACTION_LIMIT:]):
+        payload = _compact_tool_action_payload(action)
+        if payload is None:
+            continue
+        payload["index"] = index
+        compact.append(payload)
+    return compact
+
+
+def _observation_diagnostic_payload(observation: ToolObservation | None) -> dict[str, Any] | None:
+    if observation is None:
+        return None
+    provenance = observation.provenance or {}
+    diagnostic: dict[str, Any] = {
+        "status": observation.status.value,
+        "tool_name": provenance.get("tool_name"),
+        "call_id": observation.call_id,
+    }
+    if observation.error:
+        diagnostic["error"] = observation.error
+    validation_errors = provenance.get("validation_errors")
+    if isinstance(validation_errors, list):
+        diagnostic["validation_errors"] = [str(error) for error in validation_errors if error]
+    return diagnostic
+
+
+def _actor_repair_feedback_payload(
+    *,
+    actor_candidate: dict[str, Any],
+    actor_step: ActorStep,
+    observation: ToolObservation | None,
+    errors: Iterable[str],
+) -> dict[str, Any]:
+    return {
+        "repair_task": (
+            "The previous actor tool call was rejected. Choose one corrected, valid next "
+            "action. Do not repeat any exact prior_tool_actions entry. If no valid "
+            "new tool call is useful, return no tool action and explain why."
+        ),
+        "previous_errors": _unique(str(error) for error in errors if error),
+        "previous_tool_action": _compact_tool_action_payload(actor_step.tool_action),
+        "previous_observation": _observation_diagnostic_payload(observation),
+        "previous_response": _truncate_prompt_text(
+            actor_candidate.get("raw_text"),
+            max_chars=ACTOR_REPAIR_RAW_TEXT_MAX_CHARS,
+        ),
+    }
+
+
 def _tool_argument_reference_payload(
     context: SharedPrefixContext,
     *,
     environment: RuntimeEnvironment | None = None,
+    prior_actions: Iterable[ToolAction] | None = None,
 ) -> dict[str, Any]:
     candidate_gene_ids = _candidate_gene_ids_for_tool_reference(context)
     if environment is not None:
@@ -680,34 +1223,113 @@ def _tool_argument_reference_payload(
         "rules": [
             "Graph tools require canonical Ensembl gene id strings, not symbols.",
             "Use candidate_gene_ids for gene/source/target/seeds/genes unless a prior successful tool observation returned another exact id.",
-            "Use query_mygene first when only a gene symbol, alias, or non-Ensembl id is available.",
+            "Do not repeat an exact prior_tool_actions tool_name+arguments pair; choose a different valid action or stop.",
+            (
+                f"For whole-set tools, you may use {CURRENT_CANDIDATE_GROUP_HANDLE!r} or "
+                f"{VISIBLE_SEED_GENES_HANDLE!r} as a list item; the generator expands the handle "
+                "to the full hidden-length visible gene set before execution."
+            ),
+            "Use query_mygene for one representative gene when identifier metadata or gene summaries are needed.",
+            "Use enrich_gene_set on candidate_gene_ids when a group-level mechanism is needed.",
             "For all graph layers, omit layer/layers entirely; do not pass null, [], 'all', or '*' values.",
-            "shortest_path source and target must each be one non-empty string id.",
+            "shortest_paths source_genes and target_genes must be arrays of one or more non-empty string ids.",
             "get_neighbors gene must be one non-empty string id.",
-            "induce_subgraph genes and RWR seeds must be non-empty arrays of string ids.",
+            "induce_subgraph genes and RWR++ seed_genes must be non-empty arrays of string ids.",
+            "Pairwise RWR++ tools use canonical Ensembl ids: get_rank source_gene/target_gene and get_distance/get_spearman/get_pearson/get_dot_similarity gene_a/gene_b.",
+            "Heavy RWR++ summary tools should use small top_k/max_components values during smoke runs.",
         ],
         "argument_shapes": {
             "query_mygene": {"query": "string", "fields": "optional non-empty string array"},
-            "get_neighbors": {"gene": "string", "layers": "optional non-empty layer-name array"},
-            "shortest_path": {
-                "source": "string",
-                "target": "string",
-                "layer": "optional layer-name string",
-            },
-            "rwr_multiplex": {"seeds": "non-empty string array", "top_k": "optional positive integer"},
-            "rwr_monoplex": {
-                "seeds": "non-empty string array",
-                "layer": "required layer-name string",
+            "enrich_gene_set": {
+                "genes": "non-empty string array",
+                "sources": "optional source array",
+                "user_threshold": "optional float in (0, 1]",
                 "top_k": "optional positive integer",
             },
+            "get_neighbors": {"gene": "string", "layers": "optional non-empty layer-name array"},
+            "shortest_paths": {
+                "source_genes": "non-empty string array",
+                "target_genes": "optional non-empty string array",
+                "max_paths": "optional positive integer",
+            },
+            "rwr": {
+                "seed_genes": "non-empty string array",
+                "layers": "optional non-empty layer-name array",
+                "top_k": "optional positive integer",
+            },
+            "rwr_loe": {"seed_genes": "non-empty string array", "query_genes": "optional string array", "top_k": "optional positive integer"},
+            "get_rank": {"source_gene": "string", "target_gene": "string", "layers": "optional non-empty layer-name array"},
+            "get_distance": {
+                "gene_a": "string",
+                "gene_b": "string",
+                "layers": "optional non-empty layer-name array",
+                "distance_metric": "optional spearman, pearson, or dot",
+            },
+            "get_spearman": {"gene_a": "string", "gene_b": "string", "layers": "optional non-empty layer-name array"},
+            "get_pearson": {"gene_a": "string", "gene_b": "string", "layers": "optional non-empty layer-name array"},
+            "get_dot_similarity": {"gene_a": "string", "gene_b": "string", "layers": "optional non-empty layer-name array"},
+            "get_rank_vector_summary": {"seed_genes": "non-empty string array", "layers": "optional non-empty layer-name array", "top_k": "optional positive integer"},
+            "get_encoding_summary": {"seed_genes": "non-empty string array", "layers": "optional non-empty layer-name array", "top_k": "optional positive integer"},
+            "get_gene_layers": {"gene": "string"},
+            "get_nodes_by_layer": {"gene": "string"},
+            "get_layer_stats": {"top_k": "optional positive integer", "sort_by": "optional edge_count, node_count, or layer"},
+            "get_path_layer_counts": {
+                "source_genes": "non-empty string array",
+                "target_genes": "optional non-empty string array",
+                "max_paths": "optional positive integer",
+                "top_k": "optional positive integer",
+            },
+            "get_component_summary": {"genes": "optional string array", "max_components": "optional positive integer"},
+            "get_seed_essentiality": {"seed_genes": "non-empty string array", "n_samples_null_dist": "optional non-negative integer", "top_k": "optional positive integer"},
+            "get_layer_ablation": {"seed_genes": "non-empty string array", "distance_metric": "optional spearman, pearson, or cos", "top_k": "optional positive integer"},
+            "get_node_perturbation": {"seed_genes": "non-empty string array", "perturb_genes": "non-empty string array", "distance_metric": "optional spearman, pearson, dot, or cos", "top_k": "optional positive integer"},
             "induce_subgraph": {"genes": "non-empty string array", "layers": "optional non-empty layer-name array"},
         },
         "candidate_gene_ids": graph_candidate_gene_ids[:PROMPT_TOOL_REFERENCE_GENE_LIMIT],
         "candidate_gene_id_count": len(graph_candidate_gene_ids),
+        "gene_set_handles": _gene_set_handle_reference_payload(context),
+        "prior_tool_actions": _prior_tool_action_reference_payload(prior_actions),
         "unavailable_candidate_gene_ids": unavailable_candidate_gene_ids[:PROMPT_TOOL_REFERENCE_GENE_LIMIT],
         "available_layer_names": available_layers[:PROMPT_TOOL_REFERENCE_LAYER_LIMIT],
         "available_layer_count": len(available_layers),
     }
+
+
+def _expand_gene_set_handle_value(value: Any, *, handle_map: dict[str, list[str]]) -> Any:
+    if isinstance(value, str):
+        return list(handle_map[value]) if value in handle_map else value
+    if isinstance(value, list):
+        expanded: list[Any] = []
+        for item in value:
+            if isinstance(item, str) and item in handle_map:
+                _append_unique_strings(expanded, handle_map[item])
+            else:
+                expanded.append(item)
+        return expanded
+    if isinstance(value, dict):
+        return {
+            key: _expand_gene_set_handle_value(item, handle_map=handle_map)
+            for key, item in value.items()
+        }
+    return value
+
+
+def _expand_tool_action_gene_set_handles(
+    tool_action: ToolAction | None,
+    *,
+    context: SharedPrefixContext,
+) -> ToolAction | None:
+    if tool_action is None:
+        return None
+    handle_map = _gene_set_handles_for_context(context)
+    if not any(_json_dumps_compact(tool_action.arguments).find(handle) >= 0 for handle in handle_map):
+        return tool_action
+    expanded_arguments = _expand_gene_set_handle_value(tool_action.arguments, handle_map=handle_map)
+    return ToolAction(
+        tool_name=tool_action.tool_name,
+        arguments=expanded_arguments if isinstance(expanded_arguments, dict) else tool_action.arguments,
+        call_id=tool_action.call_id,
+    )
 
 
 def _actor_sampling_directive_payload(
@@ -745,7 +1367,7 @@ def _actor_tool_coverage_directive_payload(
                 "Choose a valid runtime tool if any valid graph argument can be formed; "
                 "otherwise explain why no tool is currently useful."
             ),
-            "preferred_tools": ["induce_subgraph", "shortest_path", "get_neighbors"],
+            "preferred_tools": ["induce_subgraph", "shortest_paths", "get_neighbors"],
         }
     return {
         "strategy": "tool_coverage_retry",
@@ -762,32 +1384,50 @@ def _actor_tool_coverage_directive_payload(
     }
 
 
+def _actor_candidate_uses_rwr_hpc_tool(candidate: dict[str, Any]) -> bool:
+    tool_action = candidate.get("tool_action")
+    if not isinstance(tool_action, dict):
+        return False
+    tool_name = tool_action.get("tool_name")
+    return isinstance(tool_name, str) and tool_name in RWR_HPC_MODEL_TOOL_NAMES
+
+
 def _actor_prompt_payload(
     context: SharedPrefixContext,
     *,
     step_index: int,
     environment: RuntimeEnvironment | None = None,
+    prior_actions: Iterable[ToolAction] | None = None,
     actor_sampling_directive: dict[str, Any] | None = None,
+    actor_repair_feedback: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    state_payload = _state_payload_for_model_prompt(context.state)
     payload = {
-        "query_text": context.query_text,
-        "visible_inputs": context.user_evidence,
+        "query_text": _query_text_for_model_prompt(context.query_text),
+        "visible_inputs": _compact_visible_inputs_for_model_prompt(context.user_evidence),
         "interpretation": _interpretation_payload_for_model_prompt(context.interpretation),
-        "state": state_payload,
+        "prompt_state": _prompt_state_payload_for_model_prompt(context.state),
         "step_index": step_index,
         "tool_argument_reference": _tool_argument_reference_payload(
             context,
             environment=environment,
+            prior_actions=prior_actions,
         ),
     }
     if actor_sampling_directive is not None:
         payload["actor_sampling_directive"] = actor_sampling_directive
+    if actor_repair_feedback is not None:
+        payload["actor_repair_feedback"] = actor_repair_feedback
     return payload
 
 
 def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dict[str, Any] | None:
-    if observation is None or observation.status != ToolObservationStatus.SUCCESS:
+    if observation is None:
+        return None
+    tool_name_for_status = _safe_text((observation.provenance or {}).get("tool_name"))
+    if observation.status != ToolObservationStatus.SUCCESS and not (
+        observation.status == ToolObservationStatus.EMPTY
+        and tool_name_for_status in {"query_mygene", "enrich_gene_set"}
+    ):
         return None
 
     payload = observation.payload or {}
@@ -860,10 +1500,21 @@ def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dic
             "hop_count": payload.get("hop_count"),
             "layer_name": payload.get("layer_name"),
         }
-    elif tool_name in {"rwr_multiplex", "rwr_monoplex"}:
-        seed_gene_ids = _safe_list_of_strings(payload.get("seed_gene_ids"))
+    elif tool_name == "shortest_paths":
+        paths = payload.get("paths", [])
+        path_list = paths if isinstance(paths, list) else []
+        compact_payload = {
+            "source_genes": _preview_list(payload.get("source_genes")),
+            "target_genes": _preview_list(payload.get("target_genes")),
+            "merge_method": payload.get("merge_method"),
+            "ignore_weights": payload.get("ignore_weights"),
+            "path_count": len(path_list),
+            "paths": _preview_list(path_list, limit=PROMPT_LIST_PREVIEW_LIMIT),
+        }
+    elif tool_name in RWR_RESULT_TOOL_NAMES:
+        seed_gene_ids = _safe_list_of_strings(payload.get("seed_gene_ids")) or _safe_list_of_strings(payload.get("seed_genes"))
         seed_gene_set = set(seed_gene_ids)
-        results = payload.get("results", [])
+        results = payload.get("results", payload.get("ranked_genes", []))
         result_list = results if isinstance(results, list) else []
         non_seed_results = [
             result
@@ -890,11 +1541,11 @@ def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dic
                 ],
                 limit=PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT,
             ),
-            "top_non_seed_results": _preview_list(
+            "top_non_seed_results": _compact_result_list_for_prompt(
                 non_seed_results,
                 limit=PROMPT_RWR_NON_SEED_PREVIEW_LIMIT,
             ),
-            "results": _preview_list(
+            "results": _compact_result_list_for_prompt(
                 result_list,
                 limit=PROMPT_RWR_RESULT_PREVIEW_LIMIT,
             ),
@@ -906,6 +1557,8 @@ def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dic
         }
         if "layer_name" in payload:
             compact_payload["layer_name"] = payload.get("layer_name")
+        if "layers" in payload:
+            compact_payload["layers"] = _preview_list(payload.get("layers"))
         if "active_layers" in payload:
             compact_payload.update(
                 _compact_layer_list_payload(
@@ -914,12 +1567,83 @@ def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dic
                     sample_key="active_layers_sample",
                 )
             )
+    elif tool_name == "get_rank":
+        compact_payload = {
+            "source_gene": payload.get("source_gene"),
+            "target_gene": payload.get("target_gene"),
+            "layers": _preview_list(payload.get("layers")),
+            "target_rank": payload.get("target_rank"),
+            "ranked_gene_count": payload.get("ranked_gene_count"),
+            "rank_result": payload.get("rank_result"),
+        }
+    elif tool_name == "get_distance":
+        compact_payload = {
+            "gene_a": payload.get("gene_a"),
+            "gene_b": payload.get("gene_b"),
+            "layers": _preview_list(payload.get("layers")),
+            "distance_metric": payload.get("distance_metric"),
+            "distance": payload.get("distance"),
+            "dissimilarity": payload.get("dissimilarity"),
+        }
+    elif tool_name == "get_spearman":
+        compact_payload = {
+            "gene_a": payload.get("gene_a"),
+            "gene_b": payload.get("gene_b"),
+            "layers": _preview_list(payload.get("layers")),
+            "spearman_correlation": payload.get("spearman_correlation"),
+            "spearman_distance": payload.get("spearman_distance"),
+        }
+    elif tool_name == "get_pearson":
+        compact_payload = {
+            "gene_a": payload.get("gene_a"),
+            "gene_b": payload.get("gene_b"),
+            "layers": _preview_list(payload.get("layers")),
+            "pearson_correlation": payload.get("pearson_correlation"),
+            "pearson_distance": payload.get("pearson_distance"),
+        }
+    elif tool_name == "get_dot_similarity":
+        compact_payload = {
+            "gene_a": payload.get("gene_a"),
+            "gene_b": payload.get("gene_b"),
+            "layers": _preview_list(payload.get("layers")),
+            "dot_similarity": payload.get("dot_similarity"),
+        }
+    elif tool_name in {
+        "get_rank_vector_summary",
+        "get_encoding_summary",
+        "get_gene_layers",
+        "get_nodes_by_layer",
+        "get_layer_stats",
+        "get_path_layer_counts",
+        "get_component_summary",
+        "get_seed_essentiality",
+        "get_layer_ablation",
+        "get_node_perturbation",
+    }:
+        compact_payload = {
+            "seed_genes": _preview_list(payload.get("seed_genes")),
+            "gene": payload.get("gene"),
+            "genes": _preview_list(payload.get("genes")),
+            "layers": _preview_list(payload.get("layers"), limit=PROMPT_LAYER_PREVIEW_LIMIT),
+            "result_count": len(payload.get("results", []) if isinstance(payload.get("results"), list) else []),
+            "results": _compact_result_list_for_prompt(payload.get("results"), limit=PROMPT_LIST_PREVIEW_LIMIT),
+        }
     elif tool_name == "query_mygene":
         compact_payload = {
             "query": payload.get("query"),
             "requested_fields": _preview_list(payload.get("requested_fields")),
             "result_count": payload.get("result_count", 0),
-            "results": _preview_list(payload.get("results"), limit=PROMPT_MYGENE_PREVIEW_LIMIT),
+            "results": _compact_result_list_for_prompt(payload.get("results"), limit=PROMPT_MYGENE_PREVIEW_LIMIT),
+        }
+    elif tool_name == "enrich_gene_set":
+        compact_payload = {
+            "query_gene_count": payload.get("query_gene_count", 0),
+            "query_gene_ids": _preview_list(payload.get("query_gene_ids")),
+            "background_gene_count": payload.get("background_gene_count", 0),
+            "organism": payload.get("organism"),
+            "sources": _preview_list(payload.get("sources")),
+            "raw_result_count": payload.get("raw_result_count", 0),
+            "results": _compact_result_list_for_prompt(payload.get("results"), limit=8),
         }
     else:
         compact_payload = {}
@@ -935,6 +1659,16 @@ def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dic
     }
 
 
+def _observation_is_valid_evidence(observation: ToolObservation | None) -> bool:
+    if observation is None:
+        return False
+    if observation.status == ToolObservationStatus.SUCCESS:
+        return True
+    if observation.status == ToolObservationStatus.EMPTY:
+        return observation.provenance.get("tool_name") in {"query_mygene", "enrich_gene_set"}
+    return False
+
+
 def _verifier_prompt_payload(
     context: SharedPrefixContext,
     *,
@@ -943,12 +1677,11 @@ def _verifier_prompt_payload(
     step_index: int,
     task_type: str | None = None,
 ) -> dict[str, Any]:
-    prior_state_payload = _state_payload_for_model_prompt(context.state)
     payload = {
-        "query_text": context.query_text,
-        "visible_inputs": context.user_evidence,
+        "query_text": _query_text_for_model_prompt(context.query_text),
+        "visible_inputs": _compact_visible_inputs_for_model_prompt(context.user_evidence),
         "prior_interpretation": _interpretation_payload_for_model_prompt(context.interpretation),
-        "prior_state": prior_state_payload,
+        "prior_prompt_state": _prompt_state_payload_for_model_prompt(context.state),
         "actor_output": {
             "reasoning_text": _truncate_prompt_text(
                 actor_step.reasoning_text,
@@ -1262,8 +1995,12 @@ def _verifier_output_schema() -> dict[str, Any]:
                                 },
                                 "label_name": {"type": "string"},
                                 "label_id": {"type": ["string", "null"]},
+                                "evidence_ids": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
                             },
-                            "required": ["label_source", "label_name", "label_id"],
+                            "required": ["label_source", "label_name", "label_id", "evidence_ids"],
                             "additionalProperties": False,
                         },
                     },
@@ -1352,6 +2089,33 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
             "required": ["query"],
             "additionalProperties": False,
         }
+    if tool_name == "enrich_gene_set":
+        return {
+            "type": "object",
+            "properties": {
+                "genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Canonical Ensembl gene id strings or a documented gene-set handle from tool_argument_reference.",
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Optional g:Profiler sources such as GO:BP, GO:MF, GO:CC, REAC, WP, or KEGG.",
+                },
+                "user_threshold": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 1,
+                    "description": "Optional corrected p-value threshold.",
+                },
+                "top_k": {"type": "integer", "minimum": 1},
+            },
+            "required": ["genes"],
+            "additionalProperties": False,
+        }
     if tool_name == "get_neighbors":
         return {
             "type": "object",
@@ -1394,6 +2158,33 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
             "required": ["source", "target"],
             "additionalProperties": False,
         }
+    if tool_name == "shortest_paths":
+        return {
+            "type": "object",
+            "properties": {
+                "source_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Canonical Ensembl source gene ids. Use a one-element array for pairwise shortest path queries.",
+                },
+                "target_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Optional canonical Ensembl target gene ids.",
+                },
+                "merge_method": {
+                    "type": "string",
+                    "enum": ["max", "min", "all", "sum", "mean"],
+                    "description": "How RWR++ merges multiplex edges before shortest path search.",
+                },
+                "ignore_weights": {"type": "boolean"},
+                "max_paths": {"type": "integer", "minimum": 1},
+            },
+            "required": ["source_genes"],
+            "additionalProperties": False,
+        }
     if tool_name == "rwr_multiplex":
         return {
             "type": "object",
@@ -1402,11 +2193,368 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
                     "type": "array",
                     "items": {"type": "string", "minLength": 1},
                     "minItems": 1,
-                    "description": "Canonical Ensembl gene id strings from candidate_gene_ids or prior successful tool observations.",
+                    "description": "Canonical Ensembl gene id strings or a documented gene-set handle from tool_argument_reference.",
                 },
                 "top_k": {"type": "integer", "minimum": 1},
             },
             "required": ["seeds"],
+            "additionalProperties": False,
+        }
+    if tool_name == "rwr":
+        return {
+            "type": "object",
+            "properties": {
+                "seed_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Canonical Ensembl seed gene ids or a documented gene-set handle from tool_argument_reference.",
+                },
+                "layers": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Optional concrete layer names. Omit this field to run on the full multiplex.",
+                },
+                "top_k": {"type": "integer", "minimum": 1},
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["seed_genes"],
+            "additionalProperties": False,
+        }
+    if tool_name == "rwr_loe":
+        return {
+            "type": "object",
+            "properties": {
+                "seed_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Canonical Ensembl seed gene ids or a documented gene-set handle from tool_argument_reference.",
+                },
+                "query_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "description": "Optional canonical Ensembl query genes to restrict the returned lines of evidence.",
+                },
+                "top_k": {"type": "integer", "minimum": 1},
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+                "exclude_seed_genes": {"type": "boolean"},
+            },
+            "required": ["seed_genes"],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_rank":
+        return {
+            "type": "object",
+            "properties": {
+                "source_gene": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Canonical Ensembl source gene id used as the single RWR seed.",
+                },
+                "target_gene": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Canonical Ensembl target gene id whose rank should be returned.",
+                },
+                "layers": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Optional concrete layer names. Omit this field to run on the full multiplex.",
+                },
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["source_gene", "target_gene"],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_distance":
+        return {
+            "type": "object",
+            "properties": {
+                "gene_a": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "First canonical Ensembl gene id.",
+                },
+                "gene_b": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Second canonical Ensembl gene id.",
+                },
+                "layers": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Optional concrete layer names. Omit this field to run on the full multiplex.",
+                },
+                "distance_metric": {
+                    "type": "string",
+                    "enum": ["spearman", "pearson", "dot"],
+                    "description": "RWR++ metric. Spearman/Pearson are distances; dot is a similarity matrix value.",
+                },
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["gene_a", "gene_b"],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_spearman":
+        return {
+            "type": "object",
+            "properties": {
+                "gene_a": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "First canonical Ensembl gene id.",
+                },
+                "gene_b": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Second canonical Ensembl gene id.",
+                },
+                "layers": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Optional concrete layer names. Omit this field to run on the full multiplex.",
+                },
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["gene_a", "gene_b"],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_pearson":
+        return {
+            "type": "object",
+            "properties": {
+                "gene_a": {"type": "string", "minLength": 1},
+                "gene_b": {"type": "string", "minLength": 1},
+                "layers": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Optional concrete layer names. Omit this field to run on the full multiplex.",
+                },
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["gene_a", "gene_b"],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_dot_similarity":
+        return {
+            "type": "object",
+            "properties": {
+                "gene_a": {"type": "string", "minLength": 1},
+                "gene_b": {"type": "string", "minLength": 1},
+                "layers": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Optional concrete layer names. Omit this field to run on the full multiplex.",
+                },
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["gene_a", "gene_b"],
+            "additionalProperties": False,
+        }
+    if tool_name in {"get_rank_vector_summary", "get_encoding_summary"}:
+        return {
+            "type": "object",
+            "properties": {
+                "seed_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Canonical Ensembl seed gene ids or a documented gene-set handle from tool_argument_reference.",
+                },
+                "layers": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                    "description": "Optional concrete layer names. Omit this field to run on the full multiplex.",
+                },
+                "top_k": {"type": "integer", "minimum": 1},
+                "include_seed_genes": {"type": "boolean"},
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["seed_genes"],
+            "additionalProperties": False,
+        }
+    if tool_name in {"get_gene_layers", "get_nodes_by_layer"}:
+        return {
+            "type": "object",
+            "properties": {
+                "gene": {"type": "string", "minLength": 1},
+            },
+            "required": ["gene"],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_layer_stats":
+        return {
+            "type": "object",
+            "properties": {
+                "top_k": {"type": "integer", "minimum": 1},
+                "sort_by": {"type": "string", "enum": ["edge_count", "node_count", "layer"]},
+                "descending": {"type": "boolean"},
+            },
+            "required": [],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_path_layer_counts":
+        return {
+            "type": "object",
+            "properties": {
+                "source_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                },
+                "target_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                },
+                "merge_method": {"type": "string", "enum": ["max", "min", "all", "sum", "mean"]},
+                "ignore_weights": {"type": "boolean"},
+                "max_paths": {"type": "integer", "minimum": 1},
+                "top_k": {"type": "integer", "minimum": 1},
+            },
+            "required": ["source_genes"],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_component_summary":
+        return {
+            "type": "object",
+            "properties": {
+                "genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                },
+                "max_components": {"type": "integer", "minimum": 1},
+            },
+            "required": [],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_seed_essentiality":
+        return {
+            "type": "object",
+            "properties": {
+                "seed_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                },
+                "n_samples_null_dist": {"type": "integer", "minimum": 0},
+                "seed": {"type": "integer", "minimum": 0},
+                "top_k": {"type": "integer", "minimum": 1},
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["seed_genes"],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_layer_ablation":
+        return {
+            "type": "object",
+            "properties": {
+                "seed_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                },
+                "distance_metric": {"type": "string", "enum": ["spearman", "pearson", "cos"]},
+                "top_k": {"type": "integer", "minimum": 1},
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["seed_genes"],
+            "additionalProperties": False,
+        }
+    if tool_name == "get_node_perturbation":
+        return {
+            "type": "object",
+            "properties": {
+                "seed_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                },
+                "perturb_genes": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                },
+                "distance_metric": {"type": "string", "enum": ["spearman", "pearson", "dot", "cos"]},
+                "top_k": {"type": "integer", "minimum": 1},
+                "restart": {"type": "number", "minimum": 0, "maximum": 1},
+                "delta": {"type": "number", "minimum": 0, "maximum": 1},
+                "reduction_method": {
+                    "type": "string",
+                    "enum": ["geometric", "arithmetic", "sum", "none"],
+                },
+                "threshold": {"type": "number", "exclusiveMinimum": 0},
+            },
+            "required": ["seed_genes", "perturb_genes"],
             "additionalProperties": False,
         }
     if tool_name == "rwr_monoplex":
@@ -1417,12 +2565,12 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
                     "type": "array",
                     "items": {"type": "string", "minLength": 1},
                     "minItems": 1,
-                    "description": "Canonical Ensembl gene id strings from candidate_gene_ids or prior successful tool observations.",
+                    "description": "Canonical Ensembl gene id strings or a documented gene-set handle from tool_argument_reference.",
                 },
                 "layer": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "A concrete layer name. Use rwr_multiplex instead when querying across all layers.",
+                    "description": "A concrete layer name. Use rwr instead when querying across all layers.",
                 },
                 "top_k": {"type": "integer", "minimum": 1},
             },
@@ -1437,7 +2585,7 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
                     "type": "array",
                     "items": {"type": "string", "minLength": 1},
                     "minItems": 1,
-                    "description": "Canonical Ensembl gene id strings from candidate_gene_ids or prior successful tool observations.",
+                    "description": "Canonical Ensembl gene id strings or a documented gene-set handle from tool_argument_reference.",
                 },
                 "layers": {
                     "type": "array",
@@ -1455,7 +2603,26 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
 def _runtime_tool_description(tool_name: str) -> str:
     descriptions = {
         "query_mygene": "Retrieve gene identifier and metadata information for one query string.",
+        "enrich_gene_set": "Run group-level functional enrichment for a gene set against the configured background.",
         "get_neighbors": "Retrieve direct graph neighbors for one gene.",
+        "shortest_paths": "Compute shortest paths between source and target gene sets with RWR++.",
+        "rwr": "Rank genes by RWR++ across the multiplex or selected layers.",
+        "rwr_loe": "Rank lines of evidence for seed/query gene sets with RWR++.",
+        "get_rank": "Return one target gene's single-source RWR++ rank from another gene.",
+        "get_distance": "Return RWR++ distance or dissimilarity between two genes.",
+        "get_spearman": "Return Spearman correlation between two genes' RWR++ rank vectors.",
+        "get_pearson": "Return Pearson correlation between two genes' RWR++ encoding vectors.",
+        "get_dot_similarity": "Return dot similarity between two genes' RWR++ encoding vectors.",
+        "get_rank_vector_summary": "Return a compact summary of a seed set's RWR++ rank vector.",
+        "get_encoding_summary": "Return a compact summary of a seed set's RWR++ encoding scores.",
+        "get_gene_layers": "Return the multiplex layers containing one gene.",
+        "get_nodes_by_layer": "Return the multiplex layers containing one gene.",
+        "get_layer_stats": "Return compact node and edge statistics for multiplex layers.",
+        "get_path_layer_counts": "Return layer support counts for RWR++ shortest paths.",
+        "get_component_summary": "Return connected-component summaries for the merged multiplex.",
+        "get_seed_essentiality": "Return GRIN leave-one-out seed sensitivity summaries.",
+        "get_layer_ablation": "Return layer-ablation effects on RWR++ distances.",
+        "get_node_perturbation": "Return node-perturbation effects on RWR++ distances.",
         "shortest_path": "Compute a shortest path between two genes.",
         "rwr_multiplex": "Rank genes by random walk with restart across the multiplex.",
         "rwr_monoplex": "Rank genes by random walk with restart on one named layer.",
@@ -1633,6 +2800,64 @@ def _validate_verifier_payload(payload: dict[str, Any]) -> list[str]:
         )
     ):
         errors.append("verifier_payload_blank")
+
+    for key in ("mechanistic_claim", "main_evidence", "uncertainty", "next_subgoal"):
+        if not isinstance(updated_interpretation.get(key), str):
+            errors.append(f"verifier_updated_interpretation_{key}_missing_or_invalid")
+
+    relationship_status = updated_state.get("relationship_status")
+    if not isinstance(relationship_status, str):
+        errors.append("verifier_relationship_status_missing_or_invalid")
+    else:
+        try:
+            RelationshipStatus(relationship_status)
+        except Exception:
+            errors.append("verifier_relationship_status_invalid")
+
+    predicted_gene_ids = updated_state.get("predicted_gene_ids")
+    if not isinstance(predicted_gene_ids, list) or not all(
+        isinstance(gene_id, str) and gene_id
+        for gene_id in predicted_gene_ids
+    ):
+        errors.append("verifier_predicted_gene_ids_missing_or_invalid")
+
+    labels = updated_state.get("mechanistic_labels")
+    if not isinstance(labels, list):
+        errors.append("verifier_mechanistic_labels_missing_or_invalid")
+    else:
+        for index, raw_label in enumerate(labels):
+            if not isinstance(raw_label, dict):
+                errors.append(f"verifier_label_{index}_not_a_dict")
+                continue
+            label_source = _normalize_label_source_value(raw_label.get("label_source"))
+            label_name = raw_label.get("label_name")
+            label_id = raw_label.get("label_id")
+            evidence_ids = raw_label.get("evidence_ids")
+            if not isinstance(label_source, str) or not label_source:
+                errors.append(f"verifier_label_{index}_missing_source")
+            elif label_source not in {source.value for source in LabelSource}:
+                errors.append(f"verifier_label_{index}_source_invalid")
+            if not isinstance(label_name, str) or not label_name:
+                errors.append(f"verifier_label_{index}_missing_name")
+            if label_id is not None and not isinstance(label_id, str):
+                errors.append(f"verifier_label_{index}_label_id_invalid")
+            if not isinstance(evidence_ids, list) or not all(
+                isinstance(evidence_id, str)
+                for evidence_id in evidence_ids
+            ):
+                errors.append(f"verifier_label_{index}_evidence_ids_missing_or_invalid")
+
+    continuation_decision = updated_state.get("continuation_decision")
+    if not isinstance(continuation_decision, str):
+        errors.append("verifier_continuation_decision_missing_or_invalid")
+    else:
+        try:
+            ContinuationState(continuation_decision)
+        except Exception:
+            errors.append("verifier_continuation_decision_invalid")
+
+    if not isinstance(updated_state.get("verifier_notes"), str):
+        errors.append("verifier_notes_missing_or_invalid")
     return errors
 
 
@@ -1681,12 +2906,43 @@ def _verifier_candidate_is_usable(candidate: dict[str, Any], errors: Iterable[st
         return False
     if _has_error_prefix(errors, ("verifier_json_parse_error:", "verifier_tool_call_")):
         return False
+    if _has_error_prefix(errors, ("verifier_",)):
+        return False
 
     payload = _safe_dict(candidate.get("payload"))
     return (
         isinstance(payload.get("updated_interpretation"), dict)
         and isinstance(payload.get("updated_state"), dict)
     )
+
+
+def _verifier_repair_errors(errors: Iterable[str]) -> list[str]:
+    """Return verifier-specific errors that should trigger one structured retry."""
+
+    return [
+        error
+        for error in errors
+        if isinstance(error, str) and error.startswith("verifier_")
+    ]
+
+
+def _normalize_label_source_value(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in {source.value for source in LabelSource}:
+        return normalized
+    if normalized in {"gene_ontology", "go_bp", "go_mf", "go_cc"} or normalized.startswith("go:"):
+        return LabelSource.GO.value
+    if normalized in {"reac", "reactome_pathway", "reactome_pathways"} or normalized.startswith("reac:"):
+        return LabelSource.REACTOME.value
+    if normalized in {"complex", "protein_complex"}:
+        return LabelSource.COMPLEX_NAME.value
+    if normalized in {"free_text_label", "text", "manual"}:
+        return LabelSource.FREE_TEXT.value
+    if normalized in {"kegg", "wp", "wikipathways", "pathway", "pathways"}:
+        return LabelSource.OTHER.value
+    return value
 
 
 @dataclass
@@ -1703,6 +2959,9 @@ class ModelGeneratorConfig:
     top_p: float = 0.95
     max_completion_tokens: int = 4096
     actor_rationale_max_completion_tokens: int = DEFAULT_ACTOR_RATIONALE_MAX_TOKENS
+    verifier_repair_retry_count: int = DEFAULT_VERIFIER_REPAIR_RETRY_COUNT
+    actor_tool_repair_retry_count: int = DEFAULT_ACTOR_TOOL_REPAIR_RETRY_COUNT
+    prompt_token_limit: int = DEFAULT_GENERATOR_PROMPT_TOKEN_LIMIT
     reasoning_effort: str = "low"
     actor_sampling_strategy: str = "batch"
 
@@ -1718,6 +2977,12 @@ class ModelGeneratorConfig:
             raise ValueError("max_completion_tokens must be positive.")
         if self.actor_rationale_max_completion_tokens <= 0:
             raise ValueError("actor_rationale_max_completion_tokens must be positive.")
+        if self.verifier_repair_retry_count < 0:
+            raise ValueError("verifier_repair_retry_count must be non-negative.")
+        if self.actor_tool_repair_retry_count < 0:
+            raise ValueError("actor_tool_repair_retry_count must be non-negative.")
+        if self.prompt_token_limit < 0:
+            raise ValueError("prompt_token_limit must be non-negative.")
 
     def resolved_api_key(self) -> str:
         """Return the API key, falling back to an environment variable."""
@@ -1830,6 +3095,69 @@ class OpenAICompatibleCandidateGenerator:
             raise RuntimeError("The completion prompt renderer returned an empty prompt.")
         return prompt
 
+    def _estimate_prompt_tokens(self, text: str) -> int:
+        try:
+            tokenizer = self._prompt_tokenizer()
+            encoded = tokenizer.encode(text)
+            if isinstance(encoded, list):
+                return len(encoded)
+        except Exception:
+            pass
+        return max(1, math.ceil(len(text) / 4))
+
+    def _prompt_section_lengths(self, messages: list[dict[str, str]]) -> dict[str, int]:
+        sections: dict[str, int] = {}
+        for index, message in enumerate(messages):
+            role = message.get("role", f"message_{index}")
+            content = _safe_text(message.get("content"))
+            base_key = f"{index}:{role}"
+            sections[base_key] = len(content)
+            try:
+                payload = json.loads(content)
+            except Exception:
+                continue
+            if isinstance(payload, dict):
+                for key, value in payload.items():
+                    sections[f"{base_key}.{key}"] = len(_json_dumps_compact(value))
+        return dict(sorted(sections.items(), key=lambda item: item[1], reverse=True)[:10])
+
+    def _assert_text_fits_prompt_budget(
+        self,
+        text: str,
+        *,
+        endpoint: str,
+        sections: dict[str, int] | None = None,
+    ) -> None:
+        if self.config.prompt_token_limit <= 0:
+            return
+        prompt_tokens = self._estimate_prompt_tokens(text)
+        if prompt_tokens <= self.config.prompt_token_limit:
+            return
+        raise RuntimeError(
+            "prompt_token_budget_exceeded: "
+            f"endpoint={endpoint} estimated_prompt_tokens={prompt_tokens} "
+            f"limit={self.config.prompt_token_limit} "
+            f"largest_sections={json.dumps(sections or {}, sort_keys=True)}"
+        )
+
+    def _assert_messages_fit_prompt_budget(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        endpoint: str,
+    ) -> None:
+        if self.config.prompt_token_limit <= 0:
+            return
+        text = "\n".join(
+            f"{message.get('role', 'unknown')}:\n{_safe_text(message.get('content'))}"
+            for message in messages
+        )
+        self._assert_text_fits_prompt_budget(
+            text,
+            endpoint=endpoint,
+            sections=self._prompt_section_lengths(messages),
+        )
+
     def _assert_gpt_oss_completion_prompt_contract(
         self,
         prompt: str,
@@ -1862,6 +3190,7 @@ class OpenAICompatibleCandidateGenerator:
         temperature: float | None = None,
         top_p: float | None = None,
     ) -> list[dict[str, Any]]:
+        self._assert_messages_fit_prompt_budget(messages, endpoint="chat_completions")
         payload = {
             "model": self.model_name,
             "messages": messages,
@@ -2007,12 +3336,15 @@ class OpenAICompatibleCandidateGenerator:
         text_config: dict[str, Any] | None = None,
         use_reasoning: bool = True,
         max_output_tokens: int | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
     ) -> list[dict[str, Any]]:
+        self._assert_messages_fit_prompt_budget(messages, endpoint="responses")
         payload = {
             "model": self.model_name,
             "input": messages,
-            "temperature": self.config.temperature,
-            "top_p": self.config.top_p,
+            "temperature": self.config.temperature if temperature is None else temperature,
+            "top_p": self.config.top_p if top_p is None else top_p,
             "max_output_tokens": (
                 max_output_tokens
                 if max_output_tokens is not None
@@ -2077,6 +3409,11 @@ class OpenAICompatibleCandidateGenerator:
         self._assert_gpt_oss_completion_prompt_contract(
             prompt,
             disable_hidden_thinking=disable_hidden_thinking,
+        )
+        self._assert_text_fits_prompt_budget(
+            prompt,
+            endpoint="completions",
+            sections=self._prompt_section_lengths(messages),
         )
         payload = {
             "model": self.model_name,
@@ -2152,6 +3489,8 @@ class OpenAICompatibleCandidateGenerator:
         guided_json: dict[str, Any] | None = None,
         text_config: dict[str, Any] | None = None,
         disable_hidden_thinking: bool = False,
+        temperature: float | None = None,
+        top_p: float | None = None,
     ) -> list[dict[str, Any]]:
         messages = [
             {"role": "system", "content": system_prompt},
@@ -2166,6 +3505,8 @@ class OpenAICompatibleCandidateGenerator:
                 text_config=text_config,
                 use_reasoning=False,
                 max_output_tokens=structured_max_tokens,
+                temperature=temperature,
+                top_p=top_p,
             )
             fallback_guided_json = guided_json
             if fallback_guided_json is None and text_config is not None:
@@ -2183,6 +3524,8 @@ class OpenAICompatibleCandidateGenerator:
                     use_reasoning=False,
                     max_completion_tokens=structured_max_tokens,
                     disable_hidden_thinking=disable_hidden_thinking,
+                    temperature=temperature,
+                    top_p=top_p,
                 )
                 fallback_choice = fallback_choices[0]
                 if _choice_has_visible_output(fallback_choice):
@@ -2206,6 +3549,8 @@ class OpenAICompatibleCandidateGenerator:
                 guided_json=completion_guided_json,
                 max_completion_tokens=structured_max_tokens,
                 disable_hidden_thinking=disable_hidden_thinking,
+                temperature=temperature,
+                top_p=top_p,
             )
 
         choices = self._chat(
@@ -2218,6 +3563,8 @@ class OpenAICompatibleCandidateGenerator:
             use_reasoning=False,
             max_completion_tokens=structured_max_tokens,
             disable_hidden_thinking=disable_hidden_thinking,
+            temperature=temperature,
+            top_p=top_p,
         )
         if self._model_is_gpt_oss():
             fallback_guided_json = guided_json
@@ -2239,6 +3586,8 @@ class OpenAICompatibleCandidateGenerator:
                         guided_json=fallback_guided_json,
                         max_completion_tokens=structured_max_tokens,
                         disable_hidden_thinking=disable_hidden_thinking,
+                        temperature=temperature,
+                        top_p=top_p,
                     )
                 except Exception as error:
                     choice["fallback_error"] = f"completions_fallback_failed: {error}"
@@ -2249,6 +3598,156 @@ class OpenAICompatibleCandidateGenerator:
                     fallback_choice["fallback_trigger"] = "chat_completions_blank_visible_output"
                     choices[index] = fallback_choice
         return choices
+
+    def _verifier_candidate_from_choice(
+        self,
+        choice: dict[str, Any],
+        *,
+        actor_candidate: dict[str, Any],
+        require_tool_call: bool,
+        repair_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        raw_text = _json_dumps_compact(_strip_raw_generation_payload(choice))
+        try:
+            payload, payload_errors = _named_tool_arguments_from_choice(
+                choice,
+                expected_tool_name=VERIFIER_OUTPUT_TOOL_NAME,
+                prefix="verifier",
+                require_tool_call=require_tool_call,
+            )
+            generator_errors = (
+                list(actor_candidate.get("generator_errors", []))
+                + payload_errors
+                + _validate_verifier_payload(payload)
+            )
+            candidate = {
+                "payload": payload,
+                "raw_text": raw_text,
+                "generator_errors": _unique(generator_errors),
+            }
+        except Exception as error:
+            candidate = {
+                "payload": {},
+                "raw_text": raw_text,
+                "generator_errors": _unique(
+                    list(actor_candidate.get("generator_errors", []))
+                    + [f"verifier_json_parse_error: {error}"]
+                ),
+            }
+
+        if repair_metadata is not None:
+            candidate["verifier_repair"] = repair_metadata
+        return candidate
+
+    def _verifier_repair_user_prompt(
+        self,
+        *,
+        verifier_payload: dict[str, Any],
+        invalid_candidate: dict[str, Any],
+        repair_errors: list[str],
+    ) -> str:
+        return json.dumps(
+            {
+                "repair_task": (
+                    "The previous verifier response was not usable. Re-emit the verifier "
+                    "update as one complete JSON object matching the schema. Use only the "
+                    "verifier_input below; do not invent hidden labels or targets. If a "
+                    "mechanistic label cannot be named from visible evidence, return an "
+                    "empty mechanistic_labels list."
+                ),
+                "previous_errors": repair_errors,
+                "previous_response": _truncate_prompt_text(
+                    invalid_candidate.get("raw_text"),
+                    max_chars=VERIFIER_REPAIR_RAW_TEXT_MAX_CHARS,
+                ),
+                "verifier_input": verifier_payload,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+
+    def _repair_verifier_candidate(
+        self,
+        invalid_candidate: dict[str, Any],
+        *,
+        verifier_payload: dict[str, Any],
+        actor_candidate: dict[str, Any],
+        seed: int,
+        attempt_index: int,
+    ) -> dict[str, Any]:
+        repair_errors = _verifier_repair_errors(invalid_candidate.get("generator_errors", []))
+        if not repair_errors:
+            return invalid_candidate
+
+        repair_system_prompt = (
+            VERIFIER_SYSTEM_PROMPT
+            + "\nYou are repairing a verifier response that failed strict validation."
+            + "\nReturn exactly one complete JSON object and nothing else."
+            + "\nAll required object keys and label fields must be present."
+        )
+        text_config = None
+        guided_json = _verifier_output_schema()
+        if self.api_mode == "responses":
+            text_config = _responses_json_schema_text_config(
+                name=VERIFIER_OUTPUT_TOOL_NAME,
+                description="Repair and emit the verifier policy update for the current MENTOR-RL branch.",
+                schema=_verifier_output_schema(),
+            )
+            guided_json = None
+
+        repair_metadata: dict[str, Any] = {
+            "attempted": True,
+            "attempt_count": attempt_index + 1,
+            "original_errors": repair_errors,
+            "success": False,
+        }
+        try:
+            repair_choices = self._generate_choices(
+                system_prompt=repair_system_prompt,
+                user_prompt=self._verifier_repair_user_prompt(
+                    verifier_payload=verifier_payload,
+                    invalid_candidate=invalid_candidate,
+                    repair_errors=repair_errors,
+                ),
+                n=1,
+                seed=seed,
+                tools=None,
+                tool_choice=None,
+                guided_json=guided_json,
+                text_config=text_config,
+                disable_hidden_thinking=self._should_disable_hidden_thinking(),
+                temperature=0.0,
+                top_p=1.0,
+            )
+        except requests.RequestException as error:
+            repaired = dict(invalid_candidate)
+            repaired["generator_errors"] = _unique(
+                list(invalid_candidate.get("generator_errors", []))
+                + [f"verifier_repair_request_failed: {error}"]
+            )
+            repair_metadata["request_error"] = f"{error}"
+            repaired["verifier_repair"] = repair_metadata
+            return repaired
+
+        repaired = self._verifier_candidate_from_choice(
+            repair_choices[0],
+            actor_candidate=actor_candidate,
+            require_tool_call=False,
+            repair_metadata=repair_metadata,
+        )
+        repaired_errors = list(repaired.get("generator_errors", []))
+        repaired_verifier_errors = _verifier_repair_errors(repaired_errors)
+        if not repaired_verifier_errors and _verifier_candidate_is_usable(repaired, repaired_errors):
+            repaired["verifier_repair"]["success"] = True
+            return repaired
+
+        repaired["generator_errors"] = _unique(
+            list(invalid_candidate.get("generator_errors", []))
+            + ["verifier_repair_failed"]
+            + repaired_errors
+        )
+        repaired["verifier_repair"]["repair_errors"] = repaired_verifier_errors
+        return repaired
 
     def _generate_actor_reasoning(
         self,
@@ -2265,6 +3764,7 @@ class OpenAICompatibleCandidateGenerator:
                 context,
                 step_index=step_index,
                 environment=environment,
+                prior_actions=None,
             ),
             indent=2,
             sort_keys=True,
@@ -2315,6 +3815,8 @@ class OpenAICompatibleCandidateGenerator:
         seed: int,
         environment: RuntimeEnvironment | None = None,
         force_tool_coverage: bool = False,
+        prior_actions: Iterable[ToolAction] | None = None,
+        actor_repair_feedback: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         if self.api_mode == "responses":
             system_prompt = (
@@ -2361,7 +3863,9 @@ class OpenAICompatibleCandidateGenerator:
                     context,
                     step_index=step_index,
                     environment=environment,
+                    prior_actions=prior_actions,
                     actor_sampling_directive=directive,
+                    actor_repair_feedback=actor_repair_feedback,
                 ),
                 indent=2,
                 sort_keys=True,
@@ -2385,15 +3889,17 @@ class OpenAICompatibleCandidateGenerator:
                 try:
                     sample_choices = self._generate_choices(
                         system_prompt=system_prompt,
-                        user_prompt=build_user_prompt(sample_index),
-                        n=1,
-                        seed=seed + sample_index,
-                        tools=tools,
-                        tool_choice=tool_choice,
-                        guided_json=guided_json,
-                        text_config=text_config,
-                        disable_hidden_thinking=self._should_disable_hidden_thinking(),
-                    )
+                    user_prompt=build_user_prompt(sample_index),
+                    n=1,
+                    seed=seed + sample_index,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    guided_json=guided_json,
+                    text_config=text_config,
+                    disable_hidden_thinking=self._should_disable_hidden_thinking(),
+                    temperature=0.0 if actor_repair_feedback is not None else None,
+                    top_p=1.0 if actor_repair_feedback is not None else None,
+                )
                 except requests.RequestException as error:
                     choices.append(
                         {
@@ -2421,6 +3927,8 @@ class OpenAICompatibleCandidateGenerator:
                     guided_json=guided_json,
                     text_config=text_config,
                     disable_hidden_thinking=self._should_disable_hidden_thinking(),
+                    temperature=0.0 if actor_repair_feedback is not None else None,
+                    top_p=1.0 if actor_repair_feedback is not None else None,
                 )
             except requests.RequestException as error:
                 return [
@@ -2447,6 +3955,7 @@ class OpenAICompatibleCandidateGenerator:
                         "raw_text": raw_text,
                         "generator_errors": _unique(payload_errors),
                         "actor_sampling_directive": choice.get("actor_sampling_directive"),
+                        "actor_repair": actor_repair_feedback,
                     }
                 )
             except Exception as error:
@@ -2457,9 +3966,61 @@ class OpenAICompatibleCandidateGenerator:
                         "raw_text": raw_text,
                         "generator_errors": [f"actor_json_parse_error: {error}"],
                         "actor_sampling_directive": choice.get("actor_sampling_directive"),
+                        "actor_repair": actor_repair_feedback,
                     }
                 )
         return candidates
+
+    def repair_actor_candidate(
+        self,
+        context: SharedPrefixContext,
+        *,
+        task_row: dict[str, Any],
+        step_index: int,
+        actor_index: int,
+        actor_candidate: dict[str, Any],
+        actor_step: ActorStep,
+        observation: ToolObservation | None,
+        errors: Iterable[str],
+        seed: int,
+        environment: RuntimeEnvironment | None = None,
+        prior_actions: Iterable[ToolAction] | None = None,
+        attempt_index: int = 0,
+    ) -> dict[str, Any]:
+        repair_feedback = _actor_repair_feedback_payload(
+            actor_candidate=actor_candidate,
+            actor_step=actor_step,
+            observation=observation,
+            errors=errors,
+        )
+        repair_feedback["attempt_index"] = attempt_index
+        repair_feedback["actor_index"] = actor_index
+        repaired = self.generate_actor_candidates(
+            context,
+            task_row=task_row,
+            step_index=step_index,
+            n_act=1,
+            seed=seed,
+            environment=environment,
+            force_tool_coverage=True,
+            prior_actions=prior_actions,
+            actor_repair_feedback=repair_feedback,
+        )
+        if not repaired:
+            return {
+                "reasoning_text": "",
+                "tool_action": None,
+                "raw_text": "{}",
+                "generator_errors": ["actor_repair_returned_no_candidates"],
+                "actor_repair": repair_feedback,
+            }
+        candidate = dict(repaired[0])
+        metadata = dict(repair_feedback)
+        metadata["attempted"] = True
+        metadata["attempt_count"] = attempt_index + 1
+        metadata["success"] = False
+        candidate["actor_repair"] = metadata
+        return candidate
 
     def generate_verifier_candidates(
         self,
@@ -2473,14 +4034,15 @@ class OpenAICompatibleCandidateGenerator:
         n_ver: int,
         seed: int,
     ) -> list[dict[str, Any]]:
+        verifier_payload = _verifier_prompt_payload(
+            context,
+            actor_step=actor_step,
+            observation=observation,
+            step_index=step_index,
+            task_type=task_row.get("task_type"),
+        )
         user_prompt = json.dumps(
-            _verifier_prompt_payload(
-                context,
-                actor_step=actor_step,
-                observation=observation,
-                step_index=step_index,
-                task_type=task_row.get("task_type"),
-            ),
+            verifier_payload,
             indent=2,
             sort_keys=True,
         )
@@ -2540,36 +4102,29 @@ class OpenAICompatibleCandidateGenerator:
                 }
             ]
 
-        for choice in choices:
-            raw_text = _json_dumps_compact(_strip_raw_generation_payload(choice))
-            try:
-                payload, payload_errors = _named_tool_arguments_from_choice(
-                    choice,
-                    expected_tool_name=VERIFIER_OUTPUT_TOOL_NAME,
-                    prefix="verifier",
-                    require_tool_call=(
-                        self._prefers_named_output_tools()
-                        and choice.get("fallback_backend") != "completions"
-                    ),
+        for choice_index, choice in enumerate(choices):
+            candidate = self._verifier_candidate_from_choice(
+                choice,
+                actor_candidate=actor_candidate,
+                require_tool_call=(
+                    self._prefers_named_output_tools()
+                    and choice.get("fallback_backend") != "completions"
+                ),
+            )
+            for repair_attempt_index in range(self.config.verifier_repair_retry_count):
+                repair_errors = _verifier_repair_errors(candidate.get("generator_errors", []))
+                if not repair_errors:
+                    break
+                candidate = self._repair_verifier_candidate(
+                    candidate,
+                    verifier_payload=verifier_payload,
+                    actor_candidate=actor_candidate,
+                    seed=seed + 1000 + (choice_index * 100) + repair_attempt_index,
+                    attempt_index=repair_attempt_index,
                 )
-                candidates.append(
-                    {
-                        "payload": payload,
-                        "raw_text": raw_text,
-                        "generator_errors": list(actor_candidate.get("generator_errors", []))
-                        + payload_errors
-                        + _validate_verifier_payload(payload),
-                    }
-                )
-            except Exception as error:
-                candidates.append(
-                    {
-                        "payload": {},
-                        "raw_text": raw_text,
-                        "generator_errors": list(actor_candidate.get("generator_errors", []))
-                        + [f"verifier_json_parse_error: {error}"],
-                    }
-                )
+                if not _verifier_repair_errors(candidate.get("generator_errors", [])):
+                    break
+            candidates.append(candidate)
         return candidates
 
 
@@ -2586,6 +4141,13 @@ def _unique(values: Iterable[str]) -> list[str]:
 def _write_jsonl_line(handle: Any, payload: dict[str, Any]) -> None:
     json.dump(payload, handle, sort_keys=True)
     handle.write("\n")
+
+
+def _task_shard_bucket(task_row: dict[str, Any], task_shard_count: int) -> int:
+    task_id = str(task_row.get("task_id", ""))
+    module_key = task_id.split(".", 1)[0] if task_id else ""
+    digest = hashlib.sha256(module_key.encode("utf-8")).hexdigest()
+    return int(digest[:16], 16) % task_shard_count
 
 
 def _load_task_rows(
@@ -2607,14 +4169,131 @@ def _load_task_rows(
             line = line.strip()
             if not line:
                 continue
-            if input_task_index % task_shard_count != task_shard_index:
-                input_task_index += 1
+            row = json.loads(line)
+            if task_shard_count > 1 and _task_shard_bucket(row, task_shard_count) != task_shard_index:
                 continue
-            rows.append(json.loads(line))
+            rows.append(row)
             input_task_index += 1
             if max_tasks is not None and len(rows) >= max_tasks:
                 break
     return rows
+
+
+def _load_gene_id_background(path: Path | None) -> list[str] | None:
+    if path is None:
+        return None
+    gene_ids: list[str] = []
+    seen: set[str] = set()
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            values: list[str]
+            if stripped.startswith("{"):
+                payload = json.loads(stripped)
+                values = _safe_list_of_strings(payload.get("gene_ids"))
+            elif stripped.startswith("["):
+                values = _safe_list_of_strings(json.loads(stripped))
+            else:
+                values = [stripped.split()[0]]
+            for gene_id in values:
+                if gene_id and gene_id not in seen:
+                    seen.add(gene_id)
+                    gene_ids.append(gene_id)
+    return gene_ids
+
+
+def _task_seed_gene_ids(task_row: dict[str, Any]) -> list[str]:
+    visible_inputs = task_row.get("visible_inputs")
+    if isinstance(visible_inputs, dict):
+        genes = _safe_list_of_strings(visible_inputs.get("seed_gene_ids"))
+        if genes:
+            return genes
+    hidden_target = task_row.get("hidden_target")
+    if isinstance(hidden_target, dict):
+        return _safe_list_of_strings(hidden_target.get("target_gene_ids"))
+    return []
+
+
+def _prefetch_mechanism_evidence_cache(
+    task_rows: list[dict[str, Any]],
+    environment: RuntimeEnvironment,
+    *,
+    mygene_per_task: int = 3,
+    enrichment_top_k: int = 10,
+) -> dict[str, Any]:
+    """Warm annotation/enrichment caches before model generation starts."""
+
+    status_counts: Counter[str] = Counter()
+    tool_status_counts: Counter[str] = Counter()
+    errors: list[dict[str, Any]] = []
+    seen_enrichment_sets: set[tuple[str, ...]] = set()
+    seen_mygene_queries: set[str] = set()
+
+    for task_index, task_row in enumerate(task_rows):
+        task_id = str(task_row.get("task_id", f"task_{task_index}"))
+        gene_ids = _task_seed_gene_ids(task_row)
+        if not gene_ids:
+            continue
+
+        enrichment_key = tuple(gene_ids)
+        if enrichment_key not in seen_enrichment_sets:
+            seen_enrichment_sets.add(enrichment_key)
+            observation = environment.execute(
+                ToolAction(
+                    tool_name="enrich_gene_set",
+                    arguments={"genes": gene_ids, "top_k": enrichment_top_k},
+                    call_id=f"prefetch.{task_index}.enrich_gene_set",
+                )
+            )
+            status_key = f"enrich_gene_set.{observation.status.value}"
+            status_counts[observation.status.value] += 1
+            tool_status_counts[status_key] += 1
+            if observation.status == ToolObservationStatus.ERROR:
+                errors.append(
+                    {
+                        "task_id": task_id,
+                        "tool_name": "enrich_gene_set",
+                        "error": observation.error,
+                    }
+                )
+
+        for gene_id in gene_ids[: max(0, mygene_per_task)]:
+            if gene_id in seen_mygene_queries:
+                continue
+            seen_mygene_queries.add(gene_id)
+            observation = environment.execute(
+                ToolAction(
+                    tool_name="query_mygene",
+                    arguments={"query": gene_id},
+                    call_id=f"prefetch.{task_index}.query_mygene.{gene_id}",
+                )
+            )
+            status_key = f"query_mygene.{observation.status.value}"
+            status_counts[observation.status.value] += 1
+            tool_status_counts[status_key] += 1
+            if observation.status == ToolObservationStatus.ERROR:
+                errors.append(
+                    {
+                        "task_id": task_id,
+                        "tool_name": "query_mygene",
+                        "query": gene_id,
+                        "error": observation.error,
+                    }
+                )
+
+    return {
+        "task_count": len(task_rows),
+        "unique_enrichment_queries": len(seen_enrichment_sets),
+        "unique_mygene_queries": len(seen_mygene_queries),
+        "status_counts": dict(sorted(status_counts.items())),
+        "tool_status_counts": dict(sorted(tool_status_counts.items())),
+        "error_count": len(errors),
+        "errors_preview": errors[:10],
+        "mygene_cache_size": len(environment.mygene_cache),
+        "enrichment_cache_size": len(environment.enrichment_cache),
+    }
 
 
 def _gene_symbol_lookup(task_row: dict[str, Any]) -> dict[str, str]:
@@ -2736,21 +4415,268 @@ def _summarize_observation(observation: ToolObservation | None) -> tuple[str, li
             f"Found a path of {payload.get('hop_count')} hops between the queried genes.",
             path_gene_ids[:10],
         )
-    if tool_name in {"rwr_multiplex", "rwr_monoplex"}:
-        seed_gene_ids = set(_safe_list_of_strings(payload.get("seed_gene_ids")))
-        ranked_gene_ids = [item.get("gene_id") for item in payload.get("results", []) if item.get("gene_id")]
+    if tool_name == "shortest_paths":
+        paths = payload.get("paths", [])
+        path_list = paths if isinstance(paths, list) else []
+        if not path_list:
+            return ("No shortest paths were found for the queried genes.", [])
+        path_gene_ids: list[str] = []
+        for path in path_list[:3]:
+            if isinstance(path, dict):
+                _append_unique_strings(path_gene_ids, _safe_list_of_strings(path.get("path_genes")))
+        return (
+            f"Found {len(path_list)} shortest path records for the queried genes.",
+            path_gene_ids[:10],
+        )
+    if tool_name in RWR_RESULT_TOOL_NAMES:
+        seed_gene_ids = set(_safe_list_of_strings(payload.get("seed_gene_ids")) or _safe_list_of_strings(payload.get("seed_genes")))
+        results = payload.get("results", payload.get("ranked_genes", []))
+        result_list = results if isinstance(results, list) else []
+        ranked_gene_ids = [
+            gene_id
+            for item in result_list
+            if (gene_id := _rwr_result_gene_id(item)) is not None
+        ]
         non_seed_gene_ids = [gene_id for gene_id in ranked_gene_ids if gene_id not in seed_gene_ids]
         return (
             f"Ranked {len(ranked_gene_ids)} genes from the seed set with restart walk.",
             non_seed_gene_ids[:PROMPT_TOOL_REFERENCE_GENE_LIMIT],
         )
+    if tool_name == "get_rank":
+        source_gene = payload.get("source_gene")
+        target_gene = payload.get("target_gene")
+        target_rank = payload.get("target_rank")
+        if target_rank is None:
+            return (f"No RWR rank was found for {target_gene} from {source_gene}.", [])
+        return (
+            f"RWR ranked {target_gene} at {target_rank} from source {source_gene}.",
+            [gene for gene in (source_gene, target_gene) if isinstance(gene, str)],
+        )
+    if tool_name == "get_distance":
+        gene_a = payload.get("gene_a")
+        gene_b = payload.get("gene_b")
+        metric = payload.get("distance_metric", "spearman")
+        return (
+            f"RWR++ {metric} distance between {gene_a} and {gene_b} was {payload.get('distance')}.",
+            [gene for gene in (gene_a, gene_b) if isinstance(gene, str)],
+        )
+    if tool_name == "get_spearman":
+        gene_a = payload.get("gene_a")
+        gene_b = payload.get("gene_b")
+        return (
+            f"RWR rank-vector Spearman correlation between {gene_a} and {gene_b} was {payload.get('spearman_correlation')}.",
+            [gene for gene in (gene_a, gene_b) if isinstance(gene, str)],
+        )
+    if tool_name == "get_pearson":
+        gene_a = payload.get("gene_a")
+        gene_b = payload.get("gene_b")
+        return (
+            f"RWR encoding-vector Pearson correlation between {gene_a} and {gene_b} was {payload.get('pearson_correlation')}.",
+            [gene for gene in (gene_a, gene_b) if isinstance(gene, str)],
+        )
+    if tool_name == "get_dot_similarity":
+        gene_a = payload.get("gene_a")
+        gene_b = payload.get("gene_b")
+        return (
+            f"RWR encoding-vector dot similarity between {gene_a} and {gene_b} was {payload.get('dot_similarity')}.",
+            [gene for gene in (gene_a, gene_b) if isinstance(gene, str)],
+        )
+    if tool_name in {"get_rank_vector_summary", "get_encoding_summary"}:
+        results = payload.get("results", [])
+        result_list = results if isinstance(results, list) else []
+        gene_ids = [
+            gene_id
+            for item in result_list
+            if isinstance(item, dict)
+            and isinstance((gene_id := item.get("gene")), str)
+        ]
+        return (
+            f"{tool_name} returned {len(result_list)} compact RWR++ vector entries.",
+            gene_ids[:PROMPT_TOOL_REFERENCE_GENE_LIMIT],
+        )
+    if tool_name in {"get_gene_layers", "get_nodes_by_layer"}:
+        gene = payload.get("gene")
+        layers = payload.get("layers", [])
+        layer_list = layers if isinstance(layers, list) else []
+        return (f"{gene} was present in {len(layer_list)} multiplex layers.", [gene] if isinstance(gene, str) else [])
+    if tool_name == "get_layer_stats":
+        results = payload.get("results", [])
+        result_list = results if isinstance(results, list) else []
+        return (f"Summarized {len(result_list)} multiplex layers by node/edge counts.", [])
+    if tool_name == "get_path_layer_counts":
+        results = payload.get("results", [])
+        result_list = results if isinstance(results, list) else []
+        genes = _safe_list_of_strings(payload.get("source_genes")) + _safe_list_of_strings(payload.get("target_genes"))
+        return (f"Found layer support counts for {len(result_list)} shortest-path layers.", genes[:PROMPT_TOOL_REFERENCE_GENE_LIMIT])
+    if tool_name == "get_component_summary":
+        genes = _safe_list_of_strings(payload.get("genes"))
+        return (f"Summarized {payload.get('total_components', 0)} connected components.", genes[:PROMPT_TOOL_REFERENCE_GENE_LIMIT])
+    if tool_name == "get_seed_essentiality":
+        genes = _safe_list_of_strings(payload.get("seed_genes"))
+        results = payload.get("results", [])
+        result_list = results if isinstance(results, list) else []
+        return (f"GRIN leave-one-out returned {len(result_list)} seed essentiality rows.", genes[:PROMPT_TOOL_REFERENCE_GENE_LIMIT])
+    if tool_name == "get_layer_ablation":
+        genes = _safe_list_of_strings(payload.get("seed_genes"))
+        results = payload.get("results", [])
+        result_list = results if isinstance(results, list) else []
+        return (f"Layer ablation returned {len(result_list)} ranked layer effects.", genes[:PROMPT_TOOL_REFERENCE_GENE_LIMIT])
+    if tool_name == "get_node_perturbation":
+        genes = _safe_list_of_strings(payload.get("seed_genes")) + _safe_list_of_strings(payload.get("perturb_genes"))
+        results = payload.get("results", [])
+        result_list = results if isinstance(results, list) else []
+        return (f"Node perturbation returned {len(result_list)} ranked perturbation effects.", genes[:PROMPT_TOOL_REFERENCE_GENE_LIMIT])
     if tool_name == "query_mygene":
         return (
             f"Retrieved {payload.get('result_count', 0)} MyGene hits for {payload.get('query')}.",
             [],
         )
+    if tool_name == "enrich_gene_set":
+        results = payload.get("results", [])
+        result_list = results if isinstance(results, list) else []
+        if result_list:
+            top = result_list[0]
+            top_name = top.get("name") if isinstance(top, dict) else None
+            top_id = top.get("native") if isinstance(top, dict) else None
+            return (
+                f"Found {len(result_list)} enriched terms; top term is {top_name or top_id}.",
+                _safe_list_of_strings(payload.get("query_gene_ids"))[:PROMPT_LIST_PREVIEW_LIMIT],
+            )
+        return (
+            "No significant gene-set enrichment terms were found.",
+            _safe_list_of_strings(payload.get("query_gene_ids"))[:PROMPT_LIST_PREVIEW_LIMIT],
+        )
 
     return (f"Recorded a {tool_name} observation.", [])
+
+
+def _evidence_payload_for_record(observation: ToolObservation) -> dict[str, Any]:
+    payload = observation.payload or {}
+    tool_name = observation.provenance.get("tool_name")
+    if tool_name == "query_mygene":
+        return {
+            "query": payload.get("query"),
+            "requested_fields": _preview_list(payload.get("requested_fields"), limit=32),
+            "result_count": payload.get("result_count", 0),
+            "results": _preview_list(payload.get("results"), limit=PROMPT_MYGENE_PREVIEW_LIMIT),
+        }
+    if tool_name == "enrich_gene_set":
+        return {
+            "query_gene_ids": _preview_list(payload.get("query_gene_ids"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "query_gene_count": payload.get("query_gene_count", 0),
+            "background_gene_count": payload.get("background_gene_count", 0),
+            "background_hash": payload.get("background_hash"),
+            "organism": payload.get("organism"),
+            "sources": _preview_list(payload.get("sources"), limit=16),
+            "user_threshold": payload.get("user_threshold"),
+            "raw_result_count": payload.get("raw_result_count", 0),
+            "results": _preview_list(payload.get("results"), limit=10),
+        }
+    if tool_name == "induce_subgraph":
+        return {
+            "query_gene_ids": _preview_list(payload.get("query_gene_ids"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "present_gene_ids": _preview_list(payload.get("present_gene_ids"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "combined_edge_count": payload.get("combined_edge_count", 0),
+        }
+    if tool_name == "shortest_path":
+        return {
+            "source_gene_id": payload.get("source_gene_id"),
+            "target_gene_id": payload.get("target_gene_id"),
+            "path_gene_ids": _preview_list(payload.get("path_gene_ids")),
+            "hop_count": payload.get("hop_count"),
+        }
+    if tool_name == "shortest_paths":
+        return {
+            "source_genes": _preview_list(payload.get("source_genes"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "target_genes": _preview_list(payload.get("target_genes"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "merge_method": payload.get("merge_method"),
+            "path_count": len(payload.get("paths", []) if isinstance(payload.get("paths"), list) else []),
+            "paths": _preview_list(payload.get("paths"), limit=10),
+        }
+    if tool_name in RWR_RESULT_TOOL_NAMES:
+        return {
+            "seed_gene_ids": _preview_list(payload.get("seed_gene_ids") or payload.get("seed_genes"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "active_seed_gene_ids": _preview_list(payload.get("active_seed_gene_ids")),
+            "top_k": payload.get("top_k"),
+            "results": _preview_list(payload.get("results") or payload.get("ranked_genes"), limit=PROMPT_RWR_RESULT_PREVIEW_LIMIT),
+        }
+    if tool_name == "get_rank":
+        return {
+            "source_gene": payload.get("source_gene"),
+            "target_gene": payload.get("target_gene"),
+            "layers": _preview_list(payload.get("layers"), limit=PROMPT_LAYER_PREVIEW_LIMIT),
+            "target_rank": payload.get("target_rank"),
+            "rank_result": payload.get("rank_result"),
+            "ranked_gene_count": payload.get("ranked_gene_count"),
+        }
+    if tool_name == "get_distance":
+        return {
+            "gene_a": payload.get("gene_a"),
+            "gene_b": payload.get("gene_b"),
+            "layers": _preview_list(payload.get("layers"), limit=PROMPT_LAYER_PREVIEW_LIMIT),
+            "distance_metric": payload.get("distance_metric"),
+            "distance": payload.get("distance"),
+            "dissimilarity": payload.get("dissimilarity"),
+        }
+    if tool_name == "get_spearman":
+        return {
+            "gene_a": payload.get("gene_a"),
+            "gene_b": payload.get("gene_b"),
+            "layers": _preview_list(payload.get("layers"), limit=PROMPT_LAYER_PREVIEW_LIMIT),
+            "spearman_correlation": payload.get("spearman_correlation"),
+            "spearman_distance": payload.get("spearman_distance"),
+        }
+    if tool_name == "get_pearson":
+        return {
+            "gene_a": payload.get("gene_a"),
+            "gene_b": payload.get("gene_b"),
+            "layers": _preview_list(payload.get("layers"), limit=PROMPT_LAYER_PREVIEW_LIMIT),
+            "pearson_correlation": payload.get("pearson_correlation"),
+            "pearson_distance": payload.get("pearson_distance"),
+        }
+    if tool_name == "get_dot_similarity":
+        return {
+            "gene_a": payload.get("gene_a"),
+            "gene_b": payload.get("gene_b"),
+            "layers": _preview_list(payload.get("layers"), limit=PROMPT_LAYER_PREVIEW_LIMIT),
+            "dot_similarity": payload.get("dot_similarity"),
+        }
+    if tool_name in {"get_rank_vector_summary", "get_encoding_summary"}:
+        return {
+            "seed_genes": _preview_list(payload.get("seed_genes"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "layers": _preview_list(payload.get("layers"), limit=PROMPT_LAYER_PREVIEW_LIMIT),
+            "top_k": payload.get("top_k"),
+            "results": _preview_list(payload.get("results"), limit=PROMPT_RWR_RESULT_PREVIEW_LIMIT),
+        }
+    if tool_name in {"get_gene_layers", "get_nodes_by_layer"}:
+        return {
+            "gene": payload.get("gene"),
+            "layer_count": payload.get("layer_count"),
+            "layers": _preview_list(payload.get("layers"), limit=PROMPT_LAYER_PREVIEW_LIMIT),
+        }
+    if tool_name in {
+        "get_layer_stats",
+        "get_path_layer_counts",
+        "get_component_summary",
+        "get_seed_essentiality",
+        "get_layer_ablation",
+        "get_node_perturbation",
+    }:
+        return {
+            "seed_genes": _preview_list(payload.get("seed_genes"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "genes": _preview_list(payload.get("genes"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "perturb_genes": _preview_list(payload.get("perturb_genes"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+            "total_components": payload.get("total_components"),
+            "result_count": len(payload.get("results", []) if isinstance(payload.get("results"), list) else []),
+            "results": _preview_list(payload.get("results"), limit=PROMPT_LIST_PREVIEW_LIMIT),
+        }
+    if tool_name == "get_neighbors":
+        return {
+            "query_gene_id": payload.get("query_gene_id"),
+            "unique_neighbor_count": payload.get("unique_neighbor_count", 0),
+            "unique_neighbors": _preview_list(payload.get("unique_neighbors"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
+        }
+    return {}
 
 
 def _build_evidence_record(
@@ -2766,14 +4692,13 @@ def _build_evidence_record(
         return None
 
     summary, supporting_gene_ids = _summarize_observation(observation)
+    compact_provenance = _compact_provenance_for_prompt(observation.provenance)
+    compact_provenance["payload"] = _evidence_payload_for_record(observation)
     return EvidenceRecord(
         evidence_id=f"{branch_id}.evidence",
         source_type=EvidenceSourceType.TOOL_OBSERVATION,
         summary=summary,
-        provenance={
-            "step_index": step_index,
-            **observation.provenance,
-        },
+        provenance={"step_index": step_index, **compact_provenance},
         supporting_gene_ids=supporting_gene_ids,
         supporting_gene_symbols=[_symbol_for_gene(gene_id, symbol_lookup) for gene_id in supporting_gene_ids],
         tool_call_id=observation.call_id,
@@ -2816,8 +4741,14 @@ def _positive_group_update(
     payload = observation.payload or {}
     tool_name = observation.provenance.get("tool_name")
 
-    if tool_name == "rwr_multiplex" or tool_name == "rwr_monoplex":
-        ranked_gene_ids = [item.get("gene_id") for item in payload.get("results", []) if item.get("gene_id")]
+    if tool_name in RWR_RESULT_TOOL_NAMES:
+        results = payload.get("results", payload.get("ranked_genes", []))
+        result_list = results if isinstance(results, list) else []
+        ranked_gene_ids = [
+            gene_id
+            for item in result_list
+            if (gene_id := _rwr_result_gene_id(item)) is not None
+        ]
         if task_type == "recovery":
             add_limit = 1 if conservative else 2
             additions = [gene_id for gene_id in ranked_gene_ids if gene_id not in current_gene_ids][:add_limit]
@@ -2876,8 +4807,16 @@ def _positive_group_update(
         status = RelationshipStatus.VALIDATED_GROUP if overlap else RelationshipStatus.UNKNOWN
         return current_gene_ids, status
 
-    if tool_name == "shortest_path":
-        path_gene_ids = [gene_id for gene_id in payload.get("path_gene_ids", []) if gene_id]
+    if tool_name in SHORTEST_PATH_RESULT_TOOL_NAMES:
+        if tool_name == "shortest_paths":
+            paths = payload.get("paths", [])
+            path_list = paths if isinstance(paths, list) else []
+            first_path = path_list[0] if path_list and isinstance(path_list[0], dict) else {}
+            path_gene_ids = [gene_id for gene_id in first_path.get("path_genes", []) if gene_id]
+            path_length = first_path.get("path_length")
+        else:
+            path_gene_ids = [gene_id for gene_id in payload.get("path_gene_ids", []) if gene_id]
+            path_length = payload.get("hop_count")
         if not path_gene_ids:
             return current_gene_ids, RelationshipStatus.UNKNOWN
         additions = [gene_id for gene_id in path_gene_ids if gene_id not in current_gene_ids]
@@ -2885,7 +4824,7 @@ def _positive_group_update(
             current_gene_ids = _unique(current_gene_ids + additions[:1])
         status = (
             RelationshipStatus.VALIDATED_GROUP
-            if payload.get("hop_count") is not None and payload.get("hop_count") <= 2
+            if path_length is not None and path_length <= 2
             else RelationshipStatus.PARTIALLY_OBSERVED_GROUP
         )
         return current_gene_ids, status
@@ -2902,6 +4841,12 @@ def _positive_group_update(
 
     if tool_name == "query_mygene":
         return visible_seed_ids or current_gene_ids, RelationshipStatus.PARTIALLY_OBSERVED_GROUP
+
+    if tool_name == "enrich_gene_set":
+        results = payload.get("results", [])
+        if isinstance(results, list) and results:
+            return current_gene_ids, RelationshipStatus.VALIDATED_GROUP
+        return current_gene_ids, RelationshipStatus.UNKNOWN
 
     return current_gene_ids, RelationshipStatus.UNKNOWN
 
@@ -2931,14 +4876,25 @@ def _none_group_update(
             return [], RelationshipStatus.INSUFFICIENT_SUPPORT
         return current_gene_ids, RelationshipStatus.PARTIALLY_OBSERVED_GROUP
 
-    if tool_name == "shortest_path":
-        if payload.get("hop_count") is None:
+    if tool_name in SHORTEST_PATH_RESULT_TOOL_NAMES:
+        if tool_name == "shortest_paths":
+            paths = payload.get("paths", [])
+            path_list = paths if isinstance(paths, list) else []
+            has_path = bool(path_list)
+        else:
+            has_path = payload.get("hop_count") is not None
+        if not has_path:
             return [], RelationshipStatus.INSUFFICIENT_SUPPORT
         return current_gene_ids, RelationshipStatus.PARTIALLY_OBSERVED_GROUP
 
     if tool_name == "get_neighbors":
         neighbors = payload.get("unique_neighbors", [])
         if not neighbors:
+            return [], RelationshipStatus.INSUFFICIENT_SUPPORT
+        return current_gene_ids, RelationshipStatus.PARTIALLY_OBSERVED_GROUP
+
+    if tool_name == "enrich_gene_set":
+        if not payload.get("results"):
             return [], RelationshipStatus.INSUFFICIENT_SUPPORT
         return current_gene_ids, RelationshipStatus.PARTIALLY_OBSERVED_GROUP
 
@@ -3083,8 +5039,18 @@ def _pair_category(
         chosen_branch.local_score.mechanistic_label_delta
         - rejected_branch.local_score.mechanistic_label_delta
     )
+    mechanism_evidence_diff = (
+        chosen_branch.local_score.mechanism_evidence_score
+        - rejected_branch.local_score.mechanism_evidence_score
+    )
     chosen_group_delta = int(chosen_features["group_size_delta"])
     rejected_group_delta = int(rejected_features["group_size_delta"])
+    chosen_jaccard = float(chosen_features["post_jaccard"])
+    rejected_jaccard = float(rejected_features["post_jaccard"])
+    chosen_recall = float(chosen_features["post_recall"])
+    rejected_recall = float(rejected_features["post_recall"])
+    chosen_has_tool = bool(chosen_features["has_successful_tool"])
+    rejected_has_tool = bool(rejected_features["has_successful_tool"])
 
     if (
         task_type == "recovery"
@@ -3098,15 +5064,42 @@ def _pair_category(
         and float(chosen_features["precision_delta"]) > float(rejected_features["precision_delta"]) + 1e-9
     ):
         return "refinement_precision"
+    if task_type == "explanation" and (
+        chosen_recall > rejected_recall + 1e-9
+        or chosen_jaccard > rejected_jaccard + 1e-9
+    ):
+        return "explanation_preservation"
+    if task_type == "recovery" and chosen_recall > rejected_recall + 1e-9:
+        return "recovery_recall"
+    if task_type == "refinement" and chosen_jaccard > rejected_jaccard + 1e-9:
+        return "refinement_jaccard"
+    if (
+        chosen_has_tool
+        and not rejected_has_tool
+        and (complex_diff >= -1e-9 or mechanism_evidence_diff > 1e-9)
+    ):
+        return "tool_supported_improvement"
     if (
         task_type == "none"
         and chosen_branch.verifier_step.updated_state.relationship_status
         == RelationshipStatus.INSUFFICIENT_SUPPORT
     ):
+        if not _branch_predicted_gene_ids(chosen_branch):
+            return "abstention_correct"
+        if chosen_branch.local_score.mechanism_evidence_score > rejected_branch.local_score.mechanism_evidence_score + 1e-9:
+            return "calibrated_abstention"
         return "none_abstention"
-    if bool(chosen_features["has_successful_tool"]) and (
-        not bool(rejected_features["has_successful_tool"]) or complex_diff > 1e-9
+    if task_type != "none" and complex_diff > 1e-9:
+        return "task_correctness_improvement"
+    if mechanism_evidence_diff > 1e-9:
+        return "mechanism_evidence_improvement"
+    if (
+        rejected_branch.local_score.mechanism_evidence_score <= 0.05
+        and rejected_branch.verifier_step.updated_interpretation.mechanistic_claim.strip()
+        and chosen_branch.local_score.mechanism_evidence_score > rejected_branch.local_score.mechanism_evidence_score
     ):
+        return "unsupported_mechanism_rejected"
+    if chosen_has_tool and (not rejected_has_tool or complex_diff > 1e-9):
         return "tool_supported_improvement"
     if abs(complex_diff) <= 1e-9 and mechanism_diff > 1e-9:
         return "mechanism_label_only"
@@ -3157,6 +5150,10 @@ def _pair_quality_provenance(
         "rejected_recall_delta": rejected_features["recall_delta"],
         "chosen_precision_delta": chosen_features["precision_delta"],
         "rejected_precision_delta": rejected_features["precision_delta"],
+        "chosen_mechanism_evidence_score": chosen_features["mechanism_evidence_score"],
+        "rejected_mechanism_evidence_score": rejected_features["mechanism_evidence_score"],
+        "chosen_mechanism_evidence_delta": chosen_features["mechanism_evidence_delta"],
+        "rejected_mechanism_evidence_delta": rejected_features["mechanism_evidence_delta"],
         "complex_delta_diff": (
             chosen_branch.local_score.complex_membership_delta
             - rejected_branch.local_score.complex_membership_delta
@@ -3165,6 +5162,10 @@ def _pair_quality_provenance(
             chosen_branch.local_score.mechanistic_label_delta
             - rejected_branch.local_score.mechanistic_label_delta
         ),
+        "mechanism_evidence_score_diff": (
+            chosen_branch.local_score.mechanism_evidence_score
+            - rejected_branch.local_score.mechanism_evidence_score
+        ),
         "efficiency_penalty_diff": (
             chosen_branch.local_score.efficiency_penalty
             - rejected_branch.local_score.efficiency_penalty
@@ -3172,14 +5173,51 @@ def _pair_quality_provenance(
     }
 
 
-def _preference_difficulty_for_rank(index: int, total: int) -> PreferenceDifficulty:
-    if total <= 1:
+def _preference_difficulty_for_task(task_difficulty: Any) -> PreferenceDifficulty:
+    try:
+        return PreferenceDifficulty(str(task_difficulty))
+    except Exception:
         return PreferenceDifficulty.MEDIUM
+
+
+def _preference_difficulty_for_rank(
+    index: int,
+    total: int,
+    *,
+    task_difficulty: Any = None,
+) -> PreferenceDifficulty:
+    if total <= 1:
+        return _preference_difficulty_for_task(task_difficulty)
     if index == 0:
         return PreferenceDifficulty.EASY
     if index == total - 1:
         return PreferenceDifficulty.HARD
     return PreferenceDifficulty.MEDIUM
+
+
+def _pair_is_task_safe(
+    *,
+    task_type: str,
+    context: SharedPrefixContext,
+    chosen_branch: CandidateBranch,
+    rejected_branch: CandidateBranch,
+) -> bool:
+    """Reject pairs where mechanism text improves while task correctness regresses."""
+
+    if task_type == "none":
+        return True
+    chosen_features = _branch_quality_features(chosen_branch, prior_state=context.state)
+    rejected_features = _branch_quality_features(rejected_branch, prior_state=context.state)
+    if float(chosen_features["complex_delta"]) + 1e-9 < float(rejected_features["complex_delta"]):
+        return False
+    for metric_name in ("post_jaccard", "post_recall"):
+        if float(chosen_features[metric_name]) + 1e-9 < float(rejected_features[metric_name]):
+            return False
+    if task_type == "refinement" and (
+        float(chosen_features["post_precision"]) + 1e-9 < float(rejected_features["post_precision"])
+    ):
+        return False
+    return True
 
 
 def _mine_preference_pairs(
@@ -3219,7 +5257,14 @@ def _mine_preference_pairs(
 
     if pair_mining_strategy == "quality_balanced":
         difficulty_targets = [
-            (_preference_difficulty_for_rank(index, len(ordered_rejected)), branch)
+            (
+                _preference_difficulty_for_rank(
+                    index,
+                    len(ordered_rejected),
+                    task_difficulty=task_row.get("difficulty"),
+                ),
+                branch,
+            )
             for index, branch in enumerate(ordered_rejected)
         ]
     else:
@@ -3232,6 +5277,13 @@ def _mine_preference_pairs(
     seen_branch_ids: set[str] = set()
     for difficulty_bin, rejected_branch in difficulty_targets:
         if rejected_branch.branch_id in seen_branch_ids:
+            continue
+        if not _pair_is_task_safe(
+            task_type=str(task_row["task_type"]),
+            context=context,
+            chosen_branch=chosen_branch,
+            rejected_branch=rejected_branch,
+        ):
             continue
         seen_branch_ids.add(rejected_branch.branch_id)
         rejected_normalized = float(rejected_branch.local_score.normalized_score or 0.0)
@@ -3458,6 +5510,29 @@ def _actor_templates_for_step(
         )
 
     if current_gene_ids:
+        if task_type in {"explanation", "recovery", "refinement"}:
+            add_template(
+                "enrich_current_group",
+                "Run group-level enrichment before making a specific mechanism claim.",
+                tool_name="enrich_gene_set",
+                arguments={"genes": current_gene_ids, "top_k": 10},
+            )
+            add_template(
+                "mygene_first_seed",
+                "Look up one representative seed gene to ground the mechanism in gene annotations.",
+                tool_name="query_mygene",
+                arguments={
+                    "query": current_gene_ids[0],
+                    "fields": [
+                        "symbol",
+                        "name",
+                        "summary",
+                        "type_of_gene",
+                        "go",
+                        "pathway",
+                    ],
+                },
+            )
         add_template(
             "induce_subgraph_current_group",
             "Inspect the induced subgraph on the current candidate group.",
@@ -3474,9 +5549,9 @@ def _actor_templates_for_step(
             add_template(
                 "rwr_expand_group",
                 "Rank candidate genes from the current seed set with multiplex restart walk.",
-                tool_name="rwr_multiplex",
+                tool_name="rwr",
                 arguments={
-                    "seeds": current_gene_ids,
+                    "seed_genes": current_gene_ids,
                     "top_k": recovery_rwr_top_k if task_type == "recovery" else 10,
                 },
             )
@@ -3485,8 +5560,11 @@ def _actor_templates_for_step(
         add_template(
             "shortest_path_seed_pair",
             "Check whether the first two genes are connected by a short path.",
-            tool_name="shortest_path",
-            arguments={"source": current_gene_ids[0], "target": current_gene_ids[1]},
+            tool_name="shortest_paths",
+            arguments={
+                "source_genes": [current_gene_ids[0]],
+                "target_genes": [current_gene_ids[1]],
+            },
         )
 
     add_template(
@@ -3497,6 +5575,8 @@ def _actor_templates_for_step(
     ordered_ids_by_task = {
         "recovery": [
             "rwr_expand_group",
+            "enrich_current_group",
+            "mygene_first_seed",
             "induce_subgraph_current_group",
             "neighbors_first_seed",
             "shortest_path_seed_pair",
@@ -3505,6 +5585,8 @@ def _actor_templates_for_step(
         ],
         "refinement": [
             "induce_subgraph_current_group",
+            "enrich_current_group",
+            "mygene_first_seed",
             "rwr_expand_group",
             "neighbors_first_seed",
             "shortest_path_seed_pair",
@@ -3513,6 +5595,8 @@ def _actor_templates_for_step(
         ],
         "explanation": [
             "use_visible_annotations",
+            "enrich_current_group",
+            "mygene_first_seed",
             "induce_subgraph_current_group",
             "shortest_path_seed_pair",
             "neighbors_first_seed",
@@ -3586,7 +5670,7 @@ def _apply_task_tool_defaults(
     action = actor_step.tool_action
     if action is None:
         return {}
-    if task_type == "recovery" and action.tool_name == "rwr_multiplex":
+    if task_type == "recovery" and action.tool_name in {"rwr", "rwr_multiplex"}:
         old_top_k = action.arguments.get("top_k")
         if not isinstance(old_top_k, int) or old_top_k < recovery_rwr_top_k:
             action.arguments["top_k"] = recovery_rwr_top_k
@@ -3607,9 +5691,10 @@ def _build_labels_from_model_payload(payload: dict[str, Any]) -> tuple[list[Mech
         if not isinstance(raw_label, dict):
             errors.append(f"verifier_label_{index}_not_a_dict")
             continue
-        label_source = raw_label.get("label_source")
+        label_source = _normalize_label_source_value(raw_label.get("label_source"))
         label_name = raw_label.get("label_name")
         label_id = raw_label.get("label_id")
+        evidence_ids = _safe_list_of_strings(raw_label.get("evidence_ids"))
         if not isinstance(label_name, str) or not label_name:
             errors.append(f"verifier_label_{index}_missing_name")
             continue
@@ -3622,7 +5707,7 @@ def _build_labels_from_model_payload(payload: dict[str, Any]) -> tuple[list[Mech
                     label_source=label_source,
                     label_name=label_name,
                     label_id=label_id if isinstance(label_id, str) else None,
-                    evidence_ids=[],
+                    evidence_ids=evidence_ids,
                 )
             )
         except Exception as error:
@@ -3650,7 +5735,7 @@ def _build_branch_from_model_output(
     updated_state = clone_state(prior_state)
     updated_state = decrement_budget(updated_state)
     if actor_step.tool_action is not None:
-        invalid_tool = observation is None or observation.status != ToolObservationStatus.SUCCESS
+        invalid_tool = not _observation_is_valid_evidence(observation)
         updated_state = record_tool_call(updated_state, invalid=invalid_tool)
 
     evidence_record = _build_evidence_record(
@@ -3732,6 +5817,16 @@ def _build_branch_from_model_output(
     ):
         errors.append("verifier_notes_invalid")
 
+    metadata: dict[str, Any] = {
+        "generator_backend": "model_vllm",
+        "step_index": step_index,
+        "task_type": task_row["task_type"],
+        "generator_errors": errors,
+    }
+    verifier_repair_metadata = verifier_candidate.get("verifier_repair")
+    if isinstance(verifier_repair_metadata, dict):
+        metadata["verifier_repair"] = verifier_repair_metadata
+
     return CandidateBranch(
         branch_id=branch_id,
         actor_step=actor_step,
@@ -3749,12 +5844,7 @@ def _build_branch_from_model_output(
             efficiency_penalty=0.0,
             total_score=0.0,
         ),
-        metadata={
-            "generator_backend": "model_vllm",
-            "step_index": step_index,
-            "task_type": task_row["task_type"],
-            "generator_errors": errors,
-        },
+        metadata=metadata,
     )
 
 
@@ -3779,7 +5869,7 @@ def _build_heuristic_branch_for_templates(
     updated_state = clone_state(prior_state)
     updated_state = decrement_budget(updated_state)
     if actor_step.tool_action is not None:
-        invalid_tool = observation is None or observation.status != ToolObservationStatus.SUCCESS
+        invalid_tool = not _observation_is_valid_evidence(observation)
         updated_state = record_tool_call(updated_state, invalid=invalid_tool)
 
     evidence_record = _build_evidence_record(
@@ -3925,6 +6015,12 @@ def _branch_selection_errors(branch: CandidateBranch) -> list[str]:
         else:
             errors.append("local_score_schema_invalid")
 
+    if branch.actor_step.tool_action is not None:
+        if branch.observation is None:
+            errors.append("missing_tool_observation")
+        elif branch.observation.status in (ToolObservationStatus.INVALID, ToolObservationStatus.ERROR):
+            errors.append(f"tool_observation_status={branch.observation.status.value}")
+
     return _unique(errors)
 
 
@@ -3940,8 +6036,7 @@ def _branch_tool_name(branch: CandidateBranch) -> str:
 def _branch_has_successful_tool(branch: CandidateBranch) -> bool:
     return (
         branch.actor_step.tool_action is not None
-        and branch.observation is not None
-        and branch.observation.status == ToolObservationStatus.SUCCESS
+        and _observation_is_valid_evidence(branch.observation)
     )
 
 
@@ -3969,6 +6064,18 @@ def _complex_metric_delta(branch: CandidateBranch, metric_name: str) -> float:
     return float(post_value) - float(pre_value)
 
 
+def _complex_metric_value(branch: CandidateBranch, metric_name: str, *, phase: str) -> float:
+    complex_metadata = branch.local_score.score_metadata.get("complex", {})
+    if not isinstance(complex_metadata, dict):
+        return 0.0
+    if phase == "pre":
+        metrics = _safe_dict(_safe_dict(complex_metadata.get("best_group_pre")).get("metrics"))
+    else:
+        metrics = _safe_dict(_safe_dict(complex_metadata.get("best_group_post")).get("metrics"))
+    value = metrics.get(metric_name, 0.0)
+    return float(value) if isinstance(value, (int, float)) else 0.0
+
+
 def _branch_quality_features(
     branch: CandidateBranch,
     *,
@@ -3986,10 +6093,18 @@ def _branch_quality_features(
         "group_size_delta": len(post_gene_ids) - len(prior_gene_ids),
         "complex_delta": branch.local_score.complex_membership_delta,
         "mechanistic_delta": branch.local_score.mechanistic_label_delta,
+        "mechanism_evidence_delta": branch.local_score.mechanism_evidence_delta,
+        "mechanism_evidence_score": branch.local_score.mechanism_evidence_score,
         "efficiency_penalty": branch.local_score.efficiency_penalty,
         "recall_delta": _complex_metric_delta(branch, "recall"),
         "precision_delta": _complex_metric_delta(branch, "precision"),
         "jaccard_delta": _complex_metric_delta(branch, "jaccard"),
+        "post_recall": _complex_metric_value(branch, "recall", phase="post"),
+        "post_precision": _complex_metric_value(branch, "precision", phase="post"),
+        "post_jaccard": _complex_metric_value(branch, "jaccard", phase="post"),
+        "task_success_level": branch.local_score.score_metadata.get("task_success", {}).get(
+            "task_success_level"
+        ),
         "relationship_status": relationship_status,
         "continuation_state": branch.verifier_step.updated_state.continuation_state.value,
     }
@@ -3998,24 +6113,41 @@ def _branch_quality_features(
 def _tool_preference_rank(task_type: str, tool_name: str) -> int:
     task_preferences = {
         "recovery": {
-            "rwr_multiplex": 4,
+            "rwr": 6,
+            "rwr_multiplex": 6,
+            "get_rank_vector_summary": 5,
+            "get_component_summary": 5,
+            "enrich_gene_set": 4,
             "get_neighbors": 3,
+            "query_mygene": 3,
             "induce_subgraph": 2,
+            "shortest_paths": 1,
             "shortest_path": 1,
         },
         "refinement": {
+            "rwr": 5,
+            "rwr_multiplex": 5,
+            "shortest_paths": 4,
+            "shortest_path": 4,
+            "get_component_summary": 4,
             "induce_subgraph": 4,
-            "rwr_multiplex": 3,
-            "shortest_path": 2,
+            "enrich_gene_set": 3,
+            "query_mygene": 2,
             "get_neighbors": 1,
         },
         "none": {
             "induce_subgraph": 3,
+            "enrich_gene_set": 2,
+            "shortest_paths": 2,
             "shortest_path": 2,
             "get_neighbors": 1,
+            "query_mygene": 1,
         },
         "explanation": {
-            "induce_subgraph": 3,
+            "enrich_gene_set": 4,
+            "query_mygene": 3,
+            "induce_subgraph": 2,
+            "shortest_paths": 2,
             "shortest_path": 2,
             "get_neighbors": 1,
         },
@@ -4039,6 +6171,8 @@ def _branch_task_quality_tuple(
     group_size_delta = int(features["group_size_delta"])
     complex_delta = float(features["complex_delta"])
     mechanism_delta = float(features["mechanistic_delta"])
+    mechanism_evidence_delta = float(features["mechanism_evidence_delta"])
+    mechanism_evidence_score = float(features["mechanism_evidence_score"])
     recall_delta = float(features["recall_delta"])
     precision_delta = float(features["precision_delta"])
 
@@ -4050,6 +6184,8 @@ def _branch_task_quality_tuple(
             group_size_delta,
             successful_tool,
             tool_rank,
+            mechanism_evidence_delta,
+            mechanism_evidence_score,
             mechanism_delta,
             -float(features["efficiency_penalty"]),
             normalized,
@@ -4062,6 +6198,8 @@ def _branch_task_quality_tuple(
             int(group_size_delta < 0),
             successful_tool,
             tool_rank,
+            mechanism_evidence_delta,
+            mechanism_evidence_score,
             mechanism_delta,
             -abs(group_size_delta),
             -float(features["efficiency_penalty"]),
@@ -4072,6 +6210,8 @@ def _branch_task_quality_tuple(
         quality = (
             int(status == RelationshipStatus.INSUFFICIENT_SUPPORT.value),
             complex_delta,
+            mechanism_evidence_delta,
+            mechanism_evidence_score,
             successful_tool,
             tool_rank,
             -len(_branch_predicted_gene_ids(branch)),
@@ -4081,12 +6221,18 @@ def _branch_task_quality_tuple(
         )
     else:
         quality = (
-            mechanism_delta,
             complex_delta,
+            recall_delta,
+            precision_delta,
+            float(features["jaccard_delta"]),
             int(status == RelationshipStatus.VALIDATED_GROUP.value),
-            no_tool,
+            int(features["task_success_level"] == "positive"),
+            mechanism_evidence_delta,
+            mechanism_evidence_score,
+            mechanism_delta,
             successful_tool,
             tool_rank,
+            -no_tool,
             -float(features["efficiency_penalty"]),
             normalized,
             total,
@@ -4303,7 +6449,7 @@ def generate_task_trajectory(
     """Generate one deterministic trajectory and all of its branch pools."""
 
     symbol_lookup = _gene_symbol_lookup(task_row)
-    interpretation, state = initialize_state_from_corum_task(task_row, max_budget=config.max_steps)
+    interpretation, state = initialize_state_from_task(task_row, max_budget=config.max_steps)
     initial_state = clone_state(state)
     prior_actions: list[ToolAction] = []
 
@@ -4331,45 +6477,30 @@ def generate_task_trajectory(
             if candidate_generator is None:
                 raise ValueError("candidate_generator is required for model_vllm generation.")
 
-            actor_candidates = candidate_generator.generate_actor_candidates(
-                context,
-                task_row=task_row,
-                step_index=step_index,
-                n_act=config.n_act,
-                seed=trajectory_seed + step_index,
-                environment=environment,
-            )
-            if (
-                config.tool_coverage_retry_count > 0
-                and task_row["task_type"] in {"recovery", "refinement"}
-                and not any(
-                    isinstance(candidate.get("tool_action"), dict)
-                    and candidate["tool_action"].get("tool_name")
-                    for candidate in actor_candidates
-                )
-            ):
-                actor_candidates.extend(
-                    candidate_generator.generate_actor_candidates(
-                        context,
-                        task_row=task_row,
-                        step_index=step_index,
-                        n_act=config.tool_coverage_retry_count,
-                        seed=trajectory_seed + step_index + 7919,
-                        environment=environment,
-                        force_tool_coverage=True,
-                    )
-                )
-            for actor_index, actor_candidate in enumerate(actor_candidates):
+            def prepare_actor_candidate(
+                candidate: dict[str, Any],
+                *,
+                actor_index: int,
+            ) -> tuple[ActorStep, list[str], dict[str, Any]]:
                 actor_step, actor_errors = _build_actor_step_from_model_candidate(
-                    actor_candidate,
+                    candidate,
                     trajectory_id=trajectory_id,
                     step_index=step_index,
                     actor_index=actor_index,
                 )
-                actor_generation_errors = _unique(
-                    actor_errors + list(actor_candidate.get("generator_errors", []))
+                expanded_tool_action = _expand_tool_action_gene_set_handles(
+                    actor_step.tool_action,
+                    context=context,
                 )
-                tool_default_metadata = _apply_task_tool_defaults(
+                if expanded_tool_action is not actor_step.tool_action:
+                    actor_step = ActorStep(
+                        reasoning_text=actor_step.reasoning_text,
+                        tool_action=expanded_tool_action,
+                    )
+                generation_errors = _unique(
+                    actor_errors + list(candidate.get("generator_errors", []))
+                )
+                default_metadata = _apply_task_tool_defaults(
                     actor_step,
                     task_type=task_row["task_type"],
                     recovery_rwr_top_k=config.recovery_rwr_top_k,
@@ -4382,21 +6513,99 @@ def generate_task_trajectory(
                         available_layers=environment.available_layers,
                     )
                     if not actor_tool_validation.valid:
-                        actor_generation_errors = _unique(
-                            actor_generation_errors
+                        generation_errors = _unique(
+                            generation_errors
                             + [
                                 f"actor_tool_semantics_invalid: {error}"
                                 for error in actor_tool_validation.errors
                             ]
                         )
+                return actor_step, generation_errors, default_metadata
+
+            def rejected_candidate_diagnostic(
+                *,
+                phase: str,
+                actor_index: int,
+                generator_errors: list[str],
+                actor_step: ActorStep | None = None,
+                actor_candidate: dict[str, Any] | None = None,
+                observation: ToolObservation | None = None,
+                verifier_index: int | None = None,
+                branch_id: str | None = None,
+            ) -> dict[str, Any]:
+                diagnostic: dict[str, Any] = {
+                    "phase": phase,
+                    "actor_index": actor_index,
+                    "generator_errors": generator_errors,
+                }
+                if verifier_index is not None:
+                    diagnostic["verifier_index"] = verifier_index
+                if branch_id is not None:
+                    diagnostic["branch_id"] = branch_id
+                if actor_step is not None:
+                    diagnostic["tool_action"] = _compact_tool_action_payload(actor_step.tool_action)
+                if actor_candidate is not None and actor_candidate.get("actor_repair") is not None:
+                    diagnostic["actor_repair"] = actor_candidate.get("actor_repair")
+                observation_diagnostic = _observation_diagnostic_payload(observation)
+                if observation_diagnostic is not None:
+                    diagnostic["observation"] = observation_diagnostic
+                return diagnostic
+
+            def observation_rejection_errors(observation: ToolObservation | None) -> list[str]:
+                if observation is None or observation.status not in (
+                    ToolObservationStatus.INVALID,
+                    ToolObservationStatus.ERROR,
+                ):
+                    return []
+                errors = [f"tool_observation_status={observation.status.value}"]
+                if observation.error:
+                    errors.append(f"tool_observation_error: {observation.error}")
+                validation_errors = (observation.provenance or {}).get("validation_errors")
+                if isinstance(validation_errors, list):
+                    errors.extend(f"tool_validation_error: {error}" for error in validation_errors if error)
+                return _unique(errors)
+
+            actor_candidates = candidate_generator.generate_actor_candidates(
+                context,
+                task_row=task_row,
+                step_index=step_index,
+                n_act=config.n_act,
+                seed=trajectory_seed + step_index,
+                environment=environment,
+                prior_actions=prior_actions,
+            )
+            if (
+                config.tool_coverage_retry_count > 0
+                and task_row["task_type"] in {"recovery", "refinement"}
+                and not any(_actor_candidate_uses_rwr_hpc_tool(candidate) for candidate in actor_candidates)
+            ):
+                actor_candidates.extend(
+                    candidate_generator.generate_actor_candidates(
+                        context,
+                        task_row=task_row,
+                        step_index=step_index,
+                        n_act=config.tool_coverage_retry_count,
+                        seed=trajectory_seed + step_index + 7919,
+                        environment=environment,
+                        force_tool_coverage=True,
+                        prior_actions=prior_actions,
+                    )
+                )
+            for actor_index, actor_candidate in enumerate(actor_candidates):
+                actor_step, actor_generation_errors, tool_default_metadata = prepare_actor_candidate(
+                    actor_candidate,
+                    actor_index=actor_index,
+                )
                 if not _actor_candidate_is_usable(actor_step, actor_generation_errors):
                     rejected_model_errors.extend(actor_generation_errors)
                     rejected_model_candidates.append(
-                        {
-                            "phase": "actor",
-                            "actor_index": actor_index,
-                            "generator_errors": actor_generation_errors,
-                        }
+                        rejected_candidate_diagnostic(
+                            phase="actor",
+                            actor_index=actor_index,
+                            generator_errors=actor_generation_errors,
+                            actor_step=actor_step,
+                            actor_candidate=actor_candidate,
+                        )
                     )
                     continue
                 observation = None
@@ -4406,6 +6615,88 @@ def generate_task_trajectory(
                         state=state,
                         prior_actions=prior_actions,
                     )
+                    repair_errors = observation_rejection_errors(observation)
+                    generator_config = getattr(candidate_generator, "config", None)
+                    actor_tool_repair_retry_count = int(
+                        getattr(generator_config, "actor_tool_repair_retry_count", 0) or 0
+                    )
+                    can_repair_actor = hasattr(candidate_generator, "repair_actor_candidate")
+                    for repair_attempt_index in range(actor_tool_repair_retry_count):
+                        if not repair_errors:
+                            break
+                        if not can_repair_actor:
+                            break
+                        repaired_candidate = candidate_generator.repair_actor_candidate(
+                            context,
+                            task_row=task_row,
+                            step_index=step_index,
+                            actor_index=actor_index,
+                            actor_candidate=actor_candidate,
+                            actor_step=actor_step,
+                            observation=observation,
+                            errors=repair_errors,
+                            seed=trajectory_seed
+                            + (step_index * 1000)
+                            + (actor_index * 100)
+                            + repair_attempt_index
+                            + 31337,
+                            environment=environment,
+                            prior_actions=prior_actions,
+                            attempt_index=repair_attempt_index,
+                        )
+                        repaired_step, repaired_errors, repaired_default_metadata = (
+                            prepare_actor_candidate(
+                                repaired_candidate,
+                                actor_index=actor_index,
+                            )
+                        )
+                        if not _actor_candidate_is_usable(repaired_step, repaired_errors):
+                            rejected_model_errors.extend(repaired_errors)
+                            rejected_model_candidates.append(
+                                rejected_candidate_diagnostic(
+                                    phase="actor_repair",
+                                    actor_index=actor_index,
+                                    generator_errors=repaired_errors,
+                                    actor_step=repaired_step,
+                                    actor_candidate=repaired_candidate,
+                                )
+                            )
+                            continue
+                        repaired_observation = None
+                        if repaired_step.tool_action is not None:
+                            repaired_observation = environment.execute(
+                                repaired_step.tool_action,
+                                state=state,
+                                prior_actions=prior_actions,
+                            )
+                        repaired_rejection_errors = observation_rejection_errors(
+                            repaired_observation
+                        )
+                        if repaired_rejection_errors:
+                            rejected_model_errors.extend(repaired_rejection_errors)
+                            rejected_model_candidates.append(
+                                rejected_candidate_diagnostic(
+                                    phase="actor_repair",
+                                    actor_index=actor_index,
+                                    generator_errors=repaired_rejection_errors,
+                                    actor_step=repaired_step,
+                                    actor_candidate=repaired_candidate,
+                                    observation=repaired_observation,
+                                )
+                            )
+                            repair_errors = repaired_rejection_errors
+                            continue
+                        repair_metadata = repaired_candidate.get("actor_repair")
+                        if isinstance(repair_metadata, dict):
+                            repair_metadata["success"] = True
+                            repaired_candidate["actor_repair"] = repair_metadata
+                        actor_candidate = repaired_candidate
+                        actor_step = repaired_step
+                        actor_generation_errors = repaired_errors
+                        tool_default_metadata = repaired_default_metadata
+                        observation = repaired_observation
+                        repair_errors = []
+                        break
 
                 verifier_candidates = candidate_generator.generate_verifier_candidates(
                     context,
@@ -4424,12 +6715,15 @@ def generate_task_trajectory(
                     if not _verifier_candidate_is_usable(verifier_candidate, branch_generation_errors):
                         rejected_model_errors.extend(branch_generation_errors)
                         rejected_model_candidates.append(
-                            {
-                                "phase": "verifier",
-                                "actor_index": actor_index,
-                                "verifier_index": verifier_index,
-                                "generator_errors": branch_generation_errors,
-                            }
+                            rejected_candidate_diagnostic(
+                                phase="verifier",
+                                actor_index=actor_index,
+                                verifier_index=verifier_index,
+                                generator_errors=branch_generation_errors,
+                                actor_step=actor_step,
+                                actor_candidate=actor_candidate,
+                                observation=observation,
+                            )
                         )
                         continue
                     branch_id = f"{trajectory_id}.step{step_index}.a{actor_index}.v{verifier_index}"
@@ -4448,6 +6742,8 @@ def generate_task_trajectory(
                         branch.metadata["actor_sampling_directive"] = actor_candidate[
                             "actor_sampling_directive"
                         ]
+                    if isinstance(actor_candidate.get("actor_repair"), dict):
+                        branch.metadata["actor_repair"] = actor_candidate["actor_repair"]
                     if tool_default_metadata:
                         branch.metadata["tool_argument_defaults"] = tool_default_metadata
                     branch = _score_branch(
@@ -4463,13 +6759,16 @@ def generate_task_trajectory(
                     if branch_validation_errors and not config.allow_model_fallback:
                         rejected_model_errors.extend(branch_validation_errors)
                         rejected_model_candidates.append(
-                            {
-                                "phase": "branch_validation",
-                                "actor_index": actor_index,
-                                "verifier_index": verifier_index,
-                                "branch_id": branch_id,
-                                "generator_errors": branch_validation_errors,
-                            }
+                            rejected_candidate_diagnostic(
+                                phase="branch_validation",
+                                actor_index=actor_index,
+                                verifier_index=verifier_index,
+                                branch_id=branch_id,
+                                generator_errors=branch_validation_errors,
+                                actor_step=actor_step,
+                                actor_candidate=actor_candidate,
+                                observation=observation,
+                            )
                         )
                         continue
                     branches.append(branch)
@@ -4724,7 +7023,7 @@ def generate_trajectories(
     try:
         progress_tracker.start_stage(
             "load_tasks",
-            message="Loaded canonical CORUM tasks.",
+            message="Loaded canonical task rows.",
             metrics={
                 "total_tasks": len(task_rows),
                 **(task_selection or {}),
@@ -4825,6 +7124,27 @@ def generate_trajectories(
                             "terminal_complex_delta_score": terminal_score["complex_delta"],
                             "terminal_absolute_mechanistic_score": terminal_score["absolute_mechanistic_score"],
                             "terminal_mechanistic_delta_score": terminal_score["mechanistic_delta"],
+                            "terminal_mechanism_evidence_score": terminal_score.get("mechanism_evidence_score", 0.0),
+                            "terminal_mechanism_evidence_delta_score": terminal_score.get("mechanism_evidence_delta", 0.0),
+                            "terminal_effective_mechanistic_score": terminal_score.get(
+                                "effective_absolute_mechanistic_score",
+                                terminal_score.get("absolute_mechanistic_score", 0.0),
+                            ),
+                            "terminal_effective_mechanistic_delta_score": terminal_score.get(
+                                "effective_mechanistic_delta",
+                                terminal_score.get("mechanistic_delta", 0.0),
+                            ),
+                            "terminal_mechanism_reward_cap": terminal_score.get("mechanism_reward_cap", 1.0),
+                            "task_success": terminal_score.get("task_success", False),
+                            "task_success_level": terminal_score.get("task_success_level", "unknown"),
+                            "task_quality_failure_reasons": terminal_score.get(
+                                "task_quality_failure_reasons",
+                                [],
+                            ),
+                            "task_success_metadata": terminal_score.get("metadata", {}).get(
+                                "task_success",
+                                {},
+                            ),
                             "terminal_efficiency_penalty": terminal_score["efficiency_penalty"],
                             "terminal_reward": terminal_score["terminal_reward"],
                         },
@@ -4955,15 +7275,52 @@ def generate_trajectories(
         raise
 
 
-def parse_args() -> argparse.Namespace:
+def _resolve_rwr_hpc_flist(args: argparse.Namespace) -> Path | None:
+    """Resolve the RWR-HPC flist requested by CLI flags."""
+
+    if args.rwr_hpc_flist is not None:
+        return args.rwr_hpc_flist
+    if args.use_full_brain_rwr_hpc:
+        return DEFAULT_FULL_BRAIN_RWR_HPC_FLIST
+    return None
+
+
+def _resolve_store_dir(
+    args: argparse.Namespace,
+    rwr_hpc_flist: Path | None,
+    *,
+    default_full_brain_store_dir: Path = DEFAULT_FULL_BRAIN_STORE_DIR,
+) -> Path | None:
+    """Use the default compiled store only when no flist backend was requested."""
+
+    if args.store_dir is not None:
+        return args.store_dir
+    if args.use_full_brain_rwr_hpc and default_full_brain_store_dir.exists():
+        return default_full_brain_store_dir
+    if args.multiplex_flist is None and rwr_hpc_flist is None:
+        return DEFAULT_STORE_DIR
+    return None
+
+
+def _resolve_rwr_hpc_build_dir(args: argparse.Namespace, structured_backend_requested: bool) -> Path | None:
+    """Resolve the RWR++ app build directory for structured tool execution."""
+
+    if args.rwr_hpc_build_dir is not None:
+        return args.rwr_hpc_build_dir
+    if structured_backend_requested and DEFAULT_RWR_HPC_BUILD_DIR.exists():
+        return DEFAULT_RWR_HPC_BUILD_DIR
+    return None
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments for trajectory generation."""
 
-    parser = argparse.ArgumentParser(description="Generate shared-prefix CORUM trajectories.")
+    parser = argparse.ArgumentParser(description="Generate shared-prefix MENTOR-RL trajectories.")
     parser.add_argument(
         "--tasks-path",
         type=Path,
         default=DEFAULT_TASKS_PATH,
-        help="Path to a canonical CORUM task JSONL file.",
+        help="Path to a canonical task JSONL file.",
     )
     parser.add_argument(
         "--out-dir",
@@ -4974,8 +7331,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--store-dir",
         type=Path,
-        default=DEFAULT_STORE_DIR,
-        help="Compiled multiplex store directory. Use this for the full HumanNet runtime.",
+        default=None,
+        help=(
+            "Compiled multiplex store directory. If omitted, the default HumanNet "
+            "store is used only when no flist or RWR-HPC flist is requested."
+        ),
     )
     parser.add_argument(
         "--compiled-library-path",
@@ -4988,6 +7348,153 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Optional text flist for the Python reference backend.",
+    )
+    parser.add_argument(
+        "--use-full-brain-rwr-hpc",
+        dest="use_full_brain_rwr_hpc",
+        action="store_true",
+        default=DEFAULT_USE_FULL_BRAIN_RWR_HPC,
+        help=(
+            "Use Ken's updated full-brain multiplex flist as the RWR-HPC "
+            "structured backend. Enabled by default."
+        ),
+    )
+    parser.add_argument(
+        "--no-use-full-brain-rwr-hpc",
+        dest="use_full_brain_rwr_hpc",
+        action="store_false",
+        help="Disable the default full-brain RWR-HPC backend for local or toy runs.",
+    )
+    parser.add_argument(
+        "--rwr-hpc-flist",
+        type=Path,
+        default=None,
+        help="Flist used by structured RWR++ model tools. Overrides --use-full-brain-rwr-hpc.",
+    )
+    parser.add_argument(
+        "--full-brain-store-dir",
+        type=Path,
+        default=DEFAULT_FULL_BRAIN_STORE_DIR,
+        help=(
+            "Compiled binary store for Ken's full-brain multiplex. Used automatically "
+            "with --use-full-brain-rwr-hpc when it exists and --store-dir is omitted."
+        ),
+    )
+    parser.add_argument(
+        "--rwr-hpc-build-dir",
+        type=Path,
+        default=None,
+        help="RWR++ build directory containing standalone app binaries.",
+    )
+    parser.add_argument(
+        "--rwr-hpc-app-manifest-path",
+        type=Path,
+        default=None,
+        help="Optional manifest listing RWR++ app executable paths.",
+    )
+    parser.add_argument(
+        "--rwr-hpc-cache-dir",
+        type=Path,
+        default=DEFAULT_RWR_HPC_CACHE_DIR,
+        help="Disk cache directory for structured RWR++ tool results.",
+    )
+    parser.add_argument(
+        "--rwr-hpc-scratch-root",
+        type=Path,
+        default=None,
+        help="Optional scratch directory for current RWR++ app-fallback temp files.",
+    )
+    parser.add_argument(
+        "--rwr-hpc-build-id",
+        type=str,
+        default=None,
+        help="Stable build identifier to include in RWR++ cache keys.",
+    )
+    parser.add_argument(
+        "--rwr-hpc-edgelist-has-headers",
+        dest="rwr_hpc_edgelist_has_headers",
+        action="store_true",
+        default=DEFAULT_RWR_HPC_EDGELIST_HAS_HEADERS,
+        help="Set when RWR++ input edge lists include headers. Enabled by default.",
+    )
+    parser.add_argument(
+        "--rwr-hpc-edgelist-no-headers",
+        dest="rwr_hpc_edgelist_has_headers",
+        action="store_false",
+        help="Use when RWR++ input edge lists do not include headers.",
+    )
+    parser.add_argument(
+        "--require-rwr-hpc",
+        dest="require_rwr_hpc",
+        action="store_true",
+        default=DEFAULT_REQUIRE_RWR_HPC,
+        help=(
+            "Fail fast unless model-facing RWR++ tools use the structured "
+            "RWR++ backend. Enabled by default."
+        ),
+    )
+    parser.add_argument(
+        "--no-require-rwr-hpc",
+        dest="require_rwr_hpc",
+        action="store_false",
+        help="Allow legacy graph-tool fallback for local tests and toy runs.",
+    )
+    parser.add_argument(
+        "--rwr-hpc-app-timeout-seconds",
+        type=int,
+        default=1800,
+        help="Timeout for each structured RWR++ app-backed CLI call.",
+    )
+    parser.add_argument(
+        "--mygene-cache-path",
+        type=Path,
+        default=None,
+        help="Optional MyGene cache JSON path used by query_mygene.",
+    )
+    parser.add_argument(
+        "--allow-network-mygene",
+        action="store_true",
+        help="Allow query_mygene to call the live MyGene API on cache misses.",
+    )
+    parser.add_argument(
+        "--enrichment-cache-path",
+        type=Path,
+        default=None,
+        help="Optional g:Profiler enrichment cache JSON path used by enrich_gene_set.",
+    )
+    parser.add_argument(
+        "--allow-network-enrichment",
+        action="store_true",
+        help="Allow enrich_gene_set to call the live g:Profiler API on cache misses.",
+    )
+    parser.add_argument(
+        "--enrichment-background-path",
+        type=Path,
+        default=None,
+        help="Optional gene background file. Supports one gene per line, JSON lists, or JSONL rows with gene_ids.",
+    )
+    parser.add_argument(
+        "--prefetch-mechanism-cache",
+        action="store_true",
+        help="Warm MyGene and enrichment caches for selected tasks before model generation.",
+    )
+    parser.add_argument(
+        "--prefetch-mygene-per-task",
+        type=int,
+        default=3,
+        help="Number of seed genes per task to prefetch with MyGene when --prefetch-mechanism-cache is set.",
+    )
+    parser.add_argument(
+        "--prefetch-enrichment-top-k",
+        type=int,
+        default=10,
+        help="g:Profiler top_k used during enrichment cache prefetching.",
+    )
+    parser.add_argument(
+        "--prefetch-max-tasks",
+        type=int,
+        default=None,
+        help="Optional cap on the number of selected task rows used for cache prefetching.",
     )
     parser.add_argument(
         "--max-tasks",
@@ -5092,7 +7599,7 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_RECOVERY_RWR_TOP_K,
         help=(
-            "Minimum rwr_multiplex top_k used for recovery actor branches so the "
+            "Minimum rwr top_k used for recovery actor branches so the "
             "verifier can inspect a broader non-seed candidate list."
         ),
     )
@@ -5151,6 +7658,34 @@ def parse_args() -> argparse.Namespace:
         help="Maximum completion tokens for the actor rationale follow-up pass.",
     )
     parser.add_argument(
+        "--generator-verifier-repair-retry-count",
+        type=int,
+        default=DEFAULT_VERIFIER_REPAIR_RETRY_COUNT,
+        help=(
+            "Number of low-temperature verifier repair retries to run when a "
+            "model verifier response is malformed or schema-incomplete."
+        ),
+    )
+    parser.add_argument(
+        "--generator-actor-tool-repair-retry-count",
+        type=int,
+        default=DEFAULT_ACTOR_TOOL_REPAIR_RETRY_COUNT,
+        help=(
+            "Number of low-temperature actor retries to run after a parsed actor "
+            "tool call executes to an invalid/error observation."
+        ),
+    )
+    parser.add_argument(
+        "--generator-prompt-token-limit",
+        type=int,
+        default=DEFAULT_GENERATOR_PROMPT_TOKEN_LIMIT,
+        help=(
+            "Optional local prompt-token budget. Values <=0 disable the guard. "
+            "When enabled, prompts fail locally with section diagnostics before "
+            "sending overlarge requests to the model server."
+        ),
+    )
+    parser.add_argument(
         "--generator-reasoning-effort",
         choices=("low", "medium", "high"),
         default="low",
@@ -5177,7 +7712,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional path for the progress JSON file.",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main() -> None:
@@ -5218,25 +7753,115 @@ def main() -> None:
             top_p=args.generator_top_p,
             max_completion_tokens=args.generator_max_completion_tokens,
             actor_rationale_max_completion_tokens=args.generator_actor_rationale_max_completion_tokens,
+            verifier_repair_retry_count=args.generator_verifier_repair_retry_count,
+            actor_tool_repair_retry_count=args.generator_actor_tool_repair_retry_count,
+            prompt_token_limit=args.generator_prompt_token_limit,
             reasoning_effort=args.generator_reasoning_effort,
             actor_sampling_strategy=args.actor_sampling_strategy,
         )
 
-    if args.store_dir is not None:
+    enrichment_background_gene_ids = _load_gene_id_background(args.enrichment_background_path)
+    rwr_hpc_flist = _resolve_rwr_hpc_flist(args)
+    store_dir = _resolve_store_dir(
+        args,
+        rwr_hpc_flist,
+        default_full_brain_store_dir=args.full_brain_store_dir,
+    )
+    structured_backend_requested = rwr_hpc_flist is not None or args.multiplex_flist is not None
+    rwr_hpc_build_dir = _resolve_rwr_hpc_build_dir(args, structured_backend_requested)
+
+    if args.require_rwr_hpc:
+        if rwr_hpc_flist is None and args.multiplex_flist is None:
+            raise ValueError(
+                "--require-rwr-hpc requires --rwr-hpc-flist, --use-full-brain-rwr-hpc, "
+                "or --multiplex-flist."
+            )
+        if rwr_hpc_build_dir is None and not os.environ.get("RWR_HPC_BUILD_DIR"):
+            raise ValueError(
+                "--require-rwr-hpc requires --rwr-hpc-build-dir, an existing default "
+                "external/rwr_hpc/build_frontier build, or RWR_HPC_BUILD_DIR."
+            )
+
+    common_runtime_kwargs = {
+        "mygene_cache_path": str(args.mygene_cache_path) if args.mygene_cache_path else None,
+        "allow_network_mygene": args.allow_network_mygene,
+        "enrichment_cache_path": str(args.enrichment_cache_path) if args.enrichment_cache_path else None,
+        "allow_network_enrichment": args.allow_network_enrichment,
+        "enrichment_background_gene_ids": enrichment_background_gene_ids,
+        "rwr_hpc_build_dir": str(rwr_hpc_build_dir) if rwr_hpc_build_dir else None,
+        "rwr_hpc_app_manifest_path": (
+            str(args.rwr_hpc_app_manifest_path) if args.rwr_hpc_app_manifest_path else None
+        ),
+        "rwr_hpc_flist": str(rwr_hpc_flist) if rwr_hpc_flist else None,
+        "rwr_hpc_cache_dir": str(args.rwr_hpc_cache_dir) if args.rwr_hpc_cache_dir else None,
+        "rwr_hpc_scratch_root": str(args.rwr_hpc_scratch_root) if args.rwr_hpc_scratch_root else None,
+        "rwr_hpc_build_id": args.rwr_hpc_build_id,
+        "rwr_hpc_no_edgelist_headers": not args.rwr_hpc_edgelist_has_headers,
+        "require_rwr_hpc_structured_tools": args.require_rwr_hpc,
+        "rwr_hpc_app_timeout_seconds": args.rwr_hpc_app_timeout_seconds,
+    }
+
+    if store_dir is not None:
         environment = RuntimeEnvironment(
-            store_dir=str(args.store_dir),
+            store_dir=str(store_dir),
             compiled_library_path=str(args.compiled_library_path) if args.compiled_library_path else None,
+            **common_runtime_kwargs,
         )
     elif args.multiplex_flist is not None:
-        environment = RuntimeEnvironment(multiplex_flist=str(args.multiplex_flist))
+        environment = RuntimeEnvironment(
+            multiplex_flist=str(args.multiplex_flist),
+            **common_runtime_kwargs,
+        )
+    elif rwr_hpc_flist is not None:
+        environment = RuntimeEnvironment(
+            **common_runtime_kwargs,
+        )
     else:
-        raise ValueError("Provide either --store-dir or --multiplex-flist.")
+        raise ValueError("Provide --store-dir, --multiplex-flist, or an RWR-HPC flist.")
+
+    prefetch_report = None
+    if args.prefetch_mechanism_cache:
+        prefetch_rows = task_rows[: args.prefetch_max_tasks] if args.prefetch_max_tasks is not None else task_rows
+        prefetch_report = _prefetch_mechanism_evidence_cache(
+            prefetch_rows,
+            environment,
+            mygene_per_task=args.prefetch_mygene_per_task,
+            enrichment_top_k=args.prefetch_enrichment_top_k,
+        )
 
     task_selection = {
         "tasks_path": str(args.tasks_path),
         "max_tasks": args.max_tasks,
         "task_shard_index": args.task_shard_index,
         "task_shard_count": args.task_shard_count,
+        "task_shard_strategy": "sha256_module_key_mod",
+        "store_dir": str(store_dir) if store_dir else None,
+        "multiplex_flist": str(args.multiplex_flist) if args.multiplex_flist else None,
+        "use_full_brain_rwr_hpc": args.use_full_brain_rwr_hpc,
+        "full_brain_store_dir": str(args.full_brain_store_dir) if args.full_brain_store_dir else None,
+        "rwr_hpc_flist": str(rwr_hpc_flist) if rwr_hpc_flist else None,
+        "rwr_hpc_build_dir": str(rwr_hpc_build_dir) if rwr_hpc_build_dir else None,
+        "rwr_hpc_app_manifest_path": (
+            str(args.rwr_hpc_app_manifest_path) if args.rwr_hpc_app_manifest_path else None
+        ),
+        "rwr_hpc_cache_dir": str(args.rwr_hpc_cache_dir) if args.rwr_hpc_cache_dir else None,
+        "rwr_hpc_scratch_root": str(args.rwr_hpc_scratch_root) if args.rwr_hpc_scratch_root else None,
+        "rwr_hpc_build_id": args.rwr_hpc_build_id,
+        "rwr_hpc_no_edgelist_headers": not args.rwr_hpc_edgelist_has_headers,
+        "require_rwr_hpc": args.require_rwr_hpc,
+        "mygene_cache_path": str(args.mygene_cache_path) if args.mygene_cache_path else None,
+        "allow_network_mygene": args.allow_network_mygene,
+        "enrichment_cache_path": str(args.enrichment_cache_path) if args.enrichment_cache_path else None,
+        "allow_network_enrichment": args.allow_network_enrichment,
+        "enrichment_background_path": str(args.enrichment_background_path) if args.enrichment_background_path else None,
+        "enrichment_background_gene_count": (
+            len(enrichment_background_gene_ids) if enrichment_background_gene_ids is not None else None
+        ),
+        "prefetch_mechanism_cache": args.prefetch_mechanism_cache,
+        "prefetch_mygene_per_task": args.prefetch_mygene_per_task,
+        "prefetch_enrichment_top_k": args.prefetch_enrichment_top_k,
+        "prefetch_max_tasks": args.prefetch_max_tasks,
+        "prefetch_report": prefetch_report,
     }
 
     generate_trajectories(

@@ -177,6 +177,30 @@ src/graph_store.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/mentor_runtime.dir/build.make CMakeFiles/mentor_runtime.dir/src/graph_store.cpp.s
 .PHONY : src/graph_store.cpp.s
 
+src/rwr_hpc_adapter.o: src/rwr_hpc_adapter.cpp.o
+.PHONY : src/rwr_hpc_adapter.o
+
+# target to build an object file
+src/rwr_hpc_adapter.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/mentor_runtime.dir/build.make CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.o
+.PHONY : src/rwr_hpc_adapter.cpp.o
+
+src/rwr_hpc_adapter.i: src/rwr_hpc_adapter.cpp.i
+.PHONY : src/rwr_hpc_adapter.i
+
+# target to preprocess a source file
+src/rwr_hpc_adapter.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/mentor_runtime.dir/build.make CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.i
+.PHONY : src/rwr_hpc_adapter.cpp.i
+
+src/rwr_hpc_adapter.s: src/rwr_hpc_adapter.cpp.s
+.PHONY : src/rwr_hpc_adapter.s
+
+# target to generate assembly for a file
+src/rwr_hpc_adapter.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/mentor_runtime.dir/build.make CMakeFiles/mentor_runtime.dir/src/rwr_hpc_adapter.cpp.s
+.PHONY : src/rwr_hpc_adapter.cpp.s
+
 src/tool_kernels.o: src/tool_kernels.cpp.o
 .PHONY : src/tool_kernels.o
 
@@ -216,6 +240,9 @@ help:
 	@echo "... src/graph_store.o"
 	@echo "... src/graph_store.i"
 	@echo "... src/graph_store.s"
+	@echo "... src/rwr_hpc_adapter.o"
+	@echo "... src/rwr_hpc_adapter.i"
+	@echo "... src/rwr_hpc_adapter.s"
 	@echo "... src/tool_kernels.o"
 	@echo "... src/tool_kernels.i"
 	@echo "... src/tool_kernels.s"
