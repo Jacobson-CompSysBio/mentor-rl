@@ -110,6 +110,37 @@ This corpus is built from `data/gw_dendrogram.txt` paired with
 older corpus was built against `data/humannet_multiplex_store` and can include
 task genes that are absent from the active full-brain runtime graph.
 
+As of the RWR-LOE corpus implementation, dendrogram corpus schema
+`gw-dendrogram-corpus-v2` is the valid MENTOR dendrogram schema. Its distance
+band semantics are: lower dendrogram-distance percentile means nearer to the
+target module and therefore harder; high percentile means farther and easier.
+Any previously generated full-brain dendrogram rows with reversed
+easy/hard labels should be treated as stale and rebuilt before training or
+evaluation.
+
+The complementary full-brain RWR-LOE module corpus is produced by
+`scripts/build_rwr_loe_corpus.py` and written to:
+
+`data/rwr_loe_corpus_full_brain`
+
+This corpus creates one LOE module per full-brain store gene. Module membership
+is selected by the RWR++ geometric elbow rule over each seed's rank/score
+curve: genes with numerically lower rank than the elbow cutoff (`rank <
+elbow_rank_cutoff`) are retained, and lower-scoring genes are excluded. Full
+cache prewarm should run through
+`scripts/build_rwr_loe_corpus.slurm` using the MPI-capable RWR++ `rwr` app with
+recorded encodings, then postprocess those encodings into per-seed LOE-style
+min-rank files. The persistent rank cache is kept separate from the
+model-facing RWR-HPC cache:
+
+`data/runtime/rwr_loe_full_brain_rank_cache`
+
+Use direct `rwr_loe` calls only for small validation samples, because the
+standalone `rwr_loe` app flattens all seed rows into one vector and therefore
+cannot batch one module per seed gene. Use `scripts/mix_module_corpora.py` to
+build the combined full-brain training/testing corpus at
+`data/module_corpus_full_brain_mixed` from the dendrogram and LOE corpora.
+
 CORUM should not be treated as authoritative for current production work. It
 can remain in legacy tests and proposal-history utilities, but it should not
 drive active corpora, reward targets, source-of-truth language, enrichment

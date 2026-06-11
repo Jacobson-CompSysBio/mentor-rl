@@ -37,19 +37,19 @@ DIFFICULTIES = ("easy", "medium", "hard")
 EXPLANATION_DIFFICULTY = "complete"
 POSITIVE_RELATIONSHIP_STATUS = "validated_group"
 NONE_RELATIONSHIP_STATUS = "insufficient_support"
-SCHEMA_VERSION = "gw-dendrogram-corpus-v1"
+SCHEMA_VERSION = "gw-dendrogram-corpus-v2"
 SOURCE_NAME = "MENTOR_GW_DENDROGRAM"
 
 DENDROGRAM_DISTANCE_PERCENTILE_BANDS = {
-    "easy": (0.0, 0.25),
+    "easy": (0.75, 1.0),
     "medium": (0.25, 0.50),
-    "hard": (0.50, 0.75),
+    "hard": (0.0, 0.25),
 }
 
 DENDROGRAM_DISTANCE_FALLBACK_PERCENTILE_BANDS = {
-    "easy": (0.0, 0.25),
-    "medium": (0.25, 0.50),
-    "hard": (0.50, 0.75),
+    "easy": (0.50, 1.0),
+    "medium": (0.25, 0.75),
+    "hard": (0.0, 0.50),
 }
 
 BUILD_STAGES = (
@@ -1108,9 +1108,9 @@ def build_manifest(
             "preferred_percentile_bands": DENDROGRAM_DISTANCE_PERCENTILE_BANDS,
             "fallback_percentile_bands": DENDROGRAM_DISTANCE_FALLBACK_PERCENTILE_BANDS,
             "difficulty_semantics": {
-                "easy": "0-25th percentile outside-module leaves after nearest-to-farthest sorting",
+                "easy": "75-100th percentile outside-module leaves after nearest-to-farthest sorting",
                 "medium": "25-50th percentile outside-module leaves after nearest-to-farthest sorting",
-                "hard": "50-75th percentile outside-module leaves after nearest-to-farthest sorting",
+                "hard": "0-25th percentile outside-module leaves after nearest-to-farthest sorting",
             },
         },
         "evidence_modes": list(EVIDENCE_MODES),

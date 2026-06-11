@@ -10,9 +10,11 @@ from scripts.audit_trajectory_run import AuditConfig, audit_run
 from scripts.dpo_pair_loader_smoke import smoke_load_pairs
 from scripts.generate_trajectories import TrajectoryGenerationConfig, generate_trajectories
 from scripts.select_verification_tasks import (
+    _complex_key,
     select_pilot_rows,
     select_smoke_task_ids,
     size_bin_for_task_row,
+    source_for_task_row,
 )
 from utils.multiplex import Multiplex
 
@@ -303,6 +305,56 @@ class VerificationGateTests(unittest.TestCase):
 
         self.assertEqual({size_bin_for_task_row(row) for row in pilot_rows}, {"small", "medium", "large"})
         self.assertEqual(len(pilot_rows), 6)
+
+    def test_select_verification_tasks_recognizes_rwr_loe_module_family(self) -> None:
+        row = {
+            "task_id": "rwr_loe_module_000123.recovery.hard.graph",
+            "provenance": {"source": "RWR_LOE_FULL_BRAIN"},
+        }
+
+        self.assertEqual(_complex_key(row["task_id"]), "rwr_loe_module_000123")
+        self.assertEqual(source_for_task_row(row), "RWR_LOE_FULL_BRAIN")
+
+    def test_select_verification_tasks_can_stratify_mixed_corpus_by_source(self) -> None:
+        rows = []
+        for source, prefix in (
+            ("MENTOR_GW_DENDROGRAM", "gw_dendrogram_module_000001"),
+            ("RWR_LOE_FULL_BRAIN", "rwr_loe_module_000001"),
+        ):
+            for task_type in ("explanation", "recovery"):
+                rows.append(
+                    {
+                        "task_id": f"{prefix}.{task_type}.easy.graph",
+                        "task_type": task_type,
+                        "evidence_mode": "graph",
+                        "difficulty": "easy",
+                        "size_bin": "small",
+                        "provenance": {"source": source},
+                    }
+                )
+
+        pilot_rows = select_pilot_rows(
+            rows,
+            pilot_size=4,
+            seed=13,
+            stratify_by_difficulty=False,
+            stratify_by_size_bin=False,
+            stratify_by_source=True,
+        )
+
+        self.assertEqual(len(pilot_rows), 4)
+        self.assertEqual(
+            {
+                (source_for_task_row(row), row["task_type"])
+                for row in pilot_rows
+            },
+            {
+                ("MENTOR_GW_DENDROGRAM", "explanation"),
+                ("MENTOR_GW_DENDROGRAM", "recovery"),
+                ("RWR_LOE_FULL_BRAIN", "explanation"),
+                ("RWR_LOE_FULL_BRAIN", "recovery"),
+            },
+        )
 
 
 if __name__ == "__main__":

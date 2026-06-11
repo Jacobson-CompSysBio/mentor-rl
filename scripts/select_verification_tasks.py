@@ -28,7 +28,8 @@ TASK_TYPE_ORDER = ("explanation", "recovery", "refinement", "none")
 EVIDENCE_MODE_ORDER = ("graph", "minimal", "contextual", "full")
 DIFFICULTY_ORDER = ("complete", "easy", "medium", "hard")
 SIZE_BIN_ORDER = ("small", "medium", "large", "other", "unknown")
-COMPLEX_ID_RE = re.compile(r"(?:corum_complex|gw_dendrogram_module)_\d+")
+SOURCE_ORDER = ("MENTOR_GW_DENDROGRAM", "RWR_LOE_FULL_BRAIN", "CORUM", "unknown")
+COMPLEX_ID_RE = re.compile(r"(?:corum_complex|gw_dendrogram_module|rwr_loe_module)_\d+")
 
 
 def _load_rows(path: Path) -> list[dict[str, Any]]:
@@ -80,14 +81,47 @@ def size_bin_for_task_row(row: dict[str, Any]) -> str:
     return "other"
 
 
+def source_for_task_row(row: dict[str, Any]) -> str:
+    """Infer the corpus source used for optional mixed-corpus stratification."""
+
+    explicit_source = row.get("source")
+    if isinstance(explicit_source, str) and explicit_source:
+        return explicit_source
+
+    provenance = row.get("provenance")
+    if isinstance(provenance, dict):
+        provenance_source = provenance.get("source")
+        if isinstance(provenance_source, str) and provenance_source:
+            return provenance_source
+
+    task_id = str(row.get("task_id", ""))
+    if task_id.startswith("gw_dendrogram_module_"):
+        return "MENTOR_GW_DENDROGRAM"
+    if task_id.startswith("rwr_loe_module_"):
+        return "RWR_LOE_FULL_BRAIN"
+    if task_id.startswith("corum_complex_"):
+        return "CORUM"
+    return "unknown"
+
+
+def _ordered_sources(rows: list[dict[str, Any]]) -> list[str]:
+    present = {source_for_task_row(row) for row in rows}
+    ordered = [source for source in SOURCE_ORDER if source in present]
+    ordered.extend(sorted(present - set(ordered)))
+    return ordered
+
+
 def _bucket_key(
     row: dict[str, Any],
     *,
     stratify_by_size_bin: bool = True,
+    stratify_by_source: bool = False,
 ) -> tuple[str, ...]:
     key = [str(row.get("task_type")), str(row.get("evidence_mode"))]
     if stratify_by_size_bin:
         key.insert(0, size_bin_for_task_row(row))
+    if stratify_by_source:
+        key.insert(0, source_for_task_row(row))
     return tuple(key)
 
 
@@ -96,12 +130,15 @@ def _pilot_bucket_key(
     *,
     stratify_by_difficulty: bool,
     stratify_by_size_bin: bool = True,
+    stratify_by_source: bool = False,
 ) -> tuple[str, ...]:
     task_type = str(row.get("task_type"))
     evidence_mode = str(row.get("evidence_mode"))
     key = [task_type, evidence_mode]
     if stratify_by_size_bin:
         key.insert(0, size_bin_for_task_row(row))
+    if stratify_by_source:
+        key.insert(0, source_for_task_row(row))
     if not stratify_by_difficulty:
         return tuple(key)
     key.append(str(row.get("difficulty", "")))
@@ -112,9 +149,34 @@ def _ordered_smoke_bucket_keys(
     rows: list[dict[str, Any]],
     *,
     stratify_by_size_bin: bool = True,
+    stratify_by_source: bool = False,
 ) -> list[tuple[str, ...]]:
-    present = {_bucket_key(row, stratify_by_size_bin=stratify_by_size_bin) for row in rows}
-    if stratify_by_size_bin:
+    present = {
+        _bucket_key(
+            row,
+            stratify_by_size_bin=stratify_by_size_bin,
+            stratify_by_source=stratify_by_source,
+        )
+        for row in rows
+    }
+    if stratify_by_source and stratify_by_size_bin:
+        ordered = [
+            (source, size_bin, task_type, evidence_mode)
+            for source in _ordered_sources(rows)
+            for size_bin in SIZE_BIN_ORDER
+            for task_type in TASK_TYPE_ORDER
+            for evidence_mode in EVIDENCE_MODE_ORDER
+            if (source, size_bin, task_type, evidence_mode) in present
+        ]
+    elif stratify_by_source:
+        ordered = [
+            (source, task_type, evidence_mode)
+            for source in _ordered_sources(rows)
+            for task_type in TASK_TYPE_ORDER
+            for evidence_mode in EVIDENCE_MODE_ORDER
+            if (source, task_type, evidence_mode) in present
+        ]
+    elif stratify_by_size_bin:
         ordered = [
             (size_bin, task_type, evidence_mode)
             for size_bin in SIZE_BIN_ORDER
@@ -138,19 +200,46 @@ def _ordered_pilot_bucket_keys(
     *,
     stratify_by_difficulty: bool,
     stratify_by_size_bin: bool = True,
+    stratify_by_source: bool = False,
 ) -> list[tuple[str, ...]]:
     present = {
         _pilot_bucket_key(
             row,
             stratify_by_difficulty=stratify_by_difficulty,
             stratify_by_size_bin=stratify_by_size_bin,
+            stratify_by_source=stratify_by_source,
         )
         for row in rows
     }
     if not stratify_by_difficulty:
-        return list(_ordered_smoke_bucket_keys(rows, stratify_by_size_bin=stratify_by_size_bin))
+        return list(
+            _ordered_smoke_bucket_keys(
+                rows,
+                stratify_by_size_bin=stratify_by_size_bin,
+                stratify_by_source=stratify_by_source,
+            )
+        )
 
-    if stratify_by_size_bin:
+    if stratify_by_source and stratify_by_size_bin:
+        ordered = [
+            (source, size_bin, task_type, evidence_mode, difficulty)
+            for source in _ordered_sources(rows)
+            for size_bin in SIZE_BIN_ORDER
+            for task_type in TASK_TYPE_ORDER
+            for evidence_mode in EVIDENCE_MODE_ORDER
+            for difficulty in DIFFICULTY_ORDER
+            if (source, size_bin, task_type, evidence_mode, difficulty) in present
+        ]
+    elif stratify_by_source:
+        ordered = [
+            (source, task_type, evidence_mode, difficulty)
+            for source in _ordered_sources(rows)
+            for task_type in TASK_TYPE_ORDER
+            for evidence_mode in EVIDENCE_MODE_ORDER
+            for difficulty in DIFFICULTY_ORDER
+            if (source, task_type, evidence_mode, difficulty) in present
+        ]
+    elif stratify_by_size_bin:
         ordered = [
             (size_bin, task_type, evidence_mode, difficulty)
             for size_bin in SIZE_BIN_ORDER
@@ -183,6 +272,7 @@ def _group_rows(
     *,
     bucket_by_difficulty: bool = False,
     bucket_by_size_bin: bool = True,
+    bucket_by_source: bool = False,
     seed: int = DEFAULT_SELECTION_SEED,
 ) -> dict[tuple[str, ...], list[dict[str, Any]]]:
     grouped: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
@@ -192,9 +282,14 @@ def _group_rows(
                 row,
                 stratify_by_difficulty=True,
                 stratify_by_size_bin=bucket_by_size_bin,
+                stratify_by_source=bucket_by_source,
             )
         else:
-            key = _bucket_key(row, stratify_by_size_bin=bucket_by_size_bin)
+            key = _bucket_key(
+                row,
+                stratify_by_size_bin=bucket_by_size_bin,
+                stratify_by_source=bucket_by_source,
+            )
         grouped[key].append(row)
     for bucket_rows in grouped.values():
         bucket_rows.sort(key=lambda row: _stable_selection_sort_key(row, seed=seed))
@@ -207,11 +302,21 @@ def select_smoke_task_ids(
     per_bucket: int = 1,
     seed: int = DEFAULT_SELECTION_SEED,
     stratify_by_size_bin: bool = True,
+    stratify_by_source: bool = False,
 ) -> list[str]:
-    grouped = _group_rows(rows, seed=seed, bucket_by_size_bin=stratify_by_size_bin)
+    grouped = _group_rows(
+        rows,
+        seed=seed,
+        bucket_by_size_bin=stratify_by_size_bin,
+        bucket_by_source=stratify_by_source,
+    )
     selected: list[str] = []
     seen: set[str] = set()
-    for key in _ordered_smoke_bucket_keys(rows, stratify_by_size_bin=stratify_by_size_bin):
+    for key in _ordered_smoke_bucket_keys(
+        rows,
+        stratify_by_size_bin=stratify_by_size_bin,
+        stratify_by_source=stratify_by_source,
+    ):
         for row in grouped[key][:per_bucket]:
             task_id = str(row.get("task_id"))
             if task_id not in seen:
@@ -227,6 +332,7 @@ def select_pilot_rows(
     seed: int = DEFAULT_SELECTION_SEED,
     stratify_by_difficulty: bool = True,
     stratify_by_size_bin: bool = True,
+    stratify_by_source: bool = False,
 ) -> list[dict[str, Any]]:
     if pilot_size <= 0:
         return []
@@ -235,12 +341,14 @@ def select_pilot_rows(
         rows,
         bucket_by_difficulty=stratify_by_difficulty,
         bucket_by_size_bin=stratify_by_size_bin,
+        bucket_by_source=stratify_by_source,
         seed=seed,
     )
     ordered_keys = _ordered_pilot_bucket_keys(
         rows,
         stratify_by_difficulty=stratify_by_difficulty,
         stratify_by_size_bin=stratify_by_size_bin,
+        stratify_by_source=stratify_by_source,
     )
     selected: list[dict[str, Any]] = []
     seen_task_ids: set[str] = set()
@@ -289,6 +397,7 @@ def write_standard_pilots(
     *,
     pilot_dir: Path = DEFAULT_PILOT_DIR,
     seed: int = DEFAULT_SELECTION_SEED,
+    stratify_by_source: bool = False,
 ) -> dict[str, Any]:
     """Write the 24-task smoke and 60-task quality pilot JSONLs."""
 
@@ -298,6 +407,7 @@ def write_standard_pilots(
         seed=seed,
         stratify_by_difficulty=False,
         stratify_by_size_bin=True,
+        stratify_by_source=stratify_by_source,
     )
     quality_rows = select_pilot_rows(
         rows,
@@ -305,6 +415,7 @@ def write_standard_pilots(
         seed=seed,
         stratify_by_difficulty=True,
         stratify_by_size_bin=True,
+        stratify_by_source=stratify_by_source,
     )
     smoke_path = pilot_dir / f"stratified_24_seed{seed}.tasks.jsonl"
     quality_path = pilot_dir / f"stratified_60_seed{seed}.tasks.jsonl"
@@ -335,6 +446,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Disable dendrogram size-bin stratification.",
     )
     parser.add_argument(
+        "--source-strata",
+        action="store_true",
+        help="Stratify smoke and pilot selections by corpus source for mixed corpora.",
+    )
+    parser.add_argument(
         "--write-standard-pilots",
         action="store_true",
         help="Write deterministic 24-task smoke and 60-task quality pilot JSONLs.",
@@ -351,11 +467,13 @@ def main() -> None:
     rows = _load_rows(args.tasks_path)
     stratify_by_difficulty = not args.no_pilot_difficulty_strata
     stratify_by_size_bin = not args.no_size_bin_strata
+    stratify_by_source = args.source_strata
     smoke_ids = select_smoke_task_ids(
         rows,
         per_bucket=args.smoke_per_bucket,
         seed=args.seed,
         stratify_by_size_bin=stratify_by_size_bin,
+        stratify_by_source=stratify_by_source,
     )
     pilot_rows = select_pilot_rows(
         rows,
@@ -363,6 +481,7 @@ def main() -> None:
         seed=args.seed,
         stratify_by_difficulty=stratify_by_difficulty,
         stratify_by_size_bin=stratify_by_size_bin,
+        stratify_by_source=stratify_by_source,
     )
     standard_pilots = None
     if args.write_standard_pilots:
@@ -370,6 +489,7 @@ def main() -> None:
             rows,
             pilot_dir=args.standard_pilot_dir,
             seed=args.seed,
+            stratify_by_source=stratify_by_source,
         )
 
     if args.pilot_out is not None:
@@ -386,6 +506,7 @@ def main() -> None:
         "selection_seed": args.seed,
         "pilot_stratified_by_difficulty": stratify_by_difficulty,
         "stratified_by_size_bin": stratify_by_size_bin,
+        "stratified_by_source": stratify_by_source,
         "pilot_bucket_counts": {},
         "standard_pilots": standard_pilots,
         "pilot_out": str(args.pilot_out) if args.pilot_out else None,
@@ -397,6 +518,7 @@ def main() -> None:
             row,
             stratify_by_difficulty=stratify_by_difficulty,
             stratify_by_size_bin=stratify_by_size_bin,
+            stratify_by_source=stratify_by_source,
         )
         bucket_counts["/".join(key)] += 1
     summary["pilot_bucket_counts"] = dict(sorted(bucket_counts.items()))

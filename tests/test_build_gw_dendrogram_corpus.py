@@ -169,14 +169,14 @@ def test_dendrogram_negative_sampling_uses_requested_distance_bands(tmp_path: Pa
         salt="easy",
     )
 
-    assert all(gene_id.startswith("E") for gene_id in easy)
-    assert easy_meta["selection_mode"] == "preferred_band"
+    assert all(gene_id.startswith("E") for gene_id in hard)
+    assert hard_meta["selection_mode"] == "preferred_band"
     assert all(gene_id.startswith("M") for gene_id in medium)
     assert medium_meta["selection_mode"] == "preferred_band"
-    assert all(gene_id.startswith("H") for gene_id in hard)
-    assert hard_meta["selection_mode"] == "preferred_band"
-    assert max(easy_meta["selected_distances"].values()) < min(medium_meta["selected_distances"].values())
-    assert max(medium_meta["selected_distances"].values()) < min(hard_meta["selected_distances"].values())
+    assert all(gene_id.startswith("F") for gene_id in easy)
+    assert easy_meta["selection_mode"] == "preferred_band"
+    assert max(hard_meta["selected_distances"].values()) < min(medium_meta["selected_distances"].values())
+    assert max(medium_meta["selected_distances"].values()) < min(easy_meta["selected_distances"].values())
 
 
 def test_build_task_prototypes_and_materialization_are_balanced_and_compatible(tmp_path: Path) -> None:
