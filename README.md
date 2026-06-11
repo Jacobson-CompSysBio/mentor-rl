@@ -1,146 +1,202 @@
 # MENTOR-RL
 
-MENTOR-RL is a research repo for building CORUM-grounded biology tasks, generating
-tool-using trajectories over a deterministic runtime, and training models with
-supervised fine-tuning and GRPO-style reinforcement learning.
+MENTOR-RL is a research codebase for training tool-using language models to do
+mechanistic interpretation over biological multiplex networks. The goal is to
+teach an agent to explore graph evidence, recover or refine coherent gene
+modules, explain likely mechanisms, and abstain when a gene set does not support
+one shared mechanism.
 
-The current codebase is oriented around Frontier/Slurm workflows and local data
-paths rather than a packaged pip install.
+The current implementation is designed for ORNL Frontier/Slurm workflows and
+local full-brain multiplex data. It is not packaged as a pip-installable
+library.
 
-## Repo Layout
+## Pipeline Overview
 
-- `scripts/`: primary entry points for corpus building, trajectory generation, inference, and training
-- `runtime/`: shared deterministic runtime/state/validation/scoring types used by the generator
-- `cpp_runtime/`: lower-level runtime components in C++
-- `data/`: canonical CORUM corpora, generated trajectories, caches, and related artifacts
-- `tests/`: unit and integration tests
-- `generate_trajectories.slurm`, `train_sft.slurm`, `train_grpo.slurm`: cluster launchers
+The proposed training pipeline has five stages.
 
-## Main Workflows
+1. Build module targets from the full-brain multiplex.
+   The primary corpus uses MENTOR-derived modules from a genome-wide
+   dendrogram. A complementary corpus uses RWR-LOE seed expansions: one module
+   per gene, with membership selected by the RWR++ geometric elbow rule.
 
-### 1. Build the CORUM corpus
+2. Convert modules into hidden-target tasks.
+   Each module can produce four task types:
+   `explanation`, `recovery`, `refinement`, and `none`. The model sees only the
+   visible input genes and optional graph query specification; hidden module
+   membership is used only for scoring.
 
-`scripts/build_corum_corpus.py` turns the raw CORUM export into canonical task
-JSONL files used by the rest of the pipeline.
+3. Generate tool-using trajectories.
+   The actor proposes reasoning steps and optional tool calls. Deterministic
+   runtime tools execute graph operations. A verifier updates the structured
+   interpretation and decides whether to continue, revise, or stop.
+
+4. Mine supervised and preference data.
+   Shared-prefix trajectory branches are scored by deterministic reward
+   functions. Better branches become preference pairs for DPO, while completed
+   trajectories provide SFT examples and audit artifacts.
+
+5. Train and evaluate.
+   The intended sequence is warm-start SFT, DPO over shared-prefix branch
+   preferences, then GRPO or another policy-gradient method over terminal and
+   intermediate verifiable rewards.
+
+## Current Source Of Truth
+
+Active full-brain runs use:
+
+- Multiplex store: `data/runtime/full_brain_multiplex_store`
+- Full-brain RWR++ flist:
+  `/lustre/orion/syb111/proj-shared/Personal/smithkp/projects/PASC_2026/full_brain/data/full_brain_flist.tsv`
+- MENTOR dendrogram corpus: `data/gw_dendrogram_corpus_full_brain`
+- RWR-LOE corpus: `data/rwr_loe_corpus_full_brain`
+- Mixed corpus: `data/module_corpus_full_brain_mixed`
+
+CORUM remains useful for legacy tests and proposal history, but it is no longer
+the active source of truth for production task generation.
+
+## Important Concepts
+
+**Hidden targets.**
+Task rows include hidden module membership for scoring, but actor and verifier
+prompts must not expose those targets.
+
+**Difficulty.**
+For MENTOR dendrogram tasks, close distractor genes are hard and far distractor
+genes are easy. The current dendrogram schema is `gw-dendrogram-corpus-v2`; old
+rows with reversed easy/hard labels should be rebuilt.
+
+**RWR-LOE modules.**
+RWR-LOE rank caches are prewarmed with the MPI-capable RWR++ `rwr` app. The
+corpus builder then creates each gene-centered module by retaining ranked genes
+on the high-score side of the geometric elbow cutoff, using
+`rank < elbow_rank_cutoff`.
+
+**Runtime tools.**
+Model-facing graph tools are schema-wrapped and deterministic. RWR++ tools cover
+RWR ranking, distances, layer summaries, shortest paths, perturbation, ablation,
+and related diagnostics. Native runtime tools still cover operations such as
+neighborhood lookup and induced subgraphs.
+
+## Main Commands
+
+Build the MENTOR dendrogram corpus:
 
 ```bash
-python scripts/build_corum_corpus.py --help
+python scripts/build_gw_dendrogram_corpus.py \
+  --dendrogram-path data/gw_dendrogram.txt \
+  --store-dir data/runtime/full_brain_multiplex_store \
+  --out-dir data/gw_dendrogram_corpus_full_brain
 ```
 
-Typical outputs live under `data/corum_corpus/`.
-
-### 2. Generate trajectories
-
-`scripts/generate_trajectories.py` generates shared-prefix trajectories from the
-canonical tasks. It supports deterministic heuristic generation for testing and
-model-backed generation through an OpenAI-compatible vLLM endpoint.
+Prewarm RWR-LOE rank caches on Slurm:
 
 ```bash
-python scripts/generate_trajectories.py --help
+LOE_MODE=prewarm LOE_SHARD_COUNT=64 \
+  sbatch -p batch --array=0-63%4 scripts/build_rwr_loe_corpus.slurm
 ```
 
-For Frontier runs, use the Slurm launcher:
+Materialize the RWR-LOE corpus after all shards finish:
 
 ```bash
-sbatch generate_trajectories.slurm
+LOE_MODE=materialize \
+  sbatch -p batch scripts/build_rwr_loe_corpus.slurm
 ```
 
-Generated artifacts are written under `data/corum_trajectories/`.
+Mix the MENTOR and RWR-LOE corpora:
 
-Before using model-backed artifacts for DPO, run the verification gate:
+```bash
+python scripts/mix_module_corpora.py --json
+```
+
+Select a stratified verification pilot:
 
 ```bash
 python scripts/select_verification_tasks.py \
-  --seed 42 \
-  --pilot-size 128 \
-  --pilot-out data/corum_corpus/tasks.verification_pilot.jsonl \
-  --smoke-task-ids-out data/corum_corpus/tasks.verification_smoke_ids.txt
-
-SMOKE_TASK_IDS="$(paste -sd, data/corum_corpus/tasks.verification_smoke_ids.txt)" \
-SMOKE_TEST_ONLY=1 \
-sbatch generate_trajectories.slurm
-
-python scripts/audit_trajectory_run.py \
-  --run-dir data/corum_trajectories/<run> \
-  --dpo-pair-gate \
-  --max-selected-no-tool-rate 0.60 \
-  --max-positive-selected-no-tool-rate 0.50 \
-  --min-recovery-expansion-pair-rate 0.35 \
-  --min-tool-supported-pair-rate 0.30 \
-  --max-mechanism-label-only-pair-rate 0.20 \
-  --max-step0-pair-rate 0.70
-python scripts/dpo_pair_loader_smoke.py --pairs-path data/corum_trajectories/<run>/preference_pairs.jsonl
-python scripts/render_preference_pairs_review.py \
-  --pairs-path data/corum_trajectories/<run>/preference_pairs.jsonl \
-  --sample-size 30 \
-  --out data/corum_trajectories/<run>/preference_pair_review_sample.md
-
-python scripts/audit_recovery_recoverability.py \
-  --tasks-path data/corum_corpus/tasks.verification_pilot.jsonl \
-  --top-ks 50,100,250,500,1000 \
-  --out-jsonl data/corum_corpus/recovery_recoverability.rwr.jsonl
+  --tasks-path data/module_corpus_full_brain_mixed/tasks.train.jsonl \
+  --source-strata \
+  --pilot-size 60 \
+  --pilot-out data/module_corpus_full_brain_mixed/pilot.tasks.jsonl \
+  --smoke-task-ids-out data/module_corpus_full_brain_mixed/smoke_task_ids.txt
 ```
 
-The Slurm launcher writes `run_freeze.json` into each output directory and pins
-the generator to the discovered served model id. Set `TASKS_PATH` to the pilot
-JSONL and run once with `TASK_CONCURRENCY=1`, then repeat with the intended
-production concurrency before scaling. The verification selector stratifies
-pilot rows by task type, evidence mode, and difficulty, then uses a deterministic
-seeded order so small pilots do not concentrate on the earliest CORUM complexes.
-The launcher defaults to verbalized actor sampling, task-aware selection,
-quality-balanced pair mining, and tool-coverage retries for recovery/refinement
-tasks; override
-`ACTOR_SAMPLING_STRATEGY`, `SELECTION_POLICY`, `PAIR_MINING_STRATEGY`, and
-`TOOL_COVERAGE_RETRY_COUNT` only for ablations. Recovery RWR branches default
-to `RECOVERY_RWR_TOP_K=500` so verifier prompts include a broader non-seed
-candidate list. For DPO-only runs, high
-branch-pool tie rates are diagnostic as long as balanced preference pairs have
-valid margins; the audit's `--dpo-pair-gate` keeps pair/schema/backend checks
-strict while downgrading tie-rate findings to warnings.
+Generate trajectories on Frontier:
 
-### 3. Train an SFT model
+```bash
+TASKS_PATH=data/module_corpus_full_brain_mixed/pilot.tasks.jsonl \
+OUT_DIR=data/module_corpus_trajectories/pilot \
+sbatch generate_trajectories.slurm
+```
 
-`scripts/train_sft.py` trains a supervised model over a local JSON dataset using
-TRL's `SFTTrainer`.
+Audit a generated run:
+
+```bash
+python scripts/audit_trajectory_run.py \
+  --run-dir data/module_corpus_trajectories/pilot/<run> \
+  --dpo-pair-gate
+```
+
+## Repo Layout
+
+- `scripts/`: corpus builders, trajectory generation, audit utilities, and
+  Slurm launchers.
+- `runtime/`: deterministic state, schemas, validators, scoring, and RWR++
+  structured backend.
+- `cpp_runtime/`: compiled local graph runtime components.
+- `external/rwr_hpc/`: vendored RWR++ apps and libraries used on Frontier.
+- `tests/`: unit and integration tests for corpus building, runtime tools,
+  verification gates, and launch-adjacent behavior.
+- `agents/`: proposal and planning text.
+
+Generated corpora, trajectories, caches, and logs live under `data/` and
+`logs/`. Many large artifacts are intentionally gitignored.
+
+## Training Entry Points
+
+The current training scripts are:
 
 ```bash
 python scripts/train_sft.py --help
-```
-
-Cluster runs typically go through:
-
-```bash
-sbatch train_sft.slurm
-```
-
-### 4. Train with GRPO
-
-`scripts/train_grpo.py` contains the GRPO training path and patches TRL's
-`VLLMClient` to work with a standard vLLM server.
-
-```bash
 python scripts/train_grpo.py --help
 ```
 
-Cluster runs typically go through:
+Cluster launchers exist for the main training paths:
 
 ```bash
+sbatch train_sft.slurm
 sbatch train_grpo.slurm
 ```
 
+The DPO data path is built from generated trajectory artifacts and preference
+pairs. In practice, run the smoke and audit gates before using a trajectory run
+for training.
+
 ## Testing
 
-Run the test suite with:
+Use the shared project environment on Frontier, then run:
 
 ```bash
-pytest
+python -m pytest
 ```
 
-For quick script-level validation, the main Python entry points also expose
-`--help`.
+For focused validation of the current corpus and verification path:
 
-## Notes
+```bash
+python -m pytest \
+  tests/test_build_gw_dendrogram_corpus.py \
+  tests/test_build_rwr_loe_corpus.py \
+  tests/test_rwr_hpc_structured_backend.py \
+  tests/test_verification_gate.py
+```
 
-- Many defaults assume the current ORNL/Frontier filesystem layout and large local model caches.
-- The trajectory pipeline writes run artifacts and progress files into `data/`.
-- Slurm launchers are the most complete examples of the intended production workflow.
+Most scripts also support `--help` and can run small local smoke fixtures with
+reduced task counts or `--max-genes`.
+
+## Notes For Contributors
+
+- Prefer Slurm for full-brain RWR and trajectory jobs; use local commands only
+  for tests and small smoke runs.
+- Keep `AGENTS.md` aligned with current implementation decisions. It is the
+  repo's living guidance for agents and future work.
+- Keep proposal text separate from operational truth. The implementation has
+  moved from CORUM/HumanNet framing to MENTOR and RWR-LOE modules over the
+  full-brain multiplex.
