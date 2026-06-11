@@ -45,7 +45,7 @@ DEFAULT_MYGENE_FIELDS = (
 )
 DEFAULT_GPROFILER_URL = "https://biit.cs.ut.ee/gprofiler/api/gost/profile/"
 DEFAULT_GPROFILER_ORGANISM = "hsapiens"
-DEFAULT_GPROFILER_SOURCES = ("GO:BP", "GO:MF", "GO:CC", "REAC", "WP", "KEGG", "CORUM")
+DEFAULT_GPROFILER_SOURCES = ("GO:BP", "GO:MF", "GO:CC", "REAC", "WP", "KEGG")
 DEFAULT_ENRICHMENT_TOP_K = 10
 DEFAULT_ENRICHMENT_USER_THRESHOLD = 0.05
 DEFAULT_MYGENE_TIMEOUT_SECONDS = 45
@@ -363,12 +363,13 @@ def _normalize_sources(sources: list[str] | None) -> list[str]:
         "WIKIPATHWAYS": ("WP",),
         "WP": ("WP",),
         "KEGG": ("KEGG",),
-        "CORUM": ("CORUM",),
     }
     normalized: list[str] = []
     for source in sources:
         source_text = str(source).strip()
         if not source_text:
+            continue
+        if source_text.upper() == "CORUM":
             continue
         normalized.extend(aliases.get(source_text.upper(), (source_text,)))
     return _unique_preserving_order(normalized)
@@ -526,6 +527,8 @@ def enrich_gene_set(
 
     background = _unique_preserving_order([str(gene) for gene in background_gene_ids if str(gene)])
     selected_sources = _normalize_sources(sources)
+    if not selected_sources:
+        raise ToolExecutionError("enrich_gene_set received no supported enrichment sources.")
     background_hash = _stable_payload_hash({"background": background})
     request_fingerprint = {
         "genes": query_gene_ids,

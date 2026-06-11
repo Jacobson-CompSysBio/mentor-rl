@@ -102,6 +102,7 @@ DEFAULT_GENERATOR_API_BASE = "http://127.0.0.1:8000/v1"
 DEFAULT_GENERATOR_API_KEY_ENV = "OPENAI_API_KEY"
 STRUCTURED_OUTPUT_MAX_TOKENS = 2048
 DEFAULT_ACTOR_RATIONALE_MAX_TOKENS = 2048
+DEFAULT_VERIFIER_REPAIR_RETRY_COUNT = 1
 DEFAULT_PREFERENCE_PAIR_MARGIN = 0.10
 DEFAULT_SELECTION_SCORE_EPSILON = 0.02
 DEFAULT_RECOVERY_RWR_TOP_K = 500
@@ -117,11 +118,21 @@ PROMPT_EDGE_PREVIEW_LIMIT = 12
 PROMPT_MYGENE_PREVIEW_LIMIT = 5
 PROMPT_TOOL_REFERENCE_GENE_LIMIT = 80
 PROMPT_TOOL_REFERENCE_LAYER_LIMIT = 24
-PROMPT_EVIDENCE_LOG_RECENT_LIMIT = 3
-PROMPT_EVIDENCE_LOG_OMITTED_SUMMARY_LIMIT = 6
+PROMPT_EVIDENCE_SUMMARY_LIMIT = 8
+PROMPT_EVIDENCE_SUPPORT_GENE_LIMIT = 20
+PROMPT_LABEL_EVIDENCE_ID_LIMIT = 6
+PROMPT_GENE_SET_HANDLE_SAMPLE_LIMIT = 12
+PROMPT_PRIOR_TOOL_ACTION_LIMIT = 8
+PROMPT_QUERY_TEXT_MAX_CHARS = 800
+DEFAULT_GENERATOR_PROMPT_TOKEN_LIMIT = 0
+DEFAULT_ACTOR_TOOL_REPAIR_RETRY_COUNT = 1
+VERIFIER_REPAIR_RAW_TEXT_MAX_CHARS = 4000
+ACTOR_REPAIR_RAW_TEXT_MAX_CHARS = 4000
 ACTOR_SAMPLING_STRATEGIES = ("batch", "verbalized")
 SELECTION_POLICIES = ("score", "task_quality")
 PAIR_MINING_STRATEGIES = ("score_margin", "quality_balanced")
+VISIBLE_SEED_GENES_HANDLE = "__visible_seed_genes__"
+CURRENT_CANDIDATE_GROUP_HANDLE = "__current_candidate_group__"
 ACTOR_DIVERSITY_DIRECTIVES = (
     {
         "name": "mechanism_annotation_probe",
@@ -317,7 +328,7 @@ TOOL_COVERAGE_DIRECTIVES = {
     "recovery": {
         "name": "tool_coverage_recovery_expansion",
         "instruction": (
-            "This retry exists because no usable tool-backed actor candidate was observed. "
+            "This retry exists because no usable RWR++ actor candidate was observed. "
             "Choose a valid runtime tool if any valid graph argument can be formed; prefer "
             "rwr with top_k at least 500 for recovery expansion, then "
             "get_neighbors or induce_subgraph."
@@ -327,23 +338,23 @@ TOOL_COVERAGE_DIRECTIVES = {
     "refinement": {
         "name": "tool_coverage_refinement_probe",
         "instruction": (
-            "This retry exists because no usable tool-backed actor candidate was observed. "
+            "This retry exists because no usable RWR++ actor candidate was observed. "
             "Choose a valid runtime tool if any valid graph argument can be formed; prefer "
-            "induce_subgraph for pruning evidence, then rwr or shortest_paths."
+            "rwr for multiplex support, then shortest_paths, then induce_subgraph for pruning evidence."
         ),
-        "preferred_tools": ["induce_subgraph", "rwr", "shortest_paths"],
+        "preferred_tools": ["rwr", "shortest_paths", "induce_subgraph"],
     },
 }
 PAIR_CATEGORY_PRIORITIES = {
-    "task_correctness_improvement": 0,
-    "explanation_preservation": 1,
-    "recovery_expansion": 2,
-    "recovery_recall": 3,
-    "refinement_precision": 4,
-    "refinement_jaccard": 5,
-    "abstention_correct": 6,
-    "calibrated_abstention": 7,
-    "tool_supported_improvement": 8,
+    "recovery_expansion": 0,
+    "refinement_precision": 1,
+    "tool_supported_improvement": 2,
+    "task_correctness_improvement": 3,
+    "explanation_preservation": 4,
+    "recovery_recall": 5,
+    "refinement_jaccard": 6,
+    "abstention_correct": 7,
+    "calibrated_abstention": 8,
     "mechanism_evidence_improvement": 9,
     "unsupported_mechanism_rejected": 10,
     "none_abstention": 11,
@@ -493,6 +504,7 @@ Continuation decision meanings:
 
 Label source meanings:
 - go: Gene Ontology label
+- reactome: Reactome pathway label (use this for observed REAC sources)
 - fcgs: FCGS label
 - complex_name: complex-name-derived label
 - free_text: grounded free-text label
@@ -567,6 +579,30 @@ RUNTIME_TOOL_NAMES = (
     "get_layer_ablation",
     "get_node_perturbation",
     "induce_subgraph",
+)
+RWR_HPC_MODEL_TOOL_NAMES = frozenset(
+    {
+        "rwr",
+        "rwr_loe",
+        "shortest_paths",
+        "get_rank",
+        "get_distance",
+        "get_spearman",
+        "get_pearson",
+        "get_dot_similarity",
+        "get_rank_vector_summary",
+        "get_encoding_summary",
+        "get_gene_layers",
+        "get_nodes_by_layer",
+        "get_layer_stats",
+        "get_path_layer_counts",
+        "get_component_summary",
+        "get_seed_essentiality",
+        "get_layer_ablation",
+        "get_node_perturbation",
+        "rwr_multiplex",
+        "rwr_monoplex",
+    }
 )
 RWR_RESULT_TOOL_NAMES = {"rwr", "rwr_loe", "rwr_multiplex", "rwr_monoplex"}
 SHORTEST_PATH_RESULT_TOOL_NAMES = {"shortest_paths", "shortest_path"}
@@ -680,6 +716,55 @@ def _rwr_result_gene_id(result: Any) -> str | None:
         return None
     gene_id = result.get("gene_id") or result.get("gene")
     return gene_id if isinstance(gene_id, str) and gene_id else None
+
+
+def _compact_result_item_for_prompt(item: Any) -> dict[str, Any]:
+    if not isinstance(item, dict):
+        return {"value": _truncate_prompt_text(str(item), max_chars=160)}
+    keep_keys = (
+        "gene_id",
+        "gene",
+        "symbol",
+        "name",
+        "score",
+        "rank",
+        "distance",
+        "dissimilarity",
+        "source",
+        "native",
+        "p_value",
+        "significant",
+        "intersection_size",
+        "query_size",
+        "precision",
+        "recall",
+        "term_size",
+        "edge_count",
+        "node_count",
+        "layer_name",
+        "component_size",
+    )
+    compact: dict[str, Any] = {}
+    for key in keep_keys:
+        if key not in item:
+            continue
+        value = item[key]
+        if isinstance(value, str):
+            compact[key] = _truncate_prompt_text(value, max_chars=180)
+        elif isinstance(value, list):
+            compact[f"{key}_count"] = len(value)
+            compact[f"{key}_sample"] = value[:PROMPT_LIST_PREVIEW_LIMIT]
+        else:
+            compact[key] = value
+    if "description" in item and isinstance(item["description"], str):
+        compact["description"] = _truncate_prompt_text(item["description"], max_chars=220)
+    return compact
+
+
+def _compact_result_list_for_prompt(values: Any, *, limit: int) -> list[dict[str, Any]]:
+    if not isinstance(values, list):
+        return []
+    return [_compact_result_item_for_prompt(item) for item in values[:limit]]
 
 
 def _compact_layer_list_payload(
@@ -824,49 +909,171 @@ def _compact_evidence_record_for_model_prompt(record: dict[str, Any]) -> dict[st
     return compact
 
 
-def _compact_omitted_evidence_record_for_model_prompt(record: dict[str, Any]) -> dict[str, Any]:
-    provenance = record.get("provenance") if isinstance(record.get("provenance"), dict) else {}
+def _preview_unique_strings(values: Iterable[Any], *, limit: int) -> list[str]:
+    output: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not isinstance(value, str) or not value or value in seen:
+            continue
+        output.append(value)
+        seen.add(value)
+        if len(output) >= limit:
+            break
+    return output
+
+
+def _compact_gene_group_for_prompt(group: Any) -> dict[str, Any]:
+    payload = group.to_dict() if hasattr(group, "to_dict") else _safe_dict(group)
+    gene_ids = _safe_list_of_strings(payload.get("gene_ids"))
+    gene_symbols = _safe_list_of_strings(payload.get("gene_symbols"))
     return {
-        "evidence_id": record.get("evidence_id"),
-        "tool_name": provenance.get("tool_name"),
-        "summary": _truncate_prompt_text(record.get("summary"), max_chars=180),
-        "supporting_gene_ids_sample": _preview_list(
-            record.get("supporting_gene_ids"),
-            limit=6,
+        "group_id": payload.get("group_id"),
+        "gene_count": len(gene_ids),
+        "gene_ids_sample": gene_ids[:PROMPT_LIST_PREVIEW_LIMIT],
+        "gene_symbols_sample": gene_symbols[:PROMPT_LIST_PREVIEW_LIMIT],
+        "rationale": _truncate_prompt_text(payload.get("rationale"), max_chars=220),
+    }
+
+
+def _compact_mechanistic_label_for_prompt(label: Any) -> dict[str, Any]:
+    payload = label.to_dict() if hasattr(label, "to_dict") else _safe_dict(label)
+    evidence_ids = _safe_list_of_strings(payload.get("evidence_ids"))
+    return {
+        "label_source": payload.get("label_source"),
+        "label_name": _truncate_prompt_text(payload.get("label_name"), max_chars=180),
+        "label_id": payload.get("label_id"),
+        "evidence_ids": evidence_ids[:PROMPT_LABEL_EVIDENCE_ID_LIMIT],
+        "evidence_id_count": len(evidence_ids),
+    }
+
+
+def _tool_name_from_evidence_record(record: EvidenceRecord) -> str:
+    tool_name = record.provenance.get("tool_name")
+    if isinstance(tool_name, str) and tool_name:
+        return tool_name
+    return str(record.source_type.value if hasattr(record.source_type, "value") else record.source_type)
+
+
+def _evidence_digest_for_model_prompt(state: Any) -> dict[str, Any]:
+    evidence_log = list(getattr(state, "evidence_log", []) or [])
+    tool_counts = Counter(
+        _tool_name_from_evidence_record(record)
+        for record in evidence_log
+        if isinstance(record, EvidenceRecord)
+    )
+    supporting_gene_ids: list[str] = []
+    recent: list[dict[str, Any]] = []
+    for record in evidence_log:
+        if not isinstance(record, EvidenceRecord):
+            continue
+        _append_unique_strings(supporting_gene_ids, record.supporting_gene_ids)
+    for record in evidence_log[-PROMPT_EVIDENCE_SUMMARY_LIMIT:]:
+        if not isinstance(record, EvidenceRecord):
+            continue
+        recent.append(
+            {
+                "evidence_id": record.evidence_id,
+                "tool_name": _tool_name_from_evidence_record(record),
+                "source_type": str(record.source_type.value if hasattr(record.source_type, "value") else record.source_type),
+                "summary": _truncate_prompt_text(record.summary, max_chars=220),
+                "supporting_gene_ids_sample": record.supporting_gene_ids[:PROMPT_LIST_PREVIEW_LIMIT],
+                "supporting_gene_count": len(record.supporting_gene_ids),
+            }
+        )
+    return {
+        "evidence_count": len(evidence_log),
+        "tool_counts": dict(sorted(tool_counts.items())),
+        "supporting_gene_id_count": len(supporting_gene_ids),
+        "supporting_gene_ids_sample": supporting_gene_ids[:PROMPT_EVIDENCE_SUPPORT_GENE_LIMIT],
+        "recent_evidence_summaries": recent,
+        "omitted_full_payloads": True,
+    }
+
+
+def _prompt_state_payload_for_model_prompt(state: Any) -> dict[str, Any]:
+    predicted_groups = [
+        _compact_gene_group_for_prompt(group)
+        for group in (getattr(state, "predicted_groups", []) or [])
+    ]
+    mechanistic_labels = [
+        _compact_mechanistic_label_for_prompt(label)
+        for label in (getattr(state, "mechanistic_labels", []) or [])
+    ]
+    relationship_status = getattr(state, "relationship_status", None)
+    continuation_state = getattr(state, "continuation_state", None)
+    termination_reason = getattr(state, "termination_reason", None)
+    return {
+        "state_contract": (
+            "Markov prompt state. Full prior tool observations and evidence payloads "
+            "are omitted from the prompt and retained only in trajectory artifacts. "
+            "Use evidence IDs, summaries, labels, counters, gene-set handles, and the "
+            "current deterministic observation to update the next state."
+        ),
+        "relationship_status": str(relationship_status.value if hasattr(relationship_status, "value") else relationship_status),
+        "continuation_state": str(continuation_state.value if hasattr(continuation_state, "value") else continuation_state),
+        "remaining_budget": getattr(state, "remaining_budget", None),
+        "tool_counters": {
+            "total_tool_call_count": getattr(state, "total_tool_call_count", 0),
+            "invalid_tool_call_count": getattr(state, "invalid_tool_call_count", 0),
+        },
+        "predicted_groups": predicted_groups,
+        "mechanistic_labels": mechanistic_labels,
+        "evidence_digest": _evidence_digest_for_model_prompt(state),
+        "termination_reason": (
+            str(termination_reason.value if hasattr(termination_reason, "value") else termination_reason)
+            if termination_reason is not None
+            else None
         ),
     }
 
 
-def _state_payload_for_model_prompt(state: Any) -> dict[str, Any]:
-    state_payload = state.to_dict()
-    state_payload.pop("user_anchors", None)
+def _compact_graph_query_spec_for_model_prompt(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    compact: dict[str, Any] = {}
+    for key, item in value.items():
+        if key in {"seed_gene_ids", "seed_gene_symbols"} and isinstance(item, list):
+            compact[f"{key}_count"] = len(item)
+            compact[f"{key}_sample"] = item[:PROMPT_LIST_PREVIEW_LIMIT]
+        elif isinstance(item, str):
+            compact[key] = _truncate_prompt_text(item, max_chars=240)
+        elif isinstance(item, list):
+            compact[f"{key}_count"] = len(item)
+            compact[f"{key}_sample"] = item[:PROMPT_LIST_PREVIEW_LIMIT]
+        else:
+            compact[key] = item
+    return compact
 
-    for group in state_payload.get("predicted_groups", []):
-        if isinstance(group, dict):
-            group["rationale"] = _truncate_prompt_text(group.get("rationale"), max_chars=280)
 
-    evidence_log = [
-        record
-        for record in state_payload.get("evidence_log", [])
-        if isinstance(record, dict)
-    ]
-    if len(evidence_log) > PROMPT_EVIDENCE_LOG_RECENT_LIMIT:
-        omitted = evidence_log[:-PROMPT_EVIDENCE_LOG_RECENT_LIMIT]
-        recent = evidence_log[-PROMPT_EVIDENCE_LOG_RECENT_LIMIT:]
-        state_payload["evidence_log_omitted_count"] = len(omitted)
-        state_payload["evidence_log_omitted_summaries"] = [
-            _compact_omitted_evidence_record_for_model_prompt(record)
-            for record in omitted[-PROMPT_EVIDENCE_LOG_OMITTED_SUMMARY_LIMIT:]
-        ]
-    else:
-        recent = evidence_log
-        state_payload["evidence_log_omitted_count"] = 0
-    state_payload["evidence_log"] = [
-        _compact_evidence_record_for_model_prompt(record)
-        for record in recent
-    ]
+def _compact_visible_inputs_for_model_prompt(user_evidence: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    for key, value in user_evidence.items():
+        if key in {"seed_gene_ids", "seed_gene_symbols"} and isinstance(value, list):
+            compact[f"{key}_count"] = len(value)
+            compact[f"{key}_sample"] = value[:PROMPT_LIST_PREVIEW_LIMIT]
+        elif key == "graph_query_spec":
+            compact_graph_query_spec = _compact_graph_query_spec_for_model_prompt(value)
+            if compact_graph_query_spec is not None:
+                compact[key] = compact_graph_query_spec
+        elif key == "structured_annotations" and isinstance(value, dict):
+            compact[key] = {
+                annotation_key: _preview_list(annotation_value)
+                if isinstance(annotation_value, list)
+                else annotation_value
+                for annotation_key, annotation_value in value.items()
+            }
+        elif isinstance(value, str):
+            compact[key] = _truncate_prompt_text(value, max_chars=PROMPT_TEXT_MAX_CHARS)
+        elif isinstance(value, list):
+            compact[f"{key}_count"] = len(value)
+            compact[f"{key}_sample"] = value[:PROMPT_LIST_PREVIEW_LIMIT]
+        else:
+            compact[key] = value
+    return compact
 
-    return state_payload
+
+def _query_text_for_model_prompt(query_text: str) -> str:
+    return _truncate_prompt_text(query_text, max_chars=PROMPT_QUERY_TEXT_MAX_CHARS)
 
 
 def _interpretation_payload_for_model_prompt(interpretation: Interpretation) -> dict[str, Any]:
@@ -895,10 +1102,108 @@ def _candidate_gene_ids_for_tool_reference(context: SharedPrefixContext) -> list
     return gene_ids
 
 
+def _visible_seed_gene_ids_for_context(context: SharedPrefixContext) -> list[str]:
+    visible_inputs = context.user_evidence if isinstance(context.user_evidence, dict) else {}
+    return _safe_list_of_strings(visible_inputs.get("seed_gene_ids"))
+
+
+def _current_candidate_group_gene_ids_for_context(context: SharedPrefixContext) -> list[str]:
+    predicted_gene_ids = _flatten_predicted_gene_ids(context.state)
+    if predicted_gene_ids:
+        return predicted_gene_ids
+    return _visible_seed_gene_ids_for_context(context)
+
+
+def _gene_set_handles_for_context(context: SharedPrefixContext) -> dict[str, list[str]]:
+    return {
+        VISIBLE_SEED_GENES_HANDLE: _visible_seed_gene_ids_for_context(context),
+        CURRENT_CANDIDATE_GROUP_HANDLE: _current_candidate_group_gene_ids_for_context(context),
+    }
+
+
+def _gene_set_handle_reference_payload(context: SharedPrefixContext) -> dict[str, Any]:
+    return {
+        handle: {
+            "gene_count": len(gene_ids),
+            "gene_ids_sample": gene_ids[:PROMPT_GENE_SET_HANDLE_SAMPLE_LIMIT],
+        }
+        for handle, gene_ids in _gene_set_handles_for_context(context).items()
+    }
+
+
+def _compact_tool_action_payload(tool_action: ToolAction | None) -> dict[str, Any] | None:
+    if tool_action is None:
+        return None
+    try:
+        arguments = normalize_tool_arguments(tool_action.tool_name, tool_action.arguments)
+    except Exception:
+        arguments = dict(tool_action.arguments)
+    return {
+        "tool_name": tool_action.tool_name,
+        "arguments": arguments,
+    }
+
+
+def _prior_tool_action_reference_payload(
+    prior_actions: Iterable[ToolAction] | None,
+) -> list[dict[str, Any]]:
+    if prior_actions is None:
+        return []
+    compact: list[dict[str, Any]] = []
+    for index, action in enumerate(list(prior_actions)[-PROMPT_PRIOR_TOOL_ACTION_LIMIT:]):
+        payload = _compact_tool_action_payload(action)
+        if payload is None:
+            continue
+        payload["index"] = index
+        compact.append(payload)
+    return compact
+
+
+def _observation_diagnostic_payload(observation: ToolObservation | None) -> dict[str, Any] | None:
+    if observation is None:
+        return None
+    provenance = observation.provenance or {}
+    diagnostic: dict[str, Any] = {
+        "status": observation.status.value,
+        "tool_name": provenance.get("tool_name"),
+        "call_id": observation.call_id,
+    }
+    if observation.error:
+        diagnostic["error"] = observation.error
+    validation_errors = provenance.get("validation_errors")
+    if isinstance(validation_errors, list):
+        diagnostic["validation_errors"] = [str(error) for error in validation_errors if error]
+    return diagnostic
+
+
+def _actor_repair_feedback_payload(
+    *,
+    actor_candidate: dict[str, Any],
+    actor_step: ActorStep,
+    observation: ToolObservation | None,
+    errors: Iterable[str],
+) -> dict[str, Any]:
+    return {
+        "repair_task": (
+            "The previous actor tool call was rejected. Choose one corrected, valid next "
+            "action. Do not repeat any exact prior_tool_actions entry. If no valid "
+            "new tool call is useful, return no tool action and explain why."
+        ),
+        "previous_errors": _unique(str(error) for error in errors if error),
+        "previous_tool_action": _compact_tool_action_payload(actor_step.tool_action),
+        "previous_observation": _observation_diagnostic_payload(observation),
+        "previous_response": _truncate_prompt_text(
+            actor_candidate.get("raw_text"),
+            max_chars=ACTOR_REPAIR_RAW_TEXT_MAX_CHARS,
+        ),
+    }
+
+
 def _tool_argument_reference_payload(
     context: SharedPrefixContext,
     *,
     environment: RuntimeEnvironment | None = None,
+    prior_actions: Iterable[ToolAction] | None = None,
 ) -> dict[str, Any]:
     candidate_gene_ids = _candidate_gene_ids_for_tool_reference(context)
     if environment is not None:
@@ -918,6 +1223,12 @@ def _tool_argument_reference_payload(
         "rules": [
             "Graph tools require canonical Ensembl gene id strings, not symbols.",
             "Use candidate_gene_ids for gene/source/target/seeds/genes unless a prior successful tool observation returned another exact id.",
+            "Do not repeat an exact prior_tool_actions tool_name+arguments pair; choose a different valid action or stop.",
+            (
+                f"For whole-set tools, you may use {CURRENT_CANDIDATE_GROUP_HANDLE!r} or "
+                f"{VISIBLE_SEED_GENES_HANDLE!r} as a list item; the generator expands the handle "
+                "to the full hidden-length visible gene set before execution."
+            ),
             "Use query_mygene for one representative gene when identifier metadata or gene summaries are needed.",
             "Use enrich_gene_set on candidate_gene_ids when a group-level mechanism is needed.",
             "For all graph layers, omit layer/layers entirely; do not pass null, [], 'all', or '*' values.",
@@ -976,10 +1287,49 @@ def _tool_argument_reference_payload(
         },
         "candidate_gene_ids": graph_candidate_gene_ids[:PROMPT_TOOL_REFERENCE_GENE_LIMIT],
         "candidate_gene_id_count": len(graph_candidate_gene_ids),
+        "gene_set_handles": _gene_set_handle_reference_payload(context),
+        "prior_tool_actions": _prior_tool_action_reference_payload(prior_actions),
         "unavailable_candidate_gene_ids": unavailable_candidate_gene_ids[:PROMPT_TOOL_REFERENCE_GENE_LIMIT],
         "available_layer_names": available_layers[:PROMPT_TOOL_REFERENCE_LAYER_LIMIT],
         "available_layer_count": len(available_layers),
     }
+
+
+def _expand_gene_set_handle_value(value: Any, *, handle_map: dict[str, list[str]]) -> Any:
+    if isinstance(value, str):
+        return list(handle_map[value]) if value in handle_map else value
+    if isinstance(value, list):
+        expanded: list[Any] = []
+        for item in value:
+            if isinstance(item, str) and item in handle_map:
+                _append_unique_strings(expanded, handle_map[item])
+            else:
+                expanded.append(item)
+        return expanded
+    if isinstance(value, dict):
+        return {
+            key: _expand_gene_set_handle_value(item, handle_map=handle_map)
+            for key, item in value.items()
+        }
+    return value
+
+
+def _expand_tool_action_gene_set_handles(
+    tool_action: ToolAction | None,
+    *,
+    context: SharedPrefixContext,
+) -> ToolAction | None:
+    if tool_action is None:
+        return None
+    handle_map = _gene_set_handles_for_context(context)
+    if not any(_json_dumps_compact(tool_action.arguments).find(handle) >= 0 for handle in handle_map):
+        return tool_action
+    expanded_arguments = _expand_gene_set_handle_value(tool_action.arguments, handle_map=handle_map)
+    return ToolAction(
+        tool_name=tool_action.tool_name,
+        arguments=expanded_arguments if isinstance(expanded_arguments, dict) else tool_action.arguments,
+        call_id=tool_action.call_id,
+    )
 
 
 def _actor_sampling_directive_payload(
@@ -1034,27 +1384,39 @@ def _actor_tool_coverage_directive_payload(
     }
 
 
+def _actor_candidate_uses_rwr_hpc_tool(candidate: dict[str, Any]) -> bool:
+    tool_action = candidate.get("tool_action")
+    if not isinstance(tool_action, dict):
+        return False
+    tool_name = tool_action.get("tool_name")
+    return isinstance(tool_name, str) and tool_name in RWR_HPC_MODEL_TOOL_NAMES
+
+
 def _actor_prompt_payload(
     context: SharedPrefixContext,
     *,
     step_index: int,
     environment: RuntimeEnvironment | None = None,
+    prior_actions: Iterable[ToolAction] | None = None,
     actor_sampling_directive: dict[str, Any] | None = None,
+    actor_repair_feedback: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    state_payload = _state_payload_for_model_prompt(context.state)
     payload = {
-        "query_text": context.query_text,
-        "visible_inputs": context.user_evidence,
+        "query_text": _query_text_for_model_prompt(context.query_text),
+        "visible_inputs": _compact_visible_inputs_for_model_prompt(context.user_evidence),
         "interpretation": _interpretation_payload_for_model_prompt(context.interpretation),
-        "state": state_payload,
+        "prompt_state": _prompt_state_payload_for_model_prompt(context.state),
         "step_index": step_index,
         "tool_argument_reference": _tool_argument_reference_payload(
             context,
             environment=environment,
+            prior_actions=prior_actions,
         ),
     }
     if actor_sampling_directive is not None:
         payload["actor_sampling_directive"] = actor_sampling_directive
+    if actor_repair_feedback is not None:
+        payload["actor_repair_feedback"] = actor_repair_feedback
     return payload
 
 
@@ -1179,11 +1541,11 @@ def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dic
                 ],
                 limit=PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT,
             ),
-            "top_non_seed_results": _preview_list(
+            "top_non_seed_results": _compact_result_list_for_prompt(
                 non_seed_results,
                 limit=PROMPT_RWR_NON_SEED_PREVIEW_LIMIT,
             ),
-            "results": _preview_list(
+            "results": _compact_result_list_for_prompt(
                 result_list,
                 limit=PROMPT_RWR_RESULT_PREVIEW_LIMIT,
             ),
@@ -1264,14 +1626,14 @@ def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dic
             "genes": _preview_list(payload.get("genes")),
             "layers": _preview_list(payload.get("layers"), limit=PROMPT_LAYER_PREVIEW_LIMIT),
             "result_count": len(payload.get("results", []) if isinstance(payload.get("results"), list) else []),
-            "results": _preview_list(payload.get("results"), limit=PROMPT_LIST_PREVIEW_LIMIT),
+            "results": _compact_result_list_for_prompt(payload.get("results"), limit=PROMPT_LIST_PREVIEW_LIMIT),
         }
     elif tool_name == "query_mygene":
         compact_payload = {
             "query": payload.get("query"),
             "requested_fields": _preview_list(payload.get("requested_fields")),
             "result_count": payload.get("result_count", 0),
-            "results": _preview_list(payload.get("results"), limit=PROMPT_MYGENE_PREVIEW_LIMIT),
+            "results": _compact_result_list_for_prompt(payload.get("results"), limit=PROMPT_MYGENE_PREVIEW_LIMIT),
         }
     elif tool_name == "enrich_gene_set":
         compact_payload = {
@@ -1281,7 +1643,7 @@ def _observation_for_verifier_prompt(observation: ToolObservation | None) -> dic
             "organism": payload.get("organism"),
             "sources": _preview_list(payload.get("sources")),
             "raw_result_count": payload.get("raw_result_count", 0),
-            "results": _preview_list(payload.get("results"), limit=10),
+            "results": _compact_result_list_for_prompt(payload.get("results"), limit=8),
         }
     else:
         compact_payload = {}
@@ -1315,12 +1677,11 @@ def _verifier_prompt_payload(
     step_index: int,
     task_type: str | None = None,
 ) -> dict[str, Any]:
-    prior_state_payload = _state_payload_for_model_prompt(context.state)
     payload = {
-        "query_text": context.query_text,
-        "visible_inputs": context.user_evidence,
+        "query_text": _query_text_for_model_prompt(context.query_text),
+        "visible_inputs": _compact_visible_inputs_for_model_prompt(context.user_evidence),
         "prior_interpretation": _interpretation_payload_for_model_prompt(context.interpretation),
-        "prior_state": prior_state_payload,
+        "prior_prompt_state": _prompt_state_payload_for_model_prompt(context.state),
         "actor_output": {
             "reasoning_text": _truncate_prompt_text(
                 actor_step.reasoning_text,
@@ -1736,13 +2097,13 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
                     "type": "array",
                     "items": {"type": "string", "minLength": 1},
                     "minItems": 1,
-                    "description": "Canonical Ensembl gene id strings from candidate_gene_ids or prior successful tool observations.",
+                    "description": "Canonical Ensembl gene id strings or a documented gene-set handle from tool_argument_reference.",
                 },
                 "sources": {
                     "type": "array",
                     "items": {"type": "string", "minLength": 1},
                     "minItems": 1,
-                    "description": "Optional g:Profiler sources such as GO:BP, GO:MF, GO:CC, REAC, WP, KEGG, or CORUM.",
+                    "description": "Optional g:Profiler sources such as GO:BP, GO:MF, GO:CC, REAC, WP, or KEGG.",
                 },
                 "user_threshold": {
                     "type": "number",
@@ -1832,7 +2193,7 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
                     "type": "array",
                     "items": {"type": "string", "minLength": 1},
                     "minItems": 1,
-                    "description": "Canonical Ensembl gene id strings from candidate_gene_ids or prior successful tool observations.",
+                    "description": "Canonical Ensembl gene id strings or a documented gene-set handle from tool_argument_reference.",
                 },
                 "top_k": {"type": "integer", "minimum": 1},
             },
@@ -1847,7 +2208,7 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
                     "type": "array",
                     "items": {"type": "string", "minLength": 1},
                     "minItems": 1,
-                    "description": "Canonical Ensembl seed gene ids from candidate_gene_ids or prior successful tool observations.",
+                    "description": "Canonical Ensembl seed gene ids or a documented gene-set handle from tool_argument_reference.",
                 },
                 "layers": {
                     "type": "array",
@@ -1875,7 +2236,7 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
                     "type": "array",
                     "items": {"type": "string", "minLength": 1},
                     "minItems": 1,
-                    "description": "Canonical Ensembl seed gene ids.",
+                    "description": "Canonical Ensembl seed gene ids or a documented gene-set handle from tool_argument_reference.",
                 },
                 "query_genes": {
                     "type": "array",
@@ -2047,7 +2408,7 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
                     "type": "array",
                     "items": {"type": "string", "minLength": 1},
                     "minItems": 1,
-                    "description": "Canonical Ensembl seed gene ids.",
+                    "description": "Canonical Ensembl seed gene ids or a documented gene-set handle from tool_argument_reference.",
                 },
                 "layers": {
                     "type": "array",
@@ -2204,7 +2565,7 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
                     "type": "array",
                     "items": {"type": "string", "minLength": 1},
                     "minItems": 1,
-                    "description": "Canonical Ensembl gene id strings from candidate_gene_ids or prior successful tool observations.",
+                    "description": "Canonical Ensembl gene id strings or a documented gene-set handle from tool_argument_reference.",
                 },
                 "layer": {
                     "type": "string",
@@ -2224,7 +2585,7 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
                     "type": "array",
                     "items": {"type": "string", "minLength": 1},
                     "minItems": 1,
-                    "description": "Canonical Ensembl gene id strings from candidate_gene_ids or prior successful tool observations.",
+                    "description": "Canonical Ensembl gene id strings or a documented gene-set handle from tool_argument_reference.",
                 },
                 "layers": {
                     "type": "array",
@@ -2439,6 +2800,64 @@ def _validate_verifier_payload(payload: dict[str, Any]) -> list[str]:
         )
     ):
         errors.append("verifier_payload_blank")
+
+    for key in ("mechanistic_claim", "main_evidence", "uncertainty", "next_subgoal"):
+        if not isinstance(updated_interpretation.get(key), str):
+            errors.append(f"verifier_updated_interpretation_{key}_missing_or_invalid")
+
+    relationship_status = updated_state.get("relationship_status")
+    if not isinstance(relationship_status, str):
+        errors.append("verifier_relationship_status_missing_or_invalid")
+    else:
+        try:
+            RelationshipStatus(relationship_status)
+        except Exception:
+            errors.append("verifier_relationship_status_invalid")
+
+    predicted_gene_ids = updated_state.get("predicted_gene_ids")
+    if not isinstance(predicted_gene_ids, list) or not all(
+        isinstance(gene_id, str) and gene_id
+        for gene_id in predicted_gene_ids
+    ):
+        errors.append("verifier_predicted_gene_ids_missing_or_invalid")
+
+    labels = updated_state.get("mechanistic_labels")
+    if not isinstance(labels, list):
+        errors.append("verifier_mechanistic_labels_missing_or_invalid")
+    else:
+        for index, raw_label in enumerate(labels):
+            if not isinstance(raw_label, dict):
+                errors.append(f"verifier_label_{index}_not_a_dict")
+                continue
+            label_source = _normalize_label_source_value(raw_label.get("label_source"))
+            label_name = raw_label.get("label_name")
+            label_id = raw_label.get("label_id")
+            evidence_ids = raw_label.get("evidence_ids")
+            if not isinstance(label_source, str) or not label_source:
+                errors.append(f"verifier_label_{index}_missing_source")
+            elif label_source not in {source.value for source in LabelSource}:
+                errors.append(f"verifier_label_{index}_source_invalid")
+            if not isinstance(label_name, str) or not label_name:
+                errors.append(f"verifier_label_{index}_missing_name")
+            if label_id is not None and not isinstance(label_id, str):
+                errors.append(f"verifier_label_{index}_label_id_invalid")
+            if not isinstance(evidence_ids, list) or not all(
+                isinstance(evidence_id, str)
+                for evidence_id in evidence_ids
+            ):
+                errors.append(f"verifier_label_{index}_evidence_ids_missing_or_invalid")
+
+    continuation_decision = updated_state.get("continuation_decision")
+    if not isinstance(continuation_decision, str):
+        errors.append("verifier_continuation_decision_missing_or_invalid")
+    else:
+        try:
+            ContinuationState(continuation_decision)
+        except Exception:
+            errors.append("verifier_continuation_decision_invalid")
+
+    if not isinstance(updated_state.get("verifier_notes"), str):
+        errors.append("verifier_notes_missing_or_invalid")
     return errors
 
 
@@ -2487,12 +2906,43 @@ def _verifier_candidate_is_usable(candidate: dict[str, Any], errors: Iterable[st
         return False
     if _has_error_prefix(errors, ("verifier_json_parse_error:", "verifier_tool_call_")):
         return False
+    if _has_error_prefix(errors, ("verifier_",)):
+        return False
 
     payload = _safe_dict(candidate.get("payload"))
     return (
         isinstance(payload.get("updated_interpretation"), dict)
         and isinstance(payload.get("updated_state"), dict)
     )
+
+
+def _verifier_repair_errors(errors: Iterable[str]) -> list[str]:
+    """Return verifier-specific errors that should trigger one structured retry."""
+
+    return [
+        error
+        for error in errors
+        if isinstance(error, str) and error.startswith("verifier_")
+    ]
+
+
+def _normalize_label_source_value(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in {source.value for source in LabelSource}:
+        return normalized
+    if normalized in {"gene_ontology", "go_bp", "go_mf", "go_cc"} or normalized.startswith("go:"):
+        return LabelSource.GO.value
+    if normalized in {"reac", "reactome_pathway", "reactome_pathways"} or normalized.startswith("reac:"):
+        return LabelSource.REACTOME.value
+    if normalized in {"complex", "protein_complex"}:
+        return LabelSource.COMPLEX_NAME.value
+    if normalized in {"free_text_label", "text", "manual"}:
+        return LabelSource.FREE_TEXT.value
+    if normalized in {"kegg", "wp", "wikipathways", "pathway", "pathways"}:
+        return LabelSource.OTHER.value
+    return value
 
 
 @dataclass
@@ -2509,6 +2959,9 @@ class ModelGeneratorConfig:
     top_p: float = 0.95
     max_completion_tokens: int = 4096
     actor_rationale_max_completion_tokens: int = DEFAULT_ACTOR_RATIONALE_MAX_TOKENS
+    verifier_repair_retry_count: int = DEFAULT_VERIFIER_REPAIR_RETRY_COUNT
+    actor_tool_repair_retry_count: int = DEFAULT_ACTOR_TOOL_REPAIR_RETRY_COUNT
+    prompt_token_limit: int = DEFAULT_GENERATOR_PROMPT_TOKEN_LIMIT
     reasoning_effort: str = "low"
     actor_sampling_strategy: str = "batch"
 
@@ -2524,6 +2977,12 @@ class ModelGeneratorConfig:
             raise ValueError("max_completion_tokens must be positive.")
         if self.actor_rationale_max_completion_tokens <= 0:
             raise ValueError("actor_rationale_max_completion_tokens must be positive.")
+        if self.verifier_repair_retry_count < 0:
+            raise ValueError("verifier_repair_retry_count must be non-negative.")
+        if self.actor_tool_repair_retry_count < 0:
+            raise ValueError("actor_tool_repair_retry_count must be non-negative.")
+        if self.prompt_token_limit < 0:
+            raise ValueError("prompt_token_limit must be non-negative.")
 
     def resolved_api_key(self) -> str:
         """Return the API key, falling back to an environment variable."""
@@ -2636,6 +3095,69 @@ class OpenAICompatibleCandidateGenerator:
             raise RuntimeError("The completion prompt renderer returned an empty prompt.")
         return prompt
 
+    def _estimate_prompt_tokens(self, text: str) -> int:
+        try:
+            tokenizer = self._prompt_tokenizer()
+            encoded = tokenizer.encode(text)
+            if isinstance(encoded, list):
+                return len(encoded)
+        except Exception:
+            pass
+        return max(1, math.ceil(len(text) / 4))
+
+    def _prompt_section_lengths(self, messages: list[dict[str, str]]) -> dict[str, int]:
+        sections: dict[str, int] = {}
+        for index, message in enumerate(messages):
+            role = message.get("role", f"message_{index}")
+            content = _safe_text(message.get("content"))
+            base_key = f"{index}:{role}"
+            sections[base_key] = len(content)
+            try:
+                payload = json.loads(content)
+            except Exception:
+                continue
+            if isinstance(payload, dict):
+                for key, value in payload.items():
+                    sections[f"{base_key}.{key}"] = len(_json_dumps_compact(value))
+        return dict(sorted(sections.items(), key=lambda item: item[1], reverse=True)[:10])
+
+    def _assert_text_fits_prompt_budget(
+        self,
+        text: str,
+        *,
+        endpoint: str,
+        sections: dict[str, int] | None = None,
+    ) -> None:
+        if self.config.prompt_token_limit <= 0:
+            return
+        prompt_tokens = self._estimate_prompt_tokens(text)
+        if prompt_tokens <= self.config.prompt_token_limit:
+            return
+        raise RuntimeError(
+            "prompt_token_budget_exceeded: "
+            f"endpoint={endpoint} estimated_prompt_tokens={prompt_tokens} "
+            f"limit={self.config.prompt_token_limit} "
+            f"largest_sections={json.dumps(sections or {}, sort_keys=True)}"
+        )
+
+    def _assert_messages_fit_prompt_budget(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        endpoint: str,
+    ) -> None:
+        if self.config.prompt_token_limit <= 0:
+            return
+        text = "\n".join(
+            f"{message.get('role', 'unknown')}:\n{_safe_text(message.get('content'))}"
+            for message in messages
+        )
+        self._assert_text_fits_prompt_budget(
+            text,
+            endpoint=endpoint,
+            sections=self._prompt_section_lengths(messages),
+        )
+
     def _assert_gpt_oss_completion_prompt_contract(
         self,
         prompt: str,
@@ -2668,6 +3190,7 @@ class OpenAICompatibleCandidateGenerator:
         temperature: float | None = None,
         top_p: float | None = None,
     ) -> list[dict[str, Any]]:
+        self._assert_messages_fit_prompt_budget(messages, endpoint="chat_completions")
         payload = {
             "model": self.model_name,
             "messages": messages,
@@ -2813,12 +3336,15 @@ class OpenAICompatibleCandidateGenerator:
         text_config: dict[str, Any] | None = None,
         use_reasoning: bool = True,
         max_output_tokens: int | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
     ) -> list[dict[str, Any]]:
+        self._assert_messages_fit_prompt_budget(messages, endpoint="responses")
         payload = {
             "model": self.model_name,
             "input": messages,
-            "temperature": self.config.temperature,
-            "top_p": self.config.top_p,
+            "temperature": self.config.temperature if temperature is None else temperature,
+            "top_p": self.config.top_p if top_p is None else top_p,
             "max_output_tokens": (
                 max_output_tokens
                 if max_output_tokens is not None
@@ -2883,6 +3409,11 @@ class OpenAICompatibleCandidateGenerator:
         self._assert_gpt_oss_completion_prompt_contract(
             prompt,
             disable_hidden_thinking=disable_hidden_thinking,
+        )
+        self._assert_text_fits_prompt_budget(
+            prompt,
+            endpoint="completions",
+            sections=self._prompt_section_lengths(messages),
         )
         payload = {
             "model": self.model_name,
@@ -2958,6 +3489,8 @@ class OpenAICompatibleCandidateGenerator:
         guided_json: dict[str, Any] | None = None,
         text_config: dict[str, Any] | None = None,
         disable_hidden_thinking: bool = False,
+        temperature: float | None = None,
+        top_p: float | None = None,
     ) -> list[dict[str, Any]]:
         messages = [
             {"role": "system", "content": system_prompt},
@@ -2972,6 +3505,8 @@ class OpenAICompatibleCandidateGenerator:
                 text_config=text_config,
                 use_reasoning=False,
                 max_output_tokens=structured_max_tokens,
+                temperature=temperature,
+                top_p=top_p,
             )
             fallback_guided_json = guided_json
             if fallback_guided_json is None and text_config is not None:
@@ -2989,6 +3524,8 @@ class OpenAICompatibleCandidateGenerator:
                     use_reasoning=False,
                     max_completion_tokens=structured_max_tokens,
                     disable_hidden_thinking=disable_hidden_thinking,
+                    temperature=temperature,
+                    top_p=top_p,
                 )
                 fallback_choice = fallback_choices[0]
                 if _choice_has_visible_output(fallback_choice):
@@ -3012,6 +3549,8 @@ class OpenAICompatibleCandidateGenerator:
                 guided_json=completion_guided_json,
                 max_completion_tokens=structured_max_tokens,
                 disable_hidden_thinking=disable_hidden_thinking,
+                temperature=temperature,
+                top_p=top_p,
             )
 
         choices = self._chat(
@@ -3024,6 +3563,8 @@ class OpenAICompatibleCandidateGenerator:
             use_reasoning=False,
             max_completion_tokens=structured_max_tokens,
             disable_hidden_thinking=disable_hidden_thinking,
+            temperature=temperature,
+            top_p=top_p,
         )
         if self._model_is_gpt_oss():
             fallback_guided_json = guided_json
@@ -3045,6 +3586,8 @@ class OpenAICompatibleCandidateGenerator:
                         guided_json=fallback_guided_json,
                         max_completion_tokens=structured_max_tokens,
                         disable_hidden_thinking=disable_hidden_thinking,
+                        temperature=temperature,
+                        top_p=top_p,
                     )
                 except Exception as error:
                     choice["fallback_error"] = f"completions_fallback_failed: {error}"
@@ -3055,6 +3598,156 @@ class OpenAICompatibleCandidateGenerator:
                     fallback_choice["fallback_trigger"] = "chat_completions_blank_visible_output"
                     choices[index] = fallback_choice
         return choices
+
+    def _verifier_candidate_from_choice(
+        self,
+        choice: dict[str, Any],
+        *,
+        actor_candidate: dict[str, Any],
+        require_tool_call: bool,
+        repair_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        raw_text = _json_dumps_compact(_strip_raw_generation_payload(choice))
+        try:
+            payload, payload_errors = _named_tool_arguments_from_choice(
+                choice,
+                expected_tool_name=VERIFIER_OUTPUT_TOOL_NAME,
+                prefix="verifier",
+                require_tool_call=require_tool_call,
+            )
+            generator_errors = (
+                list(actor_candidate.get("generator_errors", []))
+                + payload_errors
+                + _validate_verifier_payload(payload)
+            )
+            candidate = {
+                "payload": payload,
+                "raw_text": raw_text,
+                "generator_errors": _unique(generator_errors),
+            }
+        except Exception as error:
+            candidate = {
+                "payload": {},
+                "raw_text": raw_text,
+                "generator_errors": _unique(
+                    list(actor_candidate.get("generator_errors", []))
+                    + [f"verifier_json_parse_error: {error}"]
+                ),
+            }
+
+        if repair_metadata is not None:
+            candidate["verifier_repair"] = repair_metadata
+        return candidate
+
+    def _verifier_repair_user_prompt(
+        self,
+        *,
+        verifier_payload: dict[str, Any],
+        invalid_candidate: dict[str, Any],
+        repair_errors: list[str],
+    ) -> str:
+        return json.dumps(
+            {
+                "repair_task": (
+                    "The previous verifier response was not usable. Re-emit the verifier "
+                    "update as one complete JSON object matching the schema. Use only the "
+                    "verifier_input below; do not invent hidden labels or targets. If a "
+                    "mechanistic label cannot be named from visible evidence, return an "
+                    "empty mechanistic_labels list."
+                ),
+                "previous_errors": repair_errors,
+                "previous_response": _truncate_prompt_text(
+                    invalid_candidate.get("raw_text"),
+                    max_chars=VERIFIER_REPAIR_RAW_TEXT_MAX_CHARS,
+                ),
+                "verifier_input": verifier_payload,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+
+    def _repair_verifier_candidate(
+        self,
+        invalid_candidate: dict[str, Any],
+        *,
+        verifier_payload: dict[str, Any],
+        actor_candidate: dict[str, Any],
+        seed: int,
+        attempt_index: int,
+    ) -> dict[str, Any]:
+        repair_errors = _verifier_repair_errors(invalid_candidate.get("generator_errors", []))
+        if not repair_errors:
+            return invalid_candidate
+
+        repair_system_prompt = (
+            VERIFIER_SYSTEM_PROMPT
+            + "\nYou are repairing a verifier response that failed strict validation."
+            + "\nReturn exactly one complete JSON object and nothing else."
+            + "\nAll required object keys and label fields must be present."
+        )
+        text_config = None
+        guided_json = _verifier_output_schema()
+        if self.api_mode == "responses":
+            text_config = _responses_json_schema_text_config(
+                name=VERIFIER_OUTPUT_TOOL_NAME,
+                description="Repair and emit the verifier policy update for the current MENTOR-RL branch.",
+                schema=_verifier_output_schema(),
+            )
+            guided_json = None
+
+        repair_metadata: dict[str, Any] = {
+            "attempted": True,
+            "attempt_count": attempt_index + 1,
+            "original_errors": repair_errors,
+            "success": False,
+        }
+        try:
+            repair_choices = self._generate_choices(
+                system_prompt=repair_system_prompt,
+                user_prompt=self._verifier_repair_user_prompt(
+                    verifier_payload=verifier_payload,
+                    invalid_candidate=invalid_candidate,
+                    repair_errors=repair_errors,
+                ),
+                n=1,
+                seed=seed,
+                tools=None,
+                tool_choice=None,
+                guided_json=guided_json,
+                text_config=text_config,
+                disable_hidden_thinking=self._should_disable_hidden_thinking(),
+                temperature=0.0,
+                top_p=1.0,
+            )
+        except requests.RequestException as error:
+            repaired = dict(invalid_candidate)
+            repaired["generator_errors"] = _unique(
+                list(invalid_candidate.get("generator_errors", []))
+                + [f"verifier_repair_request_failed: {error}"]
+            )
+            repair_metadata["request_error"] = f"{error}"
+            repaired["verifier_repair"] = repair_metadata
+            return repaired
+
+        repaired = self._verifier_candidate_from_choice(
+            repair_choices[0],
+            actor_candidate=actor_candidate,
+            require_tool_call=False,
+            repair_metadata=repair_metadata,
+        )
+        repaired_errors = list(repaired.get("generator_errors", []))
+        repaired_verifier_errors = _verifier_repair_errors(repaired_errors)
+        if not repaired_verifier_errors and _verifier_candidate_is_usable(repaired, repaired_errors):
+            repaired["verifier_repair"]["success"] = True
+            return repaired
+
+        repaired["generator_errors"] = _unique(
+            list(invalid_candidate.get("generator_errors", []))
+            + ["verifier_repair_failed"]
+            + repaired_errors
+        )
+        repaired["verifier_repair"]["repair_errors"] = repaired_verifier_errors
+        return repaired
 
     def _generate_actor_reasoning(
         self,
@@ -3071,6 +3764,7 @@ class OpenAICompatibleCandidateGenerator:
                 context,
                 step_index=step_index,
                 environment=environment,
+                prior_actions=None,
             ),
             indent=2,
             sort_keys=True,
@@ -3121,6 +3815,8 @@ class OpenAICompatibleCandidateGenerator:
         seed: int,
         environment: RuntimeEnvironment | None = None,
         force_tool_coverage: bool = False,
+        prior_actions: Iterable[ToolAction] | None = None,
+        actor_repair_feedback: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         if self.api_mode == "responses":
             system_prompt = (
@@ -3167,7 +3863,9 @@ class OpenAICompatibleCandidateGenerator:
                     context,
                     step_index=step_index,
                     environment=environment,
+                    prior_actions=prior_actions,
                     actor_sampling_directive=directive,
+                    actor_repair_feedback=actor_repair_feedback,
                 ),
                 indent=2,
                 sort_keys=True,
@@ -3191,15 +3889,17 @@ class OpenAICompatibleCandidateGenerator:
                 try:
                     sample_choices = self._generate_choices(
                         system_prompt=system_prompt,
-                        user_prompt=build_user_prompt(sample_index),
-                        n=1,
-                        seed=seed + sample_index,
-                        tools=tools,
-                        tool_choice=tool_choice,
-                        guided_json=guided_json,
-                        text_config=text_config,
-                        disable_hidden_thinking=self._should_disable_hidden_thinking(),
-                    )
+                    user_prompt=build_user_prompt(sample_index),
+                    n=1,
+                    seed=seed + sample_index,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    guided_json=guided_json,
+                    text_config=text_config,
+                    disable_hidden_thinking=self._should_disable_hidden_thinking(),
+                    temperature=0.0 if actor_repair_feedback is not None else None,
+                    top_p=1.0 if actor_repair_feedback is not None else None,
+                )
                 except requests.RequestException as error:
                     choices.append(
                         {
@@ -3227,6 +3927,8 @@ class OpenAICompatibleCandidateGenerator:
                     guided_json=guided_json,
                     text_config=text_config,
                     disable_hidden_thinking=self._should_disable_hidden_thinking(),
+                    temperature=0.0 if actor_repair_feedback is not None else None,
+                    top_p=1.0 if actor_repair_feedback is not None else None,
                 )
             except requests.RequestException as error:
                 return [
@@ -3253,6 +3955,7 @@ class OpenAICompatibleCandidateGenerator:
                         "raw_text": raw_text,
                         "generator_errors": _unique(payload_errors),
                         "actor_sampling_directive": choice.get("actor_sampling_directive"),
+                        "actor_repair": actor_repair_feedback,
                     }
                 )
             except Exception as error:
@@ -3263,9 +3966,61 @@ class OpenAICompatibleCandidateGenerator:
                         "raw_text": raw_text,
                         "generator_errors": [f"actor_json_parse_error: {error}"],
                         "actor_sampling_directive": choice.get("actor_sampling_directive"),
+                        "actor_repair": actor_repair_feedback,
                     }
                 )
         return candidates
+
+    def repair_actor_candidate(
+        self,
+        context: SharedPrefixContext,
+        *,
+        task_row: dict[str, Any],
+        step_index: int,
+        actor_index: int,
+        actor_candidate: dict[str, Any],
+        actor_step: ActorStep,
+        observation: ToolObservation | None,
+        errors: Iterable[str],
+        seed: int,
+        environment: RuntimeEnvironment | None = None,
+        prior_actions: Iterable[ToolAction] | None = None,
+        attempt_index: int = 0,
+    ) -> dict[str, Any]:
+        repair_feedback = _actor_repair_feedback_payload(
+            actor_candidate=actor_candidate,
+            actor_step=actor_step,
+            observation=observation,
+            errors=errors,
+        )
+        repair_feedback["attempt_index"] = attempt_index
+        repair_feedback["actor_index"] = actor_index
+        repaired = self.generate_actor_candidates(
+            context,
+            task_row=task_row,
+            step_index=step_index,
+            n_act=1,
+            seed=seed,
+            environment=environment,
+            force_tool_coverage=True,
+            prior_actions=prior_actions,
+            actor_repair_feedback=repair_feedback,
+        )
+        if not repaired:
+            return {
+                "reasoning_text": "",
+                "tool_action": None,
+                "raw_text": "{}",
+                "generator_errors": ["actor_repair_returned_no_candidates"],
+                "actor_repair": repair_feedback,
+            }
+        candidate = dict(repaired[0])
+        metadata = dict(repair_feedback)
+        metadata["attempted"] = True
+        metadata["attempt_count"] = attempt_index + 1
+        metadata["success"] = False
+        candidate["actor_repair"] = metadata
+        return candidate
 
     def generate_verifier_candidates(
         self,
@@ -3279,14 +4034,15 @@ class OpenAICompatibleCandidateGenerator:
         n_ver: int,
         seed: int,
     ) -> list[dict[str, Any]]:
+        verifier_payload = _verifier_prompt_payload(
+            context,
+            actor_step=actor_step,
+            observation=observation,
+            step_index=step_index,
+            task_type=task_row.get("task_type"),
+        )
         user_prompt = json.dumps(
-            _verifier_prompt_payload(
-                context,
-                actor_step=actor_step,
-                observation=observation,
-                step_index=step_index,
-                task_type=task_row.get("task_type"),
-            ),
+            verifier_payload,
             indent=2,
             sort_keys=True,
         )
@@ -3346,36 +4102,29 @@ class OpenAICompatibleCandidateGenerator:
                 }
             ]
 
-        for choice in choices:
-            raw_text = _json_dumps_compact(_strip_raw_generation_payload(choice))
-            try:
-                payload, payload_errors = _named_tool_arguments_from_choice(
-                    choice,
-                    expected_tool_name=VERIFIER_OUTPUT_TOOL_NAME,
-                    prefix="verifier",
-                    require_tool_call=(
-                        self._prefers_named_output_tools()
-                        and choice.get("fallback_backend") != "completions"
-                    ),
+        for choice_index, choice in enumerate(choices):
+            candidate = self._verifier_candidate_from_choice(
+                choice,
+                actor_candidate=actor_candidate,
+                require_tool_call=(
+                    self._prefers_named_output_tools()
+                    and choice.get("fallback_backend") != "completions"
+                ),
+            )
+            for repair_attempt_index in range(self.config.verifier_repair_retry_count):
+                repair_errors = _verifier_repair_errors(candidate.get("generator_errors", []))
+                if not repair_errors:
+                    break
+                candidate = self._repair_verifier_candidate(
+                    candidate,
+                    verifier_payload=verifier_payload,
+                    actor_candidate=actor_candidate,
+                    seed=seed + 1000 + (choice_index * 100) + repair_attempt_index,
+                    attempt_index=repair_attempt_index,
                 )
-                candidates.append(
-                    {
-                        "payload": payload,
-                        "raw_text": raw_text,
-                        "generator_errors": list(actor_candidate.get("generator_errors", []))
-                        + payload_errors
-                        + _validate_verifier_payload(payload),
-                    }
-                )
-            except Exception as error:
-                candidates.append(
-                    {
-                        "payload": {},
-                        "raw_text": raw_text,
-                        "generator_errors": list(actor_candidate.get("generator_errors", []))
-                        + [f"verifier_json_parse_error: {error}"],
-                    }
-                )
+                if not _verifier_repair_errors(candidate.get("generator_errors", [])):
+                    break
+            candidates.append(candidate)
         return candidates
 
 
@@ -4300,6 +5049,8 @@ def _pair_category(
     rejected_jaccard = float(rejected_features["post_jaccard"])
     chosen_recall = float(chosen_features["post_recall"])
     rejected_recall = float(rejected_features["post_recall"])
+    chosen_has_tool = bool(chosen_features["has_successful_tool"])
+    rejected_has_tool = bool(rejected_features["has_successful_tool"])
 
     if (
         task_type == "recovery"
@@ -4323,6 +5074,12 @@ def _pair_category(
     if task_type == "refinement" and chosen_jaccard > rejected_jaccard + 1e-9:
         return "refinement_jaccard"
     if (
+        chosen_has_tool
+        and not rejected_has_tool
+        and (complex_diff >= -1e-9 or mechanism_evidence_diff > 1e-9)
+    ):
+        return "tool_supported_improvement"
+    if (
         task_type == "none"
         and chosen_branch.verifier_step.updated_state.relationship_status
         == RelationshipStatus.INSUFFICIENT_SUPPORT
@@ -4342,9 +5099,7 @@ def _pair_category(
         and chosen_branch.local_score.mechanism_evidence_score > rejected_branch.local_score.mechanism_evidence_score
     ):
         return "unsupported_mechanism_rejected"
-    if bool(chosen_features["has_successful_tool"]) and (
-        not bool(rejected_features["has_successful_tool"]) or complex_diff > 1e-9
-    ):
+    if chosen_has_tool and (not rejected_has_tool or complex_diff > 1e-9):
         return "tool_supported_improvement"
     if abs(complex_diff) <= 1e-9 and mechanism_diff > 1e-9:
         return "mechanism_label_only"
@@ -4418,9 +5173,21 @@ def _pair_quality_provenance(
     }
 
 
-def _preference_difficulty_for_rank(index: int, total: int) -> PreferenceDifficulty:
-    if total <= 1:
+def _preference_difficulty_for_task(task_difficulty: Any) -> PreferenceDifficulty:
+    try:
+        return PreferenceDifficulty(str(task_difficulty))
+    except Exception:
         return PreferenceDifficulty.MEDIUM
+
+
+def _preference_difficulty_for_rank(
+    index: int,
+    total: int,
+    *,
+    task_difficulty: Any = None,
+) -> PreferenceDifficulty:
+    if total <= 1:
+        return _preference_difficulty_for_task(task_difficulty)
     if index == 0:
         return PreferenceDifficulty.EASY
     if index == total - 1:
@@ -4490,7 +5257,14 @@ def _mine_preference_pairs(
 
     if pair_mining_strategy == "quality_balanced":
         difficulty_targets = [
-            (_preference_difficulty_for_rank(index, len(ordered_rejected)), branch)
+            (
+                _preference_difficulty_for_rank(
+                    index,
+                    len(ordered_rejected),
+                    task_difficulty=task_row.get("difficulty"),
+                ),
+                branch,
+            )
             for index, branch in enumerate(ordered_rejected)
         ]
     else:
@@ -4917,7 +5691,7 @@ def _build_labels_from_model_payload(payload: dict[str, Any]) -> tuple[list[Mech
         if not isinstance(raw_label, dict):
             errors.append(f"verifier_label_{index}_not_a_dict")
             continue
-        label_source = raw_label.get("label_source")
+        label_source = _normalize_label_source_value(raw_label.get("label_source"))
         label_name = raw_label.get("label_name")
         label_id = raw_label.get("label_id")
         evidence_ids = _safe_list_of_strings(raw_label.get("evidence_ids"))
@@ -5043,6 +5817,16 @@ def _build_branch_from_model_output(
     ):
         errors.append("verifier_notes_invalid")
 
+    metadata: dict[str, Any] = {
+        "generator_backend": "model_vllm",
+        "step_index": step_index,
+        "task_type": task_row["task_type"],
+        "generator_errors": errors,
+    }
+    verifier_repair_metadata = verifier_candidate.get("verifier_repair")
+    if isinstance(verifier_repair_metadata, dict):
+        metadata["verifier_repair"] = verifier_repair_metadata
+
     return CandidateBranch(
         branch_id=branch_id,
         actor_step=actor_step,
@@ -5060,12 +5844,7 @@ def _build_branch_from_model_output(
             efficiency_penalty=0.0,
             total_score=0.0,
         ),
-        metadata={
-            "generator_backend": "model_vllm",
-            "step_index": step_index,
-            "task_type": task_row["task_type"],
-            "generator_errors": errors,
-        },
+        metadata=metadata,
     )
 
 
@@ -5334,8 +6113,10 @@ def _branch_quality_features(
 def _tool_preference_rank(task_type: str, tool_name: str) -> int:
     task_preferences = {
         "recovery": {
-            "rwr": 4,
-            "rwr_multiplex": 4,
+            "rwr": 6,
+            "rwr_multiplex": 6,
+            "get_rank_vector_summary": 5,
+            "get_component_summary": 5,
             "enrich_gene_set": 4,
             "get_neighbors": 3,
             "query_mygene": 3,
@@ -5344,13 +6125,14 @@ def _tool_preference_rank(task_type: str, tool_name: str) -> int:
             "shortest_path": 1,
         },
         "refinement": {
+            "rwr": 5,
+            "rwr_multiplex": 5,
+            "shortest_paths": 4,
+            "shortest_path": 4,
+            "get_component_summary": 4,
             "induce_subgraph": 4,
-            "enrich_gene_set": 4,
-            "rwr": 3,
-            "rwr_multiplex": 3,
+            "enrich_gene_set": 3,
             "query_mygene": 2,
-            "shortest_paths": 2,
-            "shortest_path": 2,
             "get_neighbors": 1,
         },
         "none": {
@@ -5695,45 +6477,30 @@ def generate_task_trajectory(
             if candidate_generator is None:
                 raise ValueError("candidate_generator is required for model_vllm generation.")
 
-            actor_candidates = candidate_generator.generate_actor_candidates(
-                context,
-                task_row=task_row,
-                step_index=step_index,
-                n_act=config.n_act,
-                seed=trajectory_seed + step_index,
-                environment=environment,
-            )
-            if (
-                config.tool_coverage_retry_count > 0
-                and task_row["task_type"] in {"recovery", "refinement"}
-                and not any(
-                    isinstance(candidate.get("tool_action"), dict)
-                    and candidate["tool_action"].get("tool_name")
-                    for candidate in actor_candidates
-                )
-            ):
-                actor_candidates.extend(
-                    candidate_generator.generate_actor_candidates(
-                        context,
-                        task_row=task_row,
-                        step_index=step_index,
-                        n_act=config.tool_coverage_retry_count,
-                        seed=trajectory_seed + step_index + 7919,
-                        environment=environment,
-                        force_tool_coverage=True,
-                    )
-                )
-            for actor_index, actor_candidate in enumerate(actor_candidates):
+            def prepare_actor_candidate(
+                candidate: dict[str, Any],
+                *,
+                actor_index: int,
+            ) -> tuple[ActorStep, list[str], dict[str, Any]]:
                 actor_step, actor_errors = _build_actor_step_from_model_candidate(
-                    actor_candidate,
+                    candidate,
                     trajectory_id=trajectory_id,
                     step_index=step_index,
                     actor_index=actor_index,
                 )
-                actor_generation_errors = _unique(
-                    actor_errors + list(actor_candidate.get("generator_errors", []))
+                expanded_tool_action = _expand_tool_action_gene_set_handles(
+                    actor_step.tool_action,
+                    context=context,
                 )
-                tool_default_metadata = _apply_task_tool_defaults(
+                if expanded_tool_action is not actor_step.tool_action:
+                    actor_step = ActorStep(
+                        reasoning_text=actor_step.reasoning_text,
+                        tool_action=expanded_tool_action,
+                    )
+                generation_errors = _unique(
+                    actor_errors + list(candidate.get("generator_errors", []))
+                )
+                default_metadata = _apply_task_tool_defaults(
                     actor_step,
                     task_type=task_row["task_type"],
                     recovery_rwr_top_k=config.recovery_rwr_top_k,
@@ -5746,21 +6513,99 @@ def generate_task_trajectory(
                         available_layers=environment.available_layers,
                     )
                     if not actor_tool_validation.valid:
-                        actor_generation_errors = _unique(
-                            actor_generation_errors
+                        generation_errors = _unique(
+                            generation_errors
                             + [
                                 f"actor_tool_semantics_invalid: {error}"
                                 for error in actor_tool_validation.errors
                             ]
                         )
+                return actor_step, generation_errors, default_metadata
+
+            def rejected_candidate_diagnostic(
+                *,
+                phase: str,
+                actor_index: int,
+                generator_errors: list[str],
+                actor_step: ActorStep | None = None,
+                actor_candidate: dict[str, Any] | None = None,
+                observation: ToolObservation | None = None,
+                verifier_index: int | None = None,
+                branch_id: str | None = None,
+            ) -> dict[str, Any]:
+                diagnostic: dict[str, Any] = {
+                    "phase": phase,
+                    "actor_index": actor_index,
+                    "generator_errors": generator_errors,
+                }
+                if verifier_index is not None:
+                    diagnostic["verifier_index"] = verifier_index
+                if branch_id is not None:
+                    diagnostic["branch_id"] = branch_id
+                if actor_step is not None:
+                    diagnostic["tool_action"] = _compact_tool_action_payload(actor_step.tool_action)
+                if actor_candidate is not None and actor_candidate.get("actor_repair") is not None:
+                    diagnostic["actor_repair"] = actor_candidate.get("actor_repair")
+                observation_diagnostic = _observation_diagnostic_payload(observation)
+                if observation_diagnostic is not None:
+                    diagnostic["observation"] = observation_diagnostic
+                return diagnostic
+
+            def observation_rejection_errors(observation: ToolObservation | None) -> list[str]:
+                if observation is None or observation.status not in (
+                    ToolObservationStatus.INVALID,
+                    ToolObservationStatus.ERROR,
+                ):
+                    return []
+                errors = [f"tool_observation_status={observation.status.value}"]
+                if observation.error:
+                    errors.append(f"tool_observation_error: {observation.error}")
+                validation_errors = (observation.provenance or {}).get("validation_errors")
+                if isinstance(validation_errors, list):
+                    errors.extend(f"tool_validation_error: {error}" for error in validation_errors if error)
+                return _unique(errors)
+
+            actor_candidates = candidate_generator.generate_actor_candidates(
+                context,
+                task_row=task_row,
+                step_index=step_index,
+                n_act=config.n_act,
+                seed=trajectory_seed + step_index,
+                environment=environment,
+                prior_actions=prior_actions,
+            )
+            if (
+                config.tool_coverage_retry_count > 0
+                and task_row["task_type"] in {"recovery", "refinement"}
+                and not any(_actor_candidate_uses_rwr_hpc_tool(candidate) for candidate in actor_candidates)
+            ):
+                actor_candidates.extend(
+                    candidate_generator.generate_actor_candidates(
+                        context,
+                        task_row=task_row,
+                        step_index=step_index,
+                        n_act=config.tool_coverage_retry_count,
+                        seed=trajectory_seed + step_index + 7919,
+                        environment=environment,
+                        force_tool_coverage=True,
+                        prior_actions=prior_actions,
+                    )
+                )
+            for actor_index, actor_candidate in enumerate(actor_candidates):
+                actor_step, actor_generation_errors, tool_default_metadata = prepare_actor_candidate(
+                    actor_candidate,
+                    actor_index=actor_index,
+                )
                 if not _actor_candidate_is_usable(actor_step, actor_generation_errors):
                     rejected_model_errors.extend(actor_generation_errors)
                     rejected_model_candidates.append(
-                        {
-                            "phase": "actor",
-                            "actor_index": actor_index,
-                            "generator_errors": actor_generation_errors,
-                        }
+                        rejected_candidate_diagnostic(
+                            phase="actor",
+                            actor_index=actor_index,
+                            generator_errors=actor_generation_errors,
+                            actor_step=actor_step,
+                            actor_candidate=actor_candidate,
+                        )
                     )
                     continue
                 observation = None
@@ -5770,6 +6615,88 @@ def generate_task_trajectory(
                         state=state,
                         prior_actions=prior_actions,
                     )
+                    repair_errors = observation_rejection_errors(observation)
+                    generator_config = getattr(candidate_generator, "config", None)
+                    actor_tool_repair_retry_count = int(
+                        getattr(generator_config, "actor_tool_repair_retry_count", 0) or 0
+                    )
+                    can_repair_actor = hasattr(candidate_generator, "repair_actor_candidate")
+                    for repair_attempt_index in range(actor_tool_repair_retry_count):
+                        if not repair_errors:
+                            break
+                        if not can_repair_actor:
+                            break
+                        repaired_candidate = candidate_generator.repair_actor_candidate(
+                            context,
+                            task_row=task_row,
+                            step_index=step_index,
+                            actor_index=actor_index,
+                            actor_candidate=actor_candidate,
+                            actor_step=actor_step,
+                            observation=observation,
+                            errors=repair_errors,
+                            seed=trajectory_seed
+                            + (step_index * 1000)
+                            + (actor_index * 100)
+                            + repair_attempt_index
+                            + 31337,
+                            environment=environment,
+                            prior_actions=prior_actions,
+                            attempt_index=repair_attempt_index,
+                        )
+                        repaired_step, repaired_errors, repaired_default_metadata = (
+                            prepare_actor_candidate(
+                                repaired_candidate,
+                                actor_index=actor_index,
+                            )
+                        )
+                        if not _actor_candidate_is_usable(repaired_step, repaired_errors):
+                            rejected_model_errors.extend(repaired_errors)
+                            rejected_model_candidates.append(
+                                rejected_candidate_diagnostic(
+                                    phase="actor_repair",
+                                    actor_index=actor_index,
+                                    generator_errors=repaired_errors,
+                                    actor_step=repaired_step,
+                                    actor_candidate=repaired_candidate,
+                                )
+                            )
+                            continue
+                        repaired_observation = None
+                        if repaired_step.tool_action is not None:
+                            repaired_observation = environment.execute(
+                                repaired_step.tool_action,
+                                state=state,
+                                prior_actions=prior_actions,
+                            )
+                        repaired_rejection_errors = observation_rejection_errors(
+                            repaired_observation
+                        )
+                        if repaired_rejection_errors:
+                            rejected_model_errors.extend(repaired_rejection_errors)
+                            rejected_model_candidates.append(
+                                rejected_candidate_diagnostic(
+                                    phase="actor_repair",
+                                    actor_index=actor_index,
+                                    generator_errors=repaired_rejection_errors,
+                                    actor_step=repaired_step,
+                                    actor_candidate=repaired_candidate,
+                                    observation=repaired_observation,
+                                )
+                            )
+                            repair_errors = repaired_rejection_errors
+                            continue
+                        repair_metadata = repaired_candidate.get("actor_repair")
+                        if isinstance(repair_metadata, dict):
+                            repair_metadata["success"] = True
+                            repaired_candidate["actor_repair"] = repair_metadata
+                        actor_candidate = repaired_candidate
+                        actor_step = repaired_step
+                        actor_generation_errors = repaired_errors
+                        tool_default_metadata = repaired_default_metadata
+                        observation = repaired_observation
+                        repair_errors = []
+                        break
 
                 verifier_candidates = candidate_generator.generate_verifier_candidates(
                     context,
@@ -5788,12 +6715,15 @@ def generate_task_trajectory(
                     if not _verifier_candidate_is_usable(verifier_candidate, branch_generation_errors):
                         rejected_model_errors.extend(branch_generation_errors)
                         rejected_model_candidates.append(
-                            {
-                                "phase": "verifier",
-                                "actor_index": actor_index,
-                                "verifier_index": verifier_index,
-                                "generator_errors": branch_generation_errors,
-                            }
+                            rejected_candidate_diagnostic(
+                                phase="verifier",
+                                actor_index=actor_index,
+                                verifier_index=verifier_index,
+                                generator_errors=branch_generation_errors,
+                                actor_step=actor_step,
+                                actor_candidate=actor_candidate,
+                                observation=observation,
+                            )
                         )
                         continue
                     branch_id = f"{trajectory_id}.step{step_index}.a{actor_index}.v{verifier_index}"
@@ -5812,6 +6742,8 @@ def generate_task_trajectory(
                         branch.metadata["actor_sampling_directive"] = actor_candidate[
                             "actor_sampling_directive"
                         ]
+                    if isinstance(actor_candidate.get("actor_repair"), dict):
+                        branch.metadata["actor_repair"] = actor_candidate["actor_repair"]
                     if tool_default_metadata:
                         branch.metadata["tool_argument_defaults"] = tool_default_metadata
                     branch = _score_branch(
@@ -5827,13 +6759,16 @@ def generate_task_trajectory(
                     if branch_validation_errors and not config.allow_model_fallback:
                         rejected_model_errors.extend(branch_validation_errors)
                         rejected_model_candidates.append(
-                            {
-                                "phase": "branch_validation",
-                                "actor_index": actor_index,
-                                "verifier_index": verifier_index,
-                                "branch_id": branch_id,
-                                "generator_errors": branch_validation_errors,
-                            }
+                            rejected_candidate_diagnostic(
+                                phase="branch_validation",
+                                actor_index=actor_index,
+                                verifier_index=verifier_index,
+                                branch_id=branch_id,
+                                generator_errors=branch_validation_errors,
+                                actor_step=actor_step,
+                                actor_candidate=actor_candidate,
+                                observation=observation,
+                            )
                         )
                         continue
                     branches.append(branch)
@@ -6505,6 +7440,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Allow legacy graph-tool fallback for local tests and toy runs.",
     )
     parser.add_argument(
+        "--rwr-hpc-app-timeout-seconds",
+        type=int,
+        default=1800,
+        help="Timeout for each structured RWR++ app-backed CLI call.",
+    )
+    parser.add_argument(
         "--mygene-cache-path",
         type=Path,
         default=None,
@@ -6717,6 +7658,34 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Maximum completion tokens for the actor rationale follow-up pass.",
     )
     parser.add_argument(
+        "--generator-verifier-repair-retry-count",
+        type=int,
+        default=DEFAULT_VERIFIER_REPAIR_RETRY_COUNT,
+        help=(
+            "Number of low-temperature verifier repair retries to run when a "
+            "model verifier response is malformed or schema-incomplete."
+        ),
+    )
+    parser.add_argument(
+        "--generator-actor-tool-repair-retry-count",
+        type=int,
+        default=DEFAULT_ACTOR_TOOL_REPAIR_RETRY_COUNT,
+        help=(
+            "Number of low-temperature actor retries to run after a parsed actor "
+            "tool call executes to an invalid/error observation."
+        ),
+    )
+    parser.add_argument(
+        "--generator-prompt-token-limit",
+        type=int,
+        default=DEFAULT_GENERATOR_PROMPT_TOKEN_LIMIT,
+        help=(
+            "Optional local prompt-token budget. Values <=0 disable the guard. "
+            "When enabled, prompts fail locally with section diagnostics before "
+            "sending overlarge requests to the model server."
+        ),
+    )
+    parser.add_argument(
         "--generator-reasoning-effort",
         choices=("low", "medium", "high"),
         default="low",
@@ -6784,6 +7753,9 @@ def main() -> None:
             top_p=args.generator_top_p,
             max_completion_tokens=args.generator_max_completion_tokens,
             actor_rationale_max_completion_tokens=args.generator_actor_rationale_max_completion_tokens,
+            verifier_repair_retry_count=args.generator_verifier_repair_retry_count,
+            actor_tool_repair_retry_count=args.generator_actor_tool_repair_retry_count,
+            prompt_token_limit=args.generator_prompt_token_limit,
             reasoning_effort=args.generator_reasoning_effort,
             actor_sampling_strategy=args.actor_sampling_strategy,
         )
@@ -6826,6 +7798,7 @@ def main() -> None:
         "rwr_hpc_build_id": args.rwr_hpc_build_id,
         "rwr_hpc_no_edgelist_headers": not args.rwr_hpc_edgelist_has_headers,
         "require_rwr_hpc_structured_tools": args.require_rwr_hpc,
+        "rwr_hpc_app_timeout_seconds": args.rwr_hpc_app_timeout_seconds,
     }
 
     if store_dir is not None:

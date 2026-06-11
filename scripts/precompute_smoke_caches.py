@@ -458,6 +458,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         dest="require_rwr_hpc",
         action="store_false",
     )
+    parser.add_argument(
+        "--rwr-hpc-app-timeout-seconds",
+        type=int,
+        default=1800,
+        help="Timeout for each structured RWR++ app-backed CLI call.",
+    )
     parser.add_argument("--mygene-cache-path", type=Path, default=None)
     parser.add_argument("--allow-network-mygene", action="store_true")
     parser.add_argument("--enrichment-cache-path", type=Path, default=None)

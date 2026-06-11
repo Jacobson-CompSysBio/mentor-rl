@@ -800,7 +800,7 @@ class RwrHpcStructuredBackend:
         cache: RwrHpcCache | None = None,
         scratch_root: str | Path | None = None,
         rwr_hpc_build_id: str = "unknown",
-        timeout_seconds: int = 300,
+        timeout_seconds: int = 1800,
         no_edgelist_headers: bool = True,
     ) -> None:
         self.flist = Path(flist).resolve()

@@ -16,19 +16,22 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from runtime import RuntimeEnvironment, SharedPrefixContext, initialize_state_from_corum_task
+from runtime import ActorStep, RuntimeEnvironment, SharedPrefixContext, initialize_state_from_corum_task
 from scripts.generate_trajectories import (
     DEFAULT_ACTOR_RATIONALE_MAX_TOKENS,
     DEFAULT_FULL_BRAIN_RWR_HPC_FLIST,
     DEFAULT_FULL_BRAIN_STORE_DIR,
     DEFAULT_GENERATOR_API_BASE,
     DEFAULT_GENERATOR_API_KEY_ENV,
+    DEFAULT_GENERATOR_PROMPT_TOKEN_LIMIT,
+    DEFAULT_ACTOR_TOOL_REPAIR_RETRY_COUNT,
     DEFAULT_REQUIRE_RWR_HPC,
     DEFAULT_RWR_HPC_BUILD_DIR,
     DEFAULT_RWR_HPC_CACHE_DIR,
     DEFAULT_RWR_HPC_EDGELIST_HAS_HEADERS,
     DEFAULT_STORE_DIR,
     DEFAULT_USE_FULL_BRAIN_RWR_HPC,
+    DEFAULT_VERIFIER_REPAIR_RETRY_COUNT,
     STRUCTURED_OUTPUT_MAX_TOKENS,
     DEFAULT_TASKS_PATH,
     ModelGeneratorConfig,
@@ -36,6 +39,7 @@ from scripts.generate_trajectories import (
     _actor_candidate_is_usable,
     _build_actor_step_from_model_candidate,
     _build_branch_from_model_output,
+    _expand_tool_action_gene_set_handles,
     _gene_symbol_lookup,
     _load_gene_id_background,
     _normalize_branch_pool,
@@ -135,6 +139,7 @@ def _build_environment(args: argparse.Namespace) -> RuntimeEnvironment:
         "rwr_hpc_build_id": args.rwr_hpc_build_id,
         "rwr_hpc_no_edgelist_headers": not args.rwr_hpc_edgelist_has_headers,
         "require_rwr_hpc_structured_tools": args.require_rwr_hpc,
+        "rwr_hpc_app_timeout_seconds": args.rwr_hpc_app_timeout_seconds,
     }
 
     if store_dir is not None:
@@ -240,6 +245,12 @@ def parse_args() -> argparse.Namespace:
         dest="require_rwr_hpc",
         action="store_false",
     )
+    parser.add_argument(
+        "--rwr-hpc-app-timeout-seconds",
+        type=int,
+        default=1800,
+        help="Timeout for each structured RWR++ app-backed CLI call.",
+    )
     parser.add_argument("--mygene-cache-path", type=Path, default=None)
     parser.add_argument("--allow-network-mygene", action="store_true")
     parser.add_argument("--enrichment-cache-path", type=Path, default=None)
@@ -274,6 +285,21 @@ def parse_args() -> argparse.Namespace:
         "--generator-actor-rationale-max-completion-tokens",
         type=int,
         default=DEFAULT_ACTOR_RATIONALE_MAX_TOKENS,
+    )
+    parser.add_argument(
+        "--generator-verifier-repair-retry-count",
+        type=int,
+        default=DEFAULT_VERIFIER_REPAIR_RETRY_COUNT,
+    )
+    parser.add_argument(
+        "--generator-actor-tool-repair-retry-count",
+        type=int,
+        default=DEFAULT_ACTOR_TOOL_REPAIR_RETRY_COUNT,
+    )
+    parser.add_argument(
+        "--generator-prompt-token-limit",
+        type=int,
+        default=DEFAULT_GENERATOR_PROMPT_TOKEN_LIMIT,
     )
     parser.add_argument(
         "--generator-reasoning-effort",
@@ -333,6 +359,9 @@ def main() -> None:
             top_p=args.generator_top_p,
             max_completion_tokens=args.generator_max_completion_tokens,
             actor_rationale_max_completion_tokens=args.generator_actor_rationale_max_completion_tokens,
+            verifier_repair_retry_count=args.generator_verifier_repair_retry_count,
+            actor_tool_repair_retry_count=args.generator_actor_tool_repair_retry_count,
+            prompt_token_limit=args.generator_prompt_token_limit,
             reasoning_effort=args.generator_reasoning_effort,
             actor_sampling_strategy=args.actor_sampling_strategy,
         )
@@ -381,6 +410,15 @@ def main() -> None:
             step_index=args.step_index,
             actor_index=actor_index,
         )
+        expanded_tool_action = _expand_tool_action_gene_set_handles(
+            actor_step.tool_action,
+            context=context,
+        )
+        if expanded_tool_action is not actor_step.tool_action:
+            actor_step = ActorStep(
+                reasoning_text=actor_step.reasoning_text,
+                tool_action=expanded_tool_action,
+            )
         actor_generation_errors = _unique(actor_errors + list(actor_candidate.get("generator_errors", [])))
         actor_corruption = _classify_corrupted_output(actor_candidate.get("raw_text", ""))
         if actor_corruption is not None:

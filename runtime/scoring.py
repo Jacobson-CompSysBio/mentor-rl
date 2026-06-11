@@ -421,6 +421,33 @@ def _mechanism_cap_for_task_success(task_success: dict[str, Any]) -> float:
     return 0.15
 
 
+def _calibrate_task_success_with_evidence(
+    task_success: dict[str, Any],
+    *,
+    task_type: TaskType,
+    state: StructuredState,
+    mechanism_evidence: dict[str, Any],
+) -> dict[str, Any]:
+    if task_type == TaskType.NONE:
+        return task_success
+    enrichment = _safe_dict(_safe_dict(mechanism_evidence.get("consensus")).get("enrichment"))
+    if not enrichment.get("weak_group_support"):
+        return task_success
+    if state.relationship_status != RelationshipStatus.VALIDATED_GROUP:
+        return task_success
+
+    calibrated = dict(task_success)
+    failure_reasons = list(calibrated.get("task_quality_failure_reasons") or [])
+    reason = "validated_group_weak_enrichment_support"
+    if reason not in failure_reasons:
+        failure_reasons.append(reason)
+    calibrated["task_quality_failure_reasons"] = failure_reasons
+    calibrated["task_success"] = False
+    if calibrated.get("task_success_level") == "positive":
+        calibrated["task_success_level"] = "partial"
+    return calibrated
+
+
 def _canonical_label_targets(mechanism_labels: dict[str, Any] | None) -> dict[str, set[str]]:
     if mechanism_labels is None:
         return {"ids": set(), "names": set()}
@@ -527,10 +554,38 @@ MECHANISM_EVIDENCE_SCORE_WEIGHTS = {
         "unsupported_threshold": 0.05,
     },
 }
+WEAK_GROUP_ENRICHMENT_MAX_INTERSECTION = 1
+WEAK_GROUP_ENRICHMENT_MAX_PRECISION = 0.25
+WEAK_GROUP_ENRICHMENT_MIN_QUERY_SIZE = 4
+WEAK_GROUP_ENRICHMENT_SCORE_CAP = 0.18
+WEAK_VALIDATED_GROUP_MECHANISM_SCORE_CAP = 0.35
 
 
 def _clamp01(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
+
+
+def _enrichment_query_size(result: dict[str, Any], payload: dict[str, Any] | None = None) -> int:
+    query_size = result.get("query_size")
+    if isinstance(query_size, (int, float)) and query_size >= 0:
+        return int(query_size)
+    if isinstance(payload, dict):
+        query_gene_ids = payload.get("query_gene_ids")
+        if isinstance(query_gene_ids, list):
+            return len([gene_id for gene_id in query_gene_ids if gene_id])
+    return 0
+
+
+def _is_weak_group_enrichment(result: dict[str, Any], *, query_size: int) -> bool:
+    intersection_size = int(result.get("intersection_size") or 0)
+    precision = float(result.get("precision") or 0.0)
+    return (
+        intersection_size <= WEAK_GROUP_ENRICHMENT_MAX_INTERSECTION
+        and (
+            query_size >= WEAK_GROUP_ENRICHMENT_MIN_QUERY_SIZE
+            or precision <= WEAK_GROUP_ENRICHMENT_MAX_PRECISION
+        )
+    )
 
 
 def _text_contains(haystack: str, needle: str) -> bool:
@@ -624,6 +679,8 @@ def _best_enrichment_support(state: StructuredState) -> dict[str, Any]:
         "intersection_size": 0,
         "precision": 0.0,
         "p_value": None,
+        "query_size": 0,
+        "weak_group_support": False,
     }
     for item in _evidence_by_tool(state).get("enrich_gene_set", []):
         payload = item.get("payload")
@@ -634,6 +691,7 @@ def _best_enrichment_support(state: StructuredState) -> dict[str, Any]:
                 continue
             intersection_size = int(result.get("intersection_size") or 0)
             precision = float(result.get("precision") or 0.0)
+            query_size = _enrichment_query_size(result, payload)
             p_value = result.get("p_value")
             significance_score = 1.0 if result.get("significant") else 0.5
             if isinstance(p_value, (int, float)):
@@ -645,6 +703,9 @@ def _best_enrichment_support(state: StructuredState) -> dict[str, Any]:
                     significance_score = max(significance_score, 0.6)
             consensus_score = min(intersection_size / 3.0, 1.0)
             score = _clamp01(0.45 * significance_score + 0.35 * consensus_score + 0.20 * precision)
+            weak_group_support = _is_weak_group_enrichment(result, query_size=query_size)
+            if weak_group_support:
+                score = min(score, WEAK_GROUP_ENRICHMENT_SCORE_CAP)
             if score > best["score"]:
                 best = {
                     "score": score,
@@ -654,6 +715,8 @@ def _best_enrichment_support(state: StructuredState) -> dict[str, Any]:
                     "intersection_size": intersection_size,
                     "precision": precision,
                     "p_value": p_value,
+                    "query_size": query_size,
+                    "weak_group_support": weak_group_support,
                 }
     return best
 
@@ -720,6 +783,7 @@ def _network_support(state: StructuredState) -> dict[str, Any]:
 def _enrichment_result_score(result: dict[str, Any]) -> float:
     intersection_size = int(result.get("intersection_size") or 0)
     precision = float(result.get("precision") or 0.0)
+    query_size = _enrichment_query_size(result)
     p_value = result.get("p_value")
     significance_score = 1.0 if result.get("significant") else 0.5
     if isinstance(p_value, (int, float)):
@@ -730,7 +794,10 @@ def _enrichment_result_score(result: dict[str, Any]) -> float:
         elif p_value <= 0.05:
             significance_score = max(significance_score, 0.6)
     consensus_score = min(intersection_size / 3.0, 1.0)
-    return _clamp01(0.45 * significance_score + 0.35 * consensus_score + 0.20 * precision)
+    score = _clamp01(0.45 * significance_score + 0.35 * consensus_score + 0.20 * precision)
+    if _is_weak_group_enrichment(result, query_size=query_size):
+        score = min(score, WEAK_GROUP_ENRICHMENT_SCORE_CAP)
+    return score
 
 
 def _stability_support(state: StructuredState) -> dict[str, Any]:
@@ -927,6 +994,13 @@ def _mechanism_evidence_quality(
         )
         if evidence_strength <= evidence_weights["unsupported_threshold"] and (labels or claim_text):
             total *= claim_weights["unsupported_claim_multiplier"]
+        if (
+            task_type is not None
+            and task_type != TaskType.NONE
+            and enrichment.get("weak_group_support")
+            and state.relationship_status == RelationshipStatus.VALIDATED_GROUP
+        ):
+            total = min(total, WEAK_VALIDATED_GROUP_MECHANISM_SCORE_CAP)
 
     return {
         "score": _clamp01(total),
@@ -943,6 +1017,14 @@ def _mechanism_evidence_quality(
         "cross_tool_agreement": min(enrichment["score"], mygene["score"]),
         "evidence_strength": evidence_strength,
         "annotation_evidence_strength": annotation_evidence_strength,
+        "weak_group_evidence": {
+            "weak": bool(enrichment.get("weak_group_support")),
+            "term": enrichment.get("term"),
+            "term_id": enrichment.get("term_id"),
+            "intersection_size": enrichment.get("intersection_size"),
+            "precision": enrichment.get("precision"),
+            "query_size": enrichment.get("query_size"),
+        },
         "weights": MECHANISM_EVIDENCE_SCORE_WEIGHTS,
     }
 
@@ -1141,6 +1223,12 @@ def score_candidate_branch(
         post_state,
         claim_text=branch.verifier_step.updated_interpretation.mechanistic_claim,
         task_type=task_type,
+    )
+    task_success = _calibrate_task_success_with_evidence(
+        task_success,
+        task_type=task_type,
+        state=post_state,
+        mechanism_evidence=post_mechanism_evidence,
     )
     mechanism_evidence_delta = (
         post_mechanism_evidence["score"] - pre_mechanism_evidence["score"]
@@ -1381,6 +1469,12 @@ def score_terminal_trajectory(
         final_state,
         claim_text="",
         task_type=task_type,
+    )
+    task_success = _calibrate_task_success_with_evidence(
+        task_success,
+        task_type=task_type,
+        state=final_state,
+        mechanism_evidence=final_mechanism_evidence,
     )
     initial_mechanism_evidence_score = float(initial_mechanism_evidence["score"])
     final_mechanism_evidence_score = float(final_mechanism_evidence["score"])

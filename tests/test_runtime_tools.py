@@ -7,6 +7,8 @@ from unittest.mock import patch
 import networkx as nx
 
 from runtime.tools import (
+    DEFAULT_GPROFILER_SOURCES,
+    ToolExecutionError,
     build_multiplex_index,
     enrich_gene_set,
     get_neighbors,
@@ -214,6 +216,35 @@ class RuntimeToolsTests(unittest.TestCase):
         self.assertEqual(first.payload["background_gene_count"], 4)
         self.assertEqual(first.payload["results"][0]["native"], "GO:0000001")
         fetch.assert_called_once()
+
+    def test_enrich_gene_set_default_sources_exclude_corum(self) -> None:
+        self.assertNotIn("CORUM", DEFAULT_GPROFILER_SOURCES)
+
+        with patch(
+            "runtime.tools._fetch_gprofiler_enrichment",
+            return_value={"results": [], "raw_result_count": 0, "meta": {}},
+        ) as fetch:
+            enrich_gene_set(
+                ["ENSG1", "ENSG2"],
+                background_gene_ids=["ENSG1", "ENSG2", "ENSG3"],
+                sources=None,
+                cache={},
+                allow_network=True,
+            )
+
+        requested_sources = fetch.call_args.kwargs["sources"]
+        self.assertEqual(requested_sources, list(DEFAULT_GPROFILER_SOURCES))
+        self.assertNotIn("CORUM", requested_sources)
+
+    def test_enrich_gene_set_rejects_corum_only_sources(self) -> None:
+        with self.assertRaisesRegex(ToolExecutionError, "no supported enrichment sources"):
+            enrich_gene_set(
+                ["ENSG1", "ENSG2"],
+                background_gene_ids=["ENSG1", "ENSG2", "ENSG3"],
+                sources=["CORUM"],
+                cache={},
+                allow_network=True,
+            )
 
 
 if __name__ == "__main__":

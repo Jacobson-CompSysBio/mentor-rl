@@ -453,6 +453,81 @@ class RuntimeScoringTests(unittest.TestCase):
             "evidence_grounded_unsupervised",
         )
 
+    def test_validated_group_downgrades_weak_one_gene_enrichment(self) -> None:
+        task = _recovery_task()
+        task["mechanism_labels"] = None
+        interpretation, prior_state = initialize_state_from_corum_task(task, max_budget=4)
+        updated_state = append_evidence_record(
+            prior_state,
+            EvidenceRecord(
+                evidence_id="weak_enrich",
+                source_type=EvidenceSourceType.TOOL_OBSERVATION,
+                summary="One seed gene overlaps a significant pathway term.",
+                provenance={
+                    "tool_name": "enrich_gene_set",
+                    "payload": {
+                        "query_gene_ids": ["ENSG_CREBBP", "ENSG_EP300", "ENSG_KAT2B", "ENSG_NCOA3"],
+                        "results": [
+                            {
+                                "source": "REAC",
+                                "native": "REAC:weak",
+                                "name": "single gene pathway",
+                                "p_value": 0.001,
+                                "significant": True,
+                                "intersection_size": 1,
+                                "query_size": 4,
+                                "precision": 0.25,
+                            }
+                        ],
+                    },
+                },
+                supporting_gene_ids=["ENSG_CREBBP"],
+            ),
+        )
+        updated_state = replace_predicted_groups(
+            updated_state,
+            predicted_groups=[
+                GeneGroup(
+                    group_id="group_0",
+                    gene_ids=["ENSG_CREBBP", "ENSG_EP300", "ENSG_KAT2B", "ENSG_NCOA3"],
+                    gene_symbols=["CREBBP", "EP300", "KAT2B", "NCOA3"],
+                    rationale="Keep the full group despite weak annotation support.",
+                )
+            ],
+            relationship_status=RelationshipStatus.VALIDATED_GROUP,
+        )
+        updated_state = replace_mechanistic_labels(
+            updated_state,
+            [
+                MechanisticLabel(
+                    label_source=LabelSource.REACTOME,
+                    label_id="REAC:weak",
+                    label_name="single gene pathway",
+                    evidence_ids=["weak_enrich"],
+                )
+            ],
+        )
+        branch = _make_branch(
+            "weak_validated_group",
+            Interpretation(
+                mechanistic_claim="The full group shares a single gene pathway mechanism.",
+                main_evidence="Only one gene supports the pathway term.",
+                uncertainty="The evidence is weak.",
+                next_subgoal="",
+            ),
+            updated_state,
+        )
+
+        score = score_candidate_branch(task, prior_state, branch, step_index=1, max_steps=6)
+
+        self.assertEqual(score.score_metadata["task_success"]["task_success_level"], "partial")
+        self.assertIn(
+            "validated_group_weak_enrichment_support",
+            score.score_metadata["task_success"]["task_quality_failure_reasons"],
+        )
+        self.assertLessEqual(score.mechanism_evidence_score, 0.35)
+        self.assertTrue(score.score_metadata["mechanistic"]["mechanism_evidence_post"]["weak_group_evidence"]["weak"])
+
     def test_explanation_branch_penalizes_submodule_collapse_despite_mechanism_evidence(self) -> None:
         task = _no_label_explanation_task()
         interpretation, prior_state = initialize_state_from_corum_task(task, max_budget=4)

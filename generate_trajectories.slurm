@@ -36,6 +36,7 @@ RWR_HPC_FLIST="${RWR_HPC_FLIST:-/lustre/orion/syb111/proj-shared/Personal/smithk
 RWR_HPC_BUILD_DIR="${RWR_HPC_BUILD_DIR:-${REPO_ROOT}/external/rwr_hpc/build_frontier}"
 RWR_HPC_CACHE_DIR="${RWR_HPC_CACHE_DIR:-${REPO_ROOT}/data/runtime/rwr_hpc_cache}"
 RWR_HPC_SCRATCH_ROOT="${RWR_HPC_SCRATCH_ROOT:-${SCRATCH}/mentor_rl_rwr_hpc_scratch/${SLURM_JOB_ID}}"
+RWR_HPC_APP_TIMEOUT_SECONDS="${RWR_HPC_APP_TIMEOUT_SECONDS:-1800}"
 RWR_HPC_SERVICE_NODE_COUNT="${RWR_HPC_SERVICE_NODE_COUNT:-0}"
 RWR_HPC_SERVICE_PORT="${RWR_HPC_SERVICE_PORT:-51021}"
 RWR_HPC_SERVICE_URL="${RWR_HPC_SERVICE_URL:-}"
@@ -136,6 +137,8 @@ GENERATOR_TEMPERATURE="${GENERATOR_TEMPERATURE:-0.8}"
 GENERATOR_TOP_P="${GENERATOR_TOP_P:-0.95}"
 GENERATOR_MAX_COMPLETION_TOKENS="${GENERATOR_MAX_COMPLETION_TOKENS:-4096}"
 GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS="${GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS:-2048}"
+GENERATOR_VERIFIER_REPAIR_RETRY_COUNT="${GENERATOR_VERIFIER_REPAIR_RETRY_COUNT:-1}"
+GENERATOR_ACTOR_TOOL_REPAIR_RETRY_COUNT="${GENERATOR_ACTOR_TOOL_REPAIR_RETRY_COUNT:-1}"
 GENERATOR_API_MODE="${GENERATOR_API_MODE:-auto}"
 GENERATOR_REASONING_EFFORT="${GENERATOR_REASONING_EFFORT:-medium}"
 ACTOR_SAMPLING_STRATEGY="${ACTOR_SAMPLING_STRATEGY:-verbalized}"
@@ -144,6 +147,7 @@ SELECTION_SCORE_EPSILON="${SELECTION_SCORE_EPSILON:-0.02}"
 PAIR_MINING_STRATEGY="${PAIR_MINING_STRATEGY:-quality_balanced}"
 TOOL_COVERAGE_RETRY_COUNT="${TOOL_COVERAGE_RETRY_COUNT:-2}"
 RECOVERY_RWR_TOP_K="${RECOVERY_RWR_TOP_K:-500}"
+ALLOW_MODEL_FALLBACK="${ALLOW_MODEL_FALLBACK:-0}"
 MYGENE_CACHE_PATH="${MYGENE_CACHE_PATH:-${OUT_DIR}/mygene_cache.json}"
 ENRICHMENT_CACHE_PATH="${ENRICHMENT_CACHE_PATH:-${OUT_DIR}/gprofiler_enrichment_cache.json}"
 ENRICHMENT_BACKGROUND_PATH="${ENRICHMENT_BACKGROUND_PATH:-${REPO_ROOT}/data/gw_dendrogram_corpus/modules.jsonl}"
@@ -186,6 +190,12 @@ PIPELINE_PARALLEL_SIZE="${PIPELINE_PARALLEL_SIZE:-1}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.90}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-$(infer_default_max_model_len "${MODEL_BASENAME}")}"
 MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-${MAX_MODEL_LEN}}"
+if [[ -z "${GENERATOR_PROMPT_TOKEN_LIMIT:-}" ]]; then
+  GENERATOR_PROMPT_TOKEN_LIMIT=$((MAX_MODEL_LEN - 2304))
+  if (( GENERATOR_PROMPT_TOKEN_LIMIT < 1024 )); then
+    GENERATOR_PROMPT_TOKEN_LIMIT=1024
+  fi
+fi
 MAX_NUM_SEQS="${MAX_NUM_SEQS:-64}"
 ENABLE_CHUNKED_PREFILL="${ENABLE_CHUNKED_PREFILL:-0}"
 ENABLE_PREFIX_CACHING="${ENABLE_PREFIX_CACHING:-0}"
@@ -246,6 +256,7 @@ fi
 if [[ -n "${RWR_HPC_SCRATCH_ROOT}" ]]; then
   RWR_HPC_ARGS+=(--rwr-hpc-scratch-root "${RWR_HPC_SCRATCH_ROOT}")
 fi
+RWR_HPC_ARGS+=(--rwr-hpc-app-timeout-seconds "${RWR_HPC_APP_TIMEOUT_SECONDS}")
 if [[ "${RWR_HPC_EDGELIST_HAS_HEADERS}" == "1" ]]; then
   RWR_HPC_ARGS+=(--rwr-hpc-edgelist-has-headers)
 else
@@ -271,6 +282,10 @@ if [[ "${PREFETCH_MECHANISM_CACHE}" == "1" ]]; then
     --prefetch-enrichment-top-k "${PREFETCH_ENRICHMENT_TOP_K}"
     --prefetch-max-tasks "${PREFETCH_MAX_TASKS}"
   )
+fi
+MODEL_FALLBACK_ARG=()
+if [[ "${ALLOW_MODEL_FALLBACK}" == "1" ]]; then
+  MODEL_FALLBACK_ARG=(--allow-model-fallback)
 fi
 REQUIRE_PREFETCH_SUCCESS_ARG=()
 if [[ "${REQUIRE_PREFETCH_SUCCESS}" == "1" ]]; then
@@ -357,6 +372,7 @@ export http_proxy="${MENTOR_HTTP_PROXY}"
 export https_proxy="${MENTOR_HTTPS_PROXY}"
 export no_proxy="${MENTOR_NO_PROXY}"
 export RWR_HPC_SERVICE_URL
+export RWR_HPC_APP_TIMEOUT_SECONDS
 export RWR_HPC_SERVICE_TIMEOUT_SECONDS
 export HF_HOME="${HF_HOME:-${SCRATCH}/hf_cache}"
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
@@ -469,6 +485,7 @@ log "RWR_HPC_FLIST=${RWR_HPC_FLIST}"
 log "RWR_HPC_BUILD_DIR=${RWR_HPC_BUILD_DIR}"
 log "RWR_HPC_CACHE_DIR=${RWR_HPC_CACHE_DIR}"
 log "RWR_HPC_SCRATCH_ROOT=${RWR_HPC_SCRATCH_ROOT}"
+log "RWR_HPC_APP_TIMEOUT_SECONDS=${RWR_HPC_APP_TIMEOUT_SECONDS}"
 log "RWR_HPC_SERVICE_NODE_COUNT=${RWR_HPC_SERVICE_NODE_COUNT}"
 log "RWR_HPC_SERVICE_NODE=${RWR_HPC_SERVICE_NODE:-<none>}"
 log "RWR_HPC_SERVICE_URL=${RWR_HPC_SERVICE_URL:-<disabled>}"
@@ -480,6 +497,9 @@ log "MAX_TASKS_ARG=${MAX_TASKS_ARG[*]:-(full shard)}"
 log "TASK_CONCURRENCY=${TASK_CONCURRENCY}"
 log "GENERATOR_API_MODE=${GENERATOR_API_MODE}"
 log "GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS=${GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS}"
+log "GENERATOR_VERIFIER_REPAIR_RETRY_COUNT=${GENERATOR_VERIFIER_REPAIR_RETRY_COUNT}"
+log "GENERATOR_ACTOR_TOOL_REPAIR_RETRY_COUNT=${GENERATOR_ACTOR_TOOL_REPAIR_RETRY_COUNT}"
+log "GENERATOR_PROMPT_TOKEN_LIMIT=${GENERATOR_PROMPT_TOKEN_LIMIT}"
 log "GENERATOR_REASONING_EFFORT=${GENERATOR_REASONING_EFFORT}"
 log "ACTOR_SAMPLING_STRATEGY=${ACTOR_SAMPLING_STRATEGY}"
 log "SELECTION_POLICY=${SELECTION_POLICY}"
@@ -487,6 +507,7 @@ log "SELECTION_SCORE_EPSILON=${SELECTION_SCORE_EPSILON}"
 log "PAIR_MINING_STRATEGY=${PAIR_MINING_STRATEGY}"
 log "TOOL_COVERAGE_RETRY_COUNT=${TOOL_COVERAGE_RETRY_COUNT}"
 log "RECOVERY_RWR_TOP_K=${RECOVERY_RWR_TOP_K}"
+log "ALLOW_MODEL_FALLBACK=${ALLOW_MODEL_FALLBACK}"
 log "PREFETCH_MECHANISM_CACHE=${PREFETCH_MECHANISM_CACHE}"
 log "PREFETCH_MYGENE_PER_TASK=${PREFETCH_MYGENE_PER_TASK}"
 log "PREFETCH_ENRICHMENT_TOP_K=${PREFETCH_ENRICHMENT_TOP_K}"
@@ -856,6 +877,9 @@ payload = {
         "generator_top_p": ${GENERATOR_TOP_P@Q},
         "generator_max_completion_tokens": ${GENERATOR_MAX_COMPLETION_TOKENS@Q},
         "generator_actor_rationale_max_completion_tokens": ${GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS@Q},
+        "generator_verifier_repair_retry_count": ${GENERATOR_VERIFIER_REPAIR_RETRY_COUNT@Q},
+        "generator_actor_tool_repair_retry_count": ${GENERATOR_ACTOR_TOOL_REPAIR_RETRY_COUNT@Q},
+        "generator_prompt_token_limit": ${GENERATOR_PROMPT_TOKEN_LIMIT@Q},
         "generator_reasoning_effort": ${GENERATOR_REASONING_EFFORT@Q},
         "actor_sampling_strategy": ${ACTOR_SAMPLING_STRATEGY@Q},
         "selection_policy": ${SELECTION_POLICY@Q},
@@ -863,6 +887,7 @@ payload = {
         "pair_mining_strategy": ${PAIR_MINING_STRATEGY@Q},
         "tool_coverage_retry_count": ${TOOL_COVERAGE_RETRY_COUNT@Q},
         "recovery_rwr_top_k": ${RECOVERY_RWR_TOP_K@Q},
+        "allow_model_fallback": ${ALLOW_MODEL_FALLBACK@Q},
         "mechanism_evidence_score_weights": {
             "specific_claim": {
                 "grounding": 0.25,
@@ -891,6 +916,7 @@ payload = {
         "allow_network_mygene": ${ALLOW_NETWORK_MYGENE@Q},
         "allow_network_enrichment": ${ALLOW_NETWORK_ENRICHMENT@Q},
         "rwr_hpc_edgelist_has_headers": ${RWR_HPC_EDGELIST_HAS_HEADERS@Q},
+        "rwr_hpc_app_timeout_seconds": ${RWR_HPC_APP_TIMEOUT_SECONDS@Q},
         "prefetch_mechanism_cache": ${PREFETCH_MECHANISM_CACHE@Q},
         "prefetch_mygene_per_task": ${PREFETCH_MYGENE_PER_TASK@Q},
         "prefetch_enrichment_top_k": ${PREFETCH_ENRICHMENT_TOP_K@Q},
@@ -1047,6 +1073,9 @@ if [[ "${RUN_SMOKE_TEST}" == "1" ]]; then
           --generator-temperature ${SMOKE_GENERATOR_TEMPERATURE} \
           --generator-max-completion-tokens ${SMOKE_MAX_COMPLETION_TOKENS} \
           --generator-actor-rationale-max-completion-tokens ${SMOKE_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS} \
+          --generator-verifier-repair-retry-count ${GENERATOR_VERIFIER_REPAIR_RETRY_COUNT} \
+          --generator-actor-tool-repair-retry-count ${GENERATOR_ACTOR_TOOL_REPAIR_RETRY_COUNT} \
+          --generator-prompt-token-limit ${GENERATOR_PROMPT_TOKEN_LIMIT} \
           --generator-reasoning-effort ${SMOKE_REASONING_EFFORT} \
           --actor-sampling-strategy ${SMOKE_ACTOR_SAMPLING_STRATEGY} \
           ${SMOKE_TASK_FLAGS[*]@Q}
@@ -1092,6 +1121,9 @@ srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
       --generator-top-p ${GENERATOR_TOP_P} \
       --generator-max-completion-tokens ${GENERATOR_MAX_COMPLETION_TOKENS} \
       --generator-actor-rationale-max-completion-tokens ${GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS} \
+      --generator-verifier-repair-retry-count ${GENERATOR_VERIFIER_REPAIR_RETRY_COUNT} \
+      --generator-actor-tool-repair-retry-count ${GENERATOR_ACTOR_TOOL_REPAIR_RETRY_COUNT} \
+      --generator-prompt-token-limit ${GENERATOR_PROMPT_TOKEN_LIMIT} \
       --generator-reasoning-effort ${GENERATOR_REASONING_EFFORT} \
       --actor-sampling-strategy ${ACTOR_SAMPLING_STRATEGY} \
       --selection-policy ${SELECTION_POLICY} \
@@ -1099,6 +1131,7 @@ srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
       --pair-mining-strategy ${PAIR_MINING_STRATEGY} \
       --tool-coverage-retry-count ${TOOL_COVERAGE_RETRY_COUNT} \
       --recovery-rwr-top-k ${RECOVERY_RWR_TOP_K} \
+      ${MODEL_FALLBACK_ARG[*]@Q} \
       --generator-timeout-seconds ${GENERATOR_TIMEOUT_SECONDS} \
       ${MAX_TASKS_ARG[*]@Q} \
       --task-shard-index ${TASK_SHARD_INDEX} \

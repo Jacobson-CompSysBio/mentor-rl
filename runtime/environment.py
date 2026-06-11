@@ -109,6 +109,7 @@ class RuntimeEnvironment:
         enable_rwr_hpc_apps: bool = True,
         enable_rwr_hpc_structured_tools: bool = True,
         require_rwr_hpc_structured_tools: bool = False,
+        rwr_hpc_app_timeout_seconds: int = 1800,
         rwr_hpc_service_url: str | None = None,
         rwr_hpc_service_timeout_seconds: float = 600.0,
     ) -> None:
@@ -145,6 +146,9 @@ class RuntimeEnvironment:
         self.rwr_hpc_scratch_root = rwr_hpc_scratch_root
         self.rwr_hpc_build_id = rwr_hpc_build_id
         self.require_rwr_hpc_structured_tools = require_rwr_hpc_structured_tools
+        self.rwr_hpc_app_timeout_seconds = int(
+            os.environ.get("RWR_HPC_APP_TIMEOUT_SECONDS", rwr_hpc_app_timeout_seconds)
+        )
         self.rwr_hpc_service_url = rwr_hpc_service_url or os.environ.get("RWR_HPC_SERVICE_URL")
         self.rwr_hpc_service_client = (
             RwrHpcServiceClient(
@@ -176,6 +180,7 @@ class RuntimeEnvironment:
                 scratch_root=rwr_hpc_scratch_root,
                 rwr_hpc_build_id=build_id,
                 no_edgelist_headers=rwr_hpc_no_edgelist_headers,
+                timeout_seconds=self.rwr_hpc_app_timeout_seconds,
             )
 
         if require_rwr_hpc_structured_tools and self.rwr_hpc_service_client is None:
@@ -245,6 +250,7 @@ class RuntimeEnvironment:
             ),
             "rwr_hpc_structured_tools_enabled": self.rwr_hpc_structured_backend is not None,
             "rwr_hpc_structured_tools_required": self.require_rwr_hpc_structured_tools,
+            "rwr_hpc_app_timeout_seconds": self.rwr_hpc_app_timeout_seconds,
             "rwr_hpc_service_enabled": self.rwr_hpc_service_client is not None,
             "rwr_hpc_service_url": self.rwr_hpc_service_url,
             "rwr_hpc_model_apps_required": sorted(self.STRUCTURED_RWR_HPC_MODEL_APPS),
@@ -631,7 +637,10 @@ class RuntimeEnvironment:
             if not app_name:
                 raise ToolExecutionError("rwr_hpc_app requires an app name via argument 'app' or 'app_name'.")
             app_args = tool_action.arguments.get("args", [])
-            timeout_seconds = tool_action.arguments.get("timeout_seconds", 300)
+            timeout_seconds = tool_action.arguments.get(
+                "timeout_seconds",
+                self.rwr_hpc_app_timeout_seconds,
+            )
             cwd = tool_action.arguments.get("cwd")
             allow_nonzero = tool_action.arguments.get("allow_nonzero", False)
 
