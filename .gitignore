@@ -22,4 +22,3 @@ external/rwr_hpc/**/*.o
 external/rwr_hpc/**/*.e
 external/cli11/.git/
 external/cli11/build*/
-AGENTS.md
