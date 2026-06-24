@@ -17,6 +17,7 @@ from runtime import (
     LocalScoreBreakdown,
     RelationshipStatus,
     SharedPrefixContext,
+    TerminationReason,
     ToolAction,
     ToolObservation,
     ToolObservationStatus,
@@ -24,10 +25,15 @@ from runtime import (
     append_evidence_record,
     initialize_state_from_corum_task,
     replace_predicted_groups,
+    set_continuation_state,
 )
 from runtime.environment import RuntimeEnvironment
 from scripts.generate_trajectories import (
     DEFAULT_FULL_BRAIN_RWR_HPC_FLIST,
+    DEFAULT_MEMBERSHIP_EDIT_BRANCHES,
+    DEFAULT_MEMBERSHIP_EDIT_MAX_CUMULATIVE_ADDITIONS,
+    DEFAULT_MEMBERSHIP_EDIT_MAX_DROP_PAIRS,
+    DEFAULT_MEMBERSHIP_EDIT_TOP_K,
     DEFAULT_REQUIRE_RWR_HPC,
     DEFAULT_RWR_HPC_EDGELIST_HAS_HEADERS,
     DEFAULT_STORE_DIR,
@@ -36,12 +42,15 @@ from scripts.generate_trajectories import (
     OpenAICompatibleCandidateGenerator,
     TrajectoryGenerationConfig,
     _actor_prompt_payload,
+    _actor_sampling_directive_payload,
     _build_actor_step_from_model_candidate,
     _build_evidence_record,
     _build_labels_from_model_payload,
+    _deterministic_membership_edit_branches,
     _expand_tool_action_gene_set_handles,
     _load_gene_id_background,
     _load_task_rows,
+    _mine_preference_pairs,
     _normalize_runtime_tool_action,
     _observation_for_verifier_prompt,
     _pair_is_task_safe,
@@ -51,6 +60,8 @@ from scripts.generate_trajectories import (
     _resolve_rwr_hpc_flist,
     _resolve_store_dir,
     _runtime_tool_parameters,
+    _score_branch,
+    _select_best_branch,
     _task_shard_bucket,
     _validate_verifier_payload,
     _verifier_output_schema,
@@ -193,6 +204,102 @@ def _branch_for_pair_filter(branch_id: str, state, gene_ids: list[str], metrics:
             },
         ),
     )
+
+
+def _branch_for_exactness_test(
+    branch_id: str,
+    state,
+    gene_ids: list[str],
+    *,
+    metrics: dict[str, float],
+    task_success_level: str,
+    normalized_score: float,
+    total_score: float,
+    relationship_status: RelationshipStatus = RelationshipStatus.VALIDATED_GROUP,
+) -> CandidateBranch:
+    updated_state = replace_predicted_groups(
+        state,
+        predicted_groups=[
+            GeneGroup(
+                group_id=branch_id,
+                gene_ids=gene_ids,
+                gene_symbols=[],
+                rationale="Exactness test branch.",
+            )
+        ],
+        relationship_status=relationship_status,
+    )
+    updated_state.continuation_state = ContinuationState.STOP
+    return CandidateBranch(
+        branch_id=branch_id,
+        actor_step=ActorStep(reasoning_text="Exactness test branch.", tool_action=None),
+        verifier_step=VerifierStep(
+            updated_interpretation=Interpretation(
+                mechanistic_claim="Exactness test claim.",
+                main_evidence="Exactness test evidence.",
+                uncertainty="",
+                next_subgoal="",
+            ),
+            updated_state=updated_state,
+            continuation_decision=ContinuationState.STOP,
+            verifier_notes="Exactness test verifier.",
+        ),
+        local_score=LocalScoreBreakdown(
+            schema_score=1.0,
+            complex_membership_delta=float(metrics["jaccard"]),
+            mechanistic_label_delta=0.5,
+            efficiency_penalty=0.0,
+            total_score=total_score,
+            normalized_score=normalized_score,
+            mechanism_evidence_delta=0.5,
+            mechanism_evidence_score=0.5,
+            score_metadata={
+                "schema_valid": True,
+                "complex": {
+                    "best_group_pre": {
+                        "metrics": {"jaccard": 0.5, "precision": 1.0, "recall": 0.5}
+                    },
+                    "best_group_post": {"metrics": metrics},
+                },
+                "task_success": {"task_success_level": task_success_level},
+            },
+        ),
+    )
+
+
+def _tool_evidence_branch(
+    branch_id: str,
+    state,
+    gene_ids: list[str],
+    *,
+    tool_name: str,
+    arguments: dict,
+    payload: dict,
+    metrics: dict[str, float],
+    task_success_level: str = "partial",
+) -> CandidateBranch:
+    branch = _branch_for_exactness_test(
+        branch_id,
+        state,
+        gene_ids,
+        metrics=metrics,
+        task_success_level=task_success_level,
+        normalized_score=0.5,
+        total_score=5.0,
+        relationship_status=RelationshipStatus.PARTIALLY_OBSERVED_GROUP,
+    )
+    call_id = f"call_{branch_id}"
+    branch.actor_step = ActorStep(
+        reasoning_text="Collect visible tool evidence.",
+        tool_action=ToolAction(tool_name=tool_name, arguments=arguments, call_id=call_id),
+    )
+    branch.observation = ToolObservation(
+        status=ToolObservationStatus.SUCCESS,
+        provenance={"tool_name": tool_name, "runtime": "unit_test"},
+        call_id=call_id,
+        payload=payload,
+    )
+    return branch
 
 
 class _FakeModelGenerator:
@@ -764,6 +871,13 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertEqual(args.generator_verifier_repair_retry_count, 1)
         self.assertEqual(args.generator_actor_tool_repair_retry_count, 1)
         self.assertEqual(args.generator_prompt_token_limit, 0)
+        self.assertEqual(args.membership_edit_branches, DEFAULT_MEMBERSHIP_EDIT_BRANCHES)
+        self.assertEqual(args.membership_edit_top_k, DEFAULT_MEMBERSHIP_EDIT_TOP_K)
+        self.assertEqual(
+            args.membership_edit_max_cumulative_additions,
+            DEFAULT_MEMBERSHIP_EDIT_MAX_CUMULATIVE_ADDITIONS,
+        )
+        self.assertEqual(args.membership_edit_max_drop_pairs, DEFAULT_MEMBERSHIP_EDIT_MAX_DROP_PAIRS)
         self.assertEqual(rwr_hpc_flist, DEFAULT_FULL_BRAIN_RWR_HPC_FLIST)
 
     def test_parse_args_uses_default_store_only_after_rwr_hpc_opt_out(self) -> None:
@@ -837,6 +951,321 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                 rejected_branch=rejected,
             )
         )
+
+    def test_task_quality_selection_prefers_exact_recovery_over_near_top_partial(self) -> None:
+        task_row = _task_rows()[0]
+        _interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        exact = _branch_for_exactness_test(
+            "exact_recovery",
+            state,
+            ["ENSG1", "ENSG2", "ENSG3"],
+            metrics={"jaccard": 1.0, "precision": 1.0, "recall": 1.0},
+            task_success_level="positive",
+            normalized_score=0.90,
+            total_score=9.0,
+        )
+        partial = _branch_for_exactness_test(
+            "partial_recovery",
+            state,
+            ["ENSG1", "ENSG2"],
+            metrics={"jaccard": 2.0 / 3.0, "precision": 1.0, "recall": 2.0 / 3.0},
+            task_success_level="partial",
+            normalized_score=0.99,
+            total_score=9.9,
+        )
+
+        selected = _select_best_branch(
+            [partial, exact],
+            task_row=task_row,
+            prior_state=state,
+            selection_policy="task_quality",
+            selection_score_epsilon=0.10,
+        )
+
+        self.assertEqual(selected.branch_id, "exact_recovery")
+        self.assertTrue(selected.metadata["selection_quality"]["exact_membership"])
+
+    def test_task_quality_selection_prefers_membership_metrics_outside_score_window(self) -> None:
+        task_row = _task_rows()[0]
+        _interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        membership_best = _branch_for_exactness_test(
+            "membership_best",
+            state,
+            ["ENSG1", "ENSG2", "ENSG3"],
+            metrics={"jaccard": 1.0, "precision": 1.0, "recall": 1.0},
+            task_success_level="partial",
+            normalized_score=0.25,
+            total_score=2.5,
+            relationship_status=RelationshipStatus.PARTIALLY_OBSERVED_GROUP,
+        )
+        mechanism_top = _branch_for_exactness_test(
+            "mechanism_top",
+            state,
+            ["ENSG1", "ENSG2"],
+            metrics={"jaccard": 2.0 / 3.0, "precision": 1.0, "recall": 2.0 / 3.0},
+            task_success_level="partial",
+            normalized_score=1.0,
+            total_score=10.0,
+            relationship_status=RelationshipStatus.PARTIALLY_OBSERVED_GROUP,
+        )
+
+        selected = _select_best_branch(
+            [mechanism_top, membership_best],
+            task_row=task_row,
+            prior_state=state,
+            selection_policy="task_quality",
+            selection_score_epsilon=0.10,
+        )
+
+        self.assertEqual(selected.branch_id, "membership_best")
+        self.assertEqual(
+            selected.metadata["selection_quality_scope"],
+            "all_candidates_membership_first",
+        )
+        self.assertGreater(selected.metadata["selection_score_gap"], 0.10)
+        self.assertTrue(selected.metadata["selection_quality"]["membership_metrics_exact"])
+        self.assertFalse(selected.metadata["selection_quality"]["exact_membership"])
+
+    def test_exact_recovery_pair_mining_keeps_exact_over_partial_below_margin(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+        exact = _branch_for_exactness_test(
+            "exact_recovery",
+            state,
+            ["ENSG1", "ENSG2", "ENSG3"],
+            metrics={"jaccard": 1.0, "precision": 1.0, "recall": 1.0},
+            task_success_level="positive",
+            normalized_score=0.90,
+            total_score=9.0,
+        )
+        partial = _branch_for_exactness_test(
+            "partial_recovery",
+            state,
+            ["ENSG1", "ENSG2"],
+            metrics={"jaccard": 2.0 / 3.0, "precision": 1.0, "recall": 2.0 / 3.0},
+            task_success_level="partial",
+            normalized_score=0.85,
+            total_score=8.5,
+        )
+
+        pairs = _mine_preference_pairs(
+            task_row=task_row,
+            trajectory_id="traj_exact",
+            trajectory_seed=7,
+            step_index=0,
+            context=context,
+            branches=[exact, partial],
+            chosen_branch=exact,
+            score_margin=0.10,
+            pair_mining_strategy="quality_balanced",
+        )
+
+        self.assertEqual(len(pairs), 1)
+        self.assertLess(pairs[0].score_margin, 0.10)
+        self.assertEqual(pairs[0].provenance["pair_category"], "exact_over_partial")
+        self.assertTrue(pairs[0].provenance["chosen_exact_membership"])
+        self.assertEqual(pairs[0].provenance["chosen_final_jaccard"], 1.0)
+        self.assertEqual(pairs[0].provenance["rejected_task_success_level"], "partial")
+
+    def test_exact_over_partial_pair_allows_lower_scalar_score_with_nonnegative_margin(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+        exact = _branch_for_exactness_test(
+            "exact_lower_scalar",
+            state,
+            ["ENSG1", "ENSG2", "ENSG3"],
+            metrics={"jaccard": 1.0, "precision": 1.0, "recall": 1.0},
+            task_success_level="positive",
+            normalized_score=0.25,
+            total_score=2.5,
+        )
+        partial = _branch_for_exactness_test(
+            "partial_higher_scalar",
+            state,
+            ["ENSG1", "ENSG2"],
+            metrics={"jaccard": 2.0 / 3.0, "precision": 1.0, "recall": 2.0 / 3.0},
+            task_success_level="partial",
+            normalized_score=0.99,
+            total_score=9.9,
+        )
+
+        pairs = _mine_preference_pairs(
+            task_row=task_row,
+            trajectory_id="traj_exact_lower_scalar",
+            trajectory_seed=7,
+            step_index=0,
+            context=context,
+            branches=[exact, partial],
+            chosen_branch=exact,
+            score_margin=0.10,
+            pair_mining_strategy="quality_balanced",
+        )
+
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0].score_margin, 0.0)
+        self.assertLess(pairs[0].provenance["normalized_score_delta"], 0.0)
+        self.assertLess(pairs[0].provenance["raw_score_delta"], 0.0)
+        self.assertEqual(pairs[0].provenance["pair_category"], "exact_over_partial")
+
+    def test_deterministic_recovery_edits_generate_top_and_single_add_candidates(self) -> None:
+        task_row = _task_rows()[0]
+        _interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        source = _tool_evidence_branch(
+            "rwr_source",
+            state,
+            ["ENSG1", "ENSG2"],
+            tool_name="rwr",
+            arguments={"seed_genes": ["ENSG1", "ENSG2"], "top_k": 8},
+            payload={
+                "seed_gene_ids": ["ENSG1", "ENSG2"],
+                "results": [
+                    {"gene_id": "ENSG1", "rank": 1, "score": 1.0},
+                    {"gene_id": "ENSG3", "rank": 2, "score": 0.9},
+                    {"gene_id": "ENSG4", "rank": 3, "score": 0.8},
+                    {"gene_id": "ENSG5", "rank": 4, "score": 0.7},
+                    {"gene_id": "ENSG2", "rank": 5, "score": 0.6},
+                ],
+            },
+            metrics={"jaccard": 2.0 / 3.0, "precision": 1.0, "recall": 2.0 / 3.0},
+        )
+
+        branches = _deterministic_membership_edit_branches(
+            task_row=task_row,
+            prior_state=state,
+            branches=[source],
+            trajectory_id="traj_recovery_edit",
+            step_index=0,
+            max_steps=3,
+            symbol_lookup={"ENSG1": "GENE1", "ENSG2": "GENE2", "ENSG3": "GENE3"},
+            environment=_build_environment(),
+            prior_actions=[],
+            top_k=3,
+            max_cumulative_additions=3,
+            max_drop_pairs=0,
+        )
+
+        gene_sets = {tuple(group["gene_ids"]) for branch in branches for group in branch.to_dict()["verifier_step"]["updated_state"]["predicted_groups"]}
+        self.assertIn(("ENSG1", "ENSG2", "ENSG3"), gene_sets)
+        self.assertIn(("ENSG1", "ENSG2", "ENSG3", "ENSG4"), gene_sets)
+        self.assertIn(("ENSG1", "ENSG2", "ENSG3", "ENSG4", "ENSG5"), gene_sets)
+        self.assertTrue(any(
+            branch.metadata["deterministic_membership_edit"]["edit_kind"] == "recovery_add_single"
+            for branch in branches
+        ))
+        for branch in branches:
+            self.assertIn("deterministic_membership_edit", branch.metadata)
+            self.assertFalse(_collect_json_keys(branch.metadata) & {"hidden_target", "target_gene_ids", "target_gene_symbols"})
+            self.assertFalse(_collect_json_keys(branch.observation.to_dict()["provenance"]) & {"hidden_target", "target_gene_ids", "target_gene_symbols"})
+
+    def test_deterministic_refinement_edits_generate_leave_one_out_and_bounded_pair_drops(self) -> None:
+        task_row = json.loads(json.dumps(_task_rows()[0]))
+        task_row["task_id"] = "corum_complex_test.refinement.easy.contextual"
+        task_row["task_type"] = "refinement"
+        task_row["visible_inputs"]["seed_gene_ids"] = ["ENSG1", "ENSG2", "ENSG3", "ENSG4"]
+        task_row["visible_inputs"]["seed_gene_symbols"] = ["GENE1", "GENE2", "GENE3", "GENE4"]
+        _interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        source = _tool_evidence_branch(
+            "refine_rwr_source",
+            state,
+            ["ENSG1", "ENSG2", "ENSG3", "ENSG4"],
+            tool_name="rwr",
+            arguments={"seed_genes": ["ENSG1", "ENSG2", "ENSG3", "ENSG4"], "top_k": 8},
+            payload={
+                "seed_gene_ids": ["ENSG1", "ENSG2", "ENSG3", "ENSG4"],
+                "results": [
+                    {"gene_id": "ENSG1", "rank": 1, "score": 1.0},
+                    {"gene_id": "ENSG2", "rank": 2, "score": 0.9},
+                    {"gene_id": "ENSG3", "rank": 3, "score": 0.8},
+                    {"gene_id": "ENSG4", "rank": 8, "score": 0.1},
+                ],
+            },
+            metrics={"jaccard": 0.75, "precision": 0.75, "recall": 1.0},
+        )
+
+        branches = _deterministic_membership_edit_branches(
+            task_row=task_row,
+            prior_state=state,
+            branches=[source],
+            trajectory_id="traj_refinement_edit",
+            step_index=0,
+            max_steps=3,
+            symbol_lookup={"ENSG1": "GENE1", "ENSG2": "GENE2", "ENSG3": "GENE3", "ENSG4": "GENE4"},
+            environment=_build_environment(),
+            prior_actions=[],
+            top_k=4,
+            max_cumulative_additions=3,
+            max_drop_pairs=2,
+        )
+
+        edit_kinds = [branch.metadata["deterministic_membership_edit"]["edit_kind"] for branch in branches]
+        self.assertGreaterEqual(edit_kinds.count("refinement_drop_single"), 4)
+        self.assertLessEqual(edit_kinds.count("refinement_drop_pair"), 2)
+        gene_sets = {tuple(group["gene_ids"]) for branch in branches for group in branch.to_dict()["verifier_step"]["updated_state"]["predicted_groups"]}
+        self.assertIn(("ENSG1", "ENSG2", "ENSG3"), gene_sets)
+
+    def test_exact_refinement_pair_category_beats_negative_extra_gene_branch(self) -> None:
+        task_row = json.loads(json.dumps(_task_rows()[0]))
+        task_row["task_id"] = "corum_complex_test.refinement.easy.contextual"
+        task_row["task_type"] = "refinement"
+        task_row["visible_inputs"]["seed_gene_ids"] = ["ENSG1", "ENSG2", "ENSG3", "ENSG4"]
+        task_row["visible_inputs"]["seed_gene_symbols"] = ["GENE1", "GENE2", "GENE3", "GENE4"]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+        exact = _branch_for_exactness_test(
+            "exact_refinement",
+            state,
+            ["ENSG1", "ENSG2", "ENSG3"],
+            metrics={"jaccard": 1.0, "precision": 1.0, "recall": 1.0},
+            task_success_level="positive",
+            normalized_score=0.92,
+            total_score=9.2,
+        )
+        negative = _branch_for_exactness_test(
+            "negative_extra_gene",
+            state,
+            ["ENSG1", "ENSG2", "ENSG3", "ENSG4"],
+            metrics={"jaccard": 0.75, "precision": 0.75, "recall": 1.0},
+            task_success_level="negative",
+            normalized_score=0.80,
+            total_score=8.0,
+        )
+
+        pairs = _mine_preference_pairs(
+            task_row=task_row,
+            trajectory_id="traj_refine_exact",
+            trajectory_seed=11,
+            step_index=0,
+            context=context,
+            branches=[exact, negative],
+            chosen_branch=exact,
+            score_margin=0.10,
+            pair_mining_strategy="quality_balanced",
+        )
+
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0].provenance["pair_category"], "exact_refinement")
+        self.assertEqual(pairs[0].provenance["chosen_final_precision"], 1.0)
+        self.assertEqual(pairs[0].provenance["rejected_final_precision"], 0.75)
 
     def test_model_tool_action_normalization_removes_all_layer_alias(self) -> None:
         tool_action, errors = _normalize_runtime_tool_action(
@@ -1392,8 +1821,108 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             task_type="recovery",
         )
 
-        self.assertEqual(payload["task_guidance"]["objective"], "Recover missing coherent complex members beyond the current seed/candidate group.")
+        self.assertEqual(
+            payload["task_guidance"]["objective"],
+            "Recover exact coherent complex membership beyond the current seed/candidate group.",
+        )
         self.assertIn("non-seed", " ".join(payload["task_guidance"]["candidate_policy"]))
+        self.assertIn("update predicted_gene_ids", " ".join(payload["task_guidance"]["candidate_policy"]))
+        self.assertIn("Exact recovery", payload["task_guidance"]["exact_success_policy"])
+        self.assertIn("continue", " ".join(payload["task_guidance"]["candidate_policy"]))
+
+        directive = _actor_sampling_directive_payload(task_type="recovery", sample_index=4)
+        self.assertEqual(directive["directive_name"], "recovery_commit_expansion")
+        self.assertIn("commit that expanded membership", directive["instruction"])
+
+    def test_refinement_verifier_prompt_includes_exact_nonterminal_guidance(self) -> None:
+        task_row = _task_rows()[0]
+        task_row = dict(task_row)
+        task_row["task_type"] = "refinement"
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+
+        payload = _verifier_prompt_payload(
+            context,
+            actor_step=ActorStep(reasoning_text="Probe pruning.", tool_action=None),
+            observation=None,
+            step_index=0,
+            task_type="refinement",
+        )
+
+        self.assertIn("Exact refinement", payload["task_guidance"]["exact_success_policy"])
+        self.assertIn("questionable extra", " ".join(payload["task_guidance"]["candidate_policy"]))
+        self.assertIn("pruned coherent subset", " ".join(payload["task_guidance"]["candidate_policy"]))
+
+        directive = _actor_sampling_directive_payload(task_type="refinement", sample_index=3)
+        self.assertEqual(directive["directive_name"], "refinement_commit_pruned_subset")
+        self.assertIn("commit the pruned membership", directive["instruction"])
+
+    def test_partial_recovery_stop_is_forced_to_continue_while_budget_remains(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, prior_state = initialize_state_from_corum_task(task_row, max_budget=3)
+        partial_state = replace_predicted_groups(
+            prior_state,
+            [
+                GeneGroup(
+                    group_id="group_0",
+                    gene_ids=["ENSG1", "ENSG2"],
+                    gene_symbols=["GENE1", "GENE2"],
+                    rationale="Seed-only partial recovery.",
+                )
+            ],
+            relationship_status=RelationshipStatus.PARTIALLY_OBSERVED_GROUP,
+        )
+        partial_state.remaining_budget = 2
+        partial_state = set_continuation_state(
+            partial_state,
+            ContinuationState.STOP,
+            termination_reason=TerminationReason.MODEL_STOP,
+        )
+        branch = CandidateBranch(
+            branch_id="partial_stop",
+            actor_step=ActorStep(reasoning_text="Stop with the seed subset.", tool_action=None),
+            observation=None,
+            verifier_step=VerifierStep(
+                updated_interpretation=interpretation,
+                updated_state=partial_state,
+                continuation_decision=ContinuationState.STOP,
+                verifier_notes="Partial group looks plausible.",
+            ),
+            local_score=LocalScoreBreakdown(
+                schema_score=0.0,
+                complex_membership_delta=0.0,
+                mechanistic_label_delta=0.0,
+                efficiency_penalty=0.0,
+                total_score=0.0,
+            ),
+        )
+
+        scored = _score_branch(
+            task_row,
+            prior_state,
+            branch,
+            step_index=0,
+            max_steps=3,
+            prior_actions=[],
+            environment=_build_environment(),
+        )
+
+        self.assertEqual(
+            scored.local_score.score_metadata["task_success"]["task_success_level"],
+            "partial",
+        )
+        self.assertEqual(scored.verifier_step.continuation_decision, ContinuationState.CONTINUE)
+        self.assertEqual(scored.verifier_step.updated_state.continuation_state, ContinuationState.CONTINUE)
+        self.assertIsNone(scored.verifier_step.updated_state.termination_reason)
+        override = scored.metadata["exact_membership_nonterminal_override"]
+        self.assertTrue(override["applied"])
+        self.assertIn("task_success_level=partial", override["reason"])
 
     def test_actor_rationale_prompt_does_not_include_corum_ground_truth_metadata(self) -> None:
         task_row = _task_rows()[0]
@@ -2779,6 +3308,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                     n_ver=2,
                     seed=3,
                     candidate_source="model_vllm",
+                    membership_edit_branches="off",
                 ),
                 model_generator_config=ModelGeneratorConfig(api_base="http://unused"),
                 candidate_generator=_InvalidVerifierThenValidGenerator(),
@@ -2807,6 +3337,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                     selection_policy="task_quality",
                     pair_mining_strategy="quality_balanced",
                     tool_coverage_retry_count=1,
+                    membership_edit_branches="off",
                 ),
                 model_generator_config=ModelGeneratorConfig(api_base="http://unused"),
                 candidate_generator=generator,
@@ -2822,7 +3353,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
                 if branch["branch_id"] == branch_pools[0]["selected_branch_id"]
             )
             self.assertEqual(selected["actor_step"]["tool_action"]["tool_name"], "rwr")
-            self.assertEqual(selected["actor_step"]["tool_action"]["arguments"]["top_k"], 500)
+            self.assertEqual(selected["actor_step"]["tool_action"]["arguments"]["top_k"], 1500)
             self.assertEqual(selected["metadata"]["selection_policy"], "task_quality")
             self.assertEqual(
                 selected["metadata"]["tool_argument_defaults"]["reason"],
@@ -2833,9 +3364,11 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             self.assertTrue(preference_pairs_raw)
             provenance = preference_pairs_raw[0]["provenance"]
             self.assertEqual(provenance["pair_mining_strategy"], "quality_balanced")
-            self.assertEqual(provenance["pair_category"], "recovery_expansion")
+            self.assertEqual(provenance["pair_category"], "exact_over_partial")
             self.assertEqual(provenance["chosen_tool_name"], "rwr")
             self.assertEqual(provenance["rejected_tool_name"], "no_tool")
+            self.assertTrue(provenance["chosen_exact_membership"])
+            self.assertEqual(provenance["rejected_task_success_level"], "partial")
             self.assertGreater(provenance["chosen_gene_count"], provenance["rejected_gene_count"])
 
     def test_rwr_coverage_retry_runs_when_only_native_graph_tool_was_sampled(self) -> None:

@@ -2,6 +2,8 @@ import json
 from collections import Counter, defaultdict
 from pathlib import Path
 
+import pytest
+
 from scripts import build_rwr_loe_corpus as bloe
 from scripts import mix_module_corpora as mixer
 
@@ -61,6 +63,7 @@ def _write_fake_rank_caches(
     context: dict,
 ) -> Path:
     context_dir = bloe.rank_cache_context_dir(rank_cache_dir, context)
+    bloe.write_json(context_dir / "cache_context.json", context)
     for gene_id in genes:
         bloe.write_seed_rank_cache(
             context_dir=context_dir,
@@ -255,6 +258,146 @@ def test_build_rwr_loe_corpus_materializes_balanced_tasks_from_rank_cache(tmp_pa
         if counts:
             assert set(counts) == set(bloe.TASK_TYPES)
             assert len(set(counts.values())) == 1
+
+
+def test_checkpointed_module_assignment_resumes_partial_work(tmp_path: Path) -> None:
+    genes = [f"G{index:02d}" for index in range(12)]
+    store_dir = tmp_path / "store"
+    _write_store_genes(store_dir, genes)
+    flist, rank_cache_dir, context = _rank_cache_context(tmp_path)
+    context_dir = _write_fake_rank_caches(genes=genes, rank_cache_dir=rank_cache_dir, context=context)
+    checkpoint_path = tmp_path / "modules.assigned.by_gene.jsonl"
+    first_record = bloe._build_loe_module_checkpoint_record(
+        {
+            "index": 1,
+            "seed_gene_id": genes[0],
+            "context_dir": str(context_dir),
+            "module_selection_method": "elbow",
+            "size_bin": None,
+            "module_sizes": bloe.DEFAULT_MODULE_SIZES,
+            "min_elbow_module_size": bloe.MIN_ELBOW_MODULE_SIZE,
+        }
+    )
+    bloe._append_checkpoint_record(checkpoint_path, first_record)
+    tracker = bloe.ProgressTracker(tmp_path / "progress.json")
+    tracker.start("assign_modules", total=len(genes), unit="genes")
+    stats = bloe.BuildStats()
+
+    modules = bloe.build_loe_modules_checkpointed(
+        gene_ids=genes,
+        context_dir=context_dir,
+        stats=stats,
+        checkpoint_path=checkpoint_path,
+        tracker=tracker,
+        workers=2,
+    )
+
+    records = bloe._read_checkpoint_records(checkpoint_path, key_field="seed_gene_id")
+    assert len(records) == len(genes)
+    assert [record["seed_gene_id"] for record in records].count(genes[0]) == 1
+    assert modules == sorted(modules, key=lambda row: row["module_id"])
+    assert len({module["module_id"] for module in modules}) == len(modules)
+    assert len(modules) + sum(stats.skipped_modules.values()) == len(genes)
+
+
+def test_build_rwr_loe_corpus_resumes_from_materialization_checkpoints(tmp_path: Path, monkeypatch) -> None:
+    genes = [f"G{index:02d}" for index in range(24)]
+    store_dir = tmp_path / "store"
+    mentor_dir = tmp_path / "mentor"
+    out_dir = tmp_path / "loe_corpus"
+    _write_store_genes(store_dir, genes)
+    _write_mentor_distribution(mentor_dir, ["small"])
+    flist, rank_cache_dir, context = _rank_cache_context(tmp_path)
+    _write_fake_rank_caches(genes=genes, rank_cache_dir=rank_cache_dir, context=context)
+
+    first = bloe.build_rwr_loe_corpus(
+        store_dir=store_dir,
+        rwr_hpc_flist=flist,
+        rank_cache_dir=rank_cache_dir,
+        out_dir=out_dir,
+        mentor_corpus_dir=mentor_dir,
+        seed=17,
+        module_sizes={"small": 3, "medium": 3, "large": 3},
+        rank_cache_context=context,
+    )
+    checkpoint_dirs = list((out_dir / "_materialize_checkpoints").glob("context_*"))
+    assert len(checkpoint_dirs) == 1
+    checkpoint_dir = checkpoint_dirs[0]
+    assert (checkpoint_dir / "modules.assigned.jsonl").exists()
+    assert (checkpoint_dir / "prototypes.raw.by_module.jsonl").exists()
+    assert (checkpoint_dir / "prototypes.balanced.jsonl").exists()
+    assert (checkpoint_dir / "tasks.by_prototype.jsonl").exists()
+
+    def fail_if_rebuilt(*args, **kwargs):
+        raise AssertionError("checkpointed stage was rebuilt instead of reused")
+
+    monkeypatch.setattr(bloe, "build_loe_modules", fail_if_rebuilt)
+    monkeypatch.setattr(bloe, "build_task_prototypes_for_module", fail_if_rebuilt)
+    monkeypatch.setattr(bloe, "materialize_tasks_for_prototype", fail_if_rebuilt)
+
+    second = bloe.build_rwr_loe_corpus(
+        store_dir=store_dir,
+        rwr_hpc_flist=flist,
+        rank_cache_dir=rank_cache_dir,
+        out_dir=out_dir,
+        mentor_corpus_dir=mentor_dir,
+        seed=17,
+        module_sizes={"small": 3, "medium": 3, "large": 3},
+        rank_cache_context=context,
+    )
+
+    assert second["manifest"]["module_count"] == first["manifest"]["module_count"]
+    assert second["manifest"]["task_count"] == first["manifest"]["task_count"]
+    assert second["tasks"] == first["tasks"]
+
+
+def test_build_rwr_loe_corpus_fails_fast_for_empty_rank_context(tmp_path: Path) -> None:
+    genes = [f"G{index:02d}" for index in range(6)]
+    store_dir = tmp_path / "store"
+    mentor_dir = tmp_path / "mentor"
+    out_dir = tmp_path / "loe_corpus"
+    _write_store_genes(store_dir, genes)
+    _write_mentor_distribution(mentor_dir, ["small"])
+    flist, rank_cache_dir, context = _rank_cache_context(tmp_path)
+
+    with pytest.raises(FileNotFoundError, match="No RWR-LOE rank cache files found"):
+        bloe.build_rwr_loe_corpus(
+            store_dir=store_dir,
+            rwr_hpc_flist=flist,
+            rank_cache_dir=rank_cache_dir,
+            out_dir=out_dir,
+            mentor_corpus_dir=mentor_dir,
+            seed=17,
+            rank_cache_context=context,
+        )
+
+    assert not (out_dir / "manifest.json").exists()
+
+
+def test_build_rwr_loe_corpus_can_use_explicit_prewarmed_context_dir(tmp_path: Path) -> None:
+    genes = [f"G{index:02d}" for index in range(24)]
+    store_dir = tmp_path / "store"
+    mentor_dir = tmp_path / "mentor"
+    out_dir = tmp_path / "loe_corpus"
+    _write_store_genes(store_dir, genes)
+    _write_mentor_distribution(mentor_dir, ["small"])
+    flist, rank_cache_dir, context = _rank_cache_context(tmp_path)
+    context_dir = _write_fake_rank_caches(genes=genes, rank_cache_dir=rank_cache_dir, context=context)
+    flist.unlink()
+
+    result = bloe.build_rwr_loe_corpus(
+        store_dir=store_dir,
+        rwr_hpc_flist=flist,
+        rank_cache_dir=rank_cache_dir,
+        out_dir=out_dir,
+        mentor_corpus_dir=mentor_dir,
+        seed=17,
+        module_sizes={"small": 3, "medium": 3, "large": 3},
+        rank_cache_context_dir_path=context_dir,
+    )
+
+    assert result["manifest"]["module_count"] > 0
+    assert result["manifest"]["rank_cache_context_dir"] == str(context_dir)
 
 
 def _write_tiny_corpus(corpus_dir: Path, *, source: str, task_prefix: str) -> None:

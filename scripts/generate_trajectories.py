@@ -91,7 +91,7 @@ DEFAULT_STORE_DIR = REPO_ROOT / "data" / "humannet_multiplex_store"
 DEFAULT_RWR_HPC_BUILD_DIR = REPO_ROOT / "external" / "rwr_hpc" / "build_frontier"
 DEFAULT_RWR_HPC_CACHE_DIR = REPO_ROOT / "data" / "runtime" / "rwr_hpc_cache"
 DEFAULT_FULL_BRAIN_RWR_HPC_FLIST = Path(
-    "/lustre/orion/syb111/proj-shared/Personal/smithkp/projects/PASC_2026/full_brain/data/full_brain_flist.tsv"
+    "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/data/full_brain_flist.tsv"
 )
 DEFAULT_FULL_BRAIN_STORE_DIR = REPO_ROOT / "data" / "runtime" / "full_brain_multiplex_store"
 DEFAULT_USE_FULL_BRAIN_RWR_HPC = True
@@ -105,7 +105,7 @@ DEFAULT_ACTOR_RATIONALE_MAX_TOKENS = 2048
 DEFAULT_VERIFIER_REPAIR_RETRY_COUNT = 1
 DEFAULT_PREFERENCE_PAIR_MARGIN = 0.10
 DEFAULT_SELECTION_SCORE_EPSILON = 0.02
-DEFAULT_RECOVERY_RWR_TOP_K = 500
+DEFAULT_RECOVERY_RWR_TOP_K = 1500
 GPT_OSS_FINAL_CHANNEL_PREFIX = "<|start|>assistant<|channel|>final<|message|>"
 PROMPT_TEXT_MAX_CHARS = 500
 PROMPT_ACTOR_REASONING_MAX_CHARS = 800
@@ -131,6 +131,11 @@ ACTOR_REPAIR_RAW_TEXT_MAX_CHARS = 4000
 ACTOR_SAMPLING_STRATEGIES = ("batch", "verbalized")
 SELECTION_POLICIES = ("score", "task_quality")
 PAIR_MINING_STRATEGIES = ("score_margin", "quality_balanced")
+MEMBERSHIP_EDIT_BRANCH_MODES = ("off", "hybrid")
+DEFAULT_MEMBERSHIP_EDIT_BRANCHES = "hybrid"
+DEFAULT_MEMBERSHIP_EDIT_TOP_K = 8
+DEFAULT_MEMBERSHIP_EDIT_MAX_CUMULATIVE_ADDITIONS = 3
+DEFAULT_MEMBERSHIP_EDIT_MAX_DROP_PAIRS = 5
 VISIBLE_SEED_GENES_HANDLE = "__visible_seed_genes__"
 CURRENT_CANDIDATE_GROUP_HANDLE = "__current_candidate_group__"
 ACTOR_DIVERSITY_DIRECTIVES = (
@@ -182,8 +187,10 @@ TASK_ACTOR_DIVERSITY_DIRECTIVES = {
             "name": "recovery_rwr_expansion",
             "instruction": (
                 "Explore recovery expansion. Prefer rwr from the current "
-                "seed/candidate group with top_k at least 500 to identify plausible "
-                "missing complex members beyond the seeds."
+                "seed/candidate group with top_k at least 1500 to identify plausible "
+                "missing complex members beyond the seeds. Do not treat a plausible "
+                "seed-only subset as final exact recovery while candidate additions "
+                "remain untested."
             ),
             "preferred_tools": ["rwr"],
         },
@@ -199,7 +206,8 @@ TASK_ACTOR_DIVERSITY_DIRECTIVES = {
             "name": "recovery_subgraph_validation",
             "instruction": (
                 "Validate whether the current candidate group is coherent before stopping. "
-                "Prefer induce_subgraph when at least two valid genes are available."
+                "Prefer induce_subgraph when at least two valid genes are available, and "
+                "continue if the observation only supports a partial group."
             ),
             "preferred_tools": ["induce_subgraph"],
         },
@@ -212,10 +220,21 @@ TASK_ACTOR_DIVERSITY_DIRECTIVES = {
             "preferred_tools": ["shortest_paths"],
         },
         {
+            "name": "recovery_commit_expansion",
+            "instruction": (
+                "If visible RWR, path, neighborhood, or annotation evidence now supports "
+                "a specific expanded gene set, commit that expanded membership in the "
+                "verifier update. Otherwise choose a tool that tests the most plausible "
+                "remaining non-seed addition."
+            ),
+            "preferred_tools": [],
+        },
+        {
             "name": "recovery_direct_decision",
             "instruction": (
                 "Make the best direct recovery decision only if visible evidence is already "
-                "sufficient; otherwise prefer a valid expansion or validation tool."
+                "sufficient for exact membership; otherwise prefer a valid expansion or "
+                "validation tool."
             ),
             "preferred_tools": [],
         },
@@ -225,7 +244,9 @@ TASK_ACTOR_DIVERSITY_DIRECTIVES = {
             "name": "refinement_subgraph_pruning",
             "instruction": (
                 "Explore refinement evidence. Prefer induce_subgraph to identify which "
-                "members of the current candidate group are graph-supported."
+                "members of the current candidate group are graph-supported. Do not treat "
+                "a plausible subset/superset as final exact refinement while unsupported "
+                "extras remain untested."
             ),
             "preferred_tools": ["induce_subgraph"],
         },
@@ -246,10 +267,21 @@ TASK_ACTOR_DIVERSITY_DIRECTIVES = {
             "preferred_tools": ["shortest_paths"],
         },
         {
+            "name": "refinement_commit_pruned_subset",
+            "instruction": (
+                "If visible graph or annotation evidence now identifies unsupported extras "
+                "or a preserved coherent subset, commit the pruned membership in the "
+                "verifier update. Otherwise choose a tool that directly tests the most "
+                "questionable keep/remove decision."
+            ),
+            "preferred_tools": [],
+        },
+        {
             "name": "refinement_direct_decision",
             "instruction": (
                 "Make the best direct refinement decision only if visible evidence already "
-                "supports a coherent subset."
+                "supports the exact coherent subset with unsupported extras removed and "
+                "supported members preserved."
             ),
             "preferred_tools": [],
         },
@@ -330,7 +362,7 @@ TOOL_COVERAGE_DIRECTIVES = {
         "instruction": (
             "This retry exists because no usable RWR++ actor candidate was observed. "
             "Choose a valid runtime tool if any valid graph argument can be formed; prefer "
-            "rwr with top_k at least 500 for recovery expansion, then "
+            "rwr with top_k at least 1500 for recovery expansion, then "
             "get_neighbors or induce_subgraph."
         ),
         "preferred_tools": ["rwr", "get_neighbors", "induce_subgraph"],
@@ -346,21 +378,24 @@ TOOL_COVERAGE_DIRECTIVES = {
     },
 }
 PAIR_CATEGORY_PRIORITIES = {
-    "recovery_expansion": 0,
-    "refinement_precision": 1,
-    "tool_supported_improvement": 2,
-    "task_correctness_improvement": 3,
-    "explanation_preservation": 4,
-    "recovery_recall": 5,
-    "refinement_jaccard": 6,
-    "abstention_correct": 7,
-    "calibrated_abstention": 8,
-    "mechanism_evidence_improvement": 9,
-    "unsupported_mechanism_rejected": 10,
-    "none_abstention": 11,
-    "score_margin": 12,
-    "mechanism_label_only": 13,
-    "conservative_stop": 14,
+    "exact_recovery": 0,
+    "exact_refinement": 1,
+    "exact_over_partial": 2,
+    "recovery_expansion": 3,
+    "refinement_precision": 4,
+    "tool_supported_improvement": 5,
+    "task_correctness_improvement": 6,
+    "explanation_preservation": 7,
+    "recovery_recall": 8,
+    "refinement_jaccard": 9,
+    "abstention_correct": 10,
+    "calibrated_abstention": 11,
+    "mechanism_evidence_improvement": 12,
+    "unsupported_mechanism_rejected": 13,
+    "none_abstention": 14,
+    "score_margin": 15,
+    "mechanism_label_only": 16,
+    "conservative_stop": 17,
 }
 TRAJECTORY_STAGES = (
     ("load_tasks", "Load canonical task rows"),
@@ -403,6 +438,11 @@ Actor rules:
 - For recovery and refinement tasks, separate the gene-membership decision
   from the mechanism-labeling decision. A correct or improving gene set may
   still have an unresolved mechanism.
+- For recovery and refinement tasks, exact gene membership is the primary
+  objective. A plausible subset, superset, or partially observed group is not a
+  final success while budget remains. Use tools to test candidate additions
+  for recovery and candidate removals/preservation for refinement before
+  stopping.
 - For explanation, recovery, and refinement tasks, a specific biological
   mechanism is not sufficiently grounded by Ensembl IDs or graph membership
   alone. If no annotation, MyGene, or enrichment evidence has been observed,
@@ -516,14 +556,22 @@ State update guidance:
   unless the final conclusion is explicit abstention. If evidence supports only
   a submodule, keep the full module as the predicted group and describe the
   submodule as partial mechanistic support in the interpretation.
-- For recovery, add genes only when the observation supports them.
+- For recovery, exact membership means all supported members have been
+  recovered, not merely that the seed set is coherent. Add genes only when the
+  observation supports them.
   When an RWR observation is available, explicitly evaluate the top non-seed
   candidates before declaring the seed group complete. Add only candidates that
   have credible visible support; otherwise explain why the non-seed candidates
   are too weak and continue if another check could help.
-- For refinement, remove genes that look unsupported or off-module.
+- For refinement, remove genes that look unsupported or off-module. Do not stop
+  at a partially observed group when remaining genes still need pruning or
+  preservation evidence.
 - For recovery and refinement, decide module membership first; mechanism labels
   should not force an unsupported expansion or pruning decision.
+- For recovery and refinement, choose continuation_decision="stop" only for an
+  exact-membership conclusion or budget exhaustion. If relationship_status is
+  partially_observed_group, continuation_decision must be "continue" while
+  remaining budget could test additions, removals, or preservation evidence.
 - For none tasks, prefer "insufficient_support" or "multiple_groups" when one coherent mechanism is not supported.
 - If relationship_status is insufficient_support, an empty predicted_gene_ids list is acceptable.
 - Prefer GO or FCGS labels when visible annotations support them.
@@ -1694,11 +1742,33 @@ def _verifier_prompt_payload(
     }
     if task_type == "recovery":
         payload["task_guidance"] = {
-            "objective": "Recover missing coherent complex members beyond the current seed/candidate group.",
+            "objective": "Recover exact coherent complex membership beyond the current seed/candidate group.",
+            "exact_success_policy": (
+                "Exact recovery is the stopping standard. A coherent seed-only or otherwise "
+                "partial group is not terminal while remaining budget can test candidate additions."
+            ),
             "candidate_policy": [
                 "Inspect ranked non-seed tool candidates before marking the seed group complete.",
                 "Add a non-seed candidate only when the visible observation gives credible support.",
+                "When evidence supports a specific expanded gene set, update predicted_gene_ids to that set instead of only planning another expansion.",
+                "If any plausible non-seed candidate remains untested, choose continue and set next_subgoal to the addition test.",
                 "If no non-seed candidate is supported, explain that limitation and choose continue when another query could help.",
+            ],
+        }
+    elif task_type == "refinement":
+        payload["task_guidance"] = {
+            "objective": "Recover the exact coherent subset by removing unsupported/off-module genes while preserving supported members.",
+            "exact_success_policy": (
+                "Exact refinement is the stopping standard. A plausible but over-inclusive "
+                "or under-inclusive group is not terminal while remaining budget can test "
+                "candidate removals or preservation evidence."
+            ),
+            "candidate_policy": [
+                "Treat extra genes as unresolved until graph or annotation evidence supports keeping them.",
+                "When evidence identifies unsupported extras, update predicted_gene_ids to the pruned coherent subset instead of only describing the pruning plan.",
+                "Prefer continuing when the current state is only partially observed and pruning evidence is incomplete.",
+                "If any questionable extra or supported member remains untested, choose continue and set next_subgoal to the pruning/preservation test.",
+                "Do not let a plausible mechanism label compensate for unsupported extra genes.",
             ],
         }
     return payload
@@ -5051,6 +5121,16 @@ def _pair_category(
     rejected_recall = float(rejected_features["post_recall"])
     chosen_has_tool = bool(chosen_features["has_successful_tool"])
     rejected_has_tool = bool(rejected_features["has_successful_tool"])
+    chosen_exact = bool(chosen_features["exact_membership"])
+    rejected_exact = bool(rejected_features["exact_membership"])
+    rejected_success_level = str(rejected_features["task_success_level"])
+
+    if task_type in {"recovery", "refinement"} and chosen_exact and not rejected_exact:
+        if rejected_success_level == "partial":
+            return "exact_over_partial"
+        if task_type == "recovery":
+            return "exact_recovery"
+        return "exact_refinement"
 
     if (
         task_type == "recovery"
@@ -5119,6 +5199,8 @@ def _pair_quality_provenance(
     branches: list[CandidateBranch],
     chosen_branch: CandidateBranch,
     rejected_branch: CandidateBranch,
+    raw_score_delta: float,
+    normalized_score_delta: float,
     score_margin: float,
     pair_mining_strategy: str,
 ) -> dict[str, Any]:
@@ -5130,6 +5212,8 @@ def _pair_quality_provenance(
         "valid_candidate_count": sum(1 for branch in branches if _branch_is_usable_for_selection(branch)),
         "selected_branch_id": chosen_branch.branch_id,
         "score_margin_threshold": score_margin,
+        "raw_score_delta": raw_score_delta,
+        "normalized_score_delta": normalized_score_delta,
         "difficulty": task_row.get("difficulty"),
         "pair_mining_strategy": pair_mining_strategy,
         "pair_category": _pair_category(
@@ -5144,6 +5228,18 @@ def _pair_quality_provenance(
         "rejected_has_successful_tool": rejected_features["has_successful_tool"],
         "chosen_gene_count": chosen_features["post_gene_count"],
         "rejected_gene_count": rejected_features["post_gene_count"],
+        "chosen_exact_membership": chosen_features["exact_membership"],
+        "rejected_exact_membership": rejected_features["exact_membership"],
+        "chosen_task_success_level": chosen_features["task_success_level"],
+        "rejected_task_success_level": rejected_features["task_success_level"],
+        "chosen_relationship_status": chosen_features["relationship_status"],
+        "rejected_relationship_status": rejected_features["relationship_status"],
+        "chosen_final_jaccard": chosen_features["post_jaccard"],
+        "rejected_final_jaccard": rejected_features["post_jaccard"],
+        "chosen_final_precision": chosen_features["post_precision"],
+        "rejected_final_precision": rejected_features["post_precision"],
+        "chosen_final_recall": chosen_features["post_recall"],
+        "rejected_final_recall": rejected_features["post_recall"],
         "chosen_group_size_delta": chosen_features["group_size_delta"],
         "rejected_group_size_delta": rejected_features["group_size_delta"],
         "chosen_recall_delta": chosen_features["recall_delta"],
@@ -5154,6 +5250,14 @@ def _pair_quality_provenance(
         "rejected_mechanism_evidence_score": rejected_features["mechanism_evidence_score"],
         "chosen_mechanism_evidence_delta": chosen_features["mechanism_evidence_delta"],
         "rejected_mechanism_evidence_delta": rejected_features["mechanism_evidence_delta"],
+        "chosen_deterministic_membership_edit": chosen_branch.metadata.get(
+            "deterministic_membership_edit"
+        ),
+        "rejected_deterministic_membership_edit": rejected_branch.metadata.get(
+            "deterministic_membership_edit"
+        ),
+        "chosen_candidate_frontier": chosen_branch.metadata.get("candidate_frontier", []),
+        "rejected_candidate_frontier": rejected_branch.metadata.get("candidate_frontier", []),
         "complex_delta_diff": (
             chosen_branch.local_score.complex_membership_delta
             - rejected_branch.local_score.complex_membership_delta
@@ -5238,15 +5342,30 @@ def _mine_preference_pairs(
         return []
 
     chosen_normalized = float(chosen_branch.local_score.normalized_score or 0.0)
+    task_type = str(task_row["task_type"])
+    chosen_features = _branch_quality_features(chosen_branch, prior_state=context.state)
+    exact_chosen = bool(chosen_features["exact_membership"]) and task_type in {"recovery", "refinement"}
+
+    def rejected_is_pair_candidate(branch: CandidateBranch) -> bool:
+        if branch.branch_id == chosen_branch.branch_id:
+            return False
+        if not _branch_is_usable_for_selection(branch):
+            return False
+        rejected_normalized = float(branch.local_score.normalized_score or 0.0)
+        if (chosen_normalized - rejected_normalized) >= score_margin:
+            return True
+        if not exact_chosen:
+            return False
+        rejected_features = _branch_quality_features(branch, prior_state=context.state)
+        return (
+            not bool(rejected_features["exact_membership"])
+            and str(rejected_features["task_success_level"]) in {"partial", "negative"}
+        )
+
     ordered_rejected = sorted(
-        (
-            branch
-            for branch in branches
-            if branch.branch_id != chosen_branch.branch_id
-            and _branch_is_usable_for_selection(branch)
-            and (chosen_normalized - float(branch.local_score.normalized_score or 0.0)) >= score_margin
-        ),
+        (branch for branch in branches if rejected_is_pair_candidate(branch)),
         key=lambda branch: (
+            int(_branch_quality_features(branch, prior_state=context.state)["exact_membership"]),
             float(branch.local_score.normalized_score or 0.0),
             branch.local_score.total_score,
             branch.branch_id,
@@ -5278,7 +5397,13 @@ def _mine_preference_pairs(
     for difficulty_bin, rejected_branch in difficulty_targets:
         if rejected_branch.branch_id in seen_branch_ids:
             continue
-        if not _pair_is_task_safe(
+        rejected_features = _branch_quality_features(rejected_branch, prior_state=context.state)
+        exact_over_partial = (
+            exact_chosen
+            and not bool(rejected_features["exact_membership"])
+            and str(rejected_features["task_success_level"]) in {"partial", "negative"}
+        )
+        if not exact_over_partial and not _pair_is_task_safe(
             task_type=str(task_row["task_type"]),
             context=context,
             chosen_branch=chosen_branch,
@@ -5287,6 +5412,8 @@ def _mine_preference_pairs(
             continue
         seen_branch_ids.add(rejected_branch.branch_id)
         rejected_normalized = float(rejected_branch.local_score.normalized_score or 0.0)
+        raw_score_delta = chosen_branch.local_score.total_score - rejected_branch.local_score.total_score
+        normalized_score_delta = chosen_normalized - rejected_normalized
         pair = PreferencePair(
             pair_id=(
                 f"{trajectory_id}.step{step_index}.pref."
@@ -5302,7 +5429,7 @@ def _mine_preference_pairs(
             raw_score_rejected=rejected_branch.local_score.total_score,
             normalized_score_chosen=chosen_normalized,
             normalized_score_rejected=rejected_normalized,
-            score_margin=chosen_normalized - rejected_normalized,
+            score_margin=max(0.0, normalized_score_delta),
             source_task_id=task_row["task_id"],
             trajectory_id=trajectory_id,
             trajectory_seed=trajectory_seed,
@@ -5313,6 +5440,8 @@ def _mine_preference_pairs(
                 branches=branches,
                 chosen_branch=chosen_branch,
                 rejected_branch=rejected_branch,
+                raw_score_delta=raw_score_delta,
+                normalized_score_delta=normalized_score_delta,
                 score_margin=score_margin,
                 pair_mining_strategy=pair_mining_strategy,
             ),
@@ -5997,6 +6126,535 @@ def _score_branch(
         available_gene_ids=environment.available_gene_ids,
         available_layers=environment.available_layers,
     )
+    branch = _enforce_exact_membership_nonterminal(task_row, branch)
+    return branch
+
+
+def _clone_tool_observation_with_provenance(
+    observation: ToolObservation | None,
+    provenance_updates: dict[str, Any],
+) -> ToolObservation | None:
+    if observation is None:
+        return None
+    payload = observation.to_dict()
+    provenance = dict(payload.get("provenance") or {})
+    provenance.update(provenance_updates)
+    payload["provenance"] = provenance
+    return ToolObservation.from_dict(payload)
+
+
+def _candidate_frontier_from_rwr_observation(
+    observation: ToolObservation,
+    current_gene_ids: list[str],
+    *,
+    task_type: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    payload = observation.payload or {}
+    results = payload.get("results", payload.get("ranked_genes", []))
+    result_list = results if isinstance(results, list) else []
+    current_gene_set = set(current_gene_ids)
+    frontier: list[dict[str, Any]] = []
+    for rank_index, item in enumerate(result_list, start=1):
+        if not isinstance(item, dict):
+            continue
+        gene_id = _rwr_result_gene_id(item)
+        if gene_id is None:
+            continue
+        if task_type == "recovery" and gene_id in current_gene_set:
+            continue
+        if task_type == "refinement" and gene_id not in current_gene_set:
+            continue
+        rank_value = item.get("rank", rank_index)
+        score_value = item.get("score")
+        row: dict[str, Any] = {
+            "gene_id": gene_id,
+            "source_tool": observation.provenance.get("tool_name"),
+            "rank": rank_value,
+            "support_summary": "rwr_ranked_non_seed_candidate"
+            if task_type == "recovery"
+            else "rwr_ranked_current_member",
+        }
+        if isinstance(score_value, (int, float)):
+            row["score"] = float(score_value)
+        frontier.append(row)
+        if len(frontier) >= limit:
+            break
+    return frontier
+
+
+def _candidate_frontier_from_induced_subgraph(
+    observation: ToolObservation,
+    current_gene_ids: list[str],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    payload = observation.payload or {}
+    degree_counts: Counter[str] = Counter()
+    for layer_payload in payload.get("layers", []):
+        if not isinstance(layer_payload, dict):
+            continue
+        for edge in layer_payload.get("edges", []):
+            if not isinstance(edge, dict):
+                continue
+            source = edge.get("source_gene_id")
+            target = edge.get("target_gene_id")
+            if isinstance(source, str) and source:
+                degree_counts[source] += 1
+            if isinstance(target, str) and target:
+                degree_counts[target] += 1
+    ordered = sorted(current_gene_ids, key=lambda gene_id: (degree_counts.get(gene_id, 0), gene_id))
+    return [
+        {
+            "gene_id": gene_id,
+            "source_tool": observation.provenance.get("tool_name"),
+            "degree": int(degree_counts.get(gene_id, 0)),
+            "support_summary": "induced_subgraph_low_degree_member",
+        }
+        for gene_id in ordered[:limit]
+    ]
+
+
+def _candidate_frontier_for_membership_edit(
+    observation: ToolObservation | None,
+    current_gene_ids: list[str],
+    *,
+    task_type: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    if observation is None or observation.status != ToolObservationStatus.SUCCESS:
+        return []
+    tool_name = observation.provenance.get("tool_name")
+    if tool_name in RWR_RESULT_TOOL_NAMES:
+        return _candidate_frontier_from_rwr_observation(
+            observation,
+            current_gene_ids,
+            task_type=task_type,
+            limit=limit,
+        )
+    if task_type == "refinement" and tool_name == "induce_subgraph":
+        return _candidate_frontier_from_induced_subgraph(
+            observation,
+            current_gene_ids,
+            limit=limit,
+        )
+    return []
+
+
+def _refinement_drop_candidates(
+    observation: ToolObservation | None,
+    current_gene_ids: list[str],
+    *,
+    limit: int,
+) -> list[str]:
+    if not current_gene_ids:
+        return []
+    if observation is None or observation.status != ToolObservationStatus.SUCCESS:
+        return current_gene_ids[:limit]
+
+    tool_name = observation.provenance.get("tool_name")
+    payload = observation.payload or {}
+    if tool_name in RWR_RESULT_TOOL_NAMES:
+        results = payload.get("results", payload.get("ranked_genes", []))
+        result_list = results if isinstance(results, list) else []
+        rank_by_gene: dict[str, int] = {}
+        score_by_gene: dict[str, float] = {}
+        for rank_index, item in enumerate(result_list, start=1):
+            if not isinstance(item, dict):
+                continue
+            gene_id = _rwr_result_gene_id(item)
+            if gene_id is None:
+                continue
+            rank_by_gene.setdefault(gene_id, int(item.get("rank", rank_index)))
+            score = item.get("score")
+            if isinstance(score, (int, float)):
+                score_by_gene[gene_id] = float(score)
+
+        return sorted(
+            current_gene_ids,
+            key=lambda gene_id: (
+                0 if gene_id not in rank_by_gene else 1,
+                -(rank_by_gene.get(gene_id, 10**12)),
+                score_by_gene.get(gene_id, float("-inf")),
+                gene_id,
+            ),
+        )[:limit]
+
+    if tool_name == "induce_subgraph":
+        degree_counts: Counter[str] = Counter()
+        for layer_payload in payload.get("layers", []):
+            if not isinstance(layer_payload, dict):
+                continue
+            for edge in layer_payload.get("edges", []):
+                if not isinstance(edge, dict):
+                    continue
+                source = edge.get("source_gene_id")
+                target = edge.get("target_gene_id")
+                if isinstance(source, str) and source:
+                    degree_counts[source] += 1
+                if isinstance(target, str) and target:
+                    degree_counts[target] += 1
+        return sorted(current_gene_ids, key=lambda gene_id: (degree_counts.get(gene_id, 0), gene_id))[:limit]
+
+    return current_gene_ids[:limit]
+
+
+def _build_deterministic_membership_edit_branch(
+    *,
+    task_row: dict[str, Any],
+    prior_state: Any,
+    source_branch: CandidateBranch,
+    updated_gene_ids: list[str],
+    edit_kind: str,
+    added_gene_ids: list[str],
+    removed_gene_ids: list[str],
+    candidate_frontier: list[dict[str, Any]],
+    branch_id: str,
+    step_index: int,
+    max_steps: int,
+    symbol_lookup: dict[str, str],
+) -> CandidateBranch:
+    action_payload = (
+        source_branch.actor_step.tool_action.to_dict()
+        if source_branch.actor_step.tool_action is not None
+        else None
+    )
+    tool_action = ToolAction.from_dict(action_payload) if action_payload is not None else None
+    source_tool_name = tool_action.tool_name if tool_action is not None else None
+    edit_metadata = {
+        "task_type": task_row["task_type"],
+        "edit_kind": edit_kind,
+        "source_branch_id": source_branch.branch_id,
+        "source_tool_name": source_tool_name,
+        "added_gene_ids": list(added_gene_ids),
+        "removed_gene_ids": list(removed_gene_ids),
+        "candidate_gene_ids": list(added_gene_ids or removed_gene_ids),
+        "candidate_frontier": candidate_frontier[:DEFAULT_MEMBERSHIP_EDIT_TOP_K],
+    }
+    observation = _clone_tool_observation_with_provenance(
+        source_branch.observation,
+        {
+            "deterministic_membership_edit": edit_metadata,
+            "candidate_frontier": candidate_frontier[:DEFAULT_MEMBERSHIP_EDIT_TOP_K],
+        },
+    )
+
+    updated_state = clone_state(prior_state)
+    updated_state = decrement_budget(updated_state)
+    if tool_action is not None:
+        invalid_tool = not _observation_is_valid_evidence(observation)
+        updated_state = record_tool_call(updated_state, invalid=invalid_tool)
+
+    evidence_record = _build_evidence_record(
+        observation,
+        step_index=step_index,
+        branch_id=branch_id,
+        symbol_lookup=symbol_lookup,
+    )
+    if evidence_record is not None:
+        updated_state = append_evidence_record(updated_state, evidence_record)
+
+    updated_state = replace_predicted_groups(
+        updated_state,
+        [
+            _build_gene_group(
+                updated_gene_ids,
+                symbol_lookup=symbol_lookup,
+                rationale=f"Deterministic membership edit ({edit_kind}).",
+            )
+        ],
+        relationship_status=RelationshipStatus.VALIDATED_GROUP,
+    )
+    updated_state = set_continuation_state(
+        updated_state,
+        ContinuationState.STOP,
+        termination_reason=TerminationReason.MODEL_STOP
+        if updated_state.remaining_budget > 0
+        else TerminationReason.BUDGET_EXHAUSTED,
+    )
+
+    summary = (
+        "Deterministic recovery edit added candidate genes "
+        + ", ".join(added_gene_ids)
+        if added_gene_ids
+        else "Deterministic refinement edit removed candidate genes "
+        + ", ".join(removed_gene_ids)
+    )
+    updated_interpretation = _render_interpretation(
+        task_row["query_text"],
+        updated_gene_ids,
+        RelationshipStatus.VALIDATED_GROUP,
+        updated_state.mechanistic_labels,
+        summary,
+        ContinuationState.STOP,
+        symbol_lookup=symbol_lookup,
+    )
+    return CandidateBranch(
+        branch_id=branch_id,
+        actor_step=ActorStep(
+            reasoning_text=(
+                "Controller-synthesized exact-membership edit over visible "
+                f"{source_tool_name or 'membership'} evidence."
+            ),
+            tool_action=tool_action,
+        ),
+        observation=observation,
+        verifier_step=VerifierStep(
+            updated_interpretation=updated_interpretation,
+            updated_state=updated_state,
+            continuation_decision=ContinuationState.STOP,
+            verifier_notes="deterministic_membership_edit",
+        ),
+        local_score=LocalScoreBreakdown(
+            schema_score=0.0,
+            complex_membership_delta=0.0,
+            mechanistic_label_delta=0.0,
+            efficiency_penalty=0.0,
+            total_score=0.0,
+        ),
+        metadata={
+            "generator_backend": "deterministic_membership_edit",
+            "deterministic_membership_edit": edit_metadata,
+            "candidate_frontier": candidate_frontier[:DEFAULT_MEMBERSHIP_EDIT_TOP_K],
+            "step_index": step_index,
+            "task_type": task_row["task_type"],
+        },
+    )
+
+
+def _deterministic_membership_edit_branches(
+    *,
+    task_row: dict[str, Any],
+    prior_state: Any,
+    branches: list[CandidateBranch],
+    trajectory_id: str,
+    step_index: int,
+    max_steps: int,
+    symbol_lookup: dict[str, str],
+    environment: RuntimeEnvironment,
+    prior_actions: list[ToolAction],
+    top_k: int,
+    max_cumulative_additions: int,
+    max_drop_pairs: int,
+) -> list[CandidateBranch]:
+    task_type = str(task_row.get("task_type", ""))
+    if task_type not in {"recovery", "refinement"}:
+        return []
+
+    current_gene_ids = _current_gene_ids(task_row, prior_state)
+    if not current_gene_ids:
+        return []
+
+    source_branches = [
+        branch
+        for branch in branches
+        if branch.actor_step.tool_action is not None
+        and branch.observation is not None
+        and branch.observation.status == ToolObservationStatus.SUCCESS
+        and (
+            branch.observation.provenance.get("tool_name") in RWR_RESULT_TOOL_NAMES
+            or (
+                task_type == "refinement"
+                and branch.observation.provenance.get("tool_name") == "induce_subgraph"
+            )
+        )
+    ]
+    if not source_branches:
+        return []
+
+    edit_branches: list[CandidateBranch] = []
+    seen_gene_sets: set[tuple[str, ...]] = {
+        tuple(_branch_predicted_gene_ids(branch)) for branch in branches
+    }
+
+    def add_edit_branch(
+        source_branch: CandidateBranch,
+        updated_gene_ids: list[str],
+        *,
+        edit_kind: str,
+        added_gene_ids: list[str],
+        removed_gene_ids: list[str],
+        candidate_frontier: list[dict[str, Any]],
+        suffix: str,
+    ) -> None:
+        unique_gene_ids = _unique(updated_gene_ids)
+        if not unique_gene_ids:
+            return
+        key = tuple(unique_gene_ids)
+        if key in seen_gene_sets:
+            return
+        seen_gene_sets.add(key)
+        branch = _build_deterministic_membership_edit_branch(
+            task_row=task_row,
+            prior_state=prior_state,
+            source_branch=source_branch,
+            updated_gene_ids=unique_gene_ids,
+            edit_kind=edit_kind,
+            added_gene_ids=added_gene_ids,
+            removed_gene_ids=removed_gene_ids,
+            candidate_frontier=candidate_frontier,
+            branch_id=f"{trajectory_id}.step{step_index}.edit.{suffix}",
+            step_index=step_index,
+            max_steps=max_steps,
+            symbol_lookup=symbol_lookup,
+        )
+        branch = _score_branch(
+            task_row,
+            prior_state,
+            branch,
+            step_index=step_index,
+            max_steps=max_steps,
+            prior_actions=prior_actions,
+            environment=environment,
+        )
+        edit_branches.append(branch)
+
+    for source_index, source_branch in enumerate(source_branches):
+        observation = source_branch.observation
+        frontier = _candidate_frontier_for_membership_edit(
+            observation,
+            current_gene_ids,
+            task_type=task_type,
+            limit=top_k,
+        )
+        if not frontier:
+            continue
+        if task_type == "recovery":
+            frontier_gene_ids = [
+                row["gene_id"]
+                for row in frontier
+                if isinstance(row.get("gene_id"), str)
+                and row["gene_id"] not in current_gene_ids
+            ]
+            for add_count in range(1, min(max_cumulative_additions, len(frontier_gene_ids)) + 1):
+                additions = frontier_gene_ids[:add_count]
+                add_edit_branch(
+                    source_branch,
+                    current_gene_ids + additions,
+                    edit_kind=f"recovery_add_top{add_count}",
+                    added_gene_ids=additions,
+                    removed_gene_ids=[],
+                    candidate_frontier=frontier,
+                    suffix=f"recovery.source{source_index}.add_top{add_count}",
+                )
+            for rank_index, gene_id in enumerate(frontier_gene_ids[:top_k], start=1):
+                add_edit_branch(
+                    source_branch,
+                    current_gene_ids + [gene_id],
+                    edit_kind="recovery_add_single",
+                    added_gene_ids=[gene_id],
+                    removed_gene_ids=[],
+                    candidate_frontier=frontier,
+                    suffix=f"recovery.source{source_index}.add_rank{rank_index}",
+                )
+        else:
+            drop_limit = len(current_gene_ids) if len(current_gene_ids) <= 12 else 12
+            drop_candidates = _refinement_drop_candidates(
+                observation,
+                current_gene_ids,
+                limit=drop_limit,
+            )
+            for drop_index, gene_id in enumerate(drop_candidates, start=1):
+                retained = [current_gene_id for current_gene_id in current_gene_ids if current_gene_id != gene_id]
+                add_edit_branch(
+                    source_branch,
+                    retained,
+                    edit_kind="refinement_drop_single",
+                    added_gene_ids=[],
+                    removed_gene_ids=[gene_id],
+                    candidate_frontier=frontier,
+                    suffix=f"refinement.source{source_index}.drop{drop_index}",
+                )
+            pair_count = 0
+            for first_index, first_gene in enumerate(drop_candidates):
+                for second_gene in drop_candidates[first_index + 1 :]:
+                    if pair_count >= max_drop_pairs:
+                        break
+                    retained = [
+                        current_gene_id
+                        for current_gene_id in current_gene_ids
+                        if current_gene_id not in {first_gene, second_gene}
+                    ]
+                    add_edit_branch(
+                        source_branch,
+                        retained,
+                        edit_kind="refinement_drop_pair",
+                        added_gene_ids=[],
+                        removed_gene_ids=[first_gene, second_gene],
+                        candidate_frontier=frontier,
+                        suffix=f"refinement.source{source_index}.droppair{pair_count + 1}",
+                    )
+                    pair_count += 1
+                if pair_count >= max_drop_pairs:
+                    break
+    return edit_branches
+
+
+def _enforce_exact_membership_nonterminal(
+    task_row: dict[str, Any],
+    branch: CandidateBranch,
+) -> CandidateBranch:
+    """Keep partial recovery/refinement branches open while budget remains.
+
+    The model and verifier only see visible evidence; the controller also has
+    the local scorer's exact-membership classification. For recovery/refinement
+    training trajectories, a partial state should remain a candidate for further
+    add/prune work instead of becoming a terminal positive-looking branch.
+    """
+
+    task_type = str(task_row.get("task_type", ""))
+    if task_type not in {"recovery", "refinement"}:
+        return branch
+
+    verifier_step = branch.verifier_step
+    updated_state = verifier_step.updated_state
+    if updated_state.remaining_budget <= 0:
+        return branch
+    if verifier_step.continuation_decision != ContinuationState.STOP:
+        return branch
+
+    task_success = branch.local_score.score_metadata.get("task_success", {})
+    task_success_level = task_success.get("task_success_level") if isinstance(task_success, dict) else None
+    partial_relationship = updated_state.relationship_status == RelationshipStatus.PARTIALLY_OBSERVED_GROUP
+    partial_exact_membership = task_success_level == "partial"
+    if not partial_relationship and not partial_exact_membership:
+        return branch
+
+    original_termination_reason = (
+        updated_state.termination_reason.value
+        if updated_state.termination_reason is not None
+        else None
+    )
+    updated_state = set_continuation_state(
+        updated_state,
+        ContinuationState.CONTINUE,
+        termination_reason=None,
+    )
+    reason_parts: list[str] = []
+    if partial_relationship:
+        reason_parts.append("relationship_status=partially_observed_group")
+    if partial_exact_membership:
+        reason_parts.append("task_success_level=partial")
+    reason = "; ".join(reason_parts)
+    notes = verifier_step.verifier_notes.strip()
+    override_note = (
+        "Controller override: partial recovery/refinement is nonterminal under "
+        f"the exact-membership standard while budget remains ({reason})."
+    )
+    branch.verifier_step = VerifierStep(
+        updated_interpretation=verifier_step.updated_interpretation,
+        updated_state=updated_state,
+        continuation_decision=ContinuationState.CONTINUE,
+        verifier_notes=f"{notes} {override_note}".strip(),
+    )
+    branch.metadata["exact_membership_nonterminal_override"] = {
+        "applied": True,
+        "reason": reason,
+        "original_continuation_decision": ContinuationState.STOP.value,
+        "original_termination_reason": original_termination_reason,
+        "replacement_continuation_decision": ContinuationState.CONTINUE.value,
+        "remaining_budget": updated_state.remaining_budget,
+    }
     return branch
 
 
@@ -6076,6 +6734,21 @@ def _complex_metric_value(branch: CandidateBranch, metric_name: str, *, phase: s
     return float(value) if isinstance(value, (int, float)) else 0.0
 
 
+def _branch_task_success_level(branch: CandidateBranch) -> str:
+    value = branch.local_score.score_metadata.get("task_success", {}).get("task_success_level")
+    return str(value) if value is not None else "unknown"
+
+
+def _branch_has_exact_membership(branch: CandidateBranch) -> bool:
+    return (
+        _branch_task_success_level(branch) == "positive"
+        and branch.verifier_step.updated_state.relationship_status == RelationshipStatus.VALIDATED_GROUP
+        and _complex_metric_value(branch, "jaccard", phase="post") >= 1.0
+        and _complex_metric_value(branch, "recall", phase="post") >= 1.0
+        and _complex_metric_value(branch, "precision", phase="post") >= 1.0
+    )
+
+
 def _branch_quality_features(
     branch: CandidateBranch,
     *,
@@ -6085,6 +6758,18 @@ def _branch_quality_features(
     post_gene_ids = _branch_predicted_gene_ids(branch)
     relationship_status = branch.verifier_step.updated_state.relationship_status.value
     tool_name = _branch_tool_name(branch)
+    post_recall = _complex_metric_value(branch, "recall", phase="post")
+    post_precision = _complex_metric_value(branch, "precision", phase="post")
+    post_jaccard = _complex_metric_value(branch, "jaccard", phase="post")
+    task_success_level = _branch_task_success_level(branch)
+    exact_membership = _branch_has_exact_membership(branch)
+    membership_metrics_exact = (
+        post_jaccard >= 1.0
+        and post_recall >= 1.0
+        and post_precision >= 1.0
+    )
+    membership_metrics_min = min(post_jaccard, post_recall, post_precision)
+    membership_metrics_score = (post_jaccard + post_recall + post_precision) / 3.0
     return {
         "tool_name": tool_name,
         "has_successful_tool": _branch_has_successful_tool(branch),
@@ -6099,12 +6784,14 @@ def _branch_quality_features(
         "recall_delta": _complex_metric_delta(branch, "recall"),
         "precision_delta": _complex_metric_delta(branch, "precision"),
         "jaccard_delta": _complex_metric_delta(branch, "jaccard"),
-        "post_recall": _complex_metric_value(branch, "recall", phase="post"),
-        "post_precision": _complex_metric_value(branch, "precision", phase="post"),
-        "post_jaccard": _complex_metric_value(branch, "jaccard", phase="post"),
-        "task_success_level": branch.local_score.score_metadata.get("task_success", {}).get(
-            "task_success_level"
-        ),
+        "post_recall": post_recall,
+        "post_precision": post_precision,
+        "post_jaccard": post_jaccard,
+        "exact_membership": exact_membership,
+        "membership_metrics_exact": membership_metrics_exact,
+        "membership_metrics_min": membership_metrics_min,
+        "membership_metrics_score": membership_metrics_score,
+        "task_success_level": task_success_level,
         "relationship_status": relationship_status,
         "continuation_state": branch.verifier_step.updated_state.continuation_state.value,
     }
@@ -6175,9 +6862,27 @@ def _branch_task_quality_tuple(
     mechanism_evidence_score = float(features["mechanism_evidence_score"])
     recall_delta = float(features["recall_delta"])
     precision_delta = float(features["precision_delta"])
+    exact_membership = int(bool(features["exact_membership"]))
+    membership_metrics_exact = int(bool(features["membership_metrics_exact"]))
+    membership_metrics_min = float(features["membership_metrics_min"])
+    membership_metrics_score = float(features["membership_metrics_score"])
+    validated_group = int(status == RelationshipStatus.VALIDATED_GROUP.value)
+    positive_success = int(features["task_success_level"] == "positive")
+    post_jaccard = float(features["post_jaccard"])
+    post_recall = float(features["post_recall"])
+    post_precision = float(features["post_precision"])
 
     if task_type == "recovery":
         quality = (
+            exact_membership,
+            membership_metrics_exact,
+            positive_success,
+            validated_group,
+            membership_metrics_min,
+            membership_metrics_score,
+            post_jaccard,
+            post_recall,
+            post_precision,
             complex_delta,
             recall_delta,
             int(group_size_delta > 0),
@@ -6193,6 +6898,15 @@ def _branch_task_quality_tuple(
         )
     elif task_type == "refinement":
         quality = (
+            exact_membership,
+            membership_metrics_exact,
+            positive_success,
+            validated_group,
+            membership_metrics_min,
+            membership_metrics_score,
+            post_jaccard,
+            post_precision,
+            post_recall,
             precision_delta,
             complex_delta,
             int(group_size_delta < 0),
@@ -6277,6 +6991,28 @@ def _select_best_branch(
 
     selectable_branches = valid_branches or branches
     if selection_policy == "task_quality" and task_row is not None and prior_state is not None:
+        task_type = str(task_row.get("task_type", ""))
+        if task_type in {"recovery", "refinement"}:
+            selected = max(
+                selectable_branches,
+                key=lambda branch: _branch_task_quality_tuple(
+                    branch,
+                    task_type=task_type,
+                    prior_state=prior_state,
+                ),
+            )
+            max_normalized = max(float(branch.local_score.normalized_score or 0.0) for branch in selectable_branches)
+            selected_normalized = float(selected.local_score.normalized_score or 0.0)
+            selected.metadata["selection_policy"] = selection_policy
+            selected.metadata["selection_score_epsilon"] = selection_score_epsilon
+            selected.metadata["selection_quality_scope"] = "all_candidates_membership_first"
+            selected.metadata["selection_score_gap"] = max_normalized - selected_normalized
+            selected.metadata["selection_quality"] = _branch_quality_features(
+                selected,
+                prior_state=prior_state,
+            )
+            return selected
+
         max_normalized = max(float(branch.local_score.normalized_score or 0.0) for branch in selectable_branches)
         near_top = [
             branch
@@ -6284,7 +7020,6 @@ def _select_best_branch(
             if max_normalized - float(branch.local_score.normalized_score or 0.0)
             <= selection_score_epsilon
         ]
-        task_type = str(task_row.get("task_type", ""))
         selected = max(
             near_top,
             key=lambda branch: _branch_task_quality_tuple(
@@ -6328,6 +7063,10 @@ class TrajectoryGenerationConfig:
     pair_mining_strategy: str = "score_margin"
     tool_coverage_retry_count: int = 0
     recovery_rwr_top_k: int = DEFAULT_RECOVERY_RWR_TOP_K
+    membership_edit_branches: str = DEFAULT_MEMBERSHIP_EDIT_BRANCHES
+    membership_edit_top_k: int = DEFAULT_MEMBERSHIP_EDIT_TOP_K
+    membership_edit_max_cumulative_additions: int = DEFAULT_MEMBERSHIP_EDIT_MAX_CUMULATIVE_ADDITIONS
+    membership_edit_max_drop_pairs: int = DEFAULT_MEMBERSHIP_EDIT_MAX_DROP_PAIRS
 
     def __post_init__(self) -> None:
         if self.max_steps <= 0:
@@ -6354,6 +7093,15 @@ class TrajectoryGenerationConfig:
             raise ValueError("tool_coverage_retry_count must be non-negative.")
         if self.recovery_rwr_top_k <= 0:
             raise ValueError("recovery_rwr_top_k must be positive.")
+        if self.membership_edit_branches not in MEMBERSHIP_EDIT_BRANCH_MODES:
+            allowed = ", ".join(MEMBERSHIP_EDIT_BRANCH_MODES)
+            raise ValueError(f"membership_edit_branches must be one of: {allowed}.")
+        if self.membership_edit_top_k <= 0:
+            raise ValueError("membership_edit_top_k must be positive.")
+        if self.membership_edit_max_cumulative_additions <= 0:
+            raise ValueError("membership_edit_max_cumulative_additions must be positive.")
+        if self.membership_edit_max_drop_pairs < 0:
+            raise ValueError("membership_edit_max_drop_pairs must be non-negative.")
 
 
 class ProgressTracker:
@@ -6772,6 +7520,68 @@ def generate_task_trajectory(
                         )
                         continue
                     branches.append(branch)
+            if branches and task_row["task_type"] == "recovery" and not any(
+                _branch_tool_name(branch) == "rwr" for branch in branches
+            ):
+                rwr_template = next(
+                    (
+                        template
+                        for template in _actor_templates_for_step(
+                            task_row,
+                            state,
+                            trajectory_id=trajectory_id,
+                            step_index=step_index,
+                            n_act=max(config.n_act, 1),
+                            recovery_rwr_top_k=config.recovery_rwr_top_k,
+                        )
+                        if template["template_id"] == "rwr_expand_group"
+                    ),
+                    None,
+                )
+                if rwr_template is not None:
+                    actor_template_id = rwr_template["template_id"]
+                    actor_step = rwr_template["actor_step"]
+                    observation = None
+                    if actor_step.tool_action is not None:
+                        observation = environment.execute(
+                            actor_step.tool_action,
+                            state=state,
+                            prior_actions=prior_actions,
+                        )
+                    verifier_template_ids = _verifier_template_ids(
+                        task_row["task_type"],
+                        actor_template_id,
+                        n_ver=config.n_ver,
+                    )
+                    for verifier_index, verifier_template_id in enumerate(verifier_template_ids):
+                        branch_id = (
+                            f"{trajectory_id}.step{step_index}.forced_rwr.v{verifier_index}"
+                        )
+                        branch = _build_heuristic_branch_for_templates(
+                            task_row,
+                            interpretation,
+                            state,
+                            actor_template_id,
+                            actor_step,
+                            verifier_template_id,
+                            observation,
+                            branch_id=branch_id,
+                            step_index=step_index,
+                            max_steps=config.max_steps,
+                            symbol_lookup=symbol_lookup,
+                        )
+                        branch.metadata["generator_backend"] = "forced_rwr_template"
+                        branch.metadata["forced_tool_coverage"] = "recovery_rwr"
+                        branch = _score_branch(
+                            task_row,
+                            state,
+                            branch,
+                            step_index=step_index,
+                            max_steps=config.max_steps,
+                            prior_actions=prior_actions,
+                            environment=environment,
+                        )
+                        branches.append(branch)
             if not branches:
                 rejected_model_errors = _unique(
                     rejected_model_errors or ["model_generator_returned_no_candidates"]
@@ -6893,6 +7703,24 @@ def generate_task_trajectory(
                         environment=environment,
                     )
                     branches.append(branch)
+
+        if config.membership_edit_branches == "hybrid":
+            branches.extend(
+                _deterministic_membership_edit_branches(
+                    task_row=task_row,
+                    prior_state=state,
+                    branches=branches,
+                    trajectory_id=trajectory_id,
+                    step_index=step_index,
+                    max_steps=config.max_steps,
+                    symbol_lookup=symbol_lookup,
+                    environment=environment,
+                    prior_actions=prior_actions,
+                    top_k=config.membership_edit_top_k,
+                    max_cumulative_additions=config.membership_edit_max_cumulative_additions,
+                    max_drop_pairs=config.membership_edit_max_drop_pairs,
+                )
+            )
 
         _normalize_branch_pool(branches)
         selected_branch = _select_best_branch(
@@ -7208,6 +8036,12 @@ def generate_trajectories(
                 "pair_mining_strategy": config.pair_mining_strategy,
                 "tool_coverage_retry_count": config.tool_coverage_retry_count,
                 "recovery_rwr_top_k": config.recovery_rwr_top_k,
+                "membership_edit_branches": config.membership_edit_branches,
+                "membership_edit_top_k": config.membership_edit_top_k,
+                "membership_edit_max_cumulative_additions": (
+                    config.membership_edit_max_cumulative_additions
+                ),
+                "membership_edit_max_drop_pairs": config.membership_edit_max_drop_pairs,
             },
             "generator": {
                 "candidate_source": config.candidate_source,
@@ -7604,6 +8438,33 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--membership-edit-branches",
+        choices=MEMBERSHIP_EDIT_BRANCH_MODES,
+        default=DEFAULT_MEMBERSHIP_EDIT_BRANCHES,
+        help=(
+            "Deterministic exact-membership edit branch mode. 'hybrid' keeps "
+            "model-sampled branches and adds controller-synthesized add/prune candidates."
+        ),
+    )
+    parser.add_argument(
+        "--membership-edit-top-k",
+        type=int,
+        default=DEFAULT_MEMBERSHIP_EDIT_TOP_K,
+        help="Number of visible candidate-frontier genes used for deterministic edit branches.",
+    )
+    parser.add_argument(
+        "--membership-edit-max-cumulative-additions",
+        type=int,
+        default=DEFAULT_MEMBERSHIP_EDIT_MAX_CUMULATIVE_ADDITIONS,
+        help="Maximum top-k cumulative additions synthesized for recovery edit branches.",
+    )
+    parser.add_argument(
+        "--membership-edit-max-drop-pairs",
+        type=int,
+        default=DEFAULT_MEMBERSHIP_EDIT_MAX_DROP_PAIRS,
+        help="Maximum low-support pair-drop refinement edit branches to synthesize.",
+    )
+    parser.add_argument(
         "--generator-api-base",
         type=str,
         default=DEFAULT_GENERATOR_API_BASE,
@@ -7739,6 +8600,10 @@ def main() -> None:
         pair_mining_strategy=args.pair_mining_strategy,
         tool_coverage_retry_count=args.tool_coverage_retry_count,
         recovery_rwr_top_k=args.recovery_rwr_top_k,
+        membership_edit_branches=args.membership_edit_branches,
+        membership_edit_top_k=args.membership_edit_top_k,
+        membership_edit_max_cumulative_additions=args.membership_edit_max_cumulative_additions,
+        membership_edit_max_drop_pairs=args.membership_edit_max_drop_pairs,
     )
     model_generator_config = None
     if args.candidate_source == "model_vllm":

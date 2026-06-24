@@ -181,6 +181,110 @@ class RuntimeScoringTests(unittest.TestCase):
         self.assertEqual(score.score_metadata["complex"]["best_group_post"]["metrics"]["recall"], 1.0)
         self.assertEqual(score.score_metadata["task_profile"]["recall_weight"], 0.6)
 
+    def test_recovery_success_requires_exact_validated_group(self) -> None:
+        interpretation, prior_state = initialize_state_from_corum_task(_recovery_task(), max_budget=4)
+        near_miss_state = replace_predicted_groups(
+            prior_state,
+            predicted_groups=[
+                GeneGroup(
+                    group_id="group_0",
+                    gene_ids=["ENSG_CREBBP", "ENSG_EP300", "ENSG_NCOA3"],
+                    gene_symbols=["CREBBP", "EP300", "NCOA3"],
+                    rationale="Misses one hidden target member.",
+                )
+            ],
+            relationship_status=RelationshipStatus.VALIDATED_GROUP,
+        )
+        near_miss_branch = _make_branch("recovery_near_miss", interpretation, near_miss_state)
+
+        near_miss_score = score_candidate_branch(
+            _recovery_task(),
+            prior_state,
+            near_miss_branch,
+            step_index=1,
+            max_steps=6,
+        )
+
+        self.assertEqual(
+            near_miss_score.score_metadata["task_success"]["task_success_level"],
+            "partial",
+        )
+        self.assertIn(
+            "target_recall_below_positive_threshold",
+            near_miss_score.score_metadata["task_success"]["task_quality_failure_reasons"],
+        )
+
+        partially_observed_state = replace_predicted_groups(
+            prior_state,
+            predicted_groups=[
+                GeneGroup(
+                    group_id="group_0",
+                    gene_ids=["ENSG_CREBBP", "ENSG_EP300", "ENSG_KAT2B", "ENSG_NCOA3"],
+                    gene_symbols=["CREBBP", "EP300", "KAT2B", "NCOA3"],
+                    rationale="Exact genes, but the state is not fully validated.",
+                )
+            ],
+            relationship_status=RelationshipStatus.PARTIALLY_OBSERVED_GROUP,
+        )
+        partially_observed_branch = _make_branch(
+            "recovery_partially_observed",
+            interpretation,
+            partially_observed_state,
+        )
+
+        partially_observed_score = score_candidate_branch(
+            _recovery_task(),
+            prior_state,
+            partially_observed_branch,
+            step_index=1,
+            max_steps=6,
+        )
+
+        self.assertEqual(
+            partially_observed_score.score_metadata["task_success"]["task_success_level"],
+            "partial",
+        )
+        self.assertIn(
+            "relationship_status_not_validated_group",
+            partially_observed_score.score_metadata["task_success"]["task_quality_failure_reasons"],
+        )
+
+    def test_refinement_success_requires_no_extra_genes(self) -> None:
+        task = _recovery_task()
+        task["task_type"] = "refinement"
+        interpretation, prior_state = initialize_state_from_corum_task(task, max_budget=4)
+        updated_state = replace_predicted_groups(
+            prior_state,
+            predicted_groups=[
+                GeneGroup(
+                    group_id="group_0",
+                    gene_ids=[
+                        "ENSG_CREBBP",
+                        "ENSG_EP300",
+                        "ENSG_KAT2B",
+                        "ENSG_NCOA3",
+                        "ENSG_EXTRA",
+                    ],
+                    gene_symbols=["CREBBP", "EP300", "KAT2B", "NCOA3", "EXTRA"],
+                    rationale="Keeps all targets but fails to remove a contaminant.",
+                )
+            ],
+            relationship_status=RelationshipStatus.VALIDATED_GROUP,
+        )
+        branch = _make_branch("refinement_extra_gene", interpretation, updated_state)
+
+        score = score_candidate_branch(task, prior_state, branch, step_index=1, max_steps=6)
+
+        self.assertEqual(score.score_metadata["task_success"]["task_success_level"], "partial")
+        self.assertIn(
+            "target_jaccard_below_positive_threshold",
+            score.score_metadata["task_success"]["task_quality_failure_reasons"],
+        )
+        self.assertIn(
+            "target_precision_below_positive_threshold",
+            score.score_metadata["task_success"]["task_quality_failure_reasons"],
+        )
+
     def test_explanation_branch_rewards_correct_mechanistic_label(self) -> None:
         interpretation, prior_state = initialize_state_from_corum_task(_explanation_task(), max_budget=4)
         updated_state = replace_mechanistic_labels(

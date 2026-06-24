@@ -46,7 +46,7 @@ Active full-brain runs use:
 
 - Multiplex store: `data/runtime/full_brain_multiplex_store`
 - Full-brain RWR++ flist:
-  `/lustre/orion/syb111/proj-shared/Personal/smithkp/projects/PASC_2026/full_brain/data/full_brain_flist.tsv`
+  `/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/data/full_brain_flist.tsv`
 - MENTOR dendrogram corpus: `data/gw_dendrogram_corpus_full_brain`
 - RWR-LOE corpus: `data/rwr_loe_corpus_full_brain`
 - Mixed corpus: `data/module_corpus_full_brain_mixed`

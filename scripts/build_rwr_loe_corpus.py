@@ -23,6 +23,7 @@ import shlex
 import subprocess
 import sys
 from collections import Counter, defaultdict
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,7 +57,7 @@ from scripts.build_gw_dendrogram_corpus import (
 
 DEFAULT_STORE_DIR = REPO_ROOT / "data" / "runtime" / "full_brain_multiplex_store"
 DEFAULT_RWR_HPC_FLIST = Path(
-    "/lustre/orion/syb111/proj-shared/Personal/smithkp/projects/PASC_2026/full_brain/data/full_brain_flist.tsv"
+    "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/data/full_brain_flist.tsv"
 )
 DEFAULT_RWR_HPC_BUILD_DIR = REPO_ROOT / "external" / "rwr_hpc" / "build_frontier"
 DEFAULT_RWR_HPC_CACHE_DIR = REPO_ROOT / "data" / "runtime" / "rwr_hpc_cache"
@@ -72,6 +73,9 @@ RANK_CACHE_SCHEMA_VERSION = "rwr-loe-rank-cache-v1"
 RANKING_SEMANTICS = "rwr_encoding_desc_min_rank_seed_excluded"
 PARSER_VERSION = 1
 EDGE_HEADER_TOKENS = {"source", "target"}
+MATERIALIZE_CHECKPOINT_SCHEMA_VERSION = "rwr-loe-materialize-checkpoint-v1"
+CHECKPOINT_FLUSH_INTERVAL = 25
+DEFAULT_MATERIALIZE_WORKERS = 1
 
 DEFAULT_MODULE_SIZES = {"small": 8, "medium": 13, "large": 23}
 DEFAULT_MODULE_SELECTION_METHOD = "elbow"
@@ -254,6 +258,113 @@ def _safe_file_stem(value: str) -> str:
     return f"{safe[:80]}_{digest}" if safe else digest
 
 
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    rows = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            rows.append(json.loads(line))
+    return rows
+
+
+def write_jsonl_atomic(path: Path, rows: Iterable[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    with tmp_path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, sort_keys=True))
+            handle.write("\n")
+    tmp_path.replace(path)
+
+
+def _jsonable_counter(counter: Counter) -> list[dict[str, Any]]:
+    entries = []
+    for key, count in sorted(counter.items(), key=lambda item: str(item[0])):
+        entries.append(
+            {
+                "key": list(key) if isinstance(key, tuple) else key,
+                "count": count,
+            }
+        )
+    return entries
+
+
+def _counter_from_jsonable(entries: Iterable[dict[str, Any]]) -> Counter:
+    counter: Counter = Counter()
+    for entry in entries:
+        key = entry["key"]
+        if isinstance(key, list):
+            key = tuple(key)
+        counter[key] += int(entry.get("count", 0))
+    return counter
+
+
+def materialize_checkpoint_context(
+    *,
+    store_dir: Path,
+    rwr_hpc_flist: Path,
+    rank_cache_context: dict[str, Any],
+    rank_cache_context_dir_path: Path,
+    mentor_corpus_dir: Path,
+    seed: int,
+    max_genes: int | None,
+    module_sizes: dict[str, int],
+    module_selection_method: str,
+) -> dict[str, Any]:
+    return {
+        "schema_version": MATERIALIZE_CHECKPOINT_SCHEMA_VERSION,
+        "corpus_schema_version": SCHEMA_VERSION,
+        "source": SOURCE_NAME,
+        "store_dir": str(store_dir),
+        "rwr_hpc_flist": str(rwr_hpc_flist),
+        "rank_cache_context_hash": stable_json_hash(rank_cache_context),
+        "rank_cache_context_dir": str(rank_cache_context_dir_path),
+        "mentor_corpus_dir": str(mentor_corpus_dir),
+        "seed": seed,
+        "max_genes": max_genes,
+        "module_sizes": module_sizes,
+        "module_selection_method": module_selection_method,
+        "evidence_modes": list(EVIDENCE_MODES),
+    }
+
+
+def materialize_checkpoint_dir(out_dir: Path, context: dict[str, Any]) -> Path:
+    return out_dir / "_materialize_checkpoints" / f"context_{stable_json_hash(context)[:16]}"
+
+
+def _append_checkpoint_record(path: Path, record: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True))
+        handle.write("\n")
+
+
+def _read_checkpoint_records(path: Path, *, key_field: str) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    records = []
+    seen = set()
+    with path.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                print(
+                    f"[rwr_loe_corpus] ignoring truncated checkpoint line {line_number} in {path}",
+                    flush=True,
+                )
+                break
+            key = record.get(key_field)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            records.append(record)
+    return records
+
+
 def build_rank_cache_context(
     *,
     rwr_hpc_flist: Path,
@@ -282,6 +393,13 @@ def build_rank_cache_context(
 
 def rank_cache_context_dir(rank_cache_dir: Path, context: dict[str, Any]) -> Path:
     return rank_cache_dir / f"context_{stable_json_hash(context)[:16]}"
+
+
+def load_rank_cache_context_from_dir(context_dir: Path) -> dict[str, Any]:
+    context_path = context_dir / "cache_context.json"
+    if not context_path.exists():
+        raise FileNotFoundError(f"Missing RWR-LOE rank-cache context file: {context_path}")
+    return json.loads(context_path.read_text(encoding="utf-8"))
 
 
 def rank_cache_path_for_seed(context_dir: Path, seed_gene_id: str) -> Path:
@@ -410,7 +528,12 @@ def write_seed_rank_cache(
     return rank_path
 
 
-def load_seed_rank_cache_path(rank_path: Path, *, max_rows: int | None = None) -> list[dict[str, Any]]:
+def load_seed_rank_cache_path(
+    rank_path: Path,
+    *,
+    max_rows: int | None = None,
+    sort_rows: bool = True,
+) -> list[dict[str, Any]]:
     if not rank_path.exists():
         raise FileNotFoundError(f"Missing RWR-LOE rank cache: {rank_path}")
     opener = gzip.open if rank_path.suffix == ".gz" else open
@@ -430,7 +553,8 @@ def load_seed_rank_cache_path(rank_path: Path, *, max_rows: int | None = None) -
             )
             if max_rows is not None and len(rows) >= max_rows:
                 break
-    rows.sort(key=lambda item: (item["rank"], item["gene"]))
+    if sort_rows:
+        rows.sort(key=lambda item: (item["rank"], item["gene"]))
     return rows
 
 
@@ -439,10 +563,11 @@ def load_seed_rank_cache(
     seed_gene_id: str,
     *,
     max_rows: int | None = None,
+    sort_rows: bool = True,
 ) -> list[dict[str, Any]]:
     rank_path = rank_cache_path_for_seed(context_dir, seed_gene_id)
     try:
-        return load_seed_rank_cache_path(rank_path, max_rows=max_rows)
+        return load_seed_rank_cache_path(rank_path, max_rows=max_rows, sort_rows=sort_rows)
     except FileNotFoundError as error:
         raise FileNotFoundError(f"Missing RWR-LOE rank cache for {seed_gene_id}: {rank_path}") from error
 
@@ -775,13 +900,28 @@ def _sample_from_candidate_entries(
     initial_used_modules: set[str] | None = None,
 ) -> list[str]:
     ordered = sorted(entries_by_gene)
+    if sample_size <= 0:
+        return []
+    if len(ordered) < sample_size:
+        return []
+    if not conflict_free:
+        rng = random.Random(f"{seed}|loe_sample|{salt}|0")
+        return sorted(rng.sample(ordered, sample_size))
+
     for attempt in range(32):
         rng = random.Random(f"{seed}|loe_sample|{salt}|{attempt}")
-        shuffled = ordered[:]
-        rng.shuffle(shuffled)
+        if len(ordered) <= 2048 or attempt == 31:
+            candidates = ordered[:]
+            rng.shuffle(candidates)
+        else:
+            window_size = min(
+                len(ordered),
+                max(sample_size + 128, sample_size * (4 + attempt * 2), 512),
+            )
+            candidates = rng.sample(ordered, window_size)
         selected: list[str] = []
         used_modules = set(initial_used_modules or set())
-        for gene_id in shuffled:
+        for gene_id in candidates:
             if conflict_free:
                 memberships = gene_to_modules.get(gene_id, set()) if gene_to_modules else set()
                 if memberships & used_modules:
@@ -919,6 +1059,134 @@ def build_gene_to_modules(modules: list[dict[str, Any]]) -> dict[str, set[str]]:
     return gene_to_modules
 
 
+def _build_loe_module_for_seed(
+    *,
+    index: int,
+    seed_gene_id: str,
+    context_dir: Path,
+    module_selection_method: str = DEFAULT_MODULE_SELECTION_METHOD,
+    size_bin: str | None = None,
+    module_sizes: dict[str, int] | None = None,
+    min_elbow_module_size: int = MIN_ELBOW_MODULE_SIZE,
+) -> tuple[dict[str, Any] | None, str | None]:
+    module_sizes = dict(module_sizes or DEFAULT_MODULE_SIZES)
+    if module_selection_method == "topk":
+        if size_bin is None:
+            raise ValueError("size_bin is required for top-k LOE module selection.")
+        target_size = int(module_sizes[size_bin])
+        try:
+            target_ranked = load_seed_rank_cache(
+                context_dir,
+                seed_gene_id,
+                max_rows=max(0, target_size - 1),
+                sort_rows=False,
+            )
+        except FileNotFoundError:
+            return None, "missing_rank_cache"
+        if len(target_ranked) < target_size - 1:
+            return None, "insufficient_ranked_genes"
+        module_selection = {
+            "method": "topk",
+            "target_module_size": target_size,
+            "retained_ranked_gene_count": len(target_ranked),
+        }
+    elif module_selection_method == "elbow":
+        try:
+            ranked_genes = load_seed_rank_cache(context_dir, seed_gene_id, sort_rows=False)
+        except FileNotFoundError:
+            return None, "missing_rank_cache"
+        target_ranked, module_selection = select_elbow_module_ranked_genes(ranked_genes)
+        if 1 + len(target_ranked) < min_elbow_module_size:
+            return None, "below_min_elbow_module_size"
+        size_bin = loe_size_bin(1 + len(target_ranked))
+        target_size = 1 + len(target_ranked)
+    else:
+        raise ValueError(f"Unknown LOE module selection method: {module_selection_method}")
+
+    gene_members = [seed_gene_id.upper(), *[row["gene"] for row in target_ranked]]
+    module = {
+        "module_id": f"rwr_loe_module_{index:06d}",
+        "source": SOURCE_NAME,
+        "seed_gene_id": seed_gene_id.upper(),
+        "gene_ids": sorted(set(gene_members)),
+        "gene_symbols": sorted(set(gene_members)),
+        "size": len(set(gene_members)),
+        "size_bin": size_bin,
+        "target_module_size": target_size,
+        "module_selection": module_selection,
+        "rank_cache_path": str(rank_cache_path_for_seed(context_dir, seed_gene_id)),
+    }
+    return module, None
+
+
+def _build_loe_module_checkpoint_record(payload: dict[str, Any]) -> dict[str, Any]:
+    module, skip_reason = _build_loe_module_for_seed(
+        index=int(payload["index"]),
+        seed_gene_id=str(payload["seed_gene_id"]),
+        context_dir=Path(payload["context_dir"]),
+        module_selection_method=str(payload["module_selection_method"]),
+        size_bin=payload.get("size_bin"),
+        module_sizes=payload.get("module_sizes"),
+        min_elbow_module_size=int(payload.get("min_elbow_module_size", MIN_ELBOW_MODULE_SIZE)),
+    )
+    record = {
+        "schema_version": MATERIALIZE_CHECKPOINT_SCHEMA_VERSION,
+        "seed_gene_id": str(payload["seed_gene_id"]).upper(),
+        "module_id": f"rwr_loe_module_{int(payload['index']):06d}",
+        "status": "skipped" if module is None else "module",
+        "updated_at": utc_now_iso(),
+    }
+    if module is None:
+        record["skip_reason"] = skip_reason or "unknown"
+    else:
+        record["module"] = module
+    return record
+
+
+def _module_assignment_work_items(
+    *,
+    gene_ids: list[str],
+    context_dir: Path,
+    module_selection_method: str,
+    size_bin_by_gene: dict[str, str] | None,
+    module_sizes: dict[str, int],
+    min_elbow_module_size: int,
+    completed_gene_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    completed_gene_ids = completed_gene_ids or set()
+    items = []
+    for index, seed_gene_id in enumerate(sorted(gene_ids), start=1):
+        seed_key = seed_gene_id.upper()
+        if seed_key in completed_gene_ids:
+            continue
+        items.append(
+            {
+                "index": index,
+                "seed_gene_id": seed_key,
+                "context_dir": str(context_dir),
+                "module_selection_method": module_selection_method,
+                "size_bin": size_bin_by_gene.get(seed_gene_id) if size_bin_by_gene else None,
+                "module_sizes": module_sizes,
+                "min_elbow_module_size": min_elbow_module_size,
+            }
+        )
+    return items
+
+
+def _apply_module_assignment_record(
+    record: dict[str, Any],
+    *,
+    modules: list[dict[str, Any]],
+    stats: BuildStats,
+) -> None:
+    if record.get("status") == "module":
+        module = record.get("module")
+        if isinstance(module, dict):
+            modules.append(module)
+    elif record.get("status") == "skipped":
+        stats.skipped_modules[str(record.get("skip_reason", "unknown"))] += 1
+
+
 def build_loe_modules(
     *,
     gene_ids: list[str],
@@ -931,55 +1199,108 @@ def build_loe_modules(
 ) -> list[dict[str, Any]]:
     module_sizes = dict(module_sizes or DEFAULT_MODULE_SIZES)
     modules = []
-    for index, seed_gene_id in enumerate(sorted(gene_ids), start=1):
-        if module_selection_method == "topk":
-            if size_bin_by_gene is None:
-                raise ValueError("size_bin_by_gene is required for top-k LOE module selection.")
-            size_bin = size_bin_by_gene[seed_gene_id]
-            target_size = int(module_sizes[size_bin])
-            try:
-                target_ranked = load_seed_rank_cache(context_dir, seed_gene_id, max_rows=max(0, target_size - 1))
-            except FileNotFoundError:
-                stats.skipped_modules["missing_rank_cache"] += 1
-                continue
-            if len(target_ranked) < target_size - 1:
-                stats.skipped_modules["insufficient_ranked_genes"] += 1
-                continue
-            module_selection = {
-                "method": "topk",
-                "target_module_size": target_size,
-                "retained_ranked_gene_count": len(target_ranked),
-            }
-        elif module_selection_method == "elbow":
-            try:
-                ranked_genes = load_seed_rank_cache(context_dir, seed_gene_id)
-            except FileNotFoundError:
-                stats.skipped_modules["missing_rank_cache"] += 1
-                continue
-            target_ranked, module_selection = select_elbow_module_ranked_genes(ranked_genes)
-            if 1 + len(target_ranked) < min_elbow_module_size:
-                stats.skipped_modules["below_min_elbow_module_size"] += 1
-                continue
-            size_bin = loe_size_bin(1 + len(target_ranked))
-            target_size = 1 + len(target_ranked)
-        else:
-            raise ValueError(f"Unknown LOE module selection method: {module_selection_method}")
-
-        gene_members = [seed_gene_id.upper(), *[row["gene"] for row in target_ranked]]
-        module = {
-            "module_id": f"rwr_loe_module_{index:06d}",
-            "source": SOURCE_NAME,
-            "seed_gene_id": seed_gene_id.upper(),
-            "gene_ids": sorted(set(gene_members)),
-            "gene_symbols": sorted(set(gene_members)),
-            "size": len(set(gene_members)),
-            "size_bin": size_bin,
-            "target_module_size": target_size,
-            "module_selection": module_selection,
-            "rank_cache_path": str(rank_cache_path_for_seed(context_dir, seed_gene_id)),
-        }
-        modules.append(module)
+    for item in _module_assignment_work_items(
+        gene_ids=gene_ids,
+        context_dir=context_dir,
+        module_selection_method=module_selection_method,
+        size_bin_by_gene=size_bin_by_gene,
+        module_sizes=module_sizes,
+        min_elbow_module_size=min_elbow_module_size,
+    ):
+        record = _build_loe_module_checkpoint_record(item)
+        _apply_module_assignment_record(record, modules=modules, stats=stats)
     return modules
+
+
+def build_loe_modules_checkpointed(
+    *,
+    gene_ids: list[str],
+    context_dir: Path,
+    stats: BuildStats,
+    module_selection_method: str = DEFAULT_MODULE_SELECTION_METHOD,
+    size_bin_by_gene: dict[str, str] | None = None,
+    module_sizes: dict[str, int] | None = None,
+    min_elbow_module_size: int = MIN_ELBOW_MODULE_SIZE,
+    checkpoint_path: Path,
+    tracker: ProgressTracker,
+    workers: int = DEFAULT_MATERIALIZE_WORKERS,
+) -> list[dict[str, Any]]:
+    module_sizes = dict(module_sizes or DEFAULT_MODULE_SIZES)
+    records = _read_checkpoint_records(checkpoint_path, key_field="seed_gene_id")
+    completed_gene_ids = {str(record["seed_gene_id"]).upper() for record in records}
+    modules: list[dict[str, Any]] = []
+    for record in records:
+        _apply_module_assignment_record(record, modules=modules, stats=stats)
+
+    if records:
+        tracker.update(
+            completed=len(completed_gene_ids),
+            total=len(gene_ids),
+            unit="genes",
+            message=f"Loaded {len(completed_gene_ids)} checkpointed LOE module assignments.",
+            metrics={
+                "checkpoint_path": str(checkpoint_path),
+                "module_count_so_far": len(modules),
+                "skipped_modules": dict(stats.skipped_modules),
+            },
+        )
+
+    work_items = _module_assignment_work_items(
+        gene_ids=gene_ids,
+        context_dir=context_dir,
+        module_selection_method=module_selection_method,
+        size_bin_by_gene=size_bin_by_gene,
+        module_sizes=module_sizes,
+        min_elbow_module_size=min_elbow_module_size,
+        completed_gene_ids=completed_gene_ids,
+    )
+    worker_count = max(1, int(workers))
+    if worker_count > 1 and len(work_items) > 1:
+        with ProcessPoolExecutor(max_workers=worker_count) as executor:
+            records_iter = executor.map(_build_loe_module_checkpoint_record, work_items, chunksize=1)
+            for offset, record in enumerate(records_iter, start=1):
+                _append_checkpoint_record(checkpoint_path, record)
+                completed_gene_ids.add(str(record["seed_gene_id"]).upper())
+                _apply_module_assignment_record(record, modules=modules, stats=stats)
+                if offset % CHECKPOINT_FLUSH_INTERVAL == 0 or offset == len(work_items):
+                    tracker.update(
+                        completed=len(completed_gene_ids),
+                        total=len(gene_ids),
+                        unit="genes",
+                        message=(
+                            f"Assigned {len(completed_gene_ids)}/{len(gene_ids)} LOE module seeds "
+                            f"({len(modules)} modules, workers={worker_count})."
+                        ),
+                        metrics={
+                            "checkpoint_path": str(checkpoint_path),
+                            "module_count_so_far": len(modules),
+                            "skipped_modules": dict(stats.skipped_modules),
+                            "materialize_workers": worker_count,
+                        },
+                    )
+    else:
+        for offset, item in enumerate(work_items, start=1):
+            record = _build_loe_module_checkpoint_record(item)
+            _append_checkpoint_record(checkpoint_path, record)
+            completed_gene_ids.add(str(record["seed_gene_id"]).upper())
+            _apply_module_assignment_record(record, modules=modules, stats=stats)
+            if offset % CHECKPOINT_FLUSH_INTERVAL == 0 or offset == len(work_items):
+                tracker.update(
+                    completed=len(completed_gene_ids),
+                    total=len(gene_ids),
+                    unit="genes",
+                    message=(
+                        f"Assigned {len(completed_gene_ids)}/{len(gene_ids)} LOE module seeds "
+                        f"({len(modules)} modules)."
+                    ),
+                    metrics={
+                        "checkpoint_path": str(checkpoint_path),
+                        "module_count_so_far": len(modules),
+                        "skipped_modules": dict(stats.skipped_modules),
+                        "materialize_workers": worker_count,
+                    },
+                )
+    return sorted(modules, key=lambda row: row["module_id"])
 
 
 def build_task_prototypes(
@@ -992,106 +1313,241 @@ def build_task_prototypes(
     gene_to_modules = build_gene_to_modules(modules)
     prototypes: list[dict[str, Any]] = []
     for module in modules:
-        module_id = module["module_id"]
-        target_gene_ids = list(module["gene_ids"])
-        ranked_genes = load_seed_rank_cache_path(Path(module["rank_cache_path"]))
-
-        prototypes.append(
-            {
-                "prototype_id": f"{module_id}.explanation.{EXPLANATION_DIFFICULTY}",
-                "task_type": "explanation",
-                "difficulty": EXPLANATION_DIFFICULTY,
-                "split": module["split"],
-                "size_bin": module["size_bin"],
-                "source_module_id": module_id,
-                "input_gene_ids": list(target_gene_ids),
-                "relationship_status": POSITIVE_RELATIONSHIP_STATUS,
-                "sampling_metadata": {},
-            }
-        )
-
-        recovery_difficulty = module["difficulty_by_task"]["recovery"]
-        drop_count = recovery_drop_count(len(target_gene_ids), recovery_difficulty)
-        dropped_genes = deterministic_select_subset(
-            target_gene_ids,
-            subset_size=drop_count,
+        module_prototypes, skipped_refinement, skipped_none = build_task_prototypes_for_module(
+            module=module,
+            candidate_gene_universe=candidate_gene_universe,
+            gene_to_modules=gene_to_modules,
             seed=seed,
-            salt=f"{module_id}|recovery|{recovery_difficulty}",
+        )
+        prototypes.extend(module_prototypes)
+        stats.skipped_refinement.update(skipped_refinement)
+        stats.skipped_none.update(skipped_none)
+    return sorted(prototypes, key=lambda row: row["prototype_id"])
+
+
+def build_task_prototypes_for_module(
+    *,
+    module: dict[str, Any],
+    candidate_gene_universe: set[str],
+    gene_to_modules: dict[str, set[str]],
+    seed: int,
+) -> tuple[list[dict[str, Any]], Counter, Counter]:
+    module_id = module["module_id"]
+    target_gene_ids = list(module["gene_ids"])
+    ranked_genes = load_seed_rank_cache_path(Path(module["rank_cache_path"]), sort_rows=False)
+    prototypes: list[dict[str, Any]] = []
+    skipped_refinement: Counter = Counter()
+    skipped_none: Counter = Counter()
+
+    prototypes.append(
+        {
+            "prototype_id": f"{module_id}.explanation.{EXPLANATION_DIFFICULTY}",
+            "task_type": "explanation",
+            "difficulty": EXPLANATION_DIFFICULTY,
+            "split": module["split"],
+            "size_bin": module["size_bin"],
+            "source_module_id": module_id,
+            "input_gene_ids": list(target_gene_ids),
+            "relationship_status": POSITIVE_RELATIONSHIP_STATUS,
+            "sampling_metadata": {},
+        }
+    )
+
+    recovery_difficulty = module["difficulty_by_task"]["recovery"]
+    drop_count = recovery_drop_count(len(target_gene_ids), recovery_difficulty)
+    dropped_genes = deterministic_select_subset(
+        target_gene_ids,
+        subset_size=drop_count,
+        seed=seed,
+        salt=f"{module_id}|recovery|{recovery_difficulty}",
+    )
+    prototypes.append(
+        {
+            "prototype_id": f"{module_id}.recovery.{recovery_difficulty}",
+            "task_type": "recovery",
+            "difficulty": recovery_difficulty,
+            "split": module["split"],
+            "size_bin": module["size_bin"],
+            "source_module_id": module_id,
+            "input_gene_ids": sorted(set(target_gene_ids) - set(dropped_genes)),
+            "relationship_status": POSITIVE_RELATIONSHIP_STATUS,
+            "sampling_metadata": {"dropped_gene_ids": dropped_genes},
+        }
+    )
+
+    refinement_difficulty = module["difficulty_by_task"]["refinement"]
+    add_count = noise_gene_count(len(target_gene_ids), refinement_difficulty)
+    try:
+        noise_gene_ids, metadata = select_rank_band_negative_genes(
+            ranked_genes=ranked_genes,
+            target_gene_ids=target_gene_ids,
+            candidate_gene_ids=candidate_gene_universe,
+            sample_size=add_count,
+            difficulty=refinement_difficulty,
+            seed=seed,
+            salt=f"{module_id}|refinement|{refinement_difficulty}",
         )
         prototypes.append(
             {
-                "prototype_id": f"{module_id}.recovery.{recovery_difficulty}",
-                "task_type": "recovery",
-                "difficulty": recovery_difficulty,
+                "prototype_id": f"{module_id}.refinement.{refinement_difficulty}",
+                "task_type": "refinement",
+                "difficulty": refinement_difficulty,
                 "split": module["split"],
                 "size_bin": module["size_bin"],
                 "source_module_id": module_id,
-                "input_gene_ids": sorted(set(target_gene_ids) - set(dropped_genes)),
+                "input_gene_ids": sorted(set(target_gene_ids) | set(noise_gene_ids)),
                 "relationship_status": POSITIVE_RELATIONSHIP_STATUS,
-                "sampling_metadata": {"dropped_gene_ids": dropped_genes},
+                "sampling_metadata": {
+                    "noise_gene_ids": noise_gene_ids,
+                    "rwr_loe_negative_sampling": metadata,
+                },
             }
         )
+    except ValueError:
+        skipped_refinement[(module["split"], module["size_bin"], refinement_difficulty)] += 1
 
-        refinement_difficulty = module["difficulty_by_task"]["refinement"]
-        add_count = noise_gene_count(len(target_gene_ids), refinement_difficulty)
-        try:
-            noise_gene_ids, metadata = select_rank_band_negative_genes(
-                ranked_genes=ranked_genes,
-                target_gene_ids=target_gene_ids,
-                candidate_gene_ids=candidate_gene_universe,
-                sample_size=add_count,
-                difficulty=refinement_difficulty,
-                seed=seed,
-                salt=f"{module_id}|refinement|{refinement_difficulty}",
-            )
-            prototypes.append(
-                {
-                    "prototype_id": f"{module_id}.refinement.{refinement_difficulty}",
-                    "task_type": "refinement",
-                    "difficulty": refinement_difficulty,
-                    "split": module["split"],
-                    "size_bin": module["size_bin"],
-                    "source_module_id": module_id,
-                    "input_gene_ids": sorted(set(target_gene_ids) | set(noise_gene_ids)),
-                    "relationship_status": POSITIVE_RELATIONSHIP_STATUS,
-                    "sampling_metadata": {
-                        "noise_gene_ids": noise_gene_ids,
-                        "rwr_loe_negative_sampling": metadata,
-                    },
-                }
-            )
-        except ValueError:
-            stats.skipped_refinement[(module["split"], module["size_bin"], refinement_difficulty)] += 1
+    none_difficulty = module["difficulty_by_task"]["none"]
+    try:
+        none_gene_ids, metadata = select_rank_band_negative_genes(
+            ranked_genes=ranked_genes,
+            target_gene_ids=target_gene_ids,
+            candidate_gene_ids=candidate_gene_universe,
+            sample_size=len(target_gene_ids),
+            difficulty=none_difficulty,
+            seed=seed,
+            salt=f"{module_id}|none|{none_difficulty}",
+            gene_to_modules=gene_to_modules,
+            conflict_free=True,
+        )
+        prototypes.append(
+            {
+                "prototype_id": f"{module_id}.none.{none_difficulty}",
+                "task_type": "none",
+                "difficulty": none_difficulty,
+                "split": module["split"],
+                "size_bin": module["size_bin"],
+                "source_module_id": None,
+                "anchor_module_id": module_id,
+                "input_gene_ids": none_gene_ids,
+                "relationship_status": NONE_RELATIONSHIP_STATUS,
+                "sampling_metadata": {"rwr_loe_negative_sampling": metadata},
+            }
+        )
+    except ValueError:
+        skipped_none[(module["split"], module["size_bin"], none_difficulty)] += 1
 
-        none_difficulty = module["difficulty_by_task"]["none"]
-        try:
-            none_gene_ids, metadata = select_rank_band_negative_genes(
-                ranked_genes=ranked_genes,
-                target_gene_ids=target_gene_ids,
-                candidate_gene_ids=candidate_gene_universe,
-                sample_size=len(target_gene_ids),
-                difficulty=none_difficulty,
-                seed=seed,
-                salt=f"{module_id}|none|{none_difficulty}",
-                gene_to_modules=gene_to_modules,
-                conflict_free=True,
+    return prototypes, skipped_refinement, skipped_none
+
+
+_PROTOTYPE_WORKER_CONTEXT: dict[str, Any] = {}
+
+
+def _init_task_prototype_worker(
+    candidate_gene_universe: set[str],
+    gene_to_modules: dict[str, set[str]],
+    seed: int,
+) -> None:
+    _PROTOTYPE_WORKER_CONTEXT.clear()
+    _PROTOTYPE_WORKER_CONTEXT.update(
+        {
+            "candidate_gene_universe": candidate_gene_universe,
+            "gene_to_modules": gene_to_modules,
+            "seed": seed,
+        }
+    )
+
+
+def _build_task_prototype_checkpoint_record_worker(module: dict[str, Any]) -> dict[str, Any]:
+    module_prototypes, skipped_refinement, skipped_none = build_task_prototypes_for_module(
+        module=module,
+        candidate_gene_universe=_PROTOTYPE_WORKER_CONTEXT["candidate_gene_universe"],
+        gene_to_modules=_PROTOTYPE_WORKER_CONTEXT["gene_to_modules"],
+        seed=int(_PROTOTYPE_WORKER_CONTEXT["seed"]),
+    )
+    return {
+        "schema_version": MATERIALIZE_CHECKPOINT_SCHEMA_VERSION,
+        "module_id": module["module_id"],
+        "prototype_count": len(module_prototypes),
+        "prototypes": module_prototypes,
+        "skipped_refinement": _jsonable_counter(skipped_refinement),
+        "skipped_none": _jsonable_counter(skipped_none),
+        "updated_at": utc_now_iso(),
+    }
+
+
+def build_task_prototypes_checkpointed(
+    *,
+    modules: list[dict[str, Any]],
+    candidate_gene_universe: set[str],
+    seed: int,
+    stats: BuildStats,
+    checkpoint_path: Path,
+    tracker: ProgressTracker,
+    workers: int = DEFAULT_MATERIALIZE_WORKERS,
+) -> list[dict[str, Any]]:
+    gene_to_modules = build_gene_to_modules(modules)
+    records = _read_checkpoint_records(checkpoint_path, key_field="module_id")
+    completed_module_ids = {record["module_id"] for record in records}
+    prototypes: list[dict[str, Any]] = []
+    for record in records:
+        prototypes.extend(record.get("prototypes", []))
+        stats.skipped_refinement.update(_counter_from_jsonable(record.get("skipped_refinement", [])))
+        stats.skipped_none.update(_counter_from_jsonable(record.get("skipped_none", [])))
+
+    if records:
+        tracker.update(
+            completed=len(completed_module_ids),
+            total=len(modules),
+            unit="modules",
+            message=f"Loaded {len(completed_module_ids)} checkpointed prototype modules.",
+            metrics={"checkpoint_path": str(checkpoint_path)},
+        )
+
+    remaining = [module for module in modules if module["module_id"] not in completed_module_ids]
+    worker_count = max(1, int(workers))
+
+    def consume_record(offset: int, record: dict[str, Any]) -> None:
+        _append_checkpoint_record(checkpoint_path, record)
+        completed_module_ids.add(str(record["module_id"]))
+        prototypes.extend(record.get("prototypes", []))
+        stats.skipped_refinement.update(_counter_from_jsonable(record.get("skipped_refinement", [])))
+        stats.skipped_none.update(_counter_from_jsonable(record.get("skipped_none", [])))
+        if offset % CHECKPOINT_FLUSH_INTERVAL == 0 or offset == len(remaining):
+            tracker.update(
+                completed=len(completed_module_ids),
+                total=len(modules),
+                unit="modules",
+                message=(
+                    f"Built prototypes for {len(completed_module_ids)}/{len(modules)} modules "
+                    f"({len(prototypes)} prototypes, workers={worker_count})."
+                ),
+                metrics={
+                    "checkpoint_path": str(checkpoint_path),
+                    "prototype_count_so_far": len(prototypes),
+                    "skipped_refinement_count": sum(stats.skipped_refinement.values()),
+                    "skipped_none_count": sum(stats.skipped_none.values()),
+                    "materialize_workers": worker_count,
+                },
             )
-            prototypes.append(
-                {
-                    "prototype_id": f"{module_id}.none.{none_difficulty}",
-                    "task_type": "none",
-                    "difficulty": none_difficulty,
-                    "split": module["split"],
-                    "size_bin": module["size_bin"],
-                    "source_module_id": None,
-                    "anchor_module_id": module_id,
-                    "input_gene_ids": none_gene_ids,
-                    "relationship_status": NONE_RELATIONSHIP_STATUS,
-                    "sampling_metadata": {"rwr_loe_negative_sampling": metadata},
-                }
+
+    if worker_count > 1 and len(remaining) > 1:
+        with ProcessPoolExecutor(
+            max_workers=worker_count,
+            initializer=_init_task_prototype_worker,
+            initargs=(candidate_gene_universe, gene_to_modules, seed),
+        ) as executor:
+            records_iter = executor.map(
+                _build_task_prototype_checkpoint_record_worker,
+                remaining,
+                chunksize=1,
             )
-        except ValueError:
-            stats.skipped_none[(module["split"], module["size_bin"], none_difficulty)] += 1
+            for offset, record in enumerate(records_iter, start=1):
+                consume_record(offset, record)
+    else:
+        _init_task_prototype_worker(candidate_gene_universe, gene_to_modules, seed)
+        for offset, module in enumerate(remaining, start=1):
+            record = _build_task_prototype_checkpoint_record_worker(module)
+            consume_record(offset, record)
     return sorted(prototypes, key=lambda row: row["prototype_id"])
 
 
@@ -1143,77 +1599,160 @@ def materialize_tasks(
     modules_by_id = {module["module_id"]: module for module in modules}
     tasks = []
     for prototype in prototypes:
-        target_module = modules_by_id.get(prototype.get("source_module_id"))
-        seed_gene_ids = list(prototype["input_gene_ids"])
-        seed_gene_symbols = list(seed_gene_ids)
-        for evidence_mode in EVIDENCE_MODES:
-            query_text, query_template_id = build_query_text(
-                prototype["task_type"],
-                evidence_mode,
-                seed_gene_symbols,
+        tasks.extend(
+            materialize_tasks_for_prototype(
+                prototype=prototype,
+                modules_by_id=modules_by_id,
+                store_dir=store_dir,
+                rwr_hpc_flist=rwr_hpc_flist,
+                rank_cache_context_dir_path=rank_cache_context_dir_path,
+                seed=seed,
             )
-            visible_inputs = {
-                "seed_gene_ids": seed_gene_ids,
-                "seed_gene_symbols": seed_gene_symbols,
-                "context_text": None,
-                "graph_query_spec": (
-                    build_graph_query_spec(store_dir, seed_gene_ids, seed_gene_symbols)
-                    if evidence_mode == "graph"
-                    else None
+        )
+    return sorted(tasks, key=lambda row: row["task_id"])
+
+
+def materialize_tasks_for_prototype(
+    *,
+    prototype: dict[str, Any],
+    modules_by_id: dict[str, dict[str, Any]],
+    store_dir: Path,
+    rwr_hpc_flist: Path,
+    rank_cache_context_dir_path: Path,
+    seed: int,
+) -> list[dict[str, Any]]:
+    target_module = modules_by_id.get(prototype.get("source_module_id"))
+    seed_gene_ids = list(prototype["input_gene_ids"])
+    seed_gene_symbols = list(seed_gene_ids)
+    tasks = []
+    for evidence_mode in EVIDENCE_MODES:
+        query_text, query_template_id = build_query_text(
+            prototype["task_type"],
+            evidence_mode,
+            seed_gene_symbols,
+        )
+        visible_inputs = {
+            "seed_gene_ids": seed_gene_ids,
+            "seed_gene_symbols": seed_gene_symbols,
+            "context_text": None,
+            "graph_query_spec": (
+                build_graph_query_spec(store_dir, seed_gene_ids, seed_gene_symbols)
+                if evidence_mode == "graph"
+                else None
+            ),
+            "structured_annotations": None,
+        }
+        if target_module is None:
+            hidden_target = {
+                "target_gene_ids": None,
+                "target_gene_symbols": None,
+                "relationship_status": NONE_RELATIONSHIP_STATUS,
+            }
+        else:
+            hidden_target = {
+                "target_gene_ids": target_module["gene_ids"],
+                "target_gene_symbols": target_module["gene_symbols"],
+                "relationship_status": POSITIVE_RELATIONSHIP_STATUS,
+            }
+        task_id = f"{prototype['prototype_id']}.{evidence_mode}"
+        provenance = {
+            "source": SOURCE_NAME,
+            "source_module_id": prototype.get("source_module_id"),
+            "anchor_module_id": prototype.get("anchor_module_id"),
+            "store_dir": str(store_dir),
+            "rwr_hpc_flist": str(rwr_hpc_flist),
+            "rank_cache_context_dir": str(rank_cache_context_dir_path),
+            "generation_seed": seed,
+            "sampling_metadata": prototype.get("sampling_metadata", {}),
+        }
+        if target_module is not None:
+            provenance["seed_gene_id"] = target_module["seed_gene_id"]
+            provenance["rank_cache_path"] = target_module["rank_cache_path"]
+        tasks.append(
+            {
+                "task_id": task_id,
+                "split": prototype["split"],
+                "task_type": prototype["task_type"],
+                "difficulty": prototype["difficulty"],
+                "query_text": query_text,
+                "query_template_id": query_template_id,
+                "evidence_mode": evidence_mode,
+                "visible_inputs": visible_inputs,
+                "hidden_target": hidden_target,
+                "mechanism_labels": None,
+                "normalization": {
+                    "gene_id_namespace": "ensembl.gene",
+                    "visible_gene_mappings": [
+                        {
+                            "ensembl_gene_id": gene_id,
+                            "display_symbol": gene_id,
+                            "resolved_via": "rwr_loe_rank_cache",
+                        }
+                        for gene_id in seed_gene_ids
+                    ],
+                },
+                "provenance": provenance,
+            }
+        )
+    return tasks
+
+
+def materialize_tasks_checkpointed(
+    *,
+    modules: list[dict[str, Any]],
+    prototypes: list[dict[str, Any]],
+    store_dir: Path,
+    rwr_hpc_flist: Path,
+    rank_cache_context_dir_path: Path,
+    seed: int,
+    checkpoint_path: Path,
+    tracker: ProgressTracker,
+) -> list[dict[str, Any]]:
+    modules_by_id = {module["module_id"]: module for module in modules}
+    records = _read_checkpoint_records(checkpoint_path, key_field="prototype_id")
+    completed_prototype_ids = {record["prototype_id"] for record in records}
+    tasks: list[dict[str, Any]] = []
+    for record in records:
+        tasks.extend(record.get("tasks", []))
+    if records:
+        tracker.update(
+            completed=len(completed_prototype_ids) * len(EVIDENCE_MODES),
+            total=len(prototypes) * len(EVIDENCE_MODES),
+            unit="tasks",
+            message=f"Loaded {len(completed_prototype_ids)} checkpointed task prototypes.",
+            metrics={"checkpoint_path": str(checkpoint_path)},
+        )
+
+    remaining = [prototype for prototype in prototypes if prototype["prototype_id"] not in completed_prototype_ids]
+    for offset, prototype in enumerate(remaining, start=1):
+        prototype_tasks = materialize_tasks_for_prototype(
+            prototype=prototype,
+            modules_by_id=modules_by_id,
+            store_dir=store_dir,
+            rwr_hpc_flist=rwr_hpc_flist,
+            rank_cache_context_dir_path=rank_cache_context_dir_path,
+            seed=seed,
+        )
+        record = {
+            "schema_version": MATERIALIZE_CHECKPOINT_SCHEMA_VERSION,
+            "prototype_id": prototype["prototype_id"],
+            "task_count": len(prototype_tasks),
+            "tasks": prototype_tasks,
+            "updated_at": utc_now_iso(),
+        }
+        _append_checkpoint_record(checkpoint_path, record)
+        completed_prototype_ids.add(prototype["prototype_id"])
+        tasks.extend(prototype_tasks)
+        if offset % CHECKPOINT_FLUSH_INTERVAL == 0 or offset == len(remaining):
+            tracker.update(
+                completed=len(completed_prototype_ids) * len(EVIDENCE_MODES),
+                total=len(prototypes) * len(EVIDENCE_MODES),
+                unit="tasks",
+                message=(
+                    f"Materialized {len(completed_prototype_ids)}/{len(prototypes)} "
+                    f"prototype task groups."
                 ),
-                "structured_annotations": None,
-            }
-            if target_module is None:
-                hidden_target = {
-                    "target_gene_ids": None,
-                    "target_gene_symbols": None,
-                    "relationship_status": NONE_RELATIONSHIP_STATUS,
-                }
-            else:
-                hidden_target = {
-                    "target_gene_ids": target_module["gene_ids"],
-                    "target_gene_symbols": target_module["gene_symbols"],
-                    "relationship_status": POSITIVE_RELATIONSHIP_STATUS,
-                }
-            task_id = f"{prototype['prototype_id']}.{evidence_mode}"
-            provenance = {
-                "source": SOURCE_NAME,
-                "source_module_id": prototype.get("source_module_id"),
-                "anchor_module_id": prototype.get("anchor_module_id"),
-                "store_dir": str(store_dir),
-                "rwr_hpc_flist": str(rwr_hpc_flist),
-                "rank_cache_context_dir": str(rank_cache_context_dir_path),
-                "generation_seed": seed,
-                "sampling_metadata": prototype.get("sampling_metadata", {}),
-            }
-            if target_module is not None:
-                provenance["seed_gene_id"] = target_module["seed_gene_id"]
-                provenance["rank_cache_path"] = target_module["rank_cache_path"]
-            tasks.append(
-                {
-                    "task_id": task_id,
-                    "split": prototype["split"],
-                    "task_type": prototype["task_type"],
-                    "difficulty": prototype["difficulty"],
-                    "query_text": query_text,
-                    "query_template_id": query_template_id,
-                    "evidence_mode": evidence_mode,
-                    "visible_inputs": visible_inputs,
-                    "hidden_target": hidden_target,
-                    "mechanism_labels": None,
-                    "normalization": {
-                        "gene_id_namespace": "ensembl.gene",
-                        "visible_gene_mappings": [
-                            {
-                                "ensembl_gene_id": gene_id,
-                                "display_symbol": gene_id,
-                                "resolved_via": "rwr_loe_rank_cache",
-                            }
-                            for gene_id in seed_gene_ids
-                        ],
-                    },
-                    "provenance": provenance,
-                }
+                metrics={"checkpoint_path": str(checkpoint_path), "task_count_so_far": len(tasks)},
             )
     return sorted(tasks, key=lambda row: row["task_id"])
 
@@ -1345,6 +1884,9 @@ def build_rwr_loe_corpus(
     progress_path: Path | None = None,
     max_genes: int | None = None,
     rank_cache_context: dict[str, Any] | None = None,
+    rank_cache_context_dir_path: Path | None = None,
+    checkpoint_dir: Path | None = None,
+    materialize_workers: int = DEFAULT_MATERIALIZE_WORKERS,
 ) -> dict[str, Any]:
     module_sizes = dict(module_sizes or DEFAULT_MODULE_SIZES)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1352,6 +1894,8 @@ def build_rwr_loe_corpus(
     tracker = ProgressTracker(progress_path)
     stats = BuildStats()
 
+    if rank_cache_context_dir_path is not None and rank_cache_context is None:
+        rank_cache_context = load_rank_cache_context_from_dir(rank_cache_context_dir_path)
     if rank_cache_context is None:
         rank_cache_context = build_rank_cache_context(
             rwr_hpc_flist=rwr_hpc_flist,
@@ -1362,7 +1906,47 @@ def build_rwr_loe_corpus(
             threshold=1e-10,
             edgelist_has_headers=True,
         )
-    context_dir = rank_cache_context_dir(rank_cache_dir, rank_cache_context)
+    context_dir = rank_cache_context_dir_path or rank_cache_context_dir(rank_cache_dir, rank_cache_context)
+    rank_dir = context_dir / "ranks"
+    if not rank_dir.exists() or next(rank_dir.glob("*.ranks.tsv.gz"), None) is None:
+        raise FileNotFoundError(
+            f"No RWR-LOE rank cache files found under {rank_dir}. "
+            "Run LOE_MODE=prewarm first, or pass --rank-cache-context-dir/LOE_RANK_CACHE_CONTEXT_DIR "
+            "for the existing prewarmed context."
+        )
+    checkpoint_context = materialize_checkpoint_context(
+        store_dir=store_dir,
+        rwr_hpc_flist=rwr_hpc_flist,
+        rank_cache_context=rank_cache_context,
+        rank_cache_context_dir_path=context_dir,
+        mentor_corpus_dir=mentor_corpus_dir,
+        seed=seed,
+        max_genes=max_genes,
+        module_sizes=module_sizes,
+        module_selection_method=module_selection_method,
+    )
+    checkpoint_dir = checkpoint_dir or materialize_checkpoint_dir(out_dir, checkpoint_context)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_context_path = checkpoint_dir / "context.json"
+    if checkpoint_context_path.exists():
+        existing_checkpoint_context = json.loads(checkpoint_context_path.read_text(encoding="utf-8"))
+        if existing_checkpoint_context != checkpoint_context:
+            raise ValueError(
+                f"Checkpoint directory context mismatch for {checkpoint_dir}. "
+                "Use a different --checkpoint-dir or remove the stale checkpoint directory."
+            )
+    else:
+        write_json(checkpoint_context_path, checkpoint_context)
+    module_checkpoint_path = checkpoint_dir / "modules.assigned.jsonl"
+    module_assignment_checkpoint_path = checkpoint_dir / "modules.assigned.by_gene.jsonl"
+    module_checkpoint_meta_path = checkpoint_dir / "modules.assigned.meta.json"
+    raw_prototype_checkpoint_path = checkpoint_dir / "prototypes.raw.by_module.jsonl"
+    raw_prototype_checkpoint_meta_path = checkpoint_dir / "prototypes.raw.meta.json"
+    balanced_prototype_checkpoint_path = checkpoint_dir / "prototypes.balanced.jsonl"
+    balanced_prototype_checkpoint_meta_path = checkpoint_dir / "prototypes.balanced.meta.json"
+    task_checkpoint_path = checkpoint_dir / "tasks.by_prototype.jsonl"
+    task_checkpoint_meta_path = checkpoint_dir / "tasks.meta.json"
+
     stats.rank_cache = {
         "context_dir": str(context_dir),
         "context_hash": stable_json_hash(rank_cache_context),
@@ -1377,6 +1961,8 @@ def build_rwr_loe_corpus(
             "seed": seed,
             "max_genes": max_genes,
             "module_selection_method": module_selection_method,
+            "checkpoint_dir": str(checkpoint_dir),
+            "materialize_workers": max(1, int(materialize_workers)),
         }
     )
 
@@ -1389,31 +1975,81 @@ def build_rwr_loe_corpus(
 
         tracker.start("assign_modules", total=len(gene_ids), unit="genes")
         mentor_size_distribution = load_mentor_size_distribution(mentor_corpus_dir)
-        size_bin_by_gene = (
-            assign_size_bins(gene_ids, mentor_size_distribution=mentor_size_distribution, seed=seed)
-            if module_selection_method == "topk"
-            else None
-        )
-        modules = build_loe_modules(
-            gene_ids=gene_ids,
-            context_dir=context_dir,
-            stats=stats,
-            module_selection_method=module_selection_method,
-            size_bin_by_gene=size_bin_by_gene,
-            module_sizes=module_sizes,
-        )
-        modules = assign_splits_and_difficulties(modules, seed=seed)
-        tracker.update(
-            completed=len(modules),
-            total=len(gene_ids),
-            unit="modules",
-            metrics={
-                "module_count": len(modules),
-                "skipped_modules": dict(stats.skipped_modules),
-                "mentor_size_distribution": mentor_size_distribution,
-                "module_selection_method": module_selection_method,
-            },
-        )
+        module_checkpoint_meta = {}
+        if module_checkpoint_meta_path.exists():
+            module_checkpoint_meta = json.loads(module_checkpoint_meta_path.read_text(encoding="utf-8"))
+        if (
+            module_checkpoint_path.exists()
+            and module_checkpoint_meta.get("status") == "completed"
+            and module_checkpoint_meta.get("gene_count") == len(gene_ids)
+        ):
+            modules = read_jsonl(module_checkpoint_path)
+            stats.skipped_modules.update(_counter_from_jsonable(module_checkpoint_meta.get("skipped_modules", [])))
+            tracker.update(
+                completed=len(modules),
+                total=len(gene_ids),
+                unit="modules",
+                message=f"Loaded {len(modules)} checkpointed LOE modules.",
+                metrics={
+                    "module_count": len(modules),
+                    "skipped_modules": dict(stats.skipped_modules),
+                    "mentor_size_distribution": mentor_size_distribution,
+                    "module_selection_method": module_selection_method,
+                    "checkpoint_path": str(module_checkpoint_path),
+                    "assignment_checkpoint_path": str(module_assignment_checkpoint_path),
+                    "materialize_workers": max(1, int(materialize_workers)),
+                },
+            )
+        else:
+            size_bin_by_gene = (
+                assign_size_bins(gene_ids, mentor_size_distribution=mentor_size_distribution, seed=seed)
+                if module_selection_method == "topk"
+                else None
+            )
+            modules = build_loe_modules_checkpointed(
+                gene_ids=gene_ids,
+                context_dir=context_dir,
+                stats=stats,
+                module_selection_method=module_selection_method,
+                size_bin_by_gene=size_bin_by_gene,
+                module_sizes=module_sizes,
+                checkpoint_path=module_assignment_checkpoint_path,
+                tracker=tracker,
+                workers=materialize_workers,
+            )
+            modules = assign_splits_and_difficulties(modules, seed=seed)
+            if gene_ids and not modules:
+                raise RuntimeError(
+                    "RWR-LOE materialization produced zero modules. "
+                    f"Skipped modules: {dict(stats.skipped_modules)}. "
+                    f"Rank cache context: {context_dir}"
+                )
+            write_jsonl_atomic(module_checkpoint_path, modules)
+            write_json(
+                module_checkpoint_meta_path,
+                {
+                    "schema_version": MATERIALIZE_CHECKPOINT_SCHEMA_VERSION,
+                    "status": "completed",
+                    "gene_count": len(gene_ids),
+                    "module_count": len(modules),
+                    "skipped_modules": _jsonable_counter(stats.skipped_modules),
+                    "updated_at": utc_now_iso(),
+                },
+            )
+            tracker.update(
+                completed=len(modules),
+                total=len(gene_ids),
+                unit="modules",
+                metrics={
+                    "module_count": len(modules),
+                    "skipped_modules": dict(stats.skipped_modules),
+                    "mentor_size_distribution": mentor_size_distribution,
+                    "module_selection_method": module_selection_method,
+                    "checkpoint_path": str(module_checkpoint_path),
+                    "assignment_checkpoint_path": str(module_assignment_checkpoint_path),
+                    "materialize_workers": max(1, int(materialize_workers)),
+                },
+            )
 
         tracker.start("load_rank_cache", total=len(modules), unit="modules")
         candidate_gene_universe = {gene for module in modules for gene in module["gene_ids"]}
@@ -1426,11 +2062,26 @@ def build_rwr_loe_corpus(
         )
 
         tracker.start("build_prototypes", total=len(modules), unit="modules")
-        prototypes = build_task_prototypes(
+        prototypes = build_task_prototypes_checkpointed(
             modules=modules,
             candidate_gene_universe=candidate_gene_universe,
             seed=seed,
             stats=stats,
+            checkpoint_path=raw_prototype_checkpoint_path,
+            tracker=tracker,
+            workers=materialize_workers,
+        )
+        write_json(
+            raw_prototype_checkpoint_meta_path,
+            {
+                "schema_version": MATERIALIZE_CHECKPOINT_SCHEMA_VERSION,
+                "status": "completed",
+                "module_count": len(modules),
+                "prototype_count": len(prototypes),
+                "skipped_refinement": _jsonable_counter(stats.skipped_refinement),
+                "skipped_none": _jsonable_counter(stats.skipped_none),
+                "updated_at": utc_now_iso(),
+            },
         )
         tracker.update(
             completed=len(modules),
@@ -1444,22 +2095,68 @@ def build_rwr_loe_corpus(
         )
 
         tracker.start("balance_prototypes", unit="prototypes")
-        prototypes = balance_prototypes(prototypes, seed=seed, stats=stats)
-        tracker.update(
-            completed=len(prototypes),
-            total=len(prototypes),
-            unit="prototypes",
-            metrics={"prototype_count_after_balance": len(prototypes)},
-        )
+        balanced_checkpoint_meta = {}
+        if balanced_prototype_checkpoint_meta_path.exists():
+            balanced_checkpoint_meta = json.loads(balanced_prototype_checkpoint_meta_path.read_text(encoding="utf-8"))
+        if (
+            balanced_prototype_checkpoint_path.exists()
+            and balanced_checkpoint_meta.get("status") == "completed"
+            and balanced_checkpoint_meta.get("raw_prototype_count") == len(prototypes)
+        ):
+            prototypes = read_jsonl(balanced_prototype_checkpoint_path)
+            stats.balance = balanced_checkpoint_meta.get("balance", {})
+            tracker.update(
+                completed=len(prototypes),
+                total=len(prototypes),
+                unit="prototypes",
+                message=f"Loaded {len(prototypes)} checkpointed balanced prototypes.",
+                metrics={"prototype_count_after_balance": len(prototypes), "checkpoint_path": str(balanced_prototype_checkpoint_path)},
+            )
+        else:
+            raw_prototype_count = len(prototypes)
+            prototypes = balance_prototypes(prototypes, seed=seed, stats=stats)
+            write_jsonl_atomic(balanced_prototype_checkpoint_path, prototypes)
+            write_json(
+                balanced_prototype_checkpoint_meta_path,
+                {
+                    "schema_version": MATERIALIZE_CHECKPOINT_SCHEMA_VERSION,
+                    "status": "completed",
+                    "raw_prototype_count": raw_prototype_count,
+                    "prototype_count": len(prototypes),
+                    "balance": stats.balance,
+                    "updated_at": utc_now_iso(),
+                },
+            )
+            tracker.update(
+                completed=len(prototypes),
+                total=len(prototypes),
+                unit="prototypes",
+                metrics={
+                    "prototype_count_after_balance": len(prototypes),
+                    "checkpoint_path": str(balanced_prototype_checkpoint_path),
+                },
+            )
 
         tracker.start("materialize_tasks", total=len(prototypes) * len(EVIDENCE_MODES), unit="tasks")
-        tasks = materialize_tasks(
+        tasks = materialize_tasks_checkpointed(
             modules=modules,
             prototypes=prototypes,
             store_dir=store_dir,
             rwr_hpc_flist=rwr_hpc_flist,
             rank_cache_context_dir_path=context_dir,
             seed=seed,
+            checkpoint_path=task_checkpoint_path,
+            tracker=tracker,
+        )
+        write_json(
+            task_checkpoint_meta_path,
+            {
+                "schema_version": MATERIALIZE_CHECKPOINT_SCHEMA_VERSION,
+                "status": "completed",
+                "prototype_count": len(prototypes),
+                "task_count": len(tasks),
+                "updated_at": utc_now_iso(),
+            },
         )
         tracker.update(completed=len(tasks), total=len(tasks), unit="tasks", metrics={"task_count": len(tasks)})
 
@@ -1566,9 +2263,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rwr-hpc-build-id", type=str, default=None)
     parser.add_argument("--rwr-hpc-cache-dir", type=Path, default=DEFAULT_RWR_HPC_CACHE_DIR)
     parser.add_argument("--rank-cache-dir", type=Path, default=DEFAULT_LOE_RANK_CACHE_DIR)
+    parser.add_argument("--rank-cache-context-dir", type=Path, default=None)
     parser.add_argument("--scratch-dir", type=Path, default=Path(os.environ.get("TMPDIR", "/tmp")) / "mentor_rl_loe")
     parser.add_argument("--mentor-corpus-dir", type=Path, default=DEFAULT_MENTOR_CORPUS_DIR)
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
+    parser.add_argument("--checkpoint-dir", type=Path, default=None)
     parser.add_argument("--progress-path", type=Path, default=None)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--shard-index", type=int, default=int(os.environ.get("SLURM_ARRAY_TASK_ID", "0")))
@@ -1582,6 +2281,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rwr-launcher-prefix", type=str, default=os.environ.get("LOE_RWR_LAUNCHER_PREFIX", ""))
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--max-genes", type=int, default=None)
+    parser.add_argument(
+        "--materialize-workers",
+        type=int,
+        default=int(os.environ.get("LOE_MATERIALIZE_WORKERS", str(DEFAULT_MATERIALIZE_WORKERS))),
+        help="Worker processes for checkpointed materialization stages. Default: LOE_MATERIALIZE_WORKERS or 1.",
+    )
     parser.add_argument("--allow-local-full-run", action="store_true")
     parser.add_argument(
         "--module-selection-method",
@@ -1616,16 +2321,20 @@ def main() -> None:
         "large": args.large_module_size,
     }
     build_id = args.rwr_hpc_build_id or str(args.rwr_hpc_build_dir.resolve())
-    cache_context = build_rank_cache_context(
-        rwr_hpc_flist=args.rwr_hpc_flist,
-        rwr_hpc_build_id=build_id,
-        restart=args.restart,
-        delta=args.delta,
-        reduction_method=args.reduction_method,
-        threshold=args.threshold,
-        edgelist_has_headers=args.edgelist_has_headers,
-    )
-    context_dir = rank_cache_context_dir(args.rank_cache_dir, cache_context)
+    if args.rank_cache_context_dir is not None:
+        context_dir = args.rank_cache_context_dir
+        cache_context = load_rank_cache_context_from_dir(context_dir)
+    else:
+        cache_context = build_rank_cache_context(
+            rwr_hpc_flist=args.rwr_hpc_flist,
+            rwr_hpc_build_id=build_id,
+            restart=args.restart,
+            delta=args.delta,
+            reduction_method=args.reduction_method,
+            threshold=args.threshold,
+            edgelist_has_headers=args.edgelist_has_headers,
+        )
+        context_dir = rank_cache_context_dir(args.rank_cache_dir, cache_context)
 
     result: dict[str, Any] = {"mode": args.mode, "rank_cache_context_dir": str(context_dir)}
     if args.mode in {"prewarm", "all"}:
@@ -1661,6 +2370,9 @@ def main() -> None:
             progress_path=args.progress_path,
             max_genes=args.max_genes,
             rank_cache_context=cache_context,
+            rank_cache_context_dir_path=context_dir,
+            checkpoint_dir=args.checkpoint_dir,
+            materialize_workers=args.materialize_workers,
         )
         result["materialize"] = {
             "manifest_path": str(args.out_dir / "manifest.json"),

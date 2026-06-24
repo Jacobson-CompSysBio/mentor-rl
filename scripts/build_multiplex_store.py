@@ -29,7 +29,7 @@ from scipy import sparse
 REPO_ROOT = Path(__file__).resolve().parent.parent
 STORE_FORMAT_VERSION = "mentor-rl-multiplex-store-v2"
 DEFAULT_FULL_BRAIN_RWR_HPC_FLIST = Path(
-    "/lustre/orion/syb111/proj-shared/Personal/smithkp/projects/PASC_2026/full_brain/data/full_brain_flist.tsv"
+    "/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/data/full_brain_flist.tsv"
 )
 DEFAULT_FULL_BRAIN_STORE_DIR = REPO_ROOT / "data" / "runtime" / "full_brain_multiplex_store"
 WEIGHT_DTYPE = np.float32

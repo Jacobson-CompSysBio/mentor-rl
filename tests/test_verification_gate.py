@@ -6,7 +6,7 @@ from pathlib import Path
 import networkx as nx
 
 from runtime.environment import RuntimeEnvironment
-from scripts.audit_trajectory_run import AuditConfig, audit_run
+from scripts.audit_trajectory_run import AuditConfig, _final_summary_alignment, audit_run
 from scripts.dpo_pair_loader_smoke import smoke_load_pairs
 from scripts.generate_trajectories import TrajectoryGenerationConfig, generate_trajectories
 from scripts.select_verification_tasks import (
@@ -90,6 +90,76 @@ def _generate_small_run(out_dir: Path) -> None:
 
 
 class VerificationGateTests(unittest.TestCase):
+    def test_audit_alignment_treats_near_miss_as_partial_not_success(self) -> None:
+        task_row = _task_rows()[0]
+        summary = {
+            "task_type": "recovery",
+            "final_state": {
+                "relationship_status": "validated_group",
+                "predicted_groups": [
+                    {
+                        "group_id": "group_0",
+                        "gene_ids": ["ENSG1", "ENSG2"],
+                    }
+                ],
+            },
+        }
+
+        alignment = _final_summary_alignment(summary, task_row)
+
+        self.assertIsNotNone(alignment)
+        assert alignment is not None
+        self.assertEqual(alignment["task_success_level"], "partial")
+        self.assertFalse(alignment["task_success"])
+        self.assertEqual(alignment["overlap_count"], 2)
+
+    def test_audit_alignment_requires_validated_group_for_success(self) -> None:
+        task_row = _task_rows()[0]
+        summary = {
+            "task_type": "recovery",
+            "final_state": {
+                "relationship_status": "partially_observed_group",
+                "predicted_groups": [
+                    {
+                        "group_id": "group_0",
+                        "gene_ids": ["ENSG1", "ENSG2", "ENSG3"],
+                    }
+                ],
+            },
+        }
+
+        alignment = _final_summary_alignment(summary, task_row)
+
+        self.assertIsNotNone(alignment)
+        assert alignment is not None
+        self.assertEqual(alignment["task_success_level"], "partial")
+        self.assertFalse(alignment["task_success"])
+        self.assertEqual(alignment["jaccard"], 1.0)
+
+    def test_audit_alignment_honors_weak_evidence_downgrade(self) -> None:
+        task_row = _task_rows()[0]
+        summary = {
+            "task_type": "recovery",
+            "task_quality_failure_reasons": ["validated_group_weak_enrichment_support"],
+            "final_state": {
+                "relationship_status": "validated_group",
+                "predicted_groups": [
+                    {
+                        "group_id": "group_0",
+                        "gene_ids": ["ENSG1", "ENSG2", "ENSG3"],
+                    }
+                ],
+            },
+        }
+
+        alignment = _final_summary_alignment(summary, task_row)
+
+        self.assertIsNotNone(alignment)
+        assert alignment is not None
+        self.assertEqual(alignment["task_success_level"], "partial")
+        self.assertFalse(alignment["task_success"])
+        self.assertEqual(alignment["jaccard"], 1.0)
+
     def test_audit_accepts_structurally_valid_small_run_with_relaxed_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "run"
@@ -194,6 +264,100 @@ class VerificationGateTests(unittest.TestCase):
             self.assertIn("rwr_hpc_supported_pair_rate", report.metrics)
             self.assertIn("validated_weak_evidence_rate", report.metrics)
             self.assertTrue(any(finding.code == "selected_rwr_hpc_tool_rate_low" for finding in report.findings))
+
+    def test_audit_reports_exact_success_and_exact_pair_gates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "run"
+            _generate_small_run(out_dir)
+
+            report = audit_run(
+                out_dir,
+                AuditConfig(
+                    max_all_tie_rate=1.0,
+                    max_top_tie_rate=1.0,
+                    min_balanced_pair_bins=0,
+                    require_pairs=False,
+                    required_task_types=("recovery", "none"),
+                    required_evidence_modes=("contextual",),
+                    min_recovery_exact_success_rate=1.1,
+                    min_exact_membership_pair_rate=1.1,
+                ),
+            )
+
+            self.assertFalse(report.ok)
+            self.assertIn("recovery_exact_success_rate", report.metrics)
+            self.assertIn("refinement_exact_success_rate", report.metrics)
+            self.assertIn("exact_membership_pair_rate", report.metrics)
+            self.assertIn("near_miss_missing_gene_count_mean", report.metrics)
+            self.assertIn("near_miss_extra_gene_count_mean", report.metrics)
+            self.assertIn("terminal_membership_metrics_exact_mismatch_count", report.metrics)
+            self.assertIn("branch_membership_metrics_exact_mismatch_count", report.metrics)
+            self.assertTrue(
+                any(finding.code == "recovery_exact_success_rate_low" for finding in report.findings)
+            )
+            self.assertTrue(
+                any(finding.code == "exact_membership_pair_rate_low" for finding in report.findings)
+            )
+
+    def test_audit_reports_exact_metric_status_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "run"
+            _generate_small_run(out_dir)
+            tasks_path = out_dir / "tasks.jsonl"
+            tasks_path.write_text(
+                "".join(json.dumps(row, sort_keys=True) + "\n" for row in _task_rows()),
+                encoding="utf-8",
+            )
+            manifest_path = out_dir / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["task_selection"] = {"tasks_path": str(tasks_path)}
+            manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+            final_summaries_path = out_dir / "final_summaries.jsonl"
+            rows = [
+                json.loads(line)
+                for line in final_summaries_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            for row in rows:
+                if row.get("task_type") != "recovery":
+                    continue
+                row["final_state"]["relationship_status"] = "partially_observed_group"
+                row["final_state"]["predicted_groups"] = [
+                    {
+                        "group_id": "group_0",
+                        "gene_ids": ["ENSG1", "ENSG2", "ENSG3"],
+                        "gene_symbols": ["GENE1", "GENE2", "GENE3"],
+                        "rationale": "Exact genes but verifier did not validate.",
+                    }
+                ]
+                break
+            final_summaries_path.write_text(
+                "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+                encoding="utf-8",
+            )
+
+            report = audit_run(
+                out_dir,
+                AuditConfig(
+                    max_all_tie_rate=1.0,
+                    max_top_tie_rate=1.0,
+                    min_balanced_pair_bins=0,
+                    require_pairs=False,
+                    required_task_types=("recovery", "none"),
+                    required_evidence_modes=("contextual",),
+                ),
+            )
+
+            self.assertTrue(report.ok, [finding.to_dict() for finding in report.findings])
+            self.assertGreaterEqual(report.metrics["terminal_membership_metrics_exact_count"], 1)
+            self.assertGreaterEqual(
+                report.metrics["terminal_membership_metrics_exact_mismatch_count"],
+                1,
+            )
+            self.assertIn(
+                "recovery/partial/partially_observed_group",
+                report.metrics["terminal_membership_metrics_exact_mismatch_by_task"],
+            )
 
     def test_audit_rejects_hidden_supervision_leak(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -355,6 +519,56 @@ class VerificationGateTests(unittest.TestCase):
                 ("RWR_LOE_FULL_BRAIN", "recovery"),
             },
         )
+
+        prefix_rows = select_pilot_rows(
+            rows,
+            pilot_size=2,
+            seed=13,
+            stratify_by_difficulty=False,
+            stratify_by_size_bin=False,
+            stratify_by_source=True,
+        )
+
+        self.assertEqual(
+            {source_for_task_row(row) for row in prefix_rows},
+            {"MENTOR_GW_DENDROGRAM", "RWR_LOE_FULL_BRAIN"},
+        )
+
+    def test_select_verification_tasks_can_filter_task_types(self) -> None:
+        rows = []
+        for task_type in ("explanation", "recovery", "refinement", "none"):
+            for evidence_mode in ("graph", "minimal"):
+                rows.append(
+                    {
+                        "task_id": f"gw_dendrogram_module_000001.{task_type}.easy.{evidence_mode}",
+                        "task_type": task_type,
+                        "evidence_mode": evidence_mode,
+                        "difficulty": "easy",
+                        "size_bin": "small",
+                    }
+                )
+
+        smoke_ids = select_smoke_task_ids(
+            rows,
+            per_bucket=1,
+            stratify_by_size_bin=False,
+            task_types=("recovery", "refinement"),
+        )
+        pilot_rows = select_pilot_rows(
+            rows,
+            pilot_size=4,
+            seed=17,
+            stratify_by_difficulty=False,
+            stratify_by_size_bin=False,
+            task_types=("recovery", "refinement"),
+        )
+
+        self.assertEqual(
+            {task_id.split(".", 2)[1] for task_id in smoke_ids},
+            {"recovery", "refinement"},
+        )
+        self.assertEqual({row["task_type"] for row in pilot_rows}, {"recovery", "refinement"})
+        self.assertEqual(len(pilot_rows), 4)
 
 
 if __name__ == "__main__":

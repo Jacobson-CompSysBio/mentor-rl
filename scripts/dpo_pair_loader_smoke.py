@@ -57,6 +57,35 @@ def _preview_list(value: Any, *, limit: int = LIST_PREVIEW_ITEMS) -> list[Any]:
     return value[:limit]
 
 
+def _compact_list_sample(value: list[Any], *, limit: int = LIST_PREVIEW_ITEMS) -> list[Any]:
+    sample: list[Any] = []
+    for item in value[:limit]:
+        if isinstance(item, dict):
+            sample.append(_compact_visible_inputs(item))
+        elif isinstance(item, list):
+            sample.append(_compact_list_sample(item, limit=min(limit, 5)))
+        elif isinstance(item, str):
+            sample.append(_truncate_text(item, max_chars=240))
+        else:
+            sample.append(item)
+    return sample
+
+
+def _compact_payload_mapping(value: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    for key, item in value.items():
+        if isinstance(item, list):
+            compact[f"{key}_count"] = len(item)
+            compact[f"{key}_sample"] = _compact_list_sample(item, limit=3)
+        elif isinstance(item, dict):
+            compact[key] = _compact_payload_mapping(item)
+        elif isinstance(item, str):
+            compact[key] = _truncate_text(item, max_chars=240)
+        else:
+            compact[key] = item
+    return compact
+
+
 def _compact_provenance(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
@@ -64,10 +93,15 @@ def _compact_provenance(value: Any) -> dict[str, Any]:
     for key, item in value.items():
         if key in {"active_layers", "queried_layers"} and isinstance(item, list):
             compact[f"{key}_count"] = len(item)
-            compact[f"{key}_sample"] = item[:LAYER_PREVIEW_ITEMS]
+            compact[f"{key}_sample"] = _compact_list_sample(item, limit=LAYER_PREVIEW_ITEMS)
         elif isinstance(item, list):
             compact[f"{key}_count"] = len(item)
-            compact[f"{key}_sample"] = item[:LIST_PREVIEW_ITEMS]
+            compact[f"{key}_sample"] = _compact_list_sample(item, limit=LIST_PREVIEW_ITEMS)
+        elif isinstance(item, dict):
+            if key == "payload":
+                compact[key] = _compact_payload_mapping(item)
+            else:
+                compact[key] = _compact_visible_inputs(item)
         elif isinstance(item, str):
             compact[key] = _truncate_text(item, max_chars=240)
         else:
@@ -89,8 +123,43 @@ def _compact_evidence_record(value: Any) -> dict[str, Any]:
     }
 
 
+def _compact_visible_inputs(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return value
+    compact: dict[str, Any] = {}
+    for key, item in value.items():
+        if isinstance(item, list):
+            compact[f"{key}_count"] = len(item)
+            compact[f"{key}_sample"] = _compact_list_sample(item, limit=LIST_PREVIEW_ITEMS)
+        elif isinstance(item, dict):
+            nested: dict[str, Any] = {}
+            for nested_key, nested_item in item.items():
+                if isinstance(nested_item, list):
+                    nested[f"{nested_key}_count"] = len(nested_item)
+                    nested[f"{nested_key}_sample"] = _compact_list_sample(
+                        nested_item,
+                        limit=LIST_PREVIEW_ITEMS,
+                    )
+                elif isinstance(nested_item, dict):
+                    nested[nested_key] = _compact_visible_inputs(nested_item)
+                elif isinstance(nested_item, str):
+                    nested[nested_key] = _truncate_text(nested_item, max_chars=400)
+                else:
+                    nested[nested_key] = nested_item
+            compact[key] = nested
+        elif isinstance(item, str):
+            compact[key] = _truncate_text(item, max_chars=800)
+        else:
+            compact[key] = item
+    return compact
+
+
 def _compact_state_payload(state_payload: dict[str, Any]) -> dict[str, Any]:
     compact = dict(state_payload)
+    user_anchors = compact.get("user_anchors")
+    if isinstance(user_anchors, dict):
+        compact["user_anchors"] = dict(user_anchors)
+        compact["user_anchors"]["evidence"] = _compact_visible_inputs(user_anchors.get("evidence"))
     compact["evidence_log"] = [
         _compact_evidence_record(record)
         for record in compact.get("evidence_log", [])
@@ -169,7 +238,7 @@ def render_dpo_record(pair: PreferencePair) -> dict[str, Any]:
 
     prompt_payload = {
         "query_text": pair.context.query_text,
-        "visible_inputs": pair.context.user_evidence,
+        "visible_inputs": _compact_visible_inputs(pair.context.user_evidence),
         "interpretation": pair.context.interpretation.to_dict(),
         "state": _compact_state_payload(pair.context.state.to_dict()),
         "source_task_id": pair.source_task_id,
@@ -188,6 +257,17 @@ def render_dpo_record(pair: PreferencePair) -> dict[str, Any]:
             "evidence_mode": pair.evidence_mode,
             "difficulty_bin": pair.difficulty_bin.value,
             "score_margin": pair.score_margin,
+            "pair_category": pair.provenance.get("pair_category"),
+            "raw_score_delta": pair.provenance.get("raw_score_delta"),
+            "normalized_score_delta": pair.provenance.get("normalized_score_delta"),
+            "chosen_deterministic_membership_edit": pair.provenance.get(
+                "chosen_deterministic_membership_edit"
+            ),
+            "rejected_deterministic_membership_edit": pair.provenance.get(
+                "rejected_deterministic_membership_edit"
+            ),
+            "chosen_candidate_frontier": pair.provenance.get("chosen_candidate_frontier", []),
+            "rejected_candidate_frontier": pair.provenance.get("rejected_candidate_frontier", []),
         },
     }
 

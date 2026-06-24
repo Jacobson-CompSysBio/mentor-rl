@@ -32,7 +32,7 @@ FULL_BRAIN_STORE_DIR="${FULL_BRAIN_STORE_DIR:-${REPO_ROOT}/data/runtime/full_bra
 USE_FULL_BRAIN_RWR_HPC="${USE_FULL_BRAIN_RWR_HPC:-1}"
 REQUIRE_RWR_HPC="${REQUIRE_RWR_HPC:-1}"
 RWR_HPC_EDGELIST_HAS_HEADERS="${RWR_HPC_EDGELIST_HAS_HEADERS:-1}"
-RWR_HPC_FLIST="${RWR_HPC_FLIST:-/lustre/orion/syb111/proj-shared/Personal/smithkp/projects/PASC_2026/full_brain/data/full_brain_flist.tsv}"
+RWR_HPC_FLIST="${RWR_HPC_FLIST:-/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/data/full_brain_flist.tsv}"
 RWR_HPC_BUILD_DIR="${RWR_HPC_BUILD_DIR:-${REPO_ROOT}/external/rwr_hpc/build_frontier}"
 RWR_HPC_CACHE_DIR="${RWR_HPC_CACHE_DIR:-${REPO_ROOT}/data/runtime/rwr_hpc_cache}"
 RWR_HPC_SCRATCH_ROOT="${RWR_HPC_SCRATCH_ROOT:-${SCRATCH}/mentor_rl_rwr_hpc_scratch/${SLURM_JOB_ID}}"
@@ -126,11 +126,11 @@ if [[ ! -f "${SIF}" ]]; then
   exit 1
 fi
 
-MAX_TASKS="${MAX_TASKS:-8}"
+MAX_TASKS="${MAX_TASKS:-24}"
 TASK_SHARD_INDEX="${TASK_SHARD_INDEX:-0}"
 TASK_SHARD_COUNT="${TASK_SHARD_COUNT:-1}"
-MAX_STEPS="${MAX_STEPS:-6}"
-N_ACT="${N_ACT:-6}"
+MAX_STEPS="${MAX_STEPS:-5}"
+N_ACT="${N_ACT:-4}"
 N_VER="${N_VER:-2}"
 TASK_CONCURRENCY="${TASK_CONCURRENCY:-1}"
 GENERATOR_TEMPERATURE="${GENERATOR_TEMPERATURE:-0.8}"
@@ -143,10 +143,10 @@ GENERATOR_API_MODE="${GENERATOR_API_MODE:-auto}"
 GENERATOR_REASONING_EFFORT="${GENERATOR_REASONING_EFFORT:-medium}"
 ACTOR_SAMPLING_STRATEGY="${ACTOR_SAMPLING_STRATEGY:-verbalized}"
 SELECTION_POLICY="${SELECTION_POLICY:-task_quality}"
-SELECTION_SCORE_EPSILON="${SELECTION_SCORE_EPSILON:-0.02}"
+SELECTION_SCORE_EPSILON="${SELECTION_SCORE_EPSILON:-0.10}"
 PAIR_MINING_STRATEGY="${PAIR_MINING_STRATEGY:-quality_balanced}"
-TOOL_COVERAGE_RETRY_COUNT="${TOOL_COVERAGE_RETRY_COUNT:-2}"
-RECOVERY_RWR_TOP_K="${RECOVERY_RWR_TOP_K:-500}"
+TOOL_COVERAGE_RETRY_COUNT="${TOOL_COVERAGE_RETRY_COUNT:-3}"
+RECOVERY_RWR_TOP_K="${RECOVERY_RWR_TOP_K:-1500}"
 ALLOW_MODEL_FALLBACK="${ALLOW_MODEL_FALLBACK:-0}"
 MYGENE_CACHE_PATH="${MYGENE_CACHE_PATH:-${OUT_DIR}/mygene_cache.json}"
 ENRICHMENT_CACHE_PATH="${ENRICHMENT_CACHE_PATH:-${OUT_DIR}/gprofiler_enrichment_cache.json}"
@@ -555,6 +555,112 @@ if [[ "${SMOKE_TEST_ONLY}" == "1" && "${RUN_SMOKE_TEST}" != "1" ]]; then
   exit 1
 fi
 
+preflight_trajectory_runtime() {
+  local failed=0
+  if [[ ! -f "${TASKS_PATH}" ]]; then
+    log "Missing trajectory task file: ${TASKS_PATH}"
+    failed=1
+  fi
+  if [[ ! -d "${STORE_DIR}" ]]; then
+    log "Missing native runtime store directory: ${STORE_DIR}"
+    failed=1
+  fi
+  if [[ -n "${FULL_BRAIN_STORE_DIR}" && ! -d "${FULL_BRAIN_STORE_DIR}" ]]; then
+    log "Missing full-brain runtime store directory: ${FULL_BRAIN_STORE_DIR}"
+    failed=1
+  fi
+  if [[ "${USE_FULL_BRAIN_RWR_HPC}" == "1" || "${REQUIRE_RWR_HPC}" == "1" || "${SMOKE_PRECOMPUTE_RWR_CACHE}" == "1" ]]; then
+    if [[ -z "${RWR_HPC_FLIST}" || ! -f "${RWR_HPC_FLIST}" ]]; then
+      log "Missing RWR_HPC_FLIST: ${RWR_HPC_FLIST:-<empty>}"
+      failed=1
+    fi
+    if [[ -z "${RWR_HPC_BUILD_DIR}" || ! -d "${RWR_HPC_BUILD_DIR}" ]]; then
+      log "Missing RWR_HPC_BUILD_DIR: ${RWR_HPC_BUILD_DIR:-<empty>}"
+      failed=1
+    elif [[ ! -x "${RWR_HPC_BUILD_DIR}/apps/rwr/rwr" && ! -x "${RWR_HPC_BUILD_DIR}/apps/rwr/rwr_wrapper" ]]; then
+      log "Missing executable RWR++ binary: expected ${RWR_HPC_BUILD_DIR}/apps/rwr/rwr or ${RWR_HPC_BUILD_DIR}/apps/rwr/rwr_wrapper"
+      failed=1
+    fi
+  fi
+  if [[ "${failed}" != "0" ]]; then
+    log "Trajectory preflight failed before RWR++/Ray/vLLM startup."
+    exit 1
+  fi
+  log "Trajectory preflight passed."
+}
+
+build_smoke_task_descriptors() {
+  SMOKE_TASK_DESCRIPTORS=()
+  if [[ -n "${SMOKE_TASK_IDS}" ]]; then
+    IFS=',' read -r -a REQUESTED_SMOKE_TASK_IDS <<< "${SMOKE_TASK_IDS}"
+    for RAW_SMOKE_TASK_ID in "${REQUESTED_SMOKE_TASK_IDS[@]}"; do
+      TRIMMED_SMOKE_TASK_ID="${RAW_SMOKE_TASK_ID#"${RAW_SMOKE_TASK_ID%%[![:space:]]*}"}"
+      TRIMMED_SMOKE_TASK_ID="${TRIMMED_SMOKE_TASK_ID%"${TRIMMED_SMOKE_TASK_ID##*[![:space:]]}"}"
+      if [[ -n "${TRIMMED_SMOKE_TASK_ID}" ]]; then
+        SMOKE_TASK_DESCRIPTORS+=("id:${TRIMMED_SMOKE_TASK_ID}")
+      fi
+    done
+  elif [[ -n "${SMOKE_TASK_ID}" ]]; then
+    SMOKE_TASK_DESCRIPTORS+=("id:${SMOKE_TASK_ID}")
+  else
+    SMOKE_TASK_DESCRIPTORS+=("index:${SMOKE_TASK_INDEX}")
+  fi
+}
+
+run_smoke_cache_precompute_gate() {
+  if [[ "${RUN_SMOKE_TEST}" != "1" || "${PRECOMPUTE_SMOKE_CACHES}" != "1" ]]; then
+    return 0
+  fi
+  build_smoke_task_descriptors
+  for SMOKE_DESCRIPTOR in "${SMOKE_TASK_DESCRIPTORS[@]}"; do
+    SMOKE_SELECTOR="${SMOKE_DESCRIPTOR%%:*}"
+    SMOKE_VALUE="${SMOKE_DESCRIPTOR#*:}"
+    SMOKE_TASK_FLAGS=()
+    if [[ "${SMOKE_SELECTOR}" == "id" ]]; then
+      SMOKE_TASK_FLAGS+=(--task-id "${SMOKE_VALUE}")
+      log "Precomputing smoke-test caches for task id before vLLM startup: ${SMOKE_VALUE}"
+    else
+      SMOKE_TASK_FLAGS+=(--task-index "${SMOKE_VALUE}")
+      log "Precomputing smoke-test caches for task index before vLLM startup: ${SMOKE_VALUE}"
+    fi
+    SMOKE_REPORT_TOKEN="$(printf '%s_%s' "${SMOKE_SELECTOR}" "${SMOKE_VALUE}" | tr -c 'A-Za-z0-9_.-' '_')"
+    SMOKE_PRECOMPUTE_REPORT_PATH="${OUT_DIR}/smoke_cache_precompute_${SMOKE_REPORT_TOKEN}.json"
+    if ! srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
+      bash --noprofile --norc -c "
+        set -euo pipefail
+        source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
+        source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
+        export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+        export HIP_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES}
+        unset ROCR_VISIBLE_DEVICES || true
+        cd '${REPO_ROOT}'
+        export PYTHONPATH='${REPO_ROOT}':\${PYTHONPATH:-}
+        python scripts/precompute_smoke_caches.py \
+          --tasks-path '${TASKS_PATH}' \
+          --store-dir '${STORE_DIR}' \
+          ${RWR_HPC_ARGS[*]@Q} \
+          --mygene-cache-path '${MYGENE_CACHE_PATH}' \
+          --enrichment-cache-path '${ENRICHMENT_CACHE_PATH}' \
+          ${MYGENE_NETWORK_ARG[*]@Q} \
+          ${ENRICHMENT_NETWORK_ARG[*]@Q} \
+          ${ENRICHMENT_BACKGROUND_ARG[*]@Q} \
+          ${PREFETCH_MECHANISM_ARG[*]@Q} \
+          ${SMOKE_RWR_PRECOMPUTE_ARG[*]@Q} \
+          ${SMOKE_NATIVE_PRECOMPUTE_ARG[*]@Q} \
+          ${REQUIRE_SMOKE_CACHE_PRECOMPUTE_ARG[*]@Q} \
+          --report-path '${SMOKE_PRECOMPUTE_REPORT_PATH}' \
+          ${SMOKE_TASK_FLAGS[*]@Q}
+      "; then
+      log "Smoke-test cache precompute failed before vLLM startup. See ${SMOKE_PRECOMPUTE_REPORT_PATH} if it was written."
+      exit 1
+    fi
+  done
+  SMOKE_CACHE_PRECOMPUTE_DONE=1
+}
+
+SMOKE_CACHE_PRECOMPUTE_DONE=0
+preflight_trajectory_runtime
+
 cleanup() {
   if [[ -n "${RWR_HPC_SERVICE_NODE:-}" && -n "${RWR_HPC_SERVICE_URL:-}" ]]; then
     curl -sf "${RWR_HPC_SERVICE_URL}/metrics" -o "${RWR_HPC_SERVICE_METRICS_PATH}" >/dev/null 2>&1 || true
@@ -639,6 +745,8 @@ if [[ -n "${RWR_HPC_SERVICE_NODE}" ]]; then
   fi
   log "RWR++ service is healthy."
 fi
+
+run_smoke_cache_precompute_gate
 
 if [[ "${EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND}" == "ray" ]]; then
   log "Starting Ray head on ${HEAD_NODE}"
@@ -1008,7 +1116,7 @@ if [[ "${RUN_SMOKE_TEST}" == "1" ]]; then
       log "Running preflight generator smoke test for task index: ${SMOKE_VALUE}"
     fi
 
-    if [[ "${PRECOMPUTE_SMOKE_CACHES}" == "1" ]]; then
+    if [[ "${PRECOMPUTE_SMOKE_CACHES}" == "1" && "${SMOKE_CACHE_PRECOMPUTE_DONE}" != "1" ]]; then
       SMOKE_REPORT_TOKEN="$(printf '%s_%s' "${SMOKE_SELECTOR}" "${SMOKE_VALUE}" | tr -c 'A-Za-z0-9_.-' '_')"
       SMOKE_PRECOMPUTE_REPORT_PATH="${OUT_DIR}/smoke_cache_precompute_${SMOKE_REPORT_TOKEN}.json"
       log "Precomputing smoke-test caches; report will be written to ${SMOKE_PRECOMPUTE_REPORT_PATH}"

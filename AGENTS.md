@@ -38,18 +38,31 @@ direct replacement.
 
 ## Current Baseline
 
-As of 2026-06-11, PR #11 from `rwr-hpc-structured-tools` has been merged into
-`main` and `trajectory-gen` at commit `7259981`. Treat that commit as the
-baseline for new trajectory-generation feature branches unless the user points
-to a newer branch. That merge includes the structured RWR-HPC tool
-infrastructure, smoke-cache precompute profile split, Markov-style compact
-prompt state, launcher updates, audit metrics, and tests.
+As of 2026-06-22, the RWR-HPC structured-tool infrastructure is no longer the
+main blocker. PR #11 from `rwr-hpc-structured-tools` was merged into `main` and
+`trajectory-gen` at commit `7259981`; keep that as the historical infrastructure
+baseline unless the user points to a newer branch. That merge provided the
+structured RWR-HPC backend, smoke-cache precompute profile split, Markov-style
+compact prompt state, launcher updates, audit metrics, and tests.
 
-The next implementation branch should focus on trajectory quality and
-remaining feature work, not redoing the merged infrastructure. In particular,
-the immediate quality blocker is biological calibration: `validated_group`
-should require group-level mechanistic evidence, not merely one-gene enrichment
-or graph connectivity without a grounded biological mechanism.
+Current trajectory-generation work is about exact membership quality. Recovery
+and refinement positives now require exact gene-membership recovery/refinement
+under the scorer. Partial recovery/refinement is useful as a rejected/contrastive
+DPO signal, but it must not be treated as a chosen positive for exact recovery.
+
+The generator now explicitly prompts actor/verifier mode to optimize exact
+membership for recovery/refinement, and the controller enforces that partial
+recovery/refinement states are nonterminal while budget remains. If a
+recovery/refinement branch tries to stop with
+`relationship_status=partially_observed_group` or hidden-score
+`task_success_level=partial`, the branch is rewritten to `continue`, with
+override provenance in `branch.metadata["exact_membership_nonterminal_override"]`.
+Hidden targets remain scoring-only and are not exposed to prompts.
+
+The next blocker is producing exact-positive recovery/refinement branches
+reliably enough to mine exact-vs-partial DPO pairs. Mechanism quality is still
+required to avoid weak `validated_group` overclaims, but exact membership is the
+first acceptance target for recovery/refinement.
 
 ## Proposal Methodology Context
 
@@ -91,16 +104,36 @@ This means recovery, refinement, explanation, insufficient-support, and
 multiple-group tasks should be sampled and scored against dendrogram-derived
 modules unless a run explicitly opts into another benchmark.
 
-The full-brain multiplex flist is the graph source for these runs:
+The full-brain multiplex flist default for launches from this repo is:
 
-`/lustre/orion/syb111/proj-shared/Personal/smithkp/projects/PASC_2026/full_brain/data/full_brain_flist.tsv`
+`/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/data/full_brain_flist.tsv`
+
+There is also a relative local copy:
+
+`data/full_brain_flist.tsv`
+
+Use the local copy for `RWR_HPC_FLIST`. It should contain 358 full-brain layer
+entries and should match `data/runtime/full_brain_multiplex_store`.
+Do not use the old HumanNet/brain multiplex flist with the full-brain store.
 
 The active full-brain runtime store is:
 
 `data/runtime/full_brain_multiplex_store`
 
-Current large-scale trajectory pilots must use the full-brain rebuilt task
-corpus:
+Current exact-membership pilots should use the mixed full-brain corpus:
+
+`data/module_corpus_full_brain_mixed`
+
+This corpus combines `data/gw_dendrogram_corpus_full_brain` and
+`data/rwr_loe_corpus_full_brain`, balanced by source. Its standard pilot files
+under `data/module_corpus_full_brain_mixed/pilots` are source-stratified; the
+24-task pilot currently covers both GW dendrogram and RWR-LOE modules and
+includes explanation, recovery, refinement, and none tasks. When using a pilot
+file as `TASKS_PATH`, prefer `SMOKE_TASK_INDEX=0`; do not pass the broader
+`smoke_task_ids.txt` unless those ids are known to be present in the same
+`TASKS_PATH`.
+
+The full-brain dendrogram corpus remains an underlying source corpus:
 
 `data/gw_dendrogram_corpus_full_brain`
 
@@ -280,7 +313,7 @@ The intended production goal is large-scale trajectory generation where RWR++
 is the real graph backend for all RWR++ model tools, using Ken's updated full
 brain multiplex as the exploration graph:
 
-`/lustre/orion/syb111/proj-shared/Personal/smithkp/projects/PASC_2026/full_brain/data/full_brain_flist.tsv`
+`/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/data/full_brain_flist.tsv`
 
 Cache as much RWR++ work as possible. RWR++ calls are deterministic for a
 given request, flist, build id, and parser schema, so repeated seed/query/path
@@ -351,127 +384,84 @@ allocation/node, so keep that as an in-job smoke preflight.
 
 ## Full-Scale Readiness Gates
 
-Older pilot details are mostly historical. Preserve only these lessons:
+Older pilot details are mostly historical. Preserve only durable lessons:
 
-- A 4-task functional pilot is not a production gate pass; broad pilots must
-  cover `explanation`, `recovery`, `refinement`, and `none`.
-- Pilots selected from stale `data/gw_dendrogram_corpus` can fail because task
-  genes are absent from the active full-brain runtime store. Current pilots
-  must use `data/gw_dendrogram_corpus_full_brain`.
+- A functional smoke is not a production gate pass. It verifies launch, cache,
+  RWR-HPC, native-store, annotation, and vLLM plumbing only.
 - Full-brain smoke and pilot runs should keep
-  `RWR_HPC_APP_TIMEOUT_SECONDS=1800` unless measured timings justify a
-  smaller value.
+  `RWR_HPC_APP_TIMEOUT_SECONDS=1800` unless measured timings justify a smaller
+  value.
+- Use stratified full-brain pilot task files, never the first N rows and never
+  stale `data/gw_dendrogram_corpus` pilot files.
 - Recovery/refinement generation should retry when sampled actor candidates
-  lack any RWR++ model-facing tool, and preference mining should preserve
-  task-difficulty bins while prioritizing recovery-expansion, refinement, and
-  tool-supported categories.
+  lack any RWR++ model-facing tool, and preference mining should prioritize
+  exact-positive recovery/refinement over partial or negative branches.
+- Partial recovery/refinement is not a chosen-positive training target. Use it
+  as rejected near-miss signal in `exact_over_partial`, `exact_recovery`, or
+  `exact_refinement` pairs.
 
-Job `4793541` is the latest 24-task full-brain pilot evidence. It ran from
-`data/gw_dendrogram_corpus_full_brain/pilots/stratified_24_seed42.tasks.jsonl`
-with `RUN_SMOKE_TEST=1`, `SMOKE_TEST_ONLY=0`,
-`SMOKE_RWR_PRECOMPUTE_PROFILE=core`, and
-`RWR_HPC_APP_TIMEOUT_SECONDS=1800`. Slurm completed with exit code 0 and the
-run directory is:
+Recent evidence:
 
-`data/gw_dendrogram_trajectories/gpt_oss_120b_job_4793541`
+- Job `4866438` was a successful mixed-corpus smoke-only run. The core
+  smoke-cache precompute passed with zero RWR-HPC errors, vLLM started, and the
+  smoke model step completed. The selected branch was biologically negative,
+  which is acceptable for smoke because smoke checks infrastructure, not exact
+  recovery performance.
+- Job `4867440` was the first mixed-corpus exact-performance 24-task pilot. It
+  timed out at the 6-hour Slurm limit after completing 18/24 tasks. The timeout
+  occurred during full trajectory generation, not smoke preflight: core RWR-HPC
+  precompute had zero errors, the full-brain runtime had 358 layers, and vLLM
+  was still serving requests near cancellation.
+- The completed portion of `4867440` is diagnostic only, not a completed
+  training/audit artifact. Slurm killed the process mid-write, leaving truncated
+  JSONL tails and no real `final_summaries.jsonl`.
+- A completed-only review was reconstructed for inspection at
+  `data/module_corpus_full_brain_mixed_trajectories/exact_perf24_20260619_090435_completed_review`.
+  It includes 18 trajectories and 71 selected steps reconstructed from valid
+  branch-pool rows. The reconstructed summaries are for visualization only.
+- On the completed portion of `4867440`, strict positive success was 6/18
+  overall, but exact recovery/refinement was 0/4 recovery and 0/4 refinement.
+  Recovery/refinement mostly produced partial near-misses. This confirms that
+  exact-positive branch generation, not infrastructure, is the current blocker.
 
-The run completed 24 trajectories, 83 selected steps/branch pools, 202 total
-branches, 80 raw preference pairs, and 10 mined preference pairs. Smoke-cache
-precompute passed: annotation prefetch had 0 errors, native graph touches had
-2 successful `get_neighbors` observations plus one empty `induce_subgraph`,
-and the RWR++ `core` profile completed 15/15 app-backed actions with 0 errors.
-The heavy `extended` diagnostics (`rwr_loe`, `get_seed_essentiality`, and
-`get_layer_ablation`) were deliberately skipped.
+Exact-performance acceptance criteria before full DPO generation:
 
-The model did use graph tools during generation. Selected trajectories included
-`rwr` 20 times, `induce_subgraph` 17, `shortest_paths` 8, `get_neighbors` 4,
-and `get_component_summary` 1. Audit metrics showed selected RWR-HPC tool rate
-0.349, RWR-HPC candidate rate 0.272, RWR-HPC-supported pair rate 0.6, and
-RWR-HPC observation error rate 0.0. The infrastructure/tool-use gate is now
-substantially healthier than earlier pilots.
+1. Smoke-cache precompute passes with `SMOKE_RWR_PRECOMPUTE_PROFILE=core`.
+2. No RWR-HPC observation errors.
+3. At least one exact-positive recovery and at least one exact-positive
+   refinement in a small pilot.
+4. Exact-membership DPO pairs are present, especially exact-positive chosen
+   branches over partial or negative rejected branches.
+5. Existing schema, pair, tool-coverage, and weak-evidence audit gates still
+   pass.
 
-Do not treat `4793541` as a full quality pass. The formal audit still failed
-because `validated_weak_evidence_rate` was 0.125 versus the 0.100 threshold.
-There was also a warning for high all-tie branch-pool rate (0.253 versus the
-0.200 warning threshold) and a startup-only vLLM safetensors probe warning, but
-the actionable blocker is biological calibration.
+Recommended next pilot is a fresh `OUT_DIR` with longer walltime. Prefer a
+recovery/refinement-only task subset when available; the mixed 24-task pilot is
+acceptable for a broad check but spends time on explanation and none tasks.
 
-Before the next 60-task quality pilot, fix or tighten the verifier/scoring
-behavior that lets weak evidence become `validated_group`:
-
-- Single-gene enrichment over a multi-gene query can support a narrow
-  annotation for that one gene, but it must not validate the whole module.
-- Graph-only connectivity, RWR proximity, or shortest paths can justify
-  `partially_observed_group`, but should not become `validated_group` unless a
-  grounded mechanism is observed or the task explicitly asks for graph
-  connectivity as the target.
-- A `validated_group` final state should require either multi-gene functional
-  support or strong graph support plus a specific biological mechanism. If the
-  interpretation says the mechanism is unknown, annotation-free, or supported
-  by only one/few genes, keep the state at `partially_observed_group`.
-- Known `4793541` examples to guard against are
-  `gw_dendrogram_module_028275.refinement.hard.graph` (sphingolipid claim from
-  1/10 enrichment support), `gw_dendrogram_module_039951.refinement.easy.graph`
-  (graph/RWR connectivity without annotation), and
-  `gw_dendrogram_module_056581.refinement.medium.minimal` (connected MSN-layer
-  subgraph without a grounded mechanism).
-
-Do not move to full-scale trajectory generation until all four evidence gates
-pass:
-
-1. RWR++ usefulness: recovery/refinement branch pools must include RWR++
-   candidate branches, selected trajectories must use at least one model-facing
-   RWR++ graph tool, and RWR++ observations must have zero service/tool errors.
-2. Broad biological recovery: stratified pilots must cover `explanation`,
-   `recovery`, `refinement`, and `none`, both graph and minimal evidence modes,
-   and biological summaries must not over-upgrade weak enrichment-only support
-   to `validated_group`.
-3. 8:1 scaling: prove the intended topology with 8 vLLM/Ray nodes and 1
-   dedicated RWR++ service node before claiming production scalability.
-4. Expert alignment: the default expert target is trajectory-candidate review
-   for the same task, not global module ranking. Compare the selected branch and
-   hidden model-score top branch against expert top choices.
-
-Full-scale pilots must use stratified task files from the full-brain rebuilt
-corpus, never the first N task rows and never the stale
-`data/gw_dendrogram_corpus` pilot files. Rebuild/select them with:
+Use the stronger exact-search settings for recovery/refinement pilots:
 
 ```bash
-CORPUS_DIR=data/gw_dendrogram_corpus_full_brain
-
-python scripts/build_gw_dendrogram_corpus.py \
-  --dendrogram-path data/gw_dendrogram.txt \
-  --store-dir data/runtime/full_brain_multiplex_store \
-  --out-dir "${CORPUS_DIR}" \
-  --seed 42
-
-python scripts/select_verification_tasks.py \
-  --tasks-path "${CORPUS_DIR}/tasks.train.jsonl" \
-  --write-standard-pilots \
-  --standard-pilot-dir "${CORPUS_DIR}/pilots" \
-  --seed 42 \
-  --json
+MAX_STEPS=6
+N_ACT=6
+N_VER=3
+TASK_CONCURRENCY=1
+SELECTION_POLICY=task_quality
+SELECTION_SCORE_EPSILON=0.10
+PAIR_MINING_STRATEGY=quality_balanced
+TOOL_COVERAGE_RETRY_COUNT=4
+RECOVERY_RWR_TOP_K=3000
+RUN_SMOKE_TEST=1
+SMOKE_TEST_ONLY=0
+SMOKE_RWR_PRECOMPUTE_PROFILE=core
 ```
 
-Run the 24-task broad one-node pilot first:
+If a clean smoke has already passed in the same software/cache configuration,
+`RUN_SMOKE_TEST=0` can be used for a rerun to save startup time, but use a
+fresh output directory and do not reuse a timed-out directory with truncated
+JSONL artifacts.
 
-```bash
-TASKS_PATH=data/gw_dendrogram_corpus_full_brain/pilots/stratified_24_seed42.tasks.jsonl \
-MAX_TASKS=24 MAX_STEPS=4 N_ACT=2 N_VER=1 TASK_CONCURRENCY=1 \
-PREFETCH_MAX_TASKS=24 \
-RUN_SMOKE_TEST=1 SMOKE_TEST_ONLY=0 SMOKE_RWR_PRECOMPUTE_PROFILE=core \
-GENERATOR_PROMPT_TOKEN_LIMIT=14080 \
-GENERATOR_ACTOR_TOOL_REPAIR_RETRY_COUNT=1 \
-ALLOW_MODEL_FALLBACK=0 \
-sbatch generate_trajectories.slurm
-```
-
-Before rerunning a corrected pilot after corpus changes, verify that selected
-task genes are present in `data/runtime/full_brain_multiplex_store` and that
-graph task rows do not still point at `data/humannet_multiplex_store`.
-
-Then run the 60-task quality pilot and audit it with the DPO gate plus RWR++
-and weak-evidence thresholds:
+Audit an exact-performance pilot with:
 
 ```bash
 python scripts/audit_trajectory_run.py \
@@ -487,32 +477,15 @@ python scripts/audit_trajectory_run.py \
   --min-none-success-rate 0.80 \
   --min-explanation-success-rate 0.80 \
   --min-recovery-refinement-partial-rate 0.60 \
+  --min-recovery-exact-success-rate 0.125 \
+  --min-refinement-exact-success-rate 0.25 \
+  --min-exact-membership-pair-rate 0.01 \
   --min-selected-rwr-hpc-tool-rate 0.10 \
   --min-rwr-hpc-candidate-rate 0.25 \
   --min-rwr-hpc-supported-pair-rate 0.10 \
   --max-rwr-hpc-observation-error-rate 0.00 \
   --max-validated-weak-evidence-rate 0.10
 ```
-
-Export 30 trajectory-candidate review items from the 60-task pilot and collect
-expert labels with `review_item_id`, `expert_id`, `chosen_branch_id`,
-`confidence`, `acceptable_branch_ids`, and `notes`:
-
-```bash
-python scripts/export_expert_review_candidates.py \
-  --run-dir <run_dir> \
-  --out <run_dir>/expert_review_candidates.jsonl \
-  --sample-size 30 \
-  --seed 42
-
-python scripts/evaluate_expert_alignment.py \
-  --review-packets <run_dir>/expert_review_candidates.jsonl \
-  --labels <expert_labels.jsonl-or.csv>
-```
-
-Expert-alignment pass criteria are at least 70% selected-vs-expert top-1
-agreement, 85% model-score top-2 agreement, and 75% pairwise preference
-accuracy. Inspect all high-confidence disagreements before scaling.
 
 For the 8:1 topology pilot, request 9 nodes and set
 `RWR_HPC_SERVICE_NODE_COUNT=1`. The launcher reserves the final node for

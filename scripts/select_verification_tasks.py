@@ -14,7 +14,7 @@ import re
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -111,6 +111,24 @@ def _ordered_sources(rows: list[dict[str, Any]]) -> list[str]:
     return ordered
 
 
+def _split_csv(value: str | None) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
+def _filter_rows_by_task_types(
+    rows: list[dict[str, Any]],
+    task_types: Iterable[str] | None,
+) -> list[dict[str, Any]]:
+    if task_types is None:
+        return rows
+    allowed = {str(task_type) for task_type in task_types if str(task_type)}
+    if not allowed:
+        return rows
+    return [row for row in rows if str(row.get("task_type")) in allowed]
+
+
 def _bucket_key(
     row: dict[str, Any],
     *,
@@ -162,18 +180,18 @@ def _ordered_smoke_bucket_keys(
     if stratify_by_source and stratify_by_size_bin:
         ordered = [
             (source, size_bin, task_type, evidence_mode)
-            for source in _ordered_sources(rows)
             for size_bin in SIZE_BIN_ORDER
             for task_type in TASK_TYPE_ORDER
             for evidence_mode in EVIDENCE_MODE_ORDER
+            for source in _ordered_sources(rows)
             if (source, size_bin, task_type, evidence_mode) in present
         ]
     elif stratify_by_source:
         ordered = [
             (source, task_type, evidence_mode)
-            for source in _ordered_sources(rows)
             for task_type in TASK_TYPE_ORDER
             for evidence_mode in EVIDENCE_MODE_ORDER
+            for source in _ordered_sources(rows)
             if (source, task_type, evidence_mode) in present
         ]
     elif stratify_by_size_bin:
@@ -223,20 +241,20 @@ def _ordered_pilot_bucket_keys(
     if stratify_by_source and stratify_by_size_bin:
         ordered = [
             (source, size_bin, task_type, evidence_mode, difficulty)
-            for source in _ordered_sources(rows)
             for size_bin in SIZE_BIN_ORDER
             for task_type in TASK_TYPE_ORDER
             for evidence_mode in EVIDENCE_MODE_ORDER
             for difficulty in DIFFICULTY_ORDER
+            for source in _ordered_sources(rows)
             if (source, size_bin, task_type, evidence_mode, difficulty) in present
         ]
     elif stratify_by_source:
         ordered = [
             (source, task_type, evidence_mode, difficulty)
-            for source in _ordered_sources(rows)
             for task_type in TASK_TYPE_ORDER
             for evidence_mode in EVIDENCE_MODE_ORDER
             for difficulty in DIFFICULTY_ORDER
+            for source in _ordered_sources(rows)
             if (source, task_type, evidence_mode, difficulty) in present
         ]
     elif stratify_by_size_bin:
@@ -303,7 +321,9 @@ def select_smoke_task_ids(
     seed: int = DEFAULT_SELECTION_SEED,
     stratify_by_size_bin: bool = True,
     stratify_by_source: bool = False,
+    task_types: Iterable[str] | None = None,
 ) -> list[str]:
+    rows = _filter_rows_by_task_types(rows, task_types)
     grouped = _group_rows(
         rows,
         seed=seed,
@@ -333,8 +353,12 @@ def select_pilot_rows(
     stratify_by_difficulty: bool = True,
     stratify_by_size_bin: bool = True,
     stratify_by_source: bool = False,
+    task_types: Iterable[str] | None = None,
 ) -> list[dict[str, Any]]:
     if pilot_size <= 0:
+        return []
+    rows = _filter_rows_by_task_types(rows, task_types)
+    if not rows:
         return []
 
     grouped = _group_rows(
@@ -398,6 +422,7 @@ def write_standard_pilots(
     pilot_dir: Path = DEFAULT_PILOT_DIR,
     seed: int = DEFAULT_SELECTION_SEED,
     stratify_by_source: bool = False,
+    task_types: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     """Write the 24-task smoke and 60-task quality pilot JSONLs."""
 
@@ -408,6 +433,7 @@ def write_standard_pilots(
         stratify_by_difficulty=False,
         stratify_by_size_bin=True,
         stratify_by_source=stratify_by_source,
+        task_types=task_types,
     )
     quality_rows = select_pilot_rows(
         rows,
@@ -416,6 +442,7 @@ def write_standard_pilots(
         stratify_by_difficulty=True,
         stratify_by_size_bin=True,
         stratify_by_source=stratify_by_source,
+        task_types=task_types,
     )
     smoke_path = pilot_dir / f"stratified_24_seed{seed}.tasks.jsonl"
     quality_path = pilot_dir / f"stratified_60_seed{seed}.tasks.jsonl"
@@ -451,6 +478,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Stratify smoke and pilot selections by corpus source for mixed corpora.",
     )
     parser.add_argument(
+        "--task-types",
+        type=str,
+        default="",
+        help="Optional comma-separated task-type filter, e.g. recovery,refinement.",
+    )
+    parser.add_argument(
         "--write-standard-pilots",
         action="store_true",
         help="Write deterministic 24-task smoke and 60-task quality pilot JSONLs.",
@@ -468,12 +501,14 @@ def main() -> None:
     stratify_by_difficulty = not args.no_pilot_difficulty_strata
     stratify_by_size_bin = not args.no_size_bin_strata
     stratify_by_source = args.source_strata
+    task_types = _split_csv(args.task_types)
     smoke_ids = select_smoke_task_ids(
         rows,
         per_bucket=args.smoke_per_bucket,
         seed=args.seed,
         stratify_by_size_bin=stratify_by_size_bin,
         stratify_by_source=stratify_by_source,
+        task_types=task_types or None,
     )
     pilot_rows = select_pilot_rows(
         rows,
@@ -482,6 +517,7 @@ def main() -> None:
         stratify_by_difficulty=stratify_by_difficulty,
         stratify_by_size_bin=stratify_by_size_bin,
         stratify_by_source=stratify_by_source,
+        task_types=task_types or None,
     )
     standard_pilots = None
     if args.write_standard_pilots:
@@ -490,6 +526,7 @@ def main() -> None:
             pilot_dir=args.standard_pilot_dir,
             seed=args.seed,
             stratify_by_source=stratify_by_source,
+            task_types=task_types or None,
         )
 
     if args.pilot_out is not None:
@@ -507,6 +544,7 @@ def main() -> None:
         "pilot_stratified_by_difficulty": stratify_by_difficulty,
         "stratified_by_size_bin": stratify_by_size_bin,
         "stratified_by_source": stratify_by_source,
+        "task_type_filter": list(task_types),
         "pilot_bucket_counts": {},
         "standard_pilots": standard_pilots,
         "pilot_out": str(args.pilot_out) if args.pilot_out else None,

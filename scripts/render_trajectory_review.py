@@ -57,6 +57,22 @@ def _fmt_float(value: Any, *, digits: int = 3, default: str = "n/a") -> str:
     return default
 
 
+def _mean(values: Iterable[Any]) -> float | None:
+    numeric = [float(value) for value in values if isinstance(value, (int, float))]
+    if not numeric:
+        return None
+    return sum(numeric) / len(numeric)
+
+
+def _counter_text(counter: Counter, *, max_items: int = 8) -> str:
+    if not counter:
+        return "none"
+    parts = [f"{key}={value}" for key, value in counter.most_common(max_items)]
+    if len(counter) > max_items:
+        parts.append(f"+{len(counter) - max_items} more")
+    return ", ".join(parts)
+
+
 def _read_jsonl(path: Path) -> Iterable[tuple[int, dict[str, Any]]]:
     with path.open("r", encoding="utf-8") as handle:
         for row_index, line in enumerate(handle, start=1):
@@ -892,6 +908,289 @@ def _html_final_interpretation(summary: dict[str, Any] | None) -> dict[str, Any]
     return final_interpretation if isinstance(final_interpretation, dict) else {}
 
 
+def _summary_success_level(summary: dict[str, Any] | None) -> str:
+    if not summary:
+        return "missing"
+    return str(summary.get("task_success_level") or ("positive" if summary.get("task_success") else "unknown"))
+
+
+def _success_display_label(success_level: str) -> str:
+    return {
+        "positive": "Success",
+        "partial": "Partial",
+        "negative": "Negative",
+        "missing": "Missing",
+        "unknown": "Unknown",
+    }.get(success_level, success_level.replace("_", " ").title())
+
+
+def _success_css_class(success_level: str) -> str:
+    return {
+        "positive": "success-positive",
+        "partial": "success-partial",
+        "negative": "success-negative",
+        "missing": "success-missing",
+        "unknown": "success-unknown",
+    }.get(success_level, "success-unknown")
+
+
+def _display_token(value: Any) -> str:
+    text = str(value or "unknown").replace("_", " ").strip()
+    return text[:1].upper() + text[1:] if text else "Unknown"
+
+
+def _trajectory_short_label(index: int, summary: dict[str, Any] | None) -> str:
+    if not summary:
+        return f"T{index:02d} | Missing Summary"
+    success = _success_display_label(_summary_success_level(summary))
+    task = _display_token(summary.get("task_type", "unknown"))
+    mode = _display_token(summary.get("evidence_mode", "unknown"))
+    difficulty = _display_token(summary.get("difficulty", "unknown"))
+    return f"T{index:02d} | {success} | {task} | {mode} | {difficulty}"
+
+
+def _summary_final_status(summary: dict[str, Any] | None) -> str:
+    final_state = _html_final_state(summary)
+    return str(final_state.get("relationship_status", "unknown"))
+
+
+def _summary_task_row(summary: dict[str, Any] | None, task_rows: dict[str, dict[str, Any]] | None) -> dict[str, Any] | None:
+    if not summary or not task_rows:
+        return None
+    return task_rows.get(str(summary.get("source_task_id", "")))
+
+
+def _selected_tool_stats(
+    turns_by_trajectory: dict[str, list[TrajectoryTurn]],
+    trajectory_ids: list[str],
+) -> tuple[Counter, Counter]:
+    tool_counts: Counter = Counter()
+    observation_counts: Counter = Counter()
+    for trajectory_id in trajectory_ids:
+        for turn in turns_by_trajectory.get(trajectory_id, []):
+            tool_counts[_tool_name(turn.branch)] += 1
+            observation_counts[_branch_observation_status(turn.branch)] += 1
+    return tool_counts, observation_counts
+
+
+def _failure_reason_counts(summaries: dict[str, dict[str, Any]], trajectory_ids: list[str]) -> Counter:
+    counts: Counter = Counter()
+    for trajectory_id in trajectory_ids:
+        summary = summaries.get(trajectory_id, {})
+        reasons = summary.get("task_quality_failure_reasons", [])
+        if isinstance(reasons, list):
+            counts.update(str(reason) for reason in reasons)
+    return counts
+
+
+def _html_distribution_bar(counter: Counter, *, class_prefix: str = "") -> str:
+    total = sum(counter.values())
+    if total <= 0:
+        return '<div class="dist-row muted">none</div>'
+    rows = []
+    for key, value in counter.most_common():
+        pct = 100.0 * value / total
+        key_text = str(key)
+        rows.append(
+            f"""
+            <div class="dist-row">
+              <span>{_html_escape(key_text)}</span>
+              <div class="dist-track"><i class="{_html_escape(class_prefix)}" style="width:{pct:.1f}%"></i></div>
+              <strong>{value}</strong>
+            </div>
+            """
+        )
+    return "\n".join(rows)
+
+
+def _html_success_distribution(counter: Counter) -> str:
+    total = sum(counter.values())
+    if total <= 0:
+        return '<div class="dist-row muted">none</div>'
+    rows = []
+    for key in ("positive", "partial", "negative", "missing", "unknown"):
+        value = counter.get(key, 0)
+        if value <= 0:
+            continue
+        pct = 100.0 * value / total
+        rows.append(
+            f"""
+            <div class="dist-row">
+              <span>{_html_escape(_success_display_label(key))}</span>
+              <div class="dist-track"><i class="{_html_escape(_success_css_class(key))}" style="width:{pct:.1f}%"></i></div>
+              <strong>{value}</strong>
+            </div>
+            """
+        )
+    return "\n".join(rows)
+
+
+def _html_run_dashboard(
+    *,
+    turns_by_trajectory: dict[str, list[TrajectoryTurn]],
+    summaries: dict[str, dict[str, Any]],
+    trajectory_ids: list[str],
+    task_rows: dict[str, dict[str, Any]] | None,
+    warning_count: int,
+) -> str:
+    selected_summaries = [summaries.get(trajectory_id) for trajectory_id in trajectory_ids]
+    selected_summaries = [summary for summary in selected_summaries if summary]
+    success_counts = Counter(_summary_success_level(summary) for summary in selected_summaries)
+    status_counts = Counter(_summary_final_status(summary) for summary in selected_summaries)
+    task_counts = Counter(str(summary.get("task_type", "unknown")) for summary in selected_summaries)
+    evidence_counts = Counter(str(summary.get("evidence_mode", "unknown")) for summary in selected_summaries)
+    difficulty_counts = Counter(str(summary.get("difficulty", "unknown")) for summary in selected_summaries)
+    tool_counts, observation_counts = _selected_tool_stats(turns_by_trajectory, trajectory_ids)
+    failure_counts = _failure_reason_counts(summaries, trajectory_ids)
+    alignments = [
+        _alignment_metrics(summary=summary, task_row=_summary_task_row(summary, task_rows))
+        for summary in selected_summaries
+    ]
+    avg_precision = _mean(alignment.get("precision") for alignment in alignments)
+    avg_recall = _mean(alignment.get("recall") for alignment in alignments)
+    avg_jaccard = _mean(alignment.get("jaccard") for alignment in alignments)
+    avg_reward = _mean(summary.get("terminal_reward") for summary in selected_summaries)
+    avg_gene_score = _mean(summary.get("terminal_absolute_complex_score") for summary in selected_summaries)
+    avg_mech_score = _mean(summary.get("terminal_mechanism_evidence_score") for summary in selected_summaries)
+    avg_steps = _mean(summary.get("step_count") for summary in selected_summaries)
+    positive = success_counts.get("positive", 0)
+    partial = success_counts.get("partial", 0)
+    success_rate = (positive + partial) / len(selected_summaries) if selected_summaries else None
+    return f"""
+      <section class="dashboard">
+        <div class="metric-grid">
+          {_html_metric("trajectories", len(trajectory_ids))}
+          {_html_metric("positive/partial rate", _fmt_float(success_rate))}
+          {_html_metric("avg reward", _fmt_float(avg_reward))}
+          {_html_metric("avg gene score", _fmt_float(avg_gene_score))}
+          {_html_metric("avg mechanism evidence", _fmt_float(avg_mech_score))}
+          {_html_metric("avg steps", _fmt_float(avg_steps))}
+          {_html_metric("avg precision", _fmt_float(avg_precision))}
+          {_html_metric("avg recall", _fmt_float(avg_recall))}
+          {_html_metric("avg jaccard", _fmt_float(avg_jaccard))}
+          {_html_metric("warnings", warning_count)}
+        </div>
+        <div class="dashboard-grid">
+          <div class="dashboard-panel"><h3>Success Levels</h3>{_html_success_distribution(success_counts)}</div>
+          <div class="dashboard-panel"><h3>Final Status</h3>{_html_distribution_bar(status_counts, class_prefix="status")}</div>
+          <div class="dashboard-panel"><h3>Task Types</h3>{_html_distribution_bar(task_counts, class_prefix="task")}</div>
+          <div class="dashboard-panel"><h3>Evidence Modes</h3>{_html_distribution_bar(evidence_counts, class_prefix="mode")}</div>
+          <div class="dashboard-panel"><h3>Difficulties</h3>{_html_distribution_bar(difficulty_counts, class_prefix="difficulty")}</div>
+          <div class="dashboard-panel"><h3>Selected Tools</h3><p>{_html_escape(_counter_text(tool_counts))}</p><h3>Observation Status</h3><p>{_html_escape(_counter_text(observation_counts))}</p></div>
+          <div class="dashboard-panel wide"><h3>Failure Reasons</h3><p>{_html_escape(_counter_text(failure_counts, max_items=12))}</p></div>
+        </div>
+      </section>
+    """
+
+
+def _html_filter_controls(
+    summaries: dict[str, dict[str, Any]],
+    trajectory_ids: list[str],
+) -> str:
+    options: dict[str, set[str]] = {
+        "task": set(),
+        "mode": set(),
+        "difficulty": set(),
+        "status": set(),
+        "success": set(),
+    }
+    for trajectory_id in trajectory_ids:
+        summary = summaries.get(trajectory_id, {})
+        options["task"].add(str(summary.get("task_type", "unknown")))
+        options["mode"].add(str(summary.get("evidence_mode", "unknown")))
+        options["difficulty"].add(str(summary.get("difficulty", "unknown")))
+        options["status"].add(_summary_final_status(summary))
+        options["success"].add(_summary_success_level(summary))
+
+    def select_html(name: str, label: str) -> str:
+        opts = ['<option value="">all</option>']
+        values = sorted(options[name])
+        if name == "success":
+            order = {"positive": 0, "partial": 1, "negative": 2, "missing": 3, "unknown": 4}
+            values = sorted(values, key=lambda value: (order.get(value, 99), value))
+        for value in values:
+            display = _success_display_label(value) if name == "success" else _display_token(value)
+            opts.append(f'<option value="{_html_escape(value)}">{_html_escape(display)}</option>')
+        return (
+            f'<label>{_html_escape(label)}'
+            f'<select data-filter-control="{_html_escape(name)}">{"".join(opts)}</select></label>'
+        )
+
+    return f"""
+      <section class="filters">
+        <div class="success-tabs" aria-label="Task success filter">
+          <button type="button" data-success-tab="" class="success-tab active">All</button>
+          <button type="button" data-success-tab="positive" class="success-tab success-positive">Success</button>
+          <button type="button" data-success-tab="partial" class="success-tab success-partial">Partial</button>
+          <button type="button" data-success-tab="negative" class="success-tab success-negative">Negative</button>
+        </div>
+        <div>
+          {select_html("task", "Task")}
+          {select_html("mode", "Evidence")}
+          {select_html("difficulty", "Difficulty")}
+          {select_html("status", "Status")}
+          {select_html("success", "Task Success")}
+        </div>
+        <label class="search-box">Search<input type="search" data-filter-control="search" placeholder="task id, trajectory id, claim"></label>
+        <span class="filter-count" id="visibleCount">{len(trajectory_ids)} visible</span>
+      </section>
+    """
+
+
+def _html_trajectory_cards(
+    *,
+    summaries: dict[str, dict[str, Any]],
+    trajectory_ids: list[str],
+    task_rows: dict[str, dict[str, Any]] | None,
+) -> str:
+    cards = []
+    for index, trajectory_id in enumerate(trajectory_ids, start=1):
+        summary = summaries.get(trajectory_id)
+        alignment = _alignment_metrics(summary=summary, task_row=_summary_task_row(summary, task_rows))
+        warning = _final_warning(summary)
+        status = _summary_final_status(summary)
+        success = _summary_success_level(summary)
+        success_class = _success_css_class(success)
+        short_title = _trajectory_short_label(index, summary)
+        task_type = str(summary.get("task_type", "unknown")) if summary else "unknown"
+        evidence_mode = str(summary.get("evidence_mode", "unknown")) if summary else "unknown"
+        difficulty = str(summary.get("difficulty", "unknown")) if summary else "unknown"
+        source_task = str(summary.get("source_task_id", trajectory_id)) if summary else trajectory_id
+        final_interpretation = _html_final_interpretation(summary)
+        claim = _one_line(final_interpretation.get("mechanistic_claim", ""), max_chars=220)
+        warning_html = f'<span class="card-warning">{_html_escape(warning)}</span>' if warning else ""
+        cards.append(
+            f"""
+            <a class="trajectory-card {success_class}"
+               href="#{_html_escape(_safe_anchor(trajectory_id))}"
+               data-task="{_html_escape(task_type)}"
+               data-mode="{_html_escape(evidence_mode)}"
+               data-difficulty="{_html_escape(difficulty)}"
+               data-status="{_html_escape(status)}"
+               data-success="{_html_escape(success)}"
+               data-search="{_html_escape(' '.join([trajectory_id, source_task, short_title, claim]))}">
+              <span class="card-index">{index}</span>
+              <strong>{_html_escape(short_title)}</strong>
+              <span>
+                {_html_badge(_display_token(task_type), "task")}
+                {_html_badge(_display_token(evidence_mode), "mode")}
+                {_html_badge(_display_token(difficulty), "difficulty")}
+                {_html_badge(_success_display_label(success), success_class)}
+              </span>
+              <span class="card-metrics">
+                reward {_html_escape(_fmt_float(summary.get("terminal_reward") if summary else None))} |
+                gene {_html_escape(_fmt_float(summary.get("terminal_absolute_complex_score") if summary else None))} |
+                mech {_html_escape(_fmt_float(summary.get("terminal_mechanism_evidence_score") if summary else None))} |
+                J {_html_escape(_fmt_float(alignment.get("jaccard")))}
+              </span>
+              <span class="muted">{_html_escape(claim or "empty claim")}</span>
+              {warning_html}
+            </a>
+            """
+        )
+    return f'<section class="trajectory-cards" id="trajectoryCards">{"".join(cards)}</section>'
+
+
 def _html_summary_panel(
     trajectory_id: str,
     turns: list[TrajectoryTurn],
@@ -1101,10 +1400,27 @@ def _html_trajectory_section(
     max_unselected_per_step: int,
     max_text_chars: int,
 ) -> str:
-    title = _trajectory_title(trajectory_id, summary)
     warning = _final_warning(summary)
     open_attr = " open" if index == 1 else ""
     warning_marker = " task-warning" if warning else ""
+    task_type = str(summary.get("task_type", "unknown")) if summary else "unknown"
+    evidence_mode = str(summary.get("evidence_mode", "unknown")) if summary else "unknown"
+    difficulty = str(summary.get("difficulty", "unknown")) if summary else "unknown"
+    status = _summary_final_status(summary)
+    success = _summary_success_level(summary)
+    success_class = _success_css_class(success)
+    short_title = _trajectory_short_label(index, summary)
+    source_task = str(summary.get("source_task_id", trajectory_id)) if summary else trajectory_id
+    final_interpretation = _html_final_interpretation(summary)
+    search_text = " ".join(
+        [
+            trajectory_id,
+            source_task,
+            short_title,
+            str(final_interpretation.get("mechanistic_claim", "")),
+            str(final_interpretation.get("main_evidence", "")),
+        ]
+    )
     mermaid_source = _mermaid_graph_source(
         trajectory_id,
         turns,
@@ -1121,18 +1437,39 @@ def _html_trajectory_section(
         max_text_chars=max_text_chars,
     )
     return f"""
-    <details class="trajectory{warning_marker}" id="{_html_escape(_safe_anchor(trajectory_id))}"{open_attr}>
+    <details class="trajectory {success_class}{warning_marker}"
+             id="{_html_escape(_safe_anchor(trajectory_id))}"
+             data-task="{_html_escape(task_type)}"
+             data-mode="{_html_escape(evidence_mode)}"
+             data-difficulty="{_html_escape(difficulty)}"
+             data-status="{_html_escape(status)}"
+             data-success="{_html_escape(success)}"
+             data-search="{_html_escape(search_text)}"
+             {open_attr}>
       <summary>
-        <span>{index}. {_html_escape(title)}</span>
-        <span class="summary-right">{_html_badge("review", _final_visual_class(summary))}</span>
+        <span>{_html_escape(short_title)}</span>
+        <span class="summary-right">
+          {_html_badge(_success_display_label(success), success_class)}
+          {_html_badge(_display_token(status), _final_visual_class(summary))}
+        </span>
       </summary>
       {_html_summary_panel(trajectory_id, turns, summary, task_row=task_row, max_text_chars=max_text_chars)}
       <div class="graph-card">
         <div class="graph-toolbar">
-          <strong>Branch graph</strong>
-          <span>Selected path plus top {max_unselected_per_step} one-step alternatives per step.</span>
+          <div>
+            <strong>Branch graph</strong>
+            <span>Selected path plus top {max_unselected_per_step} one-step alternatives per step.</span>
+          </div>
+          <div class="zoom-controls" aria-label="Graph zoom controls">
+            <button type="button" data-zoom-action="out">Zoom Out</button>
+            <span data-zoom-label>100%</span>
+            <button type="button" data-zoom-action="in">Zoom In</button>
+            <button type="button" data-zoom-action="reset">Reset</button>
+          </div>
         </div>
-        <pre class="mermaid">{_html_escape(mermaid_source)}</pre>
+        <div class="graph-canvas" data-graph-zoom="1">
+          <pre class="mermaid">{_html_escape(mermaid_source)}</pre>
+        </div>
       </div>
       <div class="table-card">
         <h3>Reasoning And Verification Details</h3>
@@ -1181,10 +1518,21 @@ def render_html(
         for trajectory_id in trajectory_ids
     )
     warning_count = sum(1 for trajectory_id in trajectory_ids if _final_warning(summaries.get(trajectory_id)))
+    dashboard = _html_run_dashboard(
+        turns_by_trajectory=turns_by_trajectory,
+        summaries=summaries,
+        trajectory_ids=trajectory_ids,
+        task_rows=task_rows,
+        warning_count=warning_count,
+    )
+    filters = _html_filter_controls(summaries, trajectory_ids)
+    cards = _html_trajectory_cards(summaries=summaries, trajectory_ids=trajectory_ids, task_rows=task_rows)
     nav_items = "\n".join(
         (
-            f'<a href="#{_html_escape(_safe_anchor(trajectory_id))}">'
-            f'{index}. {_html_escape(_trajectory_title(trajectory_id, summaries.get(trajectory_id)))}</a>'
+            f'<a class="{_html_escape(_success_css_class(_summary_success_level(summaries.get(trajectory_id))))}" '
+            f'href="#{_html_escape(_safe_anchor(trajectory_id))}">'
+            f'<span>{_html_escape(_trajectory_short_label(index, summaries.get(trajectory_id)))}</span>'
+            f'<small>{_html_escape(_display_token(_summary_final_status(summaries.get(trajectory_id))))}</small></a>'
         )
         for index, trajectory_id in enumerate(trajectory_ids, start=1)
     )
@@ -1228,6 +1576,12 @@ def render_html(
       --warn-bg: #ffedd5;
       --bad: #dc2626;
       --bad-bg: #fee2e2;
+      --success: #16a34a;
+      --success-bg: #dcfce7;
+      --partial: #ca8a04;
+      --partial-bg: #fef9c3;
+      --negative: #dc2626;
+      --negative-bg: #fee2e2;
     }}
     * {{ box-sizing: border-box; }}
     body {{
@@ -1237,7 +1591,7 @@ def render_html(
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       line-height: 1.45;
     }}
-    .layout {{ display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 100vh; }}
+    .layout {{ display: grid; grid-template-columns: 320px minmax(0, 1fr); min-height: 100vh; }}
     aside {{
       position: sticky;
       top: 0;
@@ -1251,13 +1605,20 @@ def render_html(
     aside h1 {{ margin: 0 0 8px; font-size: 20px; }}
     aside p {{ color: #b6c2d1; font-size: 13px; margin: 0 0 16px; }}
     aside a {{
-      display: block;
+      display: grid;
+      gap: 2px;
       color: #dbeafe;
       text-decoration: none;
-      padding: 8px 0;
+      padding: 8px 0 8px 10px;
       border-top: 1px solid rgba(226, 232, 240, 0.14);
+      border-left: 4px solid transparent;
       font-size: 13px;
+      overflow-wrap: anywhere;
     }}
+    aside a small {{ color: #94a3b8; font-size: 11px; }}
+    aside a.success-positive {{ border-left-color: var(--success); }}
+    aside a.success-partial {{ border-left-color: var(--partial); }}
+    aside a.success-negative {{ border-left-color: var(--negative); }}
     main {{ padding: 28px; min-width: 0; }}
     .run-header {{
       background: var(--panel);
@@ -1277,15 +1638,150 @@ def render_html(
     .swatch.final {{ color: var(--final); background: var(--final-bg); }}
     .swatch.mismatch {{ color: var(--warn); background: var(--warn-bg); }}
     .swatch.low {{ color: var(--bad); background: var(--bad-bg); }}
+    .dashboard {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 18px;
+      margin-bottom: 18px;
+      box-shadow: 0 6px 24px rgba(15, 23, 42, 0.05);
+    }}
+    .metric-grid {{
+      display: grid;
+      grid-template-columns: repeat(5, minmax(125px, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }}
+    .dashboard-grid {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }}
+    .dashboard-panel {{
+      border: 1px solid var(--line);
+      background: #fcfdff;
+      border-radius: 8px;
+      padding: 12px;
+      min-width: 0;
+    }}
+    .dashboard-panel.wide {{ grid-column: span 3; }}
+    .dashboard-panel h3 {{ margin: 0 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }}
+    .dashboard-panel p {{ margin: 0; font-size: 13px; }}
+    .dist-row {{
+      display: grid;
+      grid-template-columns: minmax(90px, 1fr) minmax(90px, 2fr) 34px;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+      margin: 7px 0;
+    }}
+    .dist-track {{
+      height: 8px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      overflow: hidden;
+    }}
+    .dist-track i {{ display: block; height: 100%; border-radius: inherit; background: #2563eb; }}
+    .dist-track i.success-positive {{ background: var(--success); }}
+    .dist-track i.success-partial {{ background: var(--partial); }}
+    .dist-track i.success-negative {{ background: var(--negative); }}
+    .dist-track i.success-missing, .dist-track i.success-unknown {{ background: #64748b; }}
+    .dist-track i.status {{ background: #7c3aed; }}
+    .dist-track i.task {{ background: #0284c7; }}
+    .dist-track i.mode {{ background: #0f766e; }}
+    .dist-track i.difficulty {{ background: #ea580c; }}
+    .filters {{
+      display: grid;
+      grid-template-columns: minmax(200px, auto) minmax(0, 1fr) auto auto;
+      justify-content: space-between;
+      align-items: end;
+      gap: 12px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 14px;
+      box-shadow: 0 6px 24px rgba(15, 23, 42, 0.05);
+    }}
+    .success-tabs {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      align-items: stretch;
+    }}
+    .success-tab, .zoom-controls button {{
+      appearance: none;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+      border-radius: 7px;
+      padding: 7px 10px;
+      min-height: 34px;
+      font-weight: 800;
+      line-height: 1.15;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      cursor: pointer;
+    }}
+    .success-tab.active {{
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.16);
+    }}
+    .success-tab.success-positive {{ background: var(--success-bg); color: #166534; border-color: #86efac; }}
+    .success-tab.success-partial {{ background: var(--partial-bg); color: #854d0e; border-color: #fde68a; }}
+    .success-tab.success-negative {{ background: var(--negative-bg); color: #991b1b; border-color: #fecaca; }}
+    .filters > div {{ display: flex; flex-wrap: wrap; gap: 10px; }}
+    .filters label {{ display: grid; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 700; }}
+    .filters select, .filters input {{
+      min-width: 130px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 7px 9px;
+      color: var(--text);
+      background: #fff;
+    }}
+    .filters input {{ min-width: 260px; }}
+    .filter-count {{ color: var(--muted); font-size: 13px; white-space: nowrap; }}
+    .trajectory-cards {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }}
+    .trajectory-card {{
+      display: grid;
+      gap: 8px;
+      text-decoration: none;
+      color: var(--text);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-left: 6px solid var(--line);
+      border-radius: 10px;
+      padding: 13px;
+      min-width: 0;
+      box-shadow: 0 6px 24px rgba(15, 23, 42, 0.04);
+      overflow-wrap: anywhere;
+    }}
+    .trajectory-card:hover {{ border-top-color: #93c5fd; border-right-color: #93c5fd; border-bottom-color: #93c5fd; }}
+    .trajectory-card.success-positive {{ border-left-color: var(--success); }}
+    .trajectory-card.success-partial {{ border-left-color: var(--partial); }}
+    .trajectory-card.success-negative {{ border-left-color: var(--negative); }}
+    .card-index {{ color: var(--muted); font-weight: 800; font-size: 12px; }}
+    .card-metrics {{ color: #334155; font-size: 12px; }}
+    .card-warning {{ color: #9a3412; background: var(--warn-bg); border-radius: 6px; padding: 6px 8px; font-size: 12px; font-weight: 700; }}
     details.trajectory {{
       background: var(--panel);
       border: 1px solid var(--line);
+      border-left: 7px solid var(--line);
       border-radius: 10px;
       margin: 18px 0;
       box-shadow: 0 6px 24px rgba(15, 23, 42, 0.05);
       overflow: hidden;
     }}
-    details.trajectory.task-warning {{ border-color: #fdba74; }}
+    details.trajectory.success-positive {{ border-left-color: var(--success); }}
+    details.trajectory.success-partial {{ border-left-color: var(--partial); }}
+    details.trajectory.success-negative {{ border-left-color: var(--negative); }}
+    details.trajectory.task-warning {{ border-top-color: #fdba74; border-right-color: #fdba74; border-bottom-color: #fdba74; }}
     details.trajectory > summary {{
       cursor: pointer;
       padding: 16px 18px;
@@ -1295,7 +1791,9 @@ def render_html(
       gap: 16px;
       border-bottom: 1px solid var(--line);
       background: #fbfdff;
+      overflow-wrap: anywhere;
     }}
+    .summary-right {{ display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }}
     .summary-panel, .graph-card, .table-card {{ padding: 18px; }}
     .summary-heading {{ display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }}
     .badges, .metrics {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }}
@@ -1312,6 +1810,10 @@ def render_html(
     .badge.final {{ background: var(--final-bg); color: #166534; }}
     .badge.taskMismatch {{ background: var(--warn-bg); color: #9a3412; }}
     .badge.lowQuality {{ background: var(--bad-bg); color: #991b1b; }}
+    .badge.success-positive {{ background: var(--success-bg); color: #166534; }}
+    .badge.success-partial {{ background: var(--partial-bg); color: #854d0e; }}
+    .badge.success-negative {{ background: var(--negative-bg); color: #991b1b; }}
+    .badge.success-missing, .badge.success-unknown {{ background: #e2e8f0; color: #334155; }}
     .metric {{
       min-width: 115px;
       border: 1px solid var(--line);
@@ -1335,14 +1837,29 @@ def render_html(
     .story-grid h4 {{ margin: 0 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }}
     .story-grid p {{ margin: 0 0 7px; font-size: 14px; }}
     .graph-card {{ border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #f8fafc; }}
-    .graph-toolbar {{ display: flex; justify-content: space-between; gap: 14px; color: var(--muted); margin-bottom: 10px; }}
-    pre.mermaid {{
+    .graph-toolbar {{ display: flex; justify-content: space-between; gap: 14px; color: var(--muted); margin-bottom: 10px; align-items: center; }}
+    .graph-toolbar strong {{ display: block; color: var(--text); }}
+    .zoom-controls {{ display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; align-items: center; }}
+    .zoom-controls span {{ min-width: 46px; text-align: center; color: var(--text); font-weight: 800; }}
+    .zoom-controls button:hover {{ border-color: #93c5fd; background: #eff6ff; }}
+    .graph-canvas {{
       overflow: auto;
-      min-height: 180px;
+      min-height: 220px;
+      max-height: 760px;
       padding: 16px;
       border: 1px solid var(--line);
       border-radius: 8px;
       background: #ffffff;
+    }}
+    pre.mermaid {{
+      display: inline-block;
+      min-width: 100%;
+      margin: 0;
+      overflow: visible;
+      transform-origin: top left;
+    }}
+    .graph-canvas svg {{
+      max-width: none;
     }}
     .table-card {{ overflow-x: auto; }}
     table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
@@ -1353,6 +1870,7 @@ def render_html(
     tr.taskMismatch td {{ background: rgba(255, 237, 213, 0.68); }}
     tr.lowQuality td {{ background: rgba(254, 226, 226, 0.68); }}
     td details summary {{ cursor: pointer; color: #1d4ed8; }}
+    td, td details p {{ overflow-wrap: anywhere; }}
     td details p {{ max-width: 760px; }}
     .muted {{ color: var(--muted); }}
     @media (max-width: 980px) {{
@@ -1361,8 +1879,100 @@ def render_html(
       main {{ padding: 16px; }}
       .summary-heading, .story-grid {{ display: block; }}
       .story-grid div {{ margin-top: 10px; }}
+      .metric-grid, .dashboard-grid, .trajectory-cards {{ grid-template-columns: 1fr; }}
+      .dashboard-panel.wide {{ grid-column: span 1; }}
+      .filters {{ display: block; }}
+      .filters .search-box {{ margin-top: 10px; }}
     }}
   </style>
+  <script>
+    function setupFilters() {{
+      const controls = Array.from(document.querySelectorAll("[data-filter-control]"));
+      const count = document.getElementById("visibleCount");
+      const cards = Array.from(document.querySelectorAll(".trajectory-card"));
+      const sections = Array.from(document.querySelectorAll("details.trajectory"));
+      const successTabs = Array.from(document.querySelectorAll("[data-success-tab]"));
+      const successControl = document.querySelector("[data-filter-control='success']");
+      function matches(element, filters) {{
+        for (const [key, value] of Object.entries(filters)) {{
+          if (!value) continue;
+          if (key === "search") {{
+            const haystack = (element.dataset.search || "").toLowerCase();
+            if (!haystack.includes(value.toLowerCase())) return false;
+          }} else if ((element.dataset[key] || "") !== value) {{
+            return false;
+          }}
+        }}
+        return true;
+      }}
+      function apply() {{
+        const filters = {{}};
+        controls.forEach(control => filters[control.dataset.filterControl] = control.value);
+        let visible = 0;
+        cards.forEach(card => {{
+          const show = matches(card, filters);
+          card.hidden = !show;
+          if (show) visible += 1;
+        }});
+        sections.forEach(section => {{
+          section.hidden = !matches(section, filters);
+        }});
+        if (count) count.textContent = `${{visible}} visible`;
+        successTabs.forEach(tab => {{
+          tab.classList.toggle("active", (successControl ? successControl.value : "") === tab.dataset.successTab);
+        }});
+      }}
+      successTabs.forEach(tab => {{
+        tab.addEventListener("click", () => {{
+          if (successControl) successControl.value = tab.dataset.successTab || "";
+          apply();
+        }});
+      }});
+      controls.forEach(control => control.addEventListener("input", apply));
+      apply();
+    }}
+    function setupGraphZoom() {{
+      const levels = [0.5, 0.67, 0.8, 1, 1.25, 1.5, 2, 2.5, 3];
+      document.querySelectorAll(".graph-card").forEach(card => {{
+        const canvas = card.querySelector(".graph-canvas");
+        const graph = card.querySelector(".mermaid");
+        const label = card.querySelector("[data-zoom-label]");
+        if (!canvas || !graph) return;
+        let zoom = 1;
+        function applyZoom() {{
+          canvas.dataset.graphZoom = String(zoom);
+          if (window.CSS && CSS.supports && CSS.supports("zoom", "1")) {{
+            graph.style.zoom = String(zoom);
+            graph.style.transform = "";
+          }} else {{
+            graph.style.zoom = "";
+            graph.style.transform = `scale(${{zoom}})`;
+            graph.style.transformOrigin = "top left";
+          }}
+          graph.style.marginBottom = zoom > 1 ? `${{Math.round((zoom - 1) * 160)}}px` : "0";
+          graph.style.marginRight = zoom > 1 ? `${{Math.round((zoom - 1) * 240)}}px` : "0";
+          if (label) label.textContent = `${{Math.round(zoom * 100)}}%`;
+        }}
+        card.querySelectorAll("[data-zoom-action]").forEach(button => {{
+          button.addEventListener("click", () => {{
+            const action = button.dataset.zoomAction;
+            const currentIndex = levels.reduce((best, value, index) => (
+              Math.abs(value - zoom) < Math.abs(levels[best] - zoom) ? index : best
+            ), 0);
+            if (action === "reset") zoom = 1;
+            if (action === "in") zoom = levels[Math.min(currentIndex + 1, levels.length - 1)];
+            if (action === "out") zoom = levels[Math.max(currentIndex - 1, 0)];
+            applyZoom();
+          }});
+        }});
+        applyZoom();
+      }});
+    }}
+    window.addEventListener("DOMContentLoaded", () => {{
+      setupFilters();
+      setupGraphZoom();
+    }});
+  </script>
 </head>
 <body>
   <div class="layout">
@@ -1385,6 +1995,9 @@ def render_html(
           <span><i class="swatch low"></i> low-quality state</span>
         </div>
       </section>
+      {dashboard}
+      {filters}
+      {cards}
       {sections}
     </main>
   </div>

@@ -800,10 +800,6 @@ class PreferencePair(SchemaMixin):
                 _fail(f"{name} must be in [0, 1].")
         if self.score_margin < 0:
             _fail("score_margin must be non-negative.")
-        if self.raw_score_chosen < self.raw_score_rejected:
-            _fail("raw_score_chosen must be >= raw_score_rejected.")
-        if self.normalized_score_chosen < self.normalized_score_rejected:
-            _fail("normalized_score_chosen must be >= normalized_score_rejected.")
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "PreferencePair":

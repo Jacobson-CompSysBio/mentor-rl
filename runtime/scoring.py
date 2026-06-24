@@ -142,21 +142,21 @@ DEFAULT_TERMINAL_SCORING_CONFIG = TerminalScoringConfig()
 
 TASK_SUCCESS_THRESHOLDS = {
     "explanation": {
-        "positive_recall": 0.85,
-        "positive_jaccard": 0.75,
+        "positive_recall": 1.0,
+        "positive_jaccard": 1.0,
         "partial_recall": 0.60,
         "partial_jaccard": 0.50,
     },
     "recovery": {
-        "positive_recall": 0.80,
-        "positive_jaccard": 0.80,
+        "positive_recall": 1.0,
+        "positive_jaccard": 1.0,
         "partial_recall": 0.60,
         "partial_jaccard": 0.60,
     },
     "refinement": {
-        "positive_recall": 0.80,
-        "positive_jaccard": 0.80,
-        "positive_precision": 0.80,
+        "positive_recall": 1.0,
+        "positive_jaccard": 1.0,
+        "positive_precision": 1.0,
         "partial_recall": 0.60,
         "partial_jaccard": 0.60,
         "partial_precision": 0.60,
@@ -336,17 +336,18 @@ def _positive_task_success(
     else:
         seed_retention = _visible_seed_retention(state, task_row)
 
-    relationship_ok = state.relationship_status in {
+    positive_relationship_ok = state.relationship_status == RelationshipStatus.VALIDATED_GROUP
+    partial_relationship_ok = state.relationship_status in {
         RelationshipStatus.VALIDATED_GROUP,
         RelationshipStatus.PARTIALLY_OBSERVED_GROUP,
     }
-    if not relationship_ok:
-        failure_reasons.append("relationship_status_not_group")
+    if not positive_relationship_ok:
+        failure_reasons.append("relationship_status_not_validated_group")
 
     positive = not failure_reasons
     partial = (
         not positive
-        and relationship_ok
+        and partial_relationship_ok
         and (
             recall >= thresholds["partial_recall"]
             or jaccard >= thresholds["partial_jaccard"]

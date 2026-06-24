@@ -52,10 +52,13 @@ EXPECTED_TASK_TYPES = ("explanation", "recovery", "refinement", "none")
 EXPECTED_EVIDENCE_MODES = ("graph", "minimal")
 EXPECTED_DIFFICULTY_BINS = ("easy", "medium", "hard")
 POSITIVE_TASK_SUCCESS_THRESHOLDS = {
-    "explanation": {"recall": 0.85, "jaccard": 0.75},
-    "recovery": {"recall": 0.80, "jaccard": 0.80},
-    "refinement": {"recall": 0.80, "jaccard": 0.80, "precision": 0.80},
+    "explanation": {"recall": 1.0, "jaccard": 1.0},
+    "recovery": {"recall": 1.0, "jaccard": 1.0},
+    "refinement": {"recall": 1.0, "jaccard": 1.0, "precision": 1.0},
 }
+EXACT_MEMBERSHIP_PAIR_CATEGORIES = frozenset(
+    {"exact_recovery", "exact_refinement", "exact_over_partial"}
+)
 CONTEXT_LIMIT_RE = re.compile(
     r"maximum context length is (?P<limit>\d+) tokens.*request has (?P<input>\d+) input tokens",
     re.IGNORECASE,
@@ -127,6 +130,9 @@ class AuditConfig:
     min_rwr_hpc_supported_pair_rate: float | None = None
     max_rwr_hpc_observation_error_rate: float | None = None
     max_validated_weak_evidence_rate: float | None = None
+    min_recovery_exact_success_rate: float | None = None
+    min_refinement_exact_success_rate: float | None = None
+    min_exact_membership_pair_rate: float | None = None
 
 
 @dataclass
@@ -370,8 +376,12 @@ def _final_summary_alignment(
         metrics["recall"] >= thresholds.get("recall", 1.0)
         and metrics["jaccard"] >= thresholds.get("jaccard", 1.0)
         and metrics["precision"] >= thresholds.get("precision", 0.0)
-        and relationship_status in {"validated_group", "partially_observed_group"}
+        and relationship_status == "validated_group"
     )
+    if success and "validated_group_weak_enrichment_support" in set(
+        summary.get("task_quality_failure_reasons") or []
+    ):
+        success = False
     partial = (
         not success
         and relationship_status in {"validated_group", "partially_observed_group"}
@@ -636,6 +646,57 @@ def _predicted_gene_count(branch_payload: dict[str, Any]) -> int:
     return len(set(gene_ids))
 
 
+def _branch_relationship_status(branch_payload: dict[str, Any]) -> str:
+    state = branch_payload.get("verifier_step", {}).get("updated_state", {})
+    if not isinstance(state, dict):
+        return ""
+    value = state.get("relationship_status")
+    return value if isinstance(value, str) else ""
+
+
+def _branch_task_success_level(branch_payload: dict[str, Any]) -> str:
+    local_score = branch_payload.get("local_score")
+    if not isinstance(local_score, dict):
+        return "unknown"
+    score_metadata = local_score.get("score_metadata")
+    if not isinstance(score_metadata, dict):
+        return "unknown"
+    task_success = score_metadata.get("task_success")
+    if not isinstance(task_success, dict):
+        return "unknown"
+    value = task_success.get("task_success_level")
+    return value if isinstance(value, str) else "unknown"
+
+
+def _branch_post_membership_metrics(branch_payload: dict[str, Any]) -> dict[str, float]:
+    local_score = branch_payload.get("local_score")
+    if not isinstance(local_score, dict):
+        return {}
+    score_metadata = local_score.get("score_metadata")
+    if not isinstance(score_metadata, dict):
+        return {}
+    complex_metadata = score_metadata.get("complex")
+    if not isinstance(complex_metadata, dict):
+        return {}
+    best_group_post = complex_metadata.get("best_group_post")
+    if not isinstance(best_group_post, dict):
+        return {}
+    metrics = best_group_post.get("metrics")
+    if not isinstance(metrics, dict):
+        return {}
+    out: dict[str, float] = {}
+    for metric_name in ("jaccard", "recall", "precision"):
+        value = metrics.get(metric_name)
+        if isinstance(value, (int, float)):
+            out[metric_name] = float(value)
+    return out
+
+
+def _branch_membership_metrics_exact(branch_payload: dict[str, Any]) -> bool:
+    metrics = _branch_post_membership_metrics(branch_payload)
+    return all(metrics.get(metric_name, 0.0) >= 1.0 for metric_name in ("jaccard", "recall", "precision"))
+
+
 def _audit_branch_pools(rows: list[dict[str, Any]], report: AuditReport, config: AuditConfig) -> dict[tuple[str, int], dict[str, Any]]:
     task_type_counts: Counter[str] = Counter()
     evidence_mode_counts: Counter[str] = Counter()
@@ -649,6 +710,11 @@ def _audit_branch_pools(rows: list[dict[str, Any]], report: AuditReport, config:
     rwr_hpc_candidate_branch_count = 0
     rwr_hpc_candidate_tool_counts: Counter[str] = Counter()
     selected_rwr_hpc_tool_count = 0
+    membership_metrics_exact_count = 0
+    membership_metrics_exact_mismatch_count = 0
+    membership_metrics_exact_mismatch_by_task: Counter[str] = Counter()
+    task_quality_outside_score_window_count = 0
+    task_quality_outside_score_window_gap_max = 0.0
     all_tie_count = 0
     top_tie_count = 0
     no_pair_step_keys: set[tuple[str, int]] = set()
@@ -702,6 +768,23 @@ def _audit_branch_pools(rows: list[dict[str, Any]], report: AuditReport, config:
             if _is_rwr_hpc_tool_name(branch_tool_name):
                 rwr_hpc_candidate_branch_count += 1
                 rwr_hpc_candidate_tool_counts[branch_tool_name] += 1
+
+            if (
+                isinstance(task_type, str)
+                and task_type in {"recovery", "refinement"}
+                and _branch_membership_metrics_exact(branch_payload)
+            ):
+                membership_metrics_exact_count += 1
+                branch_success_level = _branch_task_success_level(branch_payload)
+                branch_relationship_status = _branch_relationship_status(branch_payload)
+                if (
+                    branch_success_level != "positive"
+                    or branch_relationship_status != "validated_group"
+                ):
+                    membership_metrics_exact_mismatch_count += 1
+                    membership_metrics_exact_mismatch_by_task[
+                        f"{task_type}/{branch_success_level}/{branch_relationship_status or 'missing'}"
+                    ] += 1
 
             score_metadata = branch.local_score.score_metadata
             if score_metadata.get("schema_valid") is False:
@@ -760,7 +843,17 @@ def _audit_branch_pools(rows: list[dict[str, Any]], report: AuditReport, config:
                     if not isinstance(selection_epsilon, (int, float)):
                         selection_epsilon = 0.0
                     score_gap = max_normalized - selected_score_float
-                    if selection_policy != "task_quality" or score_gap > float(selection_epsilon) + 1e-6:
+                    selection_scope = metadata.get("selection_quality_scope") if isinstance(metadata, dict) else None
+                    if (
+                        selection_policy == "task_quality"
+                        and selection_scope == "all_candidates_membership_first"
+                    ):
+                        task_quality_outside_score_window_count += 1
+                        task_quality_outside_score_window_gap_max = max(
+                            task_quality_outside_score_window_gap_max,
+                            score_gap,
+                        )
+                    elif selection_policy != "task_quality" or score_gap > float(selection_epsilon) + 1e-6:
                         report.error(
                             "selected_not_top_scored",
                             "Selected branch is outside the top normalized score or declared task_quality window.",
@@ -895,6 +988,13 @@ def _audit_branch_pools(rows: list[dict[str, Any]], report: AuditReport, config:
             "rwr_hpc_candidate_branch_count": rwr_hpc_candidate_branch_count,
             "rwr_hpc_candidate_rate": rwr_hpc_candidate_rate,
             "rwr_hpc_candidate_tool_counts": _counter_to_sorted_dict(rwr_hpc_candidate_tool_counts),
+            "branch_membership_metrics_exact_count": membership_metrics_exact_count,
+            "branch_membership_metrics_exact_mismatch_count": membership_metrics_exact_mismatch_count,
+            "branch_membership_metrics_exact_mismatch_by_task": _counter_to_sorted_dict(
+                membership_metrics_exact_mismatch_by_task
+            ),
+            "task_quality_outside_score_window_count": task_quality_outside_score_window_count,
+            "task_quality_outside_score_window_gap_max": task_quality_outside_score_window_gap_max,
             "selected_gene_count_distribution": _counter_to_sorted_dict(selected_gene_counts),
             "selected_relationship_counts": _counter_to_sorted_dict(relationship_counts),
         }
@@ -996,6 +1096,11 @@ def _audit_final_summaries(
     precision_values: list[float] = []
     recall_values: list[float] = []
     jaccard_values: list[float] = []
+    near_miss_missing_gene_counts: list[float] = []
+    near_miss_extra_gene_counts: list[float] = []
+    terminal_membership_metrics_exact_count = 0
+    terminal_membership_metrics_exact_mismatch_count = 0
+    terminal_membership_metrics_exact_mismatch_by_task: Counter[str] = Counter()
     validated_group_count = 0
     validated_weak_evidence_count = 0
     for row_index, row in enumerate(rows, start=1):
@@ -1044,6 +1149,39 @@ def _audit_final_summaries(
         success_level_by_bucket[
             f"{size_bin}/{alignment_task_type}/{alignment.get('evidence_mode')}/{alignment.get('difficulty')}/{success_level}"
         ] += 1
+        if (
+            alignment_task_type in {"recovery", "refinement"}
+            and success_level == "partial"
+        ):
+            target_gene_count = alignment.get("target_gene_count")
+            predicted_gene_count = alignment.get("predicted_gene_count")
+            overlap_count = alignment.get("overlap_count")
+            if all(
+                isinstance(value, (int, float))
+                for value in (target_gene_count, predicted_gene_count, overlap_count)
+            ):
+                near_miss_missing_gene_counts.append(
+                    max(0.0, float(target_gene_count) - float(overlap_count))
+                )
+                near_miss_extra_gene_counts.append(
+                    max(0.0, float(predicted_gene_count) - float(overlap_count))
+                )
+        if alignment_task_type in {"recovery", "refinement"}:
+            precision = alignment.get("precision")
+            recall = alignment.get("recall")
+            jaccard = alignment.get("jaccard")
+            metrics_exact = all(
+                isinstance(value, (int, float)) and float(value) >= 1.0
+                for value in (precision, recall, jaccard)
+            )
+            if metrics_exact:
+                terminal_membership_metrics_exact_count += 1
+                relationship_status = str(alignment.get("relationship_status", ""))
+                if success_level != "positive" or relationship_status != "validated_group":
+                    terminal_membership_metrics_exact_mismatch_count += 1
+                    terminal_membership_metrics_exact_mismatch_by_task[
+                        f"{alignment_task_type}/{success_level}/{relationship_status or 'missing'}"
+                    ] += 1
         for metric_name, target in (
             ("precision", precision_values),
             ("recall", recall_values),
@@ -1088,6 +1226,20 @@ def _audit_final_summaries(
         if recovery_refinement_total
         else None
     )
+    recovery_total = sum(
+        count for key, count in success_level_by_task.items() if key.startswith("recovery/")
+    )
+    recovery_positive = success_level_by_task.get("recovery/positive", 0)
+    refinement_total = sum(
+        count for key, count in success_level_by_task.items() if key.startswith("refinement/")
+    )
+    refinement_positive = success_level_by_task.get("refinement/positive", 0)
+    recovery_exact_success_rate = (
+        recovery_positive / recovery_total if recovery_total else None
+    )
+    refinement_exact_success_rate = (
+        refinement_positive / refinement_total if refinement_total else None
+    )
     validated_weak_evidence_rate = (
         validated_weak_evidence_count / validated_group_count
         if validated_group_count
@@ -1129,6 +1281,40 @@ def _audit_final_summaries(
             artifact="final_summaries.jsonl",
         )
     if (
+        config.min_recovery_exact_success_rate is not None
+        and (
+            recovery_exact_success_rate is None
+            or recovery_exact_success_rate < config.min_recovery_exact_success_rate
+        )
+    ):
+        observed = 0.0 if recovery_exact_success_rate is None else recovery_exact_success_rate
+        report.error(
+            "recovery_exact_success_rate_low",
+            (
+                "Recovery exact success rate "
+                f"{observed:.3f} is below "
+                f"{config.min_recovery_exact_success_rate:.3f}."
+            ),
+            artifact="final_summaries.jsonl",
+        )
+    if (
+        config.min_refinement_exact_success_rate is not None
+        and (
+            refinement_exact_success_rate is None
+            or refinement_exact_success_rate < config.min_refinement_exact_success_rate
+        )
+    ):
+        observed = 0.0 if refinement_exact_success_rate is None else refinement_exact_success_rate
+        report.error(
+            "refinement_exact_success_rate_low",
+            (
+                "Refinement exact success rate "
+                f"{observed:.3f} is below "
+                f"{config.min_refinement_exact_success_rate:.3f}."
+            ),
+            artifact="final_summaries.jsonl",
+        )
+    if (
         config.max_validated_weak_evidence_rate is not None
         and validated_weak_evidence_rate > config.max_validated_weak_evidence_rate
     ):
@@ -1155,6 +1341,15 @@ def _audit_final_summaries(
             "none_success_rate": none_success_rate,
             "explanation_success_rate": explanation_success_rate,
             "recovery_refinement_partial_or_better_rate": recovery_refinement_partial_rate,
+            "recovery_exact_success_rate": recovery_exact_success_rate,
+            "refinement_exact_success_rate": refinement_exact_success_rate,
+            "near_miss_missing_gene_count_mean": _mean(near_miss_missing_gene_counts),
+            "near_miss_extra_gene_count_mean": _mean(near_miss_extra_gene_counts),
+            "terminal_membership_metrics_exact_count": terminal_membership_metrics_exact_count,
+            "terminal_membership_metrics_exact_mismatch_count": terminal_membership_metrics_exact_mismatch_count,
+            "terminal_membership_metrics_exact_mismatch_by_task": _counter_to_sorted_dict(
+                terminal_membership_metrics_exact_mismatch_by_task
+            ),
             "validated_group_count": validated_group_count,
             "validated_weak_evidence_count": validated_weak_evidence_count,
             "validated_weak_evidence_rate": validated_weak_evidence_rate,
@@ -1185,6 +1380,7 @@ def _audit_preference_pairs(
     rejected_gene_counts: Counter[int] = Counter()
     decision_step_counts: Counter[int] = Counter()
     pair_step_keys: set[tuple[str, int]] = set()
+    exact_membership_pair_count = 0
     rwr_hpc_pair_count = 0
     rwr_hpc_supported_pair_count = 0
     margins: list[float] = []
@@ -1198,11 +1394,24 @@ def _audit_preference_pairs(
         validation = validate_preference_pair(pair)
         if not validation.valid:
             report.error("pair_validation", "; ".join(validation.errors), artifact=artifact_name, row_index=row_index)
-        if pair.score_margin < config.preference_pair_margin:
+        category = pair.provenance.get("pair_category", "score_margin")
+        if not isinstance(category, str) or not category:
+            category = "score_margin"
+        exact_membership_pair = category in EXACT_MEMBERSHIP_PAIR_CATEGORIES or (
+            pair.provenance.get("chosen_exact_membership") is True
+            and pair.provenance.get("rejected_exact_membership") is not True
+        )
+        reversed_score_allowed = (
+            category == "exact_over_partial"
+            and pair.score_margin >= 0.0
+            and pair.provenance.get("chosen_exact_membership") is True
+            and pair.provenance.get("rejected_exact_membership") is not True
+        )
+        if pair.score_margin < config.preference_pair_margin and not exact_membership_pair:
             report.error("pair_margin_too_small", f"score_margin={pair.score_margin:.6f} is below {config.preference_pair_margin:.6f}.", artifact=artifact_name, row_index=row_index)
-        if pair.normalized_score_chosen < pair.normalized_score_rejected:
+        if pair.normalized_score_chosen < pair.normalized_score_rejected and not reversed_score_allowed:
             report.error("pair_reversed_normalized_score", "chosen normalized score is lower than rejected.", artifact=artifact_name, row_index=row_index)
-        if pair.raw_score_chosen < pair.raw_score_rejected:
+        if pair.raw_score_chosen < pair.raw_score_rejected and not reversed_score_allowed:
             report.error("pair_reversed_raw_score", "chosen raw score is lower than rejected.", artifact=artifact_name, row_index=row_index)
 
         key = (pair.trajectory_id, pair.decision_step)
@@ -1220,11 +1429,10 @@ def _audit_preference_pairs(
                 report.error("pair_branch_not_in_pool", "Pair chosen/rejected branch id is not present in the source branch pool.", artifact=artifact_name, row_index=row_index)
 
         pair_bins[(pair.task_type.value, pair.difficulty_bin.value)] += 1
-        category = pair.provenance.get("pair_category", "score_margin")
-        if not isinstance(category, str) or not category:
-            category = "score_margin"
         pair_category_counts[category] += 1
         pair_category_counts_by_task[f"{pair.task_type.value}/{category}"] += 1
+        if exact_membership_pair:
+            exact_membership_pair_count += 1
         pair_tool_counts[f"{pair.provenance.get('chosen_tool_name', 'unknown')}->{pair.provenance.get('rejected_tool_name', 'unknown')}"] += 1
         chosen_payload = row.get("chosen") if isinstance(row.get("chosen"), dict) else pair.chosen.to_dict()
         rejected_payload = row.get("rejected") if isinstance(row.get("rejected"), dict) else pair.rejected.to_dict()
@@ -1283,6 +1491,9 @@ def _audit_preference_pairs(
         step0_pair_rate = step0_pairs / total_pairs if total_pairs else 0.0
         rwr_hpc_supported_pair_rate = (
             rwr_hpc_supported_pair_count / total_pairs if total_pairs else 0.0
+        )
+        exact_membership_pair_rate = (
+            exact_membership_pair_count / total_pairs if total_pairs else 0.0
         )
 
         if (
@@ -1344,6 +1555,19 @@ def _audit_preference_pairs(
                 ),
                 artifact=artifact_name,
             )
+        if (
+            config.min_exact_membership_pair_rate is not None
+            and exact_membership_pair_rate < config.min_exact_membership_pair_rate
+        ):
+            report.error(
+                "exact_membership_pair_rate_low",
+                (
+                    "Exact-membership preference-pair rate "
+                    f"{exact_membership_pair_rate:.3f} is below "
+                    f"{config.min_exact_membership_pair_rate:.3f}."
+                ),
+                artifact=artifact_name,
+            )
 
         report.metrics.update(
             {
@@ -1360,6 +1584,8 @@ def _audit_preference_pairs(
                 "mechanism_label_only_pair_rate": mechanism_label_only_pair_rate,
                 "mechanism_evidence_improvement_pair_rate": mechanism_evidence_improvement_pair_rate,
                 "step0_pair_rate": step0_pair_rate,
+                "exact_membership_pair_count": exact_membership_pair_count,
+                "exact_membership_pair_rate": exact_membership_pair_rate,
                 "rwr_hpc_pair_count": rwr_hpc_pair_count,
                 "rwr_hpc_supported_pair_count": rwr_hpc_supported_pair_count,
                 "rwr_hpc_supported_pair_rate": rwr_hpc_supported_pair_rate,
@@ -1485,6 +1711,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-none-success-rate", type=float, default=None)
     parser.add_argument("--min-explanation-success-rate", type=float, default=None)
     parser.add_argument("--min-recovery-refinement-partial-rate", type=float, default=None)
+    parser.add_argument("--min-recovery-exact-success-rate", type=float, default=None)
+    parser.add_argument("--min-refinement-exact-success-rate", type=float, default=None)
+    parser.add_argument("--min-exact-membership-pair-rate", type=float, default=None)
     parser.add_argument("--min-selected-rwr-hpc-tool-rate", type=float, default=None)
     parser.add_argument("--min-rwr-hpc-candidate-rate", type=float, default=None)
     parser.add_argument("--min-rwr-hpc-supported-pair-rate", type=float, default=None)
@@ -1515,14 +1744,25 @@ def _print_human(report: AuditReport) -> None:
         "none_success_rate",
         "explanation_success_rate",
         "recovery_refinement_partial_or_better_rate",
+        "recovery_exact_success_rate",
+        "refinement_exact_success_rate",
+        "near_miss_missing_gene_count_mean",
+        "near_miss_extra_gene_count_mean",
+        "terminal_membership_metrics_exact_count",
+        "terminal_membership_metrics_exact_mismatch_count",
+        "branch_membership_metrics_exact_count",
+        "branch_membership_metrics_exact_mismatch_count",
         "terminal_jaccard_mean",
         "selected_no_tool_rate",
         "positive_selected_no_tool_rate",
+        "task_quality_outside_score_window_count",
+        "task_quality_outside_score_window_gap_max",
         "selected_rwr_hpc_tool_rate",
         "rwr_hpc_candidate_rate",
         "rwr_hpc_observation_error_rate",
         "rwr_hpc_cache_hit_rate",
         "recovery_expansion_pair_rate",
+        "exact_membership_pair_rate",
         "tool_supported_pair_rate",
         "rwr_hpc_supported_pair_rate",
         "mechanism_label_only_pair_rate",
@@ -1589,6 +1829,9 @@ def main() -> None:
         min_none_success_rate=args.min_none_success_rate,
         min_explanation_success_rate=args.min_explanation_success_rate,
         min_recovery_refinement_partial_rate=args.min_recovery_refinement_partial_rate,
+        min_recovery_exact_success_rate=args.min_recovery_exact_success_rate,
+        min_refinement_exact_success_rate=args.min_refinement_exact_success_rate,
+        min_exact_membership_pair_rate=args.min_exact_membership_pair_rate,
         min_selected_rwr_hpc_tool_rate=args.min_selected_rwr_hpc_tool_rate,
         min_rwr_hpc_candidate_rate=args.min_rwr_hpc_candidate_rate,
         min_rwr_hpc_supported_pair_rate=args.min_rwr_hpc_supported_pair_rate,

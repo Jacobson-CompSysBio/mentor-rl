@@ -1,4 +1,5 @@
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -154,6 +155,8 @@ class RenderTrajectoryReviewTests(unittest.TestCase):
                         "task_type": "explanation",
                         "evidence_mode": "minimal",
                         "difficulty": "complete",
+                        "task_success": True,
+                        "task_success_level": "positive",
                         "step_count": 1,
                         "finding_count": 1,
                         "terminal_reward": 2.0,
@@ -219,6 +222,22 @@ class RenderTrajectoryReviewTests(unittest.TestCase):
         self.assertIn("Alignment Summary", html)
         self.assertIn("Reasoning And Verification Details", html)
         self.assertIn("mermaid", html)
+        self.assertIn('data-filter-control="success"', html)
+        self.assertNotIn('data-filter="success"', html)
+        self.assertIn('data-success-tab="positive"', html)
+        self.assertIn('class="trajectory-card success-positive"', html)
+        self.assertIn('<details class="trajectory success-positive', html)
+        self.assertIn("T01 | Success | Explanation | Minimal | Complete", html)
+        self.assertIn('data-zoom-action="in"', html)
+        self.assertIn('data-zoom-action="out"', html)
+        self.assertIn('class="graph-canvas"', html)
+
+        aside_match = re.search(r"<aside>(.*?)</aside>", html, flags=re.S)
+        self.assertIsNotNone(aside_match)
+        assert aside_match is not None
+        visible_aside = re.sub(r'<a[^>]*href="#[^"]*"[^>]*>', "<a>", aside_match.group(1))
+        visible_aside = re.sub(r"<[^>]+>", " ", visible_aside)
+        self.assertNotIn("toy.explanation.minimal.seed7", visible_aside)
 
 
 if __name__ == "__main__":
