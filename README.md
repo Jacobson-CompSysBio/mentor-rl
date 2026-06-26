@@ -127,6 +127,37 @@ OUT_DIR=data/module_corpus_trajectories/pilot \
 sbatch generate_trajectories.slurm
 ```
 
+Run Gemma 4 26B A4B IT rollouts on Frontier:
+
+```bash
+TASKS_PATH=/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/data/module_corpus_full_brain_mixed/tasks.train.jsonl \
+TASK_COUNT=64 \
+NODES=4 \
+TASK_CONCURRENCY=12 \
+scripts/submit_gemma4_frontier_fat.sh
+```
+
+The Gemma launcher uses the `gemma4-26b-a4b-it` preset. It expects the model at
+`${SCRATCH}/hf_downloads/google/gemma-4-26B-A4B-it` and the working vLLM ROCm
+nightly container at
+`${SCRATCH}/containers/vllm_openai_rocm_nightly-aa2b56ffb0c1d8b29d6468282a49d9b4a9f0dd1c.sif`.
+Set `MODEL_PATH` or `SIF` if either artifact is staged somewhere else.
+
+The launcher submits one Frontier allocation. Each node starts one vLLM server
+with tensor parallel size 8 across that node's 8 MI250X GCDs. Each node also
+stages Gemma to local NVMe and processes a balanced slice of the selected tasks.
+The job merges completed lanes into
+`${RUN_ROOT}/trajectories_merged` and writes follow-up commands to
+`${RUN_ROOT}/next_steps.txt`. After the job finishes, audit the merged run:
+
+```bash
+python3 scripts/audit_trajectory_run.py \
+  --run-dir ${RUN_ROOT}/trajectories_merged \
+  --dpo-pair-gate \
+  --required-task-types recovery,refinement \
+  --required-evidence-modes graph,minimal
+```
+
 Audit a generated run:
 
 ```bash
