@@ -171,6 +171,52 @@ class RenderTrajectoryReviewTests(unittest.TestCase):
             turns_by_trajectory = load_turns(turns_path)
             summaries = load_summaries(summaries_path)
             branch_pools = load_branch_pools(branch_pools_path)
+            frontier_diagnostics = {
+                "schema_version": "frontier-diagnostics-v1",
+                "aggregate": {
+                    "recovery_frontier_recall_at_topk": 1.0,
+                    "recovery_frontier_surfaced_at_preview": 0.5,
+                    "recovery_edit_frontier_coverage": 0.5,
+                    "recovery_added_to_selected_branch_rate": 0.5,
+                    "refinement_frontier_flagged_extra_rate": None,
+                    "exact_branch_count": 1,
+                    "exact_pair_count_raw": 1,
+                    "branch_pool_parse_error_count": 0,
+                },
+                "by_task": [
+                    {
+                        "trajectory_id": turn.trajectory_id,
+                        "source_task_id": "toy.explanation.minimal",
+                        "task_type": "recovery",
+                        "recovery_missing_target_gene_count": 2,
+                        "frontier_recalled_gene_count": 2,
+                        "frontier_surfaced_at_preview_gene_count": 1,
+                        "edit_frontier_gene_count": 1,
+                        "added_to_any_branch_gene_count": 1,
+                        "added_to_selected_branch_gene_count": 1,
+                        "frontier_recall_at_topk": 1.0,
+                        "frontier_surfaced_at_preview": 0.5,
+                        "edit_frontier_coverage": 0.5,
+                        "added_to_any_branch_rate": 0.5,
+                        "added_to_selected_branch_rate": 0.5,
+                        "exact_branch_count": 1,
+                        "exact_pair_count_raw": 1,
+                        "missing_target_gene_details": [
+                            {
+                                "gene_id": "ENSG3",
+                                "target_role": "missing_target",
+                                "rwr_best_rank": 17.0,
+                                "in_prompt_preview": False,
+                                "in_edit_frontier": True,
+                                "added_to_any_branch": True,
+                                "added_to_selected_branch": True,
+                                "removed_by_any_edit": False,
+                                "removed_by_selected_edit": False,
+                            }
+                        ],
+                    }
+                ],
+            }
             markdown = render_markdown(
                 turns_by_trajectory=turns_by_trajectory,
                 summaries=summaries,
@@ -179,6 +225,7 @@ class RenderTrajectoryReviewTests(unittest.TestCase):
                 max_text_chars=500,
                 branch_pools=branch_pools,
                 max_unselected_per_step=1,
+                frontier_diagnostics=frontier_diagnostics,
             )
             html = render_html(
                 turns_by_trajectory=turns_by_trajectory,
@@ -200,6 +247,7 @@ class RenderTrajectoryReviewTests(unittest.TestCase):
                 },
                 max_unselected_per_step=1,
                 max_text_chars=500,
+                frontier_diagnostics=frontier_diagnostics,
             )
 
         self.assertIn("# Trajectory Review", markdown)
@@ -211,16 +259,33 @@ class RenderTrajectoryReviewTests(unittest.TestCase):
         self.assertIn("GO:0000001", markdown)
         self.assertIn("toy process", markdown)
         self.assertIn("mechanism-evidence", markdown)
+        self.assertIn("Frontier Diagnostics", markdown)
+        self.assertIn("RWR top-k recall", markdown)
+        self.assertIn("ENSG3", markdown)
         self.assertIn("[validated_group] enrichment supports toy process.", markdown)
         self.assertIn("<!doctype html>", html)
         self.assertIn("Interactive Trajectory Graph Review", html)
+        self.assertIn("Study Background And Goal", html)
+        self.assertIn("Generate exact-positive recovery and refinement examples", html)
+        self.assertIn("Task Buckets", html)
+        self.assertIn("Explanation / Minimal / Complete", html)
+        self.assertNotIn("explanation/minimal/complete=1", html)
         self.assertIn("selected branch", html)
         self.assertIn("unselected candidate", html)
+        self.assertIn("Success / Partial / Failure", html)
+        self.assertIn('class="success-pie"', html)
         self.assertIn("Input Visible To Model", html)
         self.assertIn("Hidden Training Target", html)
         self.assertIn("Final Output", html)
         self.assertIn("Alignment Summary", html)
+        self.assertIn("Exact-Membership Frontier Diagnostics", html)
+        self.assertIn("recovery RWR recall", html)
+        self.assertIn("Missing target gene diagnostics", html)
+        self.assertIn("ENSG3", html)
         self.assertIn("Reasoning And Verification Details", html)
+        self.assertIn("Enrichment", html)
+        self.assertIn("No tool", html)
+        self.assertIn("Validated Group", html)
         self.assertIn("mermaid", html)
         self.assertIn('data-filter-control="success"', html)
         self.assertNotIn('data-filter="success"', html)

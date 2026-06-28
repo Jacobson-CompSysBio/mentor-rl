@@ -62,7 +62,9 @@ Hidden targets remain scoring-only and are not exposed to prompts.
 The next blocker is producing exact-positive recovery/refinement branches
 reliably enough to mine exact-vs-partial DPO pairs. Mechanism quality is still
 required to avoid weak `validated_group` overclaims, but exact membership is the
-first acceptance target for recovery/refinement.
+first acceptance target for recovery/refinement. See the `Exact-Membership
+Solution Exploration` section below for the diagnosis-first plan and the tiered
+solution directions to explore.
 
 ## Proposal Methodology Context
 
@@ -494,6 +496,160 @@ routes model-facing RWR++ tools through `RWR_HPC_SERVICE_URL`. Native
 `get_neighbors` and `induce_subgraph` remain local unless explicitly migrated.
 Check `rwr_hpc_service_metrics.json` for per-tool request counts, queue wait,
 service time, cache hit/miss counts, and errors.
+
+## Exact-Membership Solution Exploration
+
+The exact-positive recovery/refinement blocker (see Current Baseline and the
+`4867440` pilot evidence above) is a data-generation systems problem, not a
+walltime or prompt-tuning problem. More Slurm time alone will not help: the
+completed portion of `4867440` already showed 0/4 exact recovery and 0/4 exact
+refinement, so exact-positive branches are not being generated into the pool,
+not merely cut off by the timeout.
+
+DPO pair mining can only emit an `exact_recovery`, `exact_refinement`, or
+`exact_over_partial` pair if some branch in the shared-prefix pool already
+reaches exact membership (J = P = R = 1.0). "Partial completions" therefore
+means "no exact-positive branch exists in the pool." That can fail at six
+distinct points, and the correct fix differs by point:
+
+1. Frontier recall: the missing target gene is absent from every RWR result.
+2. Frontier surfacing: it is in an RWR result but never shown to the model.
+3. Membership search: it is shown, but `N_ACT` x `N_VER` sampling never tests
+   the right add/drop combination.
+4. Verifier update: the right candidate is tested but never committed to
+   `predicted_gene_ids`.
+5. Branch selection: an exact branch exists but `task_quality` selection drops
+   it.
+6. Pair export: it exists and is selected but pair mining miscategorizes it.
+
+Do not commit to a solution family before localizing the dominant failure
+point. Bounded edit-search (Tier 2) does nothing if the bottleneck is recall or
+surfacing; raising frontier depth does nothing if the bottleneck is search or
+verifier behavior.
+
+### Known structural suspect
+
+`scripts/generate_trajectories.py` retrieves the RWR frontier at
+`RECOVERY_RWR_TOP_K` (3000 in the recommended pilot settings) but surfaces only
+the preview caps to the model (`PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT` ~ 40,
+`PROMPT_RWR_RESULT_PREVIEW_LIMIT` ~ 8). `_candidate_gene_ids_for_tool_reference`
+builds the model-visible `candidate_gene_ids` only from seed genes, the current
+predicted group, and `evidence_log.supporting_gene_ids` (genes that already
+passed through that preview). A target gene ranked below the preview cutoff is
+fetched but never shown, never logged, and therefore impossible for the verifier
+to add. Treat this as a hypothesis to confirm with the Tier 0 diagnostic, not a
+settled conclusion; it is the cheapest thing to check and possibly the cheapest
+to fix.
+
+### Tier 0: Diagnose first (gating, before any other tier)
+
+Add a read-only, quarantined oracle probe (acceptable scoring-only hidden-target
+use; never exported). Extend `scripts/audit_trajectory_run.py` or add
+`scripts/diagnose_frontier_recall.py`, reading `branch_pools.jsonl` plus the
+hidden target the scorer already holds, and report per recovery/refinement task:
+
+- `frontier_recall_at_topk`: fraction of missing target genes present in any RWR
+  result at any step.
+- `frontier_surfaced_at_preview`: fraction present in what was shown to the
+  model (the preview / `candidate_gene_ids`).
+- `visible_but_not_added`: fraction surfaced but never committed to
+  `predicted_gene_ids`.
+- refinement analogue: fraction of true distractors flagged by a visible
+  low-support signal (leave-one-out rank, `get_node_perturbation`, induced
+  subgraph degree).
+
+These rates select which tier below is worth implementing. Promote
+`frontier_recall_at_topk` to a hard pre-scale gate: do not scale to production
+generation until missing-target frontier recall is high and exact-positive yield
+per task clears a threshold.
+
+### Tier 1: Frontier surfacing and construction
+
+Pursue if Tier 0 shows surfacing or recall dominates.
+
+- Decouple retrieval depth from presentation. Keep `top_k` high but raise
+  `PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT` (100-200) and surface the ranked
+  non-seed frontier with rank/score attached. Make
+  `_candidate_gene_ids_for_tool_reference` include the ranked non-seed frontier
+  directly, not only post-hoc logged genes.
+- Improve construction: RWR over multiple seed subsets and leave-one-out
+  aggregation so the frontier reflects consensus support, not one seed-set walk.
+- For refinement, surface an explicit removal-candidate ranking. There is
+  currently no model-facing low-support pruning signal; wire
+  `get_seed_essentiality`, `get_node_perturbation`, and induced-subgraph degree
+  into a per-seed low-support list for the verifier.
+
+### Tier 2: Bounded edit-search over the visible frontier
+
+Pursue if Tier 0 shows search dominates.
+
+Membership edits currently emerge implicitly from `N_ACT` x `N_VER` sampling,
+which will not reliably hit an exact set when a hard task needs roughly 0.33 of
+module size in additions. Add a deterministic bounded search as an extra
+candidate source for recovery/refinement steps (new `runtime/edit_search.py`,
+flag-gated in `scripts/generate_trajectories.py`): given the current group and
+the visible scored frontier, run beam or best-first search over add/drop
+actions, scored by visible-evidence heuristics (RWR rank, induced-subgraph
+degree, enrichment coherence), and materialize the resulting groups as
+additional same-prefix branches.
+
+Leakage tripwires (the line between acceptable and unsafe oracle use):
+
+- Every generated branch's group and text must be derivable from visible tool
+  observations only. The oracle may only score which evidence-backed variant is
+  exact; it must never construct a variant from hidden targets or inject target
+  genes into the frontier.
+- Generated branches must share the query and evidence prefix so DPO same-prefix
+  structure is preserved; near-miss variants become clean rejected examples.
+
+If the frontier is already fetched, the search adds no extra tool/model calls,
+so exact-positive yield per dollar rises sharply, but only when the target is in
+the visible frontier, which is why Tier 0 gates this.
+
+### Tier 3: Edit-distance curriculum
+
+The corpus has difficulty bins (`easy` = 1 edit, `medium` ~ 0.20 of size,
+`hard` ~ 0.33 of size) but no curriculum scheduler. For early DPO, oversample
+easy one-edit recovery/refinement where the needed add/drop is in the top
+visible frontier, then ramp edit distance and distractor similarity. This is a
+sampling change in `scripts/mix_module_corpora.py` plus a scheduler. Quantify
+expected exact-positive yield per bin; the `hard` bin under an exact-match
+objective may have near-zero achievable yield at the current search budget, so
+consider holding it out of early DPO rather than spending walltime on unwinnable
+tasks.
+
+### Tier 4: Process-level pairs
+
+Pursue only if terminal-exact yield stays too sparse after Tiers 1-3.
+
+Mine pairs at the membership-edit level: a branch that adds a true member vs one
+that adds a distractor, both same-prefix, rewarding the move that provably
+reduces distance to exact membership. The `recovery_expansion` and
+`refinement_precision` categories already exist; the addition is gating these on
+whether the added or removed gene is actually in the hidden target
+(scoring-only), so plausible-but-wrong exploration is not rewarded.
+
+### Tier 5: Verifier conservatism (prompting and search now, training later)
+
+`VERIFIER_SYSTEM_PROMPT` biases toward under-inclusion ("keep the update
+conservative", "add only candidates that have credible visible support"), which
+systematically produces the dominant recovery failure of keeping only the seeds.
+The existing `exact_membership_nonterminal_override` forces `continue` but does
+not hand the verifier a concrete list to test. Add a recovery-mode directive
+requiring it to enumerate and accept/reject the top-K visible non-seed
+candidates before any stop. Keep this at the prompting and search level for now:
+SFT on current near-miss trajectories would reinforce the failure mode, so
+policy/SFT changes wait until Tiers 1-3 have produced enough exact-grounded
+trajectories to train on.
+
+### Sequencing and re-audit
+
+Tier 0 is mandatory and gates everything. Expected order after it: Tier 1
+(cheap, structural), then Tier 2 (structural fix), with Tier 3 in parallel as a
+corpus change, and Tiers 4-5 only if terminal-exact yield is still too low.
+Re-run the exact-performance audit (the `--dpo-pair-gate` command above) after
+each tier and require at least one exact-positive recovery and one exact-positive
+refinement, plus nonzero exact-membership pair counts, before scaling.
 
 ## Scaling Guidance
 

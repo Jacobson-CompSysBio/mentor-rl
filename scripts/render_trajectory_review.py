@@ -17,7 +17,7 @@ import random
 import re
 import sys
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -25,11 +25,62 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from runtime import CandidateBranch, GeneGroup, MechanisticLabel, ToolObservation, TrajectoryTurn
+from scripts.frontier_diagnostics import DEFAULT_OUTPUT_NAME as DEFAULT_FRONTIER_DIAGNOSTICS_NAME
 
 
 DEFAULT_TEXT_CHARS = 900
 DEFAULT_SAMPLE_SIZE = 0
 DEFAULT_MAX_UNSELECTED_PER_STEP = 3
+
+TOOL_DISPLAY_LABELS = {
+    "no_tool": "No tool",
+    "enrich_gene_set": "Enrichment",
+    "query_mygene": "Gene lookup",
+    "induce_subgraph": "Induced subgraph",
+    "get_neighbors": "Network neighbors",
+    "rwr": "RWR search",
+    "rwr_loe": "RWR-LOE",
+    "shortest_paths": "Shortest paths",
+    "gene_layer_map": "Gene-layer map",
+    "disconnected_components": "Connected components",
+    "grin": "GRIN score",
+    "rwr_ablation": "RWR ablation",
+    "rwr_perturbation": "RWR perturbation",
+    "get_seed_essentiality": "Seed essentiality",
+    "get_layer_ablation": "Layer ablation",
+}
+
+OBSERVATION_STATUS_LABELS = {
+    "success": "Success",
+    "error": "Error",
+    "failure": "Failure",
+    "skipped": "Skipped",
+    "none": "No observation",
+    "missing": "Missing",
+    "unknown": "Unknown",
+}
+
+FAILURE_REASON_LABELS = {
+    "target_recall_below_positive_threshold": "Target recall below exact-positive threshold",
+    "target_jaccard_below_positive_threshold": "Target Jaccard below exact-positive threshold",
+    "target_precision_below_positive_threshold": "Target precision below exact-positive threshold",
+    "validated_group_weak_enrichment_support": "Weak enrichment support",
+    "insufficient_support_for_non_none_task": "Stopped with insufficient support",
+    "missing_final_group": "No final gene group",
+}
+
+ACRONYM_LABELS = {
+    "api": "API",
+    "dpo": "DPO",
+    "go": "GO",
+    "hpc": "HPC",
+    "id": "ID",
+    "ids": "IDs",
+    "json": "JSON",
+    "loe": "LOE",
+    "rwr": "RWR",
+    "sft": "SFT",
+}
 
 
 def _truncate(value: Any, *, max_chars: int) -> str:
@@ -165,6 +216,20 @@ def load_task_rows(path: Path | None, source_task_ids: set[str]) -> dict[str, di
     return rows
 
 
+def load_frontier_diagnostics(path: Path | None) -> dict[str, Any]:
+    """Load optional post-hoc exact-membership frontier diagnostics."""
+
+    if path is None or not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Failed to parse frontier diagnostics at {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"Expected object in frontier diagnostics at {path}.")
+    return payload
+
+
 def infer_tasks_path(run_dir: Path | None) -> Path | None:
     """Infer the input task JSONL from run_freeze.json when available."""
 
@@ -205,11 +270,47 @@ def _tool_name(branch: CandidateBranch) -> str:
     return action.tool_name
 
 
+def _humanize_identifier(value: Any) -> str:
+    text = str(value or "unknown").strip()
+    if not text:
+        return "Unknown"
+    tokens = re.split(r"[\s_.:/-]+", text)
+    rendered = []
+    for token in tokens:
+        if not token:
+            continue
+        lower = token.lower()
+        rendered.append(ACRONYM_LABELS.get(lower, token[:1].upper() + token[1:]))
+    return " ".join(rendered) or "Unknown"
+
+
+def _display_token(value: Any) -> str:
+    return _humanize_identifier(value)
+
+
+def _display_tool_name(tool_name: Any) -> str:
+    raw = str(tool_name or "unknown")
+    return TOOL_DISPLAY_LABELS.get(raw, _humanize_identifier(raw))
+
+
+def _display_observation_status(status: Any) -> str:
+    raw = str(status or "unknown")
+    return OBSERVATION_STATUS_LABELS.get(raw, _humanize_identifier(raw))
+
+
+def _display_failure_reason(reason: Any) -> str:
+    raw = str(reason or "unknown")
+    return FAILURE_REASON_LABELS.get(raw, _humanize_identifier(raw))
+
+
 def _tool_action_summary(branch: CandidateBranch) -> str:
     action = branch.actor_step.tool_action
     if action is None:
-        return "`no_tool`"
-    return f"`{action.tool_name}` `{_json_inline(action.arguments, max_chars=700)}`"
+        return "`No tool`"
+    return (
+        f"`{_display_tool_name(action.tool_name)}` (`{action.tool_name}`) "
+        f"`{_json_inline(action.arguments, max_chars=700)}`"
+    )
 
 
 def _branch_claim(branch: CandidateBranch, *, max_chars: int = 120) -> str:
@@ -277,7 +378,10 @@ def _observation_summary(observation: ToolObservation | None, *, max_chars: int)
     payload = observation.payload or {}
     provenance = observation.provenance or {}
     tool_name = provenance.get("tool_name") or "unknown"
-    pieces = [f"status `{observation.status.value}`", f"tool `{tool_name}`"]
+    pieces = [
+        f"status `{_display_observation_status(observation.status.value)}`",
+        f"tool `{_display_tool_name(tool_name)}`",
+    ]
     source = provenance.get("source") or ("cache" if provenance.get("cache_hit") else None)
     if source:
         pieces.append(f"source `{source}`")
@@ -471,8 +575,8 @@ def _mermaid_graph_source(
         score = branch.local_score
         label = (
             f"Step {turn.step_index} | Selected<br/>"
-            f"Tool: {_tool_name(branch)} ({_branch_observation_status(branch)})<br/>"
-            f"State: {state.relationship_status.value}<br/>"
+            f"Tool: {_display_tool_name(_tool_name(branch))} ({_display_observation_status(_branch_observation_status(branch))})<br/>"
+            f"State: {_display_token(state.relationship_status.value)}<br/>"
             f"Score: {score.total_score:.2f} | Mechanism: {score.mechanism_evidence_score:.2f}<br/>"
             f"{_safe_mermaid_label(_branch_claim(branch, max_chars=80), max_chars=80)}"
         )
@@ -494,8 +598,8 @@ def _mermaid_graph_source(
             alt_score = alt_branch.local_score
             alt_label = (
                 f"Step {turn.step_index} | Alt {alt_index}<br/>"
-                f"Tool: {_tool_name(alt_branch)} ({_branch_observation_status(alt_branch)})<br/>"
-                f"State: {alt_state.relationship_status.value}<br/>"
+                f"Tool: {_display_tool_name(_tool_name(alt_branch))} ({_display_observation_status(_branch_observation_status(alt_branch))})<br/>"
+                f"State: {_display_token(alt_state.relationship_status.value)}<br/>"
                 f"Score: {alt_score.total_score:.2f} | Mechanism: {alt_score.mechanism_evidence_score:.2f}<br/>"
                 f"{_safe_mermaid_label(_branch_claim(alt_branch, max_chars=75), max_chars=75)}"
             )
@@ -548,6 +652,7 @@ def _trajectory_overview(
     summary: dict[str, Any] | None,
     *,
     max_text_chars: int,
+    frontier_diagnostic: dict[str, Any] | None = None,
 ) -> list[str]:
     anchor = _safe_anchor(trajectory_id).lower()
     lines = [f'<a id="{anchor}"></a>', "", f"## `{trajectory_id}`", ""]
@@ -583,15 +688,18 @@ def _trajectory_overview(
         )
     else:
         lines.extend(["- Final summary: `missing`", ""])
+    lines.extend(_frontier_diagnostic_markdown(frontier_diagnostic))
     return lines
 
 
 def _branch_compact_summary(branch: CandidateBranch, *, max_text_chars: int) -> str:
     state = branch.verifier_step.updated_state
     return (
-        f"`{branch.branch_id}` | `{_tool_name(branch)}`/{_branch_observation_status(branch)} | "
+        f"`{branch.branch_id}` | {_display_tool_name(_tool_name(branch))}/"
+        f"{_display_observation_status(_branch_observation_status(branch))} | "
         f"score `{branch.local_score.total_score:.3f}` | mech `{branch.local_score.mechanism_evidence_score:.3f}` | "
-        f"`{state.relationship_status.value}` | {_truncate(_branch_claim(branch, max_chars=max_text_chars), max_chars=max_text_chars)}"
+        f"{_display_token(state.relationship_status.value)} | "
+        f"{_truncate(_branch_claim(branch, max_chars=max_text_chars), max_chars=max_text_chars)}"
     )
 
 
@@ -732,6 +840,7 @@ def render_markdown(
     include_mermaid: bool = True,
     branch_pools: dict[tuple[str, int], dict[str, Any]] | None = None,
     max_unselected_per_step: int = 0,
+    frontier_diagnostics: dict[str, Any] | None = None,
 ) -> str:
     """Render selected trajectories as Markdown."""
 
@@ -766,7 +875,16 @@ def render_markdown(
     for trajectory_id in trajectory_ids:
         turns = turns_by_trajectory[trajectory_id]
         summary = summaries.get(trajectory_id)
-        lines.extend(_trajectory_overview(trajectory_id, turns, summary, max_text_chars=max_text_chars))
+        frontier_diagnostic = _frontier_diagnostic_for_trajectory(trajectory_id, summary, frontier_diagnostics)
+        lines.extend(
+            _trajectory_overview(
+                trajectory_id,
+                turns,
+                summary,
+                max_text_chars=max_text_chars,
+                frontier_diagnostic=frontier_diagnostic,
+            )
+        )
         if include_mermaid:
             lines.extend(
                 [
@@ -824,8 +942,8 @@ def render_mermaid_graphs(
             state = branch.verifier_step.updated_state
             label = (
                 f"Step {turn.step_index} | Selected<br/>"
-                f"Tool: {_tool_name(branch)} ({_branch_observation_status(branch)})<br/>"
-                f"State: {state.relationship_status.value}<br/>"
+                f"Tool: {_display_tool_name(_tool_name(branch))} ({_display_observation_status(_branch_observation_status(branch))})<br/>"
+                f"State: {_display_token(state.relationship_status.value)}<br/>"
                 f"Score: {branch.local_score.total_score:.2f}"
             )
             node_id = f"{prefix}_s{turn.step_index}"
@@ -847,8 +965,8 @@ def render_mermaid_graphs(
                 alt_state = alt_branch.verifier_step.updated_state
                 alt_label = (
                     f"Step {turn.step_index} | Alt {alt_index}<br/>"
-                    f"Tool: {_tool_name(alt_branch)} ({_branch_observation_status(alt_branch)})<br/>"
-                    f"State: {alt_state.relationship_status.value}<br/>"
+                    f"Tool: {_display_tool_name(_tool_name(alt_branch))} ({_display_observation_status(_branch_observation_status(alt_branch))})<br/>"
+                    f"State: {_display_token(alt_state.relationship_status.value)}<br/>"
                     f"Score: {alt_branch.local_score.total_score:.2f}"
                 )
                 alt_node_id = f"{prefix}_s{turn.step_index}_alt{alt_index}"
@@ -918,7 +1036,8 @@ def _success_display_label(success_level: str) -> str:
     return {
         "positive": "Success",
         "partial": "Partial",
-        "negative": "Negative",
+        "negative": "Failure",
+        "failure": "Failure",
         "missing": "Missing",
         "unknown": "Unknown",
     }.get(success_level, success_level.replace("_", " ").title())
@@ -929,14 +1048,10 @@ def _success_css_class(success_level: str) -> str:
         "positive": "success-positive",
         "partial": "success-partial",
         "negative": "success-negative",
+        "failure": "success-negative",
         "missing": "success-missing",
         "unknown": "success-unknown",
     }.get(success_level, "success-unknown")
-
-
-def _display_token(value: Any) -> str:
-    text = str(value or "unknown").replace("_", " ").strip()
-    return text[:1].upper() + text[1:] if text else "Unknown"
 
 
 def _trajectory_short_label(index: int, summary: dict[str, Any] | None) -> str:
@@ -958,6 +1073,107 @@ def _summary_task_row(summary: dict[str, Any] | None, task_rows: dict[str, dict[
     if not summary or not task_rows:
         return None
     return task_rows.get(str(summary.get("source_task_id", "")))
+
+
+def _frontier_diagnostics_by_id(frontier_diagnostics: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    if not frontier_diagnostics:
+        return {}
+    by_id: dict[str, dict[str, Any]] = {}
+    rows = frontier_diagnostics.get("by_task")
+    if not isinstance(rows, list):
+        return by_id
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for key in ("trajectory_id", "source_task_id"):
+            value = row.get(key)
+            if isinstance(value, str) and value:
+                by_id[value] = row
+    return by_id
+
+
+def _frontier_diagnostic_for_trajectory(
+    trajectory_id: str,
+    summary: dict[str, Any] | None,
+    frontier_diagnostics: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    by_id = _frontier_diagnostics_by_id(frontier_diagnostics)
+    if trajectory_id in by_id:
+        return by_id[trajectory_id]
+    source_task_id = summary.get("source_task_id") if summary else None
+    if isinstance(source_task_id, str):
+        return by_id.get(source_task_id)
+    return None
+
+
+def _diagnostic_rate_text(value: Any) -> str:
+    return _fmt_float(value) if isinstance(value, (int, float)) else "n/a"
+
+
+def _diagnostic_count_text(row: dict[str, Any], key: str) -> str:
+    value = row.get(key)
+    return str(value) if isinstance(value, int) else "0"
+
+
+def _frontier_diagnostic_summary_text(row: dict[str, Any] | None) -> str:
+    if not row:
+        return "not available"
+    if row.get("task_type") == "recovery":
+        return (
+            "missing "
+            f"{_diagnostic_count_text(row, 'recovery_missing_target_gene_count')}; "
+            f"RWR {_diagnostic_count_text(row, 'frontier_recalled_gene_count')}; "
+            f"preview {_diagnostic_count_text(row, 'frontier_surfaced_at_preview_gene_count')}; "
+            f"edit {_diagnostic_count_text(row, 'edit_frontier_gene_count')}; "
+            f"selected-add {_diagnostic_count_text(row, 'added_to_selected_branch_gene_count')}"
+        )
+    if row.get("task_type") == "refinement":
+        return (
+            "extras "
+            f"{_diagnostic_count_text(row, 'refinement_extra_gene_count')}; "
+            f"flagged {_diagnostic_count_text(row, 'frontier_flagged_extra_gene_count')}; "
+            f"removed {_diagnostic_count_text(row, 'removed_by_any_edit_gene_count')}; "
+            f"selected-pruned {_diagnostic_count_text(row, 'selected_branch_pruned_extra_gene_count')}"
+        )
+    return "not available"
+
+
+def _frontier_diagnostic_markdown(row: dict[str, Any] | None) -> list[str]:
+    if not row:
+        return []
+    lines = ["**Frontier Diagnostics**", ""]
+    if row.get("task_type") == "recovery":
+        lines.extend(
+            [
+                f"- Missing target genes: `{row.get('recovery_missing_target_gene_count', 0)}`",
+                f"- RWR top-k recall: `{_diagnostic_rate_text(row.get('frontier_recall_at_topk'))}` "
+                f"({_diagnostic_count_text(row, 'frontier_recalled_gene_count')} genes)",
+                f"- Prompt preview surfacing: `{_diagnostic_rate_text(row.get('frontier_surfaced_at_preview'))}` "
+                f"({_diagnostic_count_text(row, 'frontier_surfaced_at_preview_gene_count')} genes)",
+                f"- Deterministic edit frontier coverage: `{_diagnostic_rate_text(row.get('edit_frontier_coverage'))}` "
+                f"({_diagnostic_count_text(row, 'edit_frontier_gene_count')} genes)",
+                f"- Added to any/selected branch: `{_diagnostic_count_text(row, 'added_to_any_branch_gene_count')}` / "
+                f"`{_diagnostic_count_text(row, 'added_to_selected_branch_gene_count')}`",
+                f"- Exact branches/raw exact pairs: `{row.get('exact_branch_count', 0)}` / `{row.get('exact_pair_count_raw', 0)}`",
+            ]
+        )
+    elif row.get("task_type") == "refinement":
+        lines.extend(
+            [
+                f"- Extra input genes: `{row.get('refinement_extra_gene_count', 0)}`",
+                f"- Low-support/edit frontier flagged extras: `{_diagnostic_rate_text(row.get('frontier_flagged_extra_rate'))}` "
+                f"({_diagnostic_count_text(row, 'frontier_flagged_extra_gene_count')} genes)",
+                f"- Removed by any/selected edit: `{_diagnostic_count_text(row, 'removed_by_any_edit_gene_count')}` / "
+                f"`{_diagnostic_count_text(row, 'removed_by_selected_edit_gene_count')}`",
+                f"- Selected branch pruned extras: `{_diagnostic_count_text(row, 'selected_branch_pruned_extra_gene_count')}`",
+                f"- Exact branches/raw exact pairs: `{row.get('exact_branch_count', 0)}` / `{row.get('exact_pair_count_raw', 0)}`",
+            ]
+        )
+    details = row.get("missing_target_gene_details") or row.get("extra_gene_details")
+    if isinstance(details, list) and details:
+        lines.append("- Gene details: " + _json_inline(details[:6], max_chars=1000))
+    lines.append("")
+    return lines
 
 
 def _selected_tool_stats(
@@ -983,18 +1199,24 @@ def _failure_reason_counts(summaries: dict[str, dict[str, Any]], trajectory_ids:
     return counts
 
 
-def _html_distribution_bar(counter: Counter, *, class_prefix: str = "") -> str:
+def _html_distribution_bar(
+    counter: Counter,
+    *,
+    class_prefix: str = "",
+    label_func: Callable[[Any], str] | None = None,
+) -> str:
     total = sum(counter.values())
     if total <= 0:
         return '<div class="dist-row muted">none</div>'
     rows = []
     for key, value in counter.most_common():
         pct = 100.0 * value / total
-        key_text = str(key)
+        key_text = label_func(key) if label_func is not None else _display_token(key)
+        title = "" if key_text == str(key) else f' title="{_html_escape(key)}"'
         rows.append(
             f"""
             <div class="dist-row">
-              <span>{_html_escape(key_text)}</span>
+              <span{title}>{_html_escape(key_text)}</span>
               <div class="dist-track"><i class="{_html_escape(class_prefix)}" style="width:{pct:.1f}%"></i></div>
               <strong>{value}</strong>
             </div>
@@ -1007,22 +1229,92 @@ def _html_success_distribution(counter: Counter) -> str:
     total = sum(counter.values())
     if total <= 0:
         return '<div class="dist-row muted">none</div>'
-    rows = []
-    for key in ("positive", "partial", "negative", "missing", "unknown"):
+    pie_order = ("positive", "partial", "negative", "failure", "missing", "unknown")
+    colors = {
+        "positive": "var(--success)",
+        "partial": "var(--partial)",
+        "negative": "var(--negative)",
+        "failure": "var(--negative)",
+        "missing": "#64748b",
+        "unknown": "#94a3b8",
+    }
+    ordered_keys = [key for key in pie_order if counter.get(key, 0) > 0]
+    ordered_keys.extend(sorted(key for key in counter if key not in pie_order and counter.get(key, 0) > 0))
+    gradient_parts = []
+    legend_rows = []
+    start = 0.0
+    for key in ordered_keys:
         value = counter.get(key, 0)
-        if value <= 0:
-            continue
         pct = 100.0 * value / total
-        rows.append(
+        end = start + pct
+        color = colors.get(key, "#64748b")
+        gradient_parts.append(f"{color} {start:.2f}% {end:.2f}%")
+        legend_rows.append(
             f"""
-            <div class="dist-row">
-              <span>{_html_escape(_success_display_label(key))}</span>
-              <div class="dist-track"><i class="{_html_escape(_success_css_class(key))}" style="width:{pct:.1f}%"></i></div>
+            <div class="pie-legend-row">
+              <span><i style="background:{_html_escape(color)}"></i>{_html_escape(_success_display_label(key))}</span>
               <strong>{value}</strong>
+              <small>{pct:.0f}%</small>
             </div>
             """
         )
-    return "\n".join(rows)
+        start = end
+    gradient = ", ".join(gradient_parts) if gradient_parts else "#e2e8f0 0% 100%"
+    return f"""
+      <div class="success-pie-layout">
+        <div class="success-pie" style="background: conic-gradient({gradient});">
+          <span>{total}<small>total</small></span>
+        </div>
+        <div class="pie-legend">{"".join(legend_rows)}</div>
+      </div>
+    """
+
+
+def _html_bucket_summary(task_counts: Counter) -> str:
+    if not task_counts:
+        return '<p class="muted">No task buckets found.</p>'
+    chips = []
+    for key, value in sorted(task_counts.items()):
+        if isinstance(key, tuple):
+            label = " / ".join(_display_token(part) for part in key)
+        else:
+            label = _display_token(key)
+        chips.append(
+            f'<span class="bucket-chip"><strong>{_html_escape(label)}</strong><em>{value}</em></span>'
+        )
+    return f'<div class="bucket-chips">{"".join(chips)}</div>'
+
+
+def _html_study_background() -> str:
+    return """
+      <div class="study-background">
+        <h3>Study Background And Goal</h3>
+        <p>
+          This report audits synthetic reasoning trajectories for a gene-module mentoring system.
+          Each trajectory starts from visible gene evidence, lets the model choose tool-backed reasoning
+          steps, and then compares the final gene set against a hidden target that is used only for
+          scoring and diagnostics.
+        </p>
+        <div class="study-grid">
+          <div>
+            <strong>Goal</strong>
+            <span>Generate exact-positive recovery and refinement examples that can support reliable preference training.</span>
+          </div>
+          <div>
+            <strong>Success</strong>
+            <span>The final gene membership matches the hidden target closely enough to count as a positive example.</span>
+          </div>
+          <div>
+            <strong>Partial</strong>
+            <span>The trajectory found a useful near-miss, but it is not an exact-positive training target.</span>
+          </div>
+          <div>
+            <strong>Diagnostics</strong>
+            <span>Frontier checks show whether hidden target genes reached the model-visible or deterministic candidate frontier.</span>
+          </div>
+        </div>
+      </div>
+    """
 
 
 def _html_run_dashboard(
@@ -1032,6 +1324,7 @@ def _html_run_dashboard(
     trajectory_ids: list[str],
     task_rows: dict[str, dict[str, Any]] | None,
     warning_count: int,
+    frontier_diagnostics: dict[str, Any] | None = None,
 ) -> str:
     selected_summaries = [summaries.get(trajectory_id) for trajectory_id in trajectory_ids]
     selected_summaries = [summary for summary in selected_summaries if summary]
@@ -1056,6 +1349,24 @@ def _html_run_dashboard(
     positive = success_counts.get("positive", 0)
     partial = success_counts.get("partial", 0)
     success_rate = (positive + partial) / len(selected_summaries) if selected_summaries else None
+    frontier_aggregate = frontier_diagnostics.get("aggregate", {}) if isinstance(frontier_diagnostics, dict) else {}
+    frontier_panel = ""
+    if frontier_aggregate:
+        frontier_panel = f"""
+          <div class="dashboard-panel wide">
+            <h3>Exact-Membership Frontier Diagnostics</h3>
+            <div class="diagnostic-grid">
+              {_html_metric("recovery RWR recall", _diagnostic_rate_text(frontier_aggregate.get("recovery_frontier_recall_at_topk")))}
+              {_html_metric("recovery preview", _diagnostic_rate_text(frontier_aggregate.get("recovery_frontier_surfaced_at_preview")))}
+              {_html_metric("recovery edit frontier", _diagnostic_rate_text(frontier_aggregate.get("recovery_edit_frontier_coverage")))}
+              {_html_metric("recovery selected-add", _diagnostic_rate_text(frontier_aggregate.get("recovery_added_to_selected_branch_rate")))}
+              {_html_metric("refinement flagged", _diagnostic_rate_text(frontier_aggregate.get("refinement_frontier_flagged_extra_rate")))}
+              {_html_metric("exact branches", frontier_aggregate.get("exact_branch_count", 0))}
+              {_html_metric("raw exact pairs", frontier_aggregate.get("exact_pair_count_raw", 0))}
+              {_html_metric("parse errors", frontier_aggregate.get("branch_pool_parse_error_count", 0))}
+            </div>
+          </div>
+        """
     return f"""
       <section class="dashboard">
         <div class="metric-grid">
@@ -1071,13 +1382,22 @@ def _html_run_dashboard(
           {_html_metric("warnings", warning_count)}
         </div>
         <div class="dashboard-grid">
-          <div class="dashboard-panel"><h3>Success Levels</h3>{_html_success_distribution(success_counts)}</div>
+          <div class="dashboard-panel"><h3>Success / Partial / Failure</h3>{_html_success_distribution(success_counts)}</div>
           <div class="dashboard-panel"><h3>Final Status</h3>{_html_distribution_bar(status_counts, class_prefix="status")}</div>
           <div class="dashboard-panel"><h3>Task Types</h3>{_html_distribution_bar(task_counts, class_prefix="task")}</div>
           <div class="dashboard-panel"><h3>Evidence Modes</h3>{_html_distribution_bar(evidence_counts, class_prefix="mode")}</div>
           <div class="dashboard-panel"><h3>Difficulties</h3>{_html_distribution_bar(difficulty_counts, class_prefix="difficulty")}</div>
-          <div class="dashboard-panel"><h3>Selected Tools</h3><p>{_html_escape(_counter_text(tool_counts))}</p><h3>Observation Status</h3><p>{_html_escape(_counter_text(observation_counts))}</p></div>
-          <div class="dashboard-panel wide"><h3>Failure Reasons</h3><p>{_html_escape(_counter_text(failure_counts, max_items=12))}</p></div>
+          <div class="dashboard-panel">
+            <h3>Selected Tools</h3>
+            {_html_distribution_bar(tool_counts, class_prefix="tool", label_func=_display_tool_name)}
+            <h3 class="subheading">Observation Status</h3>
+            {_html_distribution_bar(observation_counts, class_prefix="status", label_func=_display_observation_status)}
+          </div>
+          <div class="dashboard-panel wide">
+            <h3>Failure Reasons</h3>
+            {_html_distribution_bar(failure_counts, class_prefix="failure", label_func=_display_failure_reason)}
+          </div>
+          {frontier_panel}
         </div>
       </section>
     """
@@ -1142,6 +1462,7 @@ def _html_trajectory_cards(
     summaries: dict[str, dict[str, Any]],
     trajectory_ids: list[str],
     task_rows: dict[str, dict[str, Any]] | None,
+    frontier_diagnostics: dict[str, Any] | None = None,
 ) -> str:
     cards = []
     for index, trajectory_id in enumerate(trajectory_ids, start=1):
@@ -1158,6 +1479,13 @@ def _html_trajectory_cards(
         source_task = str(summary.get("source_task_id", trajectory_id)) if summary else trajectory_id
         final_interpretation = _html_final_interpretation(summary)
         claim = _one_line(final_interpretation.get("mechanistic_claim", ""), max_chars=220)
+        frontier_row = _frontier_diagnostic_for_trajectory(trajectory_id, summary, frontier_diagnostics)
+        frontier_text = _frontier_diagnostic_summary_text(frontier_row)
+        frontier_html = (
+            f'<span class="card-metrics frontier-card-line">frontier: {_html_escape(frontier_text)}</span>'
+            if frontier_row
+            else ""
+        )
         warning_html = f'<span class="card-warning">{_html_escape(warning)}</span>' if warning else ""
         cards.append(
             f"""
@@ -1183,6 +1511,7 @@ def _html_trajectory_cards(
                 mech {_html_escape(_fmt_float(summary.get("terminal_mechanism_evidence_score") if summary else None))} |
                 J {_html_escape(_fmt_float(alignment.get("jaccard")))}
               </span>
+              {frontier_html}
               <span class="muted">{_html_escape(claim or "empty claim")}</span>
               {warning_html}
             </a>
@@ -1191,12 +1520,98 @@ def _html_trajectory_cards(
     return f'<section class="trajectory-cards" id="trajectoryCards">{"".join(cards)}</section>'
 
 
+def _html_gene_diagnostic_table(details: Any, *, label: str) -> str:
+    if not isinstance(details, list) or not details:
+        return '<p class="muted">No gene-level diagnostic rows retained.</p>'
+    rows = []
+    for detail in details[:8]:
+        if not isinstance(detail, dict):
+            continue
+        rows.append(
+            f"""
+            <tr>
+              <td><code>{_html_escape(detail.get("gene_id", ""))}</code></td>
+              <td>{_html_escape("n/a" if detail.get("rwr_best_rank") is None else detail.get("rwr_best_rank"))}</td>
+              <td>{_html_escape("yes" if detail.get("in_prompt_preview") else "no")}</td>
+              <td>{_html_escape("yes" if detail.get("in_edit_frontier") else "no")}</td>
+              <td>{_html_escape("yes" if detail.get("added_to_any_branch") else "no")}</td>
+              <td>{_html_escape("yes" if detail.get("added_to_selected_branch") else "no")}</td>
+              <td>{_html_escape("yes" if detail.get("removed_by_any_edit") else "no")}</td>
+            </tr>
+            """
+        )
+    return f"""
+      <table class="diagnostic-table">
+        <caption>{_html_escape(label)}</caption>
+        <thead>
+          <tr>
+            <th>Gene</th>
+            <th>Best RWR Rank</th>
+            <th>Preview</th>
+            <th>Edit Frontier</th>
+            <th>Any Add</th>
+            <th>Selected Add</th>
+            <th>Any Remove</th>
+          </tr>
+        </thead>
+        <tbody>{"".join(rows)}</tbody>
+      </table>
+    """
+
+
+def _html_frontier_diagnostic_panel(row: dict[str, Any] | None) -> str:
+    if not row:
+        return ""
+    if row.get("task_type") == "recovery":
+        details = _html_gene_diagnostic_table(
+            row.get("missing_target_gene_details"),
+            label="Missing target gene diagnostics",
+        )
+        metrics = "".join(
+            [
+                _html_metric("missing targets", row.get("recovery_missing_target_gene_count", 0)),
+                _html_metric("RWR top-k recall", _diagnostic_rate_text(row.get("frontier_recall_at_topk"))),
+                _html_metric("prompt preview", _diagnostic_rate_text(row.get("frontier_surfaced_at_preview"))),
+                _html_metric("edit frontier", _diagnostic_rate_text(row.get("edit_frontier_coverage"))),
+                _html_metric("any branch add", _diagnostic_rate_text(row.get("added_to_any_branch_rate"))),
+                _html_metric("selected branch add", _diagnostic_rate_text(row.get("added_to_selected_branch_rate"))),
+                _html_metric("exact branches", row.get("exact_branch_count", 0)),
+                _html_metric("raw exact pairs", row.get("exact_pair_count_raw", 0)),
+            ]
+        )
+    else:
+        details = _html_gene_diagnostic_table(
+            row.get("extra_gene_details"),
+            label="Extra input gene diagnostics",
+        )
+        metrics = "".join(
+            [
+                _html_metric("extra genes", row.get("refinement_extra_gene_count", 0)),
+                _html_metric("frontier flagged", _diagnostic_rate_text(row.get("frontier_flagged_extra_rate"))),
+                _html_metric("any edit removed", _diagnostic_rate_text(row.get("removed_by_any_edit_rate"))),
+                _html_metric("selected edit removed", _diagnostic_rate_text(row.get("removed_by_selected_edit_rate"))),
+                _html_metric("selected pruned", _diagnostic_rate_text(row.get("selected_branch_pruned_extra_rate"))),
+                _html_metric("exact branches", row.get("exact_branch_count", 0)),
+                _html_metric("raw exact pairs", row.get("exact_pair_count_raw", 0)),
+            ]
+        )
+    return f"""
+      <div class="frontier-diagnostic-panel">
+        <h4>Exact-Membership Frontier Diagnostics</h4>
+        <p class="muted">Post-hoc scoring-only diagnostic. Hidden targets are used here for audit/reporting, not for prompts or training exports.</p>
+        <div class="diagnostic-grid">{metrics}</div>
+        {details}
+      </div>
+    """
+
+
 def _html_summary_panel(
     trajectory_id: str,
     turns: list[TrajectoryTurn],
     summary: dict[str, Any] | None,
     *,
     task_row: dict[str, Any] | None = None,
+    frontier_diagnostic: dict[str, Any] | None = None,
     max_text_chars: int,
 ) -> str:
     final_state = _html_final_state(summary)
@@ -1232,10 +1647,10 @@ def _html_summary_panel(
     if summary:
         badges = " ".join(
             [
-                _html_badge(summary.get("task_type", "unknown"), "task"),
-                _html_badge(summary.get("evidence_mode", "unknown"), "mode"),
-                _html_badge(summary.get("difficulty", "unknown"), "difficulty"),
-                _html_badge(final_state.get("relationship_status", "unknown"), _final_visual_class(summary)),
+                _html_badge(_display_token(summary.get("task_type", "unknown")), "task"),
+                _html_badge(_display_token(summary.get("evidence_mode", "unknown")), "mode"),
+                _html_badge(_display_token(summary.get("difficulty", "unknown")), "difficulty"),
+                _html_badge(_display_token(final_state.get("relationship_status", "unknown")), _final_visual_class(summary)),
             ]
         )
         metrics = "".join(
@@ -1280,13 +1695,13 @@ def _html_summary_panel(
           <div>
             <h4>Hidden Training Target</h4>
             <p><strong>Scoring intent:</strong> {_html_escape(expected_behavior)}</p>
-            <p><strong>Target status:</strong> <code>{_html_escape(alignment.get("target_status", "unknown"))}</code></p>
+            <p><strong>Target status:</strong> {_html_escape(_display_token(alignment.get("target_status", "unknown")))}</p>
             <p><strong>Target genes:</strong> {_html_escape("null" if alignment.get("target_count") is None else alignment.get("target_count"))} ({_html_escape(alignment.get("target_preview", "unknown"))})</p>
             <p><strong>Hidden mechanism labels:</strong> {_html_escape("none" if not task_row or not task_row.get("mechanism_labels") else _json_inline(task_row.get("mechanism_labels"), max_chars=300))}</p>
           </div>
           <div>
             <h4>Final Output</h4>
-            <p><strong>Relationship:</strong> <code>{_html_escape(final_state.get("relationship_status", "unknown"))}</code></p>
+            <p><strong>Relationship:</strong> {_html_escape(_display_token(final_state.get("relationship_status", "unknown")))}</p>
             <p><strong>Predicted genes:</strong> {_html_escape(alignment.get("predicted_count", 0))} ({_html_escape(alignment.get("predicted_preview", "none"))})</p>
             <p><strong>Mechanistic labels:</strong> {_html_escape(labels)}</p>
             <p><strong>Claim:</strong> {_html_escape(_truncate(final_interpretation.get("mechanistic_claim", ""), max_chars=max_text_chars) or "empty")}</p>
@@ -1300,6 +1715,7 @@ def _html_summary_panel(
             <p><strong>Final evidence:</strong> {_html_escape(_truncate(final_interpretation.get("main_evidence", ""), max_chars=max_text_chars) or "empty")}</p>
           </div>
         </div>
+        {_html_frontier_diagnostic_panel(frontier_diagnostic)}
       </div>
     """
 
@@ -1319,16 +1735,19 @@ def _branch_row_html(
     claim = _truncate(interpretation.mechanistic_claim, max_chars=max_text_chars) or "empty"
     evidence = _truncate(interpretation.main_evidence, max_chars=max_text_chars) or "empty"
     actor = _truncate(branch.actor_step.reasoning_text, max_chars=max_text_chars) or "empty"
+    tool_name = _tool_name(branch)
+    tool_label = _display_tool_name(tool_name)
+    observation_status = _display_observation_status(_branch_observation_status(branch))
     return f"""
       <tr class="{_html_escape(row_class)}">
         <td><strong>{step_index}</strong></td>
         <td>{_html_escape(role)}</td>
-        <td><code>{_html_escape(_tool_name(branch))}</code><br><span class="muted">{_html_escape(_branch_observation_status(branch))}</span></td>
+        <td><span class="tool-label" title="{_html_escape(tool_name)}">{_html_escape(tool_label)}</span><br><span class="muted">{_html_escape(observation_status)}</span></td>
         <td>
           <strong>{branch.local_score.total_score:.3f}</strong><br>
           <span class="muted">mech {_fmt_float(branch.local_score.mechanism_evidence_score)}</span>
         </td>
-        <td><code>{_html_escape(state.relationship_status.value)}</code></td>
+        <td>{_html_escape(_display_token(state.relationship_status.value))}</td>
         <td>{_predicted_gene_count(branch)}</td>
         <td>{_html_escape(labels)}</td>
         <td title="{_html_escape(observation)}">{_html_escape(_truncate(observation, max_chars=220))}</td>
@@ -1396,6 +1815,7 @@ def _html_trajectory_section(
     turns: list[TrajectoryTurn],
     summary: dict[str, Any] | None,
     task_row: dict[str, Any] | None,
+    frontier_diagnostic: dict[str, Any] | None,
     branch_pools: dict[tuple[str, int], dict[str, Any]],
     max_unselected_per_step: int,
     max_text_chars: int,
@@ -1436,6 +1856,14 @@ def _html_trajectory_section(
         max_unselected_per_step=max_unselected_per_step,
         max_text_chars=max_text_chars,
     )
+    summary_panel = _html_summary_panel(
+        trajectory_id,
+        turns,
+        summary,
+        task_row=task_row,
+        frontier_diagnostic=frontier_diagnostic,
+        max_text_chars=max_text_chars,
+    )
     return f"""
     <details class="trajectory {success_class}{warning_marker}"
              id="{_html_escape(_safe_anchor(trajectory_id))}"
@@ -1453,7 +1881,7 @@ def _html_trajectory_section(
           {_html_badge(_display_token(status), _final_visual_class(summary))}
         </span>
       </summary>
-      {_html_summary_panel(trajectory_id, turns, summary, task_row=task_row, max_text_chars=max_text_chars)}
+      {summary_panel}
       <div class="graph-card">
         <div class="graph-toolbar">
           <div>
@@ -1504,8 +1932,9 @@ def render_html(
     source_label: str,
     branch_pools: dict[tuple[str, int], dict[str, Any]],
     task_rows: dict[str, dict[str, Any]] | None = None,
-    max_unselected_per_step: int,
-    max_text_chars: int,
+    max_unselected_per_step: int = 0,
+    max_text_chars: int = DEFAULT_TEXT_CHARS,
+    frontier_diagnostics: dict[str, Any] | None = None,
 ) -> str:
     """Render selected trajectories as a standalone Mermaid HTML review page."""
 
@@ -1524,9 +1953,15 @@ def render_html(
         trajectory_ids=trajectory_ids,
         task_rows=task_rows,
         warning_count=warning_count,
+        frontier_diagnostics=frontier_diagnostics,
     )
     filters = _html_filter_controls(summaries, trajectory_ids)
-    cards = _html_trajectory_cards(summaries=summaries, trajectory_ids=trajectory_ids, task_rows=task_rows)
+    cards = _html_trajectory_cards(
+        summaries=summaries,
+        trajectory_ids=trajectory_ids,
+        task_rows=task_rows,
+        frontier_diagnostics=frontier_diagnostics,
+    )
     nav_items = "\n".join(
         (
             f'<a class="{_html_escape(_success_css_class(_summary_success_level(summaries.get(trajectory_id))))}" '
@@ -1543,13 +1978,18 @@ def render_html(
             turns=turns_by_trajectory[trajectory_id],
             summary=summaries.get(trajectory_id),
             task_row=(task_rows or {}).get(summaries.get(trajectory_id, {}).get("source_task_id", "")),
+            frontier_diagnostic=_frontier_diagnostic_for_trajectory(
+                trajectory_id,
+                summaries.get(trajectory_id),
+                frontier_diagnostics,
+            ),
             branch_pools=branch_pools,
             max_unselected_per_step=max_unselected_per_step,
             max_text_chars=max_text_chars,
         )
         for index, trajectory_id in enumerate(trajectory_ids, start=1)
     )
-    bucket_text = ", ".join(f"{'/'.join(key)}={value}" for key, value in sorted(task_counts.items()))
+    bucket_html = _html_bucket_summary(task_counts)
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -1628,9 +2068,64 @@ def render_html(
       margin-bottom: 18px;
       box-shadow: 0 6px 24px rgba(15, 23, 42, 0.05);
     }}
-    .run-header h2 {{ margin: 0 0 8px; font-size: 26px; }}
-    .run-header code, .source-task code {{ background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }}
-    .legend {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }}
+	    .run-header h2 {{ margin: 0 0 8px; font-size: 26px; }}
+	    .run-header code, .source-task code {{ background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }}
+	    .study-background {{
+	      margin-top: 14px;
+	      padding: 14px;
+	      border: 1px solid #bfdbfe;
+	      border-left: 5px solid #2563eb;
+	      border-radius: 8px;
+	      background: #eff6ff;
+	    }}
+	    .study-background h3 {{
+	      margin: 0 0 8px;
+	      font-size: 14px;
+	      color: #1e40af;
+	      text-transform: uppercase;
+	      letter-spacing: .04em;
+	    }}
+	    .study-background p {{ margin: 0 0 12px; color: #1e293b; }}
+	    .study-grid {{
+	      display: grid;
+	      grid-template-columns: repeat(4, minmax(0, 1fr));
+	      gap: 10px;
+	    }}
+	    .study-grid div {{
+	      padding: 10px;
+	      border: 1px solid rgba(37, 99, 235, 0.18);
+	      border-radius: 8px;
+	      background: rgba(255, 255, 255, 0.7);
+	    }}
+	    .study-grid strong {{ display: block; margin-bottom: 4px; color: #172554; }}
+	    .study-grid span {{ display: block; color: #334155; font-size: 13px; }}
+	    .bucket-summary {{ margin-top: 14px; }}
+	    .bucket-summary > strong {{
+	      display: block;
+	      margin-bottom: 7px;
+	      color: var(--muted);
+	      font-size: 12px;
+	      text-transform: uppercase;
+	      letter-spacing: .04em;
+	    }}
+	    .bucket-chips {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+	    .bucket-chip {{
+	      display: inline-flex;
+	      align-items: center;
+	      gap: 8px;
+	      padding: 6px 9px;
+	      border: 1px solid var(--line);
+	      border-radius: 7px;
+	      background: #f8fafc;
+	      font-size: 13px;
+	    }}
+	    .bucket-chip strong {{ font-weight: 700; }}
+	    .bucket-chip em {{
+	      font-style: normal;
+	      color: var(--muted);
+	      font-weight: 800;
+	    }}
+	    .legend {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }}
     .legend span {{ display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }}
     .swatch {{ width: 18px; height: 12px; border-radius: 3px; border: 2px solid currentColor; background: #fff; }}
     .swatch.selected {{ color: var(--selected); background: var(--selected-bg); }}
@@ -1652,6 +2147,12 @@ def render_html(
       gap: 10px;
       margin-bottom: 16px;
     }}
+    .diagnostic-grid {{
+      display: grid;
+      grid-template-columns: repeat(4, minmax(130px, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }}
     .dashboard-grid {{
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1664,12 +2165,60 @@ def render_html(
       padding: 12px;
       min-width: 0;
     }}
-    .dashboard-panel.wide {{ grid-column: span 3; }}
-    .dashboard-panel h3 {{ margin: 0 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }}
-    .dashboard-panel p {{ margin: 0; font-size: 13px; }}
-    .dist-row {{
-      display: grid;
-      grid-template-columns: minmax(90px, 1fr) minmax(90px, 2fr) 34px;
+	    .dashboard-panel.wide {{ grid-column: span 3; }}
+	    .dashboard-panel h3 {{ margin: 0 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }}
+	    .dashboard-panel h3.subheading {{ margin-top: 14px; }}
+	    .dashboard-panel p {{ margin: 0; font-size: 13px; }}
+	    .success-pie-layout {{
+	      display: grid;
+	      grid-template-columns: 128px minmax(0, 1fr);
+	      gap: 14px;
+	      align-items: center;
+	    }}
+	    .success-pie {{
+	      width: 128px;
+	      aspect-ratio: 1;
+	      border-radius: 50%;
+	      display: grid;
+	      place-items: center;
+	      box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.12);
+	    }}
+	    .success-pie span {{
+	      width: 64px;
+	      aspect-ratio: 1;
+	      border-radius: 50%;
+	      display: grid;
+	      place-items: center;
+	      background: var(--panel);
+	      color: var(--text);
+	      font-size: 20px;
+	      font-weight: 900;
+	      line-height: 1;
+	      box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08);
+	    }}
+	    .success-pie small {{
+	      display: block;
+	      color: var(--muted);
+	      font-size: 10px;
+	      font-weight: 800;
+	      text-transform: uppercase;
+	      letter-spacing: .04em;
+	    }}
+	    .pie-legend {{ display: grid; gap: 6px; min-width: 0; }}
+	    .pie-legend-row {{
+	      display: grid;
+	      grid-template-columns: minmax(0, 1fr) 34px 42px;
+	      gap: 8px;
+	      align-items: center;
+	      font-size: 12px;
+	    }}
+	    .pie-legend-row span {{ display: inline-flex; align-items: center; gap: 7px; min-width: 0; }}
+	    .pie-legend-row i {{ width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; }}
+	    .pie-legend-row strong, .pie-legend-row small {{ text-align: right; }}
+	    .pie-legend-row small {{ color: var(--muted); font-weight: 700; }}
+	    .dist-row {{
+	      display: grid;
+	      grid-template-columns: minmax(90px, 1fr) minmax(90px, 2fr) 34px;
       gap: 8px;
       align-items: center;
       font-size: 12px;
@@ -1687,9 +2236,11 @@ def render_html(
     .dist-track i.success-negative {{ background: var(--negative); }}
     .dist-track i.success-missing, .dist-track i.success-unknown {{ background: #64748b; }}
     .dist-track i.status {{ background: #7c3aed; }}
-    .dist-track i.task {{ background: #0284c7; }}
-    .dist-track i.mode {{ background: #0f766e; }}
-    .dist-track i.difficulty {{ background: #ea580c; }}
+	    .dist-track i.task {{ background: #0284c7; }}
+	    .dist-track i.mode {{ background: #0f766e; }}
+	    .dist-track i.difficulty {{ background: #ea580c; }}
+	    .dist-track i.tool {{ background: #0891b2; }}
+	    .dist-track i.failure {{ background: var(--negative); }}
     .filters {{
       display: grid;
       grid-template-columns: minmax(200px, auto) minmax(0, 1fr) auto auto;
@@ -1768,6 +2319,7 @@ def render_html(
     .trajectory-card.success-negative {{ border-left-color: var(--negative); }}
     .card-index {{ color: var(--muted); font-weight: 800; font-size: 12px; }}
     .card-metrics {{ color: #334155; font-size: 12px; }}
+    .frontier-card-line {{ color: #075985; }}
     .card-warning {{ color: #9a3412; background: var(--warn-bg); border-radius: 6px; padding: 6px 8px; font-size: 12px; font-weight: 700; }}
     details.trajectory {{
       background: var(--panel);
@@ -1836,6 +2388,23 @@ def render_html(
     .story-grid div {{ border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fcfdff; }}
     .story-grid h4 {{ margin: 0 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }}
     .story-grid p {{ margin: 0 0 7px; font-size: 14px; }}
+    .frontier-diagnostic-panel {{
+      margin-top: 14px;
+      border: 1px solid #bae6fd;
+      border-left: 5px solid #0284c7;
+      border-radius: 8px;
+      padding: 12px;
+      background: #f0f9ff;
+    }}
+    .frontier-diagnostic-panel h4 {{
+      margin: 0 0 6px;
+      font-size: 13px;
+      color: #075985;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }}
+    .diagnostic-table {{ margin-top: 12px; background: #fff; }}
+    .diagnostic-table caption {{ text-align: left; color: var(--muted); font-weight: 800; margin-bottom: 6px; }}
     .graph-card {{ border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #f8fafc; }}
     .graph-toolbar {{ display: flex; justify-content: space-between; gap: 14px; color: var(--muted); margin-bottom: 10px; align-items: center; }}
     .graph-toolbar strong {{ display: block; color: var(--text); }}
@@ -1864,7 +2433,8 @@ def render_html(
     .table-card {{ overflow-x: auto; }}
     table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
     th, td {{ border-top: 1px solid var(--line); padding: 9px; vertical-align: top; text-align: left; }}
-    th {{ color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; background: #f8fafc; }}
+	    th {{ color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; background: #f8fafc; }}
+	    .tool-label {{ font-weight: 800; color: #0f172a; }}
     tr.selected td {{ background: rgba(219, 234, 254, 0.32); }}
     tr.unselected td {{ background: rgba(248, 250, 252, 0.72); color: #334155; }}
     tr.taskMismatch td {{ background: rgba(255, 237, 213, 0.68); }}
@@ -1876,10 +2446,12 @@ def render_html(
     @media (max-width: 980px) {{
       .layout {{ grid-template-columns: 1fr; }}
       aside {{ position: static; height: auto; }}
-      main {{ padding: 16px; }}
-      .summary-heading, .story-grid {{ display: block; }}
-      .story-grid div {{ margin-top: 10px; }}
-      .metric-grid, .dashboard-grid, .trajectory-cards {{ grid-template-columns: 1fr; }}
+	      main {{ padding: 16px; }}
+	      .summary-heading, .story-grid {{ display: block; }}
+	      .story-grid div {{ margin-top: 10px; }}
+	      .metric-grid, .dashboard-grid, .trajectory-cards, .study-grid {{ grid-template-columns: 1fr; }}
+	      .success-pie-layout {{ grid-template-columns: 1fr; }}
+	      .diagnostic-grid {{ grid-template-columns: 1fr; }}
       .dashboard-panel.wide {{ grid-column: span 1; }}
       .filters {{ display: block; }}
       .filters .search-box {{ margin-top: 10px; }}
@@ -1983,11 +2555,15 @@ def render_html(
       {nav_items}
     </aside>
     <main>
-      <section class="run-header">
-        <h2>Interactive Trajectory Graph Review</h2>
-        <p>Selected branches form the main path. Dashed alternatives are one-step candidates from the same prefix; they were scored but not rolled out further.</p>
-        <p><strong>Buckets:</strong> {_html_escape(bucket_text)}</p>
-        <div class="legend">
+	      <section class="run-header">
+	        <h2>Interactive Trajectory Graph Review</h2>
+	        {_html_study_background()}
+	        <p>Selected branches form the main path. Dashed alternatives are one-step candidates from the same prefix; they were scored but not rolled out further.</p>
+	        <div class="bucket-summary">
+	          <strong>Task Buckets</strong>
+	          {bucket_html}
+	        </div>
+	        <div class="legend">
           <span><i class="swatch selected"></i> selected branch</span>
           <span><i class="swatch unselected"></i> unselected candidate</span>
           <span><i class="swatch final"></i> final state</span>
@@ -2013,6 +2589,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--summaries-path", type=Path, default=None, help="Path to final_summaries.jsonl.")
     parser.add_argument("--branch-pools-path", type=Path, default=None, help="Path to branch_pools.jsonl for unselected alternatives.")
     parser.add_argument("--tasks-path", type=Path, default=None, help="Optional task JSONL path for hidden targets.")
+    parser.add_argument("--frontier-diagnostics-path", type=Path, default=None, help=f"Optional {DEFAULT_FRONTIER_DIAGNOSTICS_NAME} path for exact-membership frontier diagnostics.")
     parser.add_argument("--out", type=Path, default=None, help="Output Markdown path. Defaults to RUN_DIR/trajectory_review.md.")
     parser.add_argument("--graph-out", type=Path, default=None, help="Optional standalone Mermaid graph output path.")
     parser.add_argument("--html-out", type=Path, default=None, help="Optional standalone HTML trajectory review output path.")
@@ -2036,12 +2613,13 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 def _resolve_paths(
     args: argparse.Namespace,
-) -> tuple[Path, Path | None, Path | None, Path | None, Path, Path | None, Path | None, str]:
+) -> tuple[Path, Path | None, Path | None, Path | None, Path | None, Path, Path | None, Path | None, str]:
     run_dir = args.run_dir
     turns_path = args.turns_path
     summaries_path = args.summaries_path
     branch_pools_path = args.branch_pools_path
     tasks_path = args.tasks_path
+    frontier_diagnostics_path = args.frontier_diagnostics_path
     if run_dir is None and turns_path is None:
         raise SystemExit("Provide --run-dir or --turns-path.")
     if run_dir is not None:
@@ -2049,6 +2627,7 @@ def _resolve_paths(
         summaries_path = summaries_path or (run_dir / "final_summaries.jsonl")
         branch_pools_path = branch_pools_path or (run_dir / "branch_pools.jsonl")
         tasks_path = tasks_path or infer_tasks_path(run_dir)
+        frontier_diagnostics_path = frontier_diagnostics_path or (run_dir / DEFAULT_FRONTIER_DIAGNOSTICS_NAME)
     assert turns_path is not None
     if not turns_path.exists():
         raise SystemExit(f"Missing trajectory turns file: {turns_path}")
@@ -2058,6 +2637,8 @@ def _resolve_paths(
         branch_pools_path = None
     if tasks_path is not None and not tasks_path.exists():
         tasks_path = None
+    if frontier_diagnostics_path is not None and not frontier_diagnostics_path.exists():
+        frontier_diagnostics_path = None
 
     out_path = args.out
     if out_path is None:
@@ -2068,15 +2649,26 @@ def _resolve_paths(
     graph_out = args.graph_out
     html_out = args.html_out
     source_label = str(run_dir if run_dir is not None else turns_path)
-    return turns_path, summaries_path, branch_pools_path, tasks_path, out_path, graph_out, html_out, source_label
+    return turns_path, summaries_path, branch_pools_path, tasks_path, frontier_diagnostics_path, out_path, graph_out, html_out, source_label
 
 
 def main() -> None:
     args = _build_arg_parser().parse_args()
-    turns_path, summaries_path, branch_pools_path, tasks_path, out_path, graph_out, html_out, source_label = _resolve_paths(args)
+    (
+        turns_path,
+        summaries_path,
+        branch_pools_path,
+        tasks_path,
+        frontier_diagnostics_path,
+        out_path,
+        graph_out,
+        html_out,
+        source_label,
+    ) = _resolve_paths(args)
     turns_by_trajectory = load_turns(turns_path)
     summaries = load_summaries(summaries_path)
     branch_pools = load_branch_pools(branch_pools_path)
+    frontier_diagnostics = load_frontier_diagnostics(frontier_diagnostics_path)
     trajectory_ids = _select_trajectory_ids(turns_by_trajectory, summaries, args)
     source_task_ids = {
         summaries.get(trajectory_id, {}).get("source_task_id", "")
@@ -2092,6 +2684,7 @@ def main() -> None:
         include_mermaid=not args.no_mermaid,
         branch_pools=branch_pools,
         max_unselected_per_step=max(args.max_unselected_per_step, 0),
+        frontier_diagnostics=frontier_diagnostics,
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(markdown + "\n", encoding="utf-8")
@@ -2120,6 +2713,7 @@ def main() -> None:
                 source_label=source_label,
                 branch_pools=branch_pools,
                 task_rows=task_rows,
+                frontier_diagnostics=frontier_diagnostics,
                 max_unselected_per_step=max(args.max_unselected_per_step, 0),
                 max_text_chars=args.max_text_chars,
             ),
