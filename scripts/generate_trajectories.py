@@ -2726,7 +2726,12 @@ def _normalize_runtime_tool_action(
     tool_name = payload.get("tool_name")
     arguments = payload.get("arguments")
     if not isinstance(tool_name, str) or not tool_name:
-        return None, [f"{prefix}_tool_name_missing_or_invalid"]
+        compact_tool_keys = [key for key in payload if isinstance(key, str) and key in RUNTIME_TOOL_NAMES]
+        if len(compact_tool_keys) == 1:
+            tool_name = compact_tool_keys[0]
+            arguments = payload.get(tool_name)
+        else:
+            return None, [f"{prefix}_tool_name_missing_or_invalid"]
     if tool_name not in RUNTIME_TOOL_NAMES:
         return None, [f"{prefix}_tool_name_unknown"]
     if arguments is None:
@@ -3127,11 +3132,17 @@ class OpenAICompatibleCandidateGenerator:
     def _model_is_gpt_oss(self) -> bool:
         return "gpt-oss" in self.model_name.lower()
 
+    def _model_is_gemma4(self) -> bool:
+        name = self.model_name.lower()
+        return "gemma-4" in name or "gemma4" in name
+
     def _prefers_named_output_tools(self) -> bool:
         return self.api_mode == "chat_completions" and self._model_is_gpt_oss()
 
     def _should_disable_hidden_thinking(self) -> bool:
-        return self.api_mode in {"chat_completions", "completions"} and self._model_is_gpt_oss()
+        return self.api_mode in {"chat_completions", "completions"} and (
+            self._model_is_gpt_oss() or self._model_is_gemma4()
+        )
 
     def _should_generate_actor_rationale(self) -> bool:
         return False
@@ -3141,7 +3152,10 @@ class OpenAICompatibleCandidateGenerator:
         if thread_tokenizer is None:
             from transformers import AutoTokenizer
 
-            thread_tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            tokenizer_kwargs: dict[str, Any] = {}
+            if self._model_is_gemma4():
+                tokenizer_kwargs["extra_special_tokens"] = {"video_token": "<|video|>"}
+            thread_tokenizer = AutoTokenizer.from_pretrained(self.model_name, **tokenizer_kwargs)
             self._thread_local.tokenizer = thread_tokenizer
         return thread_tokenizer
 
@@ -3153,7 +3167,7 @@ class OpenAICompatibleCandidateGenerator:
     ) -> str:
         tokenizer = self._prompt_tokenizer()
         chat_template_kwargs: dict[str, Any] = {}
-        if disable_hidden_thinking and self._model_is_gpt_oss():
+        if disable_hidden_thinking and (self._model_is_gpt_oss() or self._model_is_gemma4()):
             chat_template_kwargs["enable_thinking"] = False
         prompt = tokenizer.apply_chat_template(
             messages,
@@ -3275,9 +3289,9 @@ class OpenAICompatibleCandidateGenerator:
             "include_reasoning": False,
             "seed": seed,
         }
-        if use_reasoning and self.config.reasoning_effort:
+        if use_reasoning and self.config.reasoning_effort and self._model_is_gpt_oss():
             payload["reasoning_effort"] = self.config.reasoning_effort
-        if disable_hidden_thinking and self._model_is_gpt_oss():
+        if disable_hidden_thinking and (self._model_is_gpt_oss() or self._model_is_gemma4()):
             payload["chat_template_kwargs"] = {"enable_thinking": False}
         if tools:
             payload["tools"] = tools
@@ -4211,6 +4225,7 @@ def _unique(values: Iterable[str]) -> list[str]:
 def _write_jsonl_line(handle: Any, payload: dict[str, Any]) -> None:
     json.dump(payload, handle, sort_keys=True)
     handle.write("\n")
+    handle.flush()
 
 
 def _task_shard_bucket(task_row: dict[str, Any], task_shard_count: int) -> int:

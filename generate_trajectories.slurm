@@ -19,14 +19,53 @@ log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 
+if [[ -n "${OLCF_STEP:-}" ]]; then
+  STEP_LAUNCHER=("${OLCF_STEP}")
+else
+  STEP_LAUNCHER=(srun)
+fi
+
+export SLURM_EXPORT_ENV=ALL
+MENTOR_PYTHON_EXE="${MENTOR_PYTHON_EXE:-python}"
+export MENTOR_PYTHON_EXE
+
 module load craype-accel-amd-gfx90a
 module load rocm/6.3.1
+module load olcf-container-tools || true
 
-REPO_ROOT="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl"
+REPO_ROOT="${REPO_ROOT:-/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl}"
 MODELS_ROOT="${MODELS_ROOT:-/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models}"
-MODEL_PATH_INPUT="${MODEL_PATH:-gpt-oss-120b}"
-TASKS_PATH="${TASKS_PATH:-${REPO_ROOT}/data/gw_dendrogram_corpus/tasks.train.jsonl}"
 SCRATCH="${SCRATCH:-/lustre/orion/syb114/scratch/${USER}}"
+MODEL_PRESET="${MODEL_PRESET:-}"
+SIF_DEFAULT="/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/vllm0141rocm72.sif"
+MODEL_PATH_DEFAULT="gpt-oss-120b"
+GENERATOR_REASONING_EFFORT_DEFAULT="medium"
+SMOKE_REASONING_EFFORT_DEFAULT="low"
+
+if [[ "${MODEL_PRESET}" == "gemma4-26b-a4b-it" || "${MODEL_PRESET}" == "gemma-4-26b-a4b-it" ]]; then
+  MODEL_PATH_DEFAULT="${GEMMA4_MODEL_PATH:-${SCRATCH}/hf_downloads/google/gemma-4-26B-A4B-it}"
+  SIF_DEFAULT="${GEMMA4_SIF:-${SCRATCH}/containers/vllm_openai_rocm_nightly-aa2b56ffb0c1d8b29d6468282a49d9b4a9f0dd1c.sif}"
+  GENERATOR_REASONING_EFFORT_DEFAULT=""
+  SMOKE_REASONING_EFFORT_DEFAULT=""
+  VLLM_APPTAINER_FAKEROOT="${VLLM_APPTAINER_FAKEROOT:-0}"
+  VLLM_REASONING_PARSER="${VLLM_REASONING_PARSER:-gemma4}"
+  VLLM_MOE_BACKEND="${VLLM_MOE_BACKEND:-triton}"
+  VLLM_ATTENTION_BACKEND="${VLLM_ATTENTION_BACKEND:-TRITON_ATTN}"
+  VLLM_ASYNC_SCHEDULING="${VLLM_ASYNC_SCHEDULING:-1}"
+  VLLM_SAFETENSORS_LOAD_STRATEGY="${VLLM_SAFETENSORS_LOAD_STRATEGY:-lazy}"
+  VLLM_LIMIT_MM_PER_PROMPT="${VLLM_LIMIT_MM_PER_PROMPT:-}"
+  if [[ -z "${VLLM_LIMIT_MM_PER_PROMPT}" ]]; then
+    VLLM_LIMIT_MM_PER_PROMPT='{"image":0,"audio":0}'
+  fi
+  VLLM_OMIT_MAX_NUM_SEQS="${VLLM_OMIT_MAX_NUM_SEQS:-1}"
+  GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.88}"
+  GENERATOR_API_MODE="${GENERATOR_API_MODE:-completions}"
+  MAX_MODEL_LEN="${MAX_MODEL_LEN:-16384}"
+  MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-${MAX_MODEL_LEN}}"
+fi
+
+MODEL_PATH_INPUT="${MODEL_PATH:-${MODEL_PATH_DEFAULT}}"
+TASKS_PATH="${TASKS_PATH:-${REPO_ROOT}/data/gw_dendrogram_corpus/tasks.train.jsonl}"
 STORE_DIR="${STORE_DIR:-${REPO_ROOT}/data/runtime/full_brain_multiplex_store}"
 FULL_BRAIN_STORE_DIR="${FULL_BRAIN_STORE_DIR:-${REPO_ROOT}/data/runtime/full_brain_multiplex_store}"
 USE_FULL_BRAIN_RWR_HPC="${USE_FULL_BRAIN_RWR_HPC:-1}"
@@ -44,7 +83,18 @@ RWR_HPC_SERVICE_TIMEOUT_SECONDS="${RWR_HPC_SERVICE_TIMEOUT_SECONDS:-600}"
 RWR_HPC_SERVICE_HEALTH_MAX_WAIT_SECONDS="${RWR_HPC_SERVICE_HEALTH_MAX_WAIT_SECONDS:-600}"
 RWR_HPC_SERVICE_HEALTH_POLL_SECONDS="${RWR_HPC_SERVICE_HEALTH_POLL_SECONDS:-5}"
 ENCODINGS_SHARED_DIR="${ENCODINGS_SHARED_DIR:-${REPO_ROOT}/data/tiktoken_encodings}"
-SIF="${SIF:-/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/mentor-rl/vllm0141rocm72.sif}"
+SIF="${SIF:-${SIF_DEFAULT}}"
+VLLM_APPTAINER_FAKEROOT="${VLLM_APPTAINER_FAKEROOT:-1}"
+VLLM_REASONING_PARSER="${VLLM_REASONING_PARSER:-}"
+VLLM_CHAT_TEMPLATE="${VLLM_CHAT_TEMPLATE:-}"
+VLLM_MOE_BACKEND="${VLLM_MOE_BACKEND:-}"
+VLLM_ATTENTION_BACKEND="${VLLM_ATTENTION_BACKEND:-}"
+VLLM_ASYNC_SCHEDULING="${VLLM_ASYNC_SCHEDULING:-0}"
+VLLM_LIMIT_MM_PER_PROMPT="${VLLM_LIMIT_MM_PER_PROMPT:-}"
+VLLM_DISABLE_CUSTOM_ALL_REDUCE="${VLLM_DISABLE_CUSTOM_ALL_REDUCE:-1}"
+VLLM_TOOL_CALL_PARSER="${VLLM_TOOL_CALL_PARSER:-openai}"
+VLLM_ENABLE_AUTO_TOOL_CHOICE="${VLLM_ENABLE_AUTO_TOOL_CHOICE:-1}"
+VLLM_OMIT_MAX_NUM_SEQS="${VLLM_OMIT_MAX_NUM_SEQS:-0}"
 
 abspath_dir() {
   local path="$1"
@@ -117,6 +167,9 @@ fi
 MODEL_BASENAME="$(basename "${MODEL_PATH}")"
 MODEL_SLUG="$(slugify_model_name "${MODEL_BASENAME}")"
 MODEL_USES_TIKTOKEN="$(infer_model_uses_tiktoken "${MODEL_BASENAME}")"
+if [[ ( "${MODEL_PRESET}" == "gemma4-26b-a4b-it" || "${MODEL_PRESET}" == "gemma-4-26b-a4b-it" ) && -z "${VLLM_CHAT_TEMPLATE:-}" ]]; then
+  VLLM_CHAT_TEMPLATE="${MODEL_PATH}/chat_template.jinja"
+fi
 OUT_DIR="${OUT_DIR:-${REPO_ROOT}/data/gw_dendrogram_trajectories/${MODEL_SLUG}_job_${SLURM_JOB_ID}}"
 RWR_HPC_SERVICE_METRICS_PATH="${RWR_HPC_SERVICE_METRICS_PATH:-${OUT_DIR}/rwr_hpc_service_metrics.json}"
 
@@ -140,7 +193,7 @@ GENERATOR_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS="${GENERATOR_ACTOR_RATIONALE_MAX
 GENERATOR_VERIFIER_REPAIR_RETRY_COUNT="${GENERATOR_VERIFIER_REPAIR_RETRY_COUNT:-1}"
 GENERATOR_ACTOR_TOOL_REPAIR_RETRY_COUNT="${GENERATOR_ACTOR_TOOL_REPAIR_RETRY_COUNT:-1}"
 GENERATOR_API_MODE="${GENERATOR_API_MODE:-auto}"
-GENERATOR_REASONING_EFFORT="${GENERATOR_REASONING_EFFORT:-medium}"
+GENERATOR_REASONING_EFFORT="${GENERATOR_REASONING_EFFORT-${GENERATOR_REASONING_EFFORT_DEFAULT}}"
 ACTOR_SAMPLING_STRATEGY="${ACTOR_SAMPLING_STRATEGY:-verbalized}"
 SELECTION_POLICY="${SELECTION_POLICY:-task_quality}"
 SELECTION_SCORE_EPSILON="${SELECTION_SCORE_EPSILON:-0.10}"
@@ -169,7 +222,7 @@ SMOKE_N_ACT="${SMOKE_N_ACT:-1}"
 SMOKE_GENERATOR_TEMPERATURE="${SMOKE_GENERATOR_TEMPERATURE:-0.2}"
 SMOKE_MAX_COMPLETION_TOKENS="${SMOKE_MAX_COMPLETION_TOKENS:-2048}"
 SMOKE_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS="${SMOKE_ACTOR_RATIONALE_MAX_COMPLETION_TOKENS:-2048}"
-SMOKE_REASONING_EFFORT="${SMOKE_REASONING_EFFORT:-low}"
+SMOKE_REASONING_EFFORT="${SMOKE_REASONING_EFFORT-${SMOKE_REASONING_EFFORT_DEFAULT}}"
 SMOKE_ACTOR_SAMPLING_STRATEGY="${SMOKE_ACTOR_SAMPLING_STRATEGY:-${ACTOR_SAMPLING_STRATEGY}}"
 PRECOMPUTE_SMOKE_CACHES="${PRECOMPUTE_SMOKE_CACHES:-1}"
 REQUIRE_SMOKE_CACHE_PRECOMPUTE="${REQUIRE_SMOKE_CACHE_PRECOMPUTE:-1}"
@@ -205,6 +258,7 @@ CALCULATE_KV_SCALES="${CALCULATE_KV_SCALES:-0}"
 STAGE_MODEL_TO_NVME="${STAGE_MODEL_TO_NVME:-1}"
 LOCAL_NVME_ROOT="${LOCAL_NVME_ROOT:-/mnt/bb/${USER}/${SLURM_JOB_ID}}"
 LOCAL_ENCODINGS_DIR="${LOCAL_NVME_ROOT}/tiktoken_encodings"
+VLLM_LOCAL_CACHE_DIR="${LOCAL_NVME_ROOT}/vllm_cache"
 VLLM_LOAD_FORMAT="${VLLM_LOAD_FORMAT:-safetensors}"
 VLLM_SAFETENSORS_LOAD_STRATEGY="${VLLM_SAFETENSORS_LOAD_STRATEGY:-eager}"
 VLLM_USE_V1="${VLLM_USE_V1:-1}"
@@ -218,6 +272,7 @@ DISTRIBUTED_EXECUTOR_BACKEND="${DISTRIBUTED_EXECUTOR_BACKEND:-auto}"
 
 mkdir -p "${REPO_ROOT}/logs"
 mkdir -p "${OUT_DIR}"
+mkdir -p "${VLLM_LOCAL_CACHE_DIR}"
 mkdir -p "${ENCODINGS_SHARED_DIR}"
 if [[ -n "${RWR_HPC_CACHE_DIR}" ]]; then
   mkdir -p "${RWR_HPC_CACHE_DIR}"
@@ -391,7 +446,13 @@ if ! command -v apptainer >/dev/null 2>&1; then
 fi
 
 log "Validating vLLM Apptainer image: ${SIF}"
-if ! apptainer exec --fakeroot --writable-tmpfs "${SIF}" /bin/sh -lc 'command -v vllm >/dev/null'; then
+APPTAINER_BASE_ARGS=(apptainer exec)
+if [[ "${VLLM_APPTAINER_FAKEROOT}" == "1" ]]; then
+  APPTAINER_BASE_ARGS+=(--fakeroot)
+fi
+APPTAINER_BASE_ARGS+=(--writable-tmpfs "${SIF}")
+
+if ! "${APPTAINER_BASE_ARGS[@]}" /bin/sh -lc 'command -v vllm >/dev/null'; then
   log "Failed to start the vLLM Apptainer image: ${SIF}"
   log "The image may be truncated or corrupt. Recopy it before staging the model."
   exit 1
@@ -431,27 +492,48 @@ if [[ "${MODEL_USES_TIKTOKEN}" == "1" ]]; then
   SERVE_ENCODINGS_DIR="${ENCODINGS_SHARED_DIR}"
 fi
 if [[ "${STAGE_MODEL_TO_NVME}" == "1" ]]; then
-  if [[ -d /mnt/bb || -d "/mnt/bb/${USER}" ]]; then
-    STAGED_MODEL_PATH="${LOCAL_NVME_ROOT}/$(basename "${MODEL_PATH}")"
-    mkdir -p "${LOCAL_NVME_ROOT}"
-    log "Staging model to node-local storage: ${STAGED_MODEL_PATH}"
-    if command -v rsync >/dev/null 2>&1; then
-      rsync -a --delete --info=stats2 "${MODEL_PATH}/" "${STAGED_MODEL_PATH}/"
-    else
-      cp -a "${MODEL_PATH}" "${STAGED_MODEL_PATH}"
+  NVME_AVAILABLE=1
+  for STAGE_NODE in "${VLLM_NODE_LIST[@]}"; do
+    if ! "${STEP_LAUNCHER[@]}" --overlap -N1 -n1 -w "${STAGE_NODE}" -- \
+      /bin/bash --noprofile --norc -c '[[ -d /mnt/bb || -d "/mnt/bb/${USER}" ]]'; then
+      NVME_AVAILABLE=0
+      break
     fi
+  done
+
+  if [[ "${NVME_AVAILABLE}" == "1" ]]; then
+    STAGED_MODEL_PATH="${LOCAL_NVME_ROOT}/$(basename "${MODEL_PATH}")"
+    export STAGED_MODEL_PATH LOCAL_NVME_ROOT MODEL_PATH
+    export MODEL_USES_TIKTOKEN ENCODINGS_SHARED_DIR LOCAL_ENCODINGS_DIR
+    for STAGE_NODE in "${VLLM_NODE_LIST[@]}"; do
+      log "Staging model to node-local storage on ${STAGE_NODE}: ${STAGED_MODEL_PATH}"
+      "${STEP_LAUNCHER[@]}" --overlap -N1 -n1 -w "${STAGE_NODE}" -- \
+        /bin/bash --noprofile --norc -c '
+          set -euo pipefail
+          mkdir -p "${LOCAL_NVME_ROOT}"
+          if command -v rsync >/dev/null 2>&1; then
+            rsync -a --delete --info=stats2 "${MODEL_PATH}/" "${STAGED_MODEL_PATH}/"
+          else
+            rm -rf "${STAGED_MODEL_PATH}"
+            mkdir -p "$(dirname "${STAGED_MODEL_PATH}")"
+            cp -a "${MODEL_PATH}" "${STAGED_MODEL_PATH}"
+          fi
+          if [[ "${MODEL_USES_TIKTOKEN}" == "1" ]]; then
+            mkdir -p "${LOCAL_ENCODINGS_DIR}"
+            if command -v rsync >/dev/null 2>&1; then
+              rsync -a --delete "${ENCODINGS_SHARED_DIR}/" "${LOCAL_ENCODINGS_DIR}/"
+            else
+              cp -a "${ENCODINGS_SHARED_DIR}/." "${LOCAL_ENCODINGS_DIR}/"
+            fi
+          fi
+        '
+    done
     SERVE_MODEL_PATH="${STAGED_MODEL_PATH}"
     if [[ "${MODEL_USES_TIKTOKEN}" == "1" ]]; then
-      mkdir -p "${LOCAL_ENCODINGS_DIR}"
-      if command -v rsync >/dev/null 2>&1; then
-        rsync -a --delete "${ENCODINGS_SHARED_DIR}/" "${LOCAL_ENCODINGS_DIR}/"
-      else
-        cp -a "${ENCODINGS_SHARED_DIR}/." "${LOCAL_ENCODINGS_DIR}/"
-      fi
       SERVE_ENCODINGS_DIR="${LOCAL_ENCODINGS_DIR}"
     fi
   else
-    log "Node-local NVMe path was not found. Using the source model path."
+    log "Node-local NVMe path was not found on every vLLM node. Using the source model path."
   fi
 fi
 
@@ -468,6 +550,7 @@ fi
 log "HEAD_NODE=${HEAD_NODE}"
 log "HEAD_IP=${HEAD_IP}"
 log "MODELS_ROOT=${MODELS_ROOT}"
+log "MODEL_PRESET=${MODEL_PRESET:-<none>}"
 log "MODEL_PATH_INPUT=${MODEL_PATH_INPUT}"
 log "MODEL_PATH=${MODEL_PATH}"
 log "MODEL_BASENAME=${MODEL_BASENAME}"
@@ -539,6 +622,13 @@ log "SMOKE_NATIVE_PRECOMPUTE_MAX_GENES=${SMOKE_NATIVE_PRECOMPUTE_MAX_GENES}"
 log "MAX_MODEL_LEN=${MAX_MODEL_LEN}"
 log "MAX_NUM_BATCHED_TOKENS=${MAX_NUM_BATCHED_TOKENS}"
 log "MAX_NUM_SEQS=${MAX_NUM_SEQS}"
+log "VLLM_OMIT_MAX_NUM_SEQS=${VLLM_OMIT_MAX_NUM_SEQS}"
+log "VLLM_REASONING_PARSER=${VLLM_REASONING_PARSER}"
+log "VLLM_CHAT_TEMPLATE=${VLLM_CHAT_TEMPLATE}"
+log "VLLM_MOE_BACKEND=${VLLM_MOE_BACKEND}"
+log "VLLM_ATTENTION_BACKEND=${VLLM_ATTENTION_BACKEND}"
+log "VLLM_ASYNC_SCHEDULING=${VLLM_ASYNC_SCHEDULING}"
+log "VLLM_LIMIT_MM_PER_PROMPT=${VLLM_LIMIT_MM_PER_PROMPT}"
 log "ENABLE_CHUNKED_PREFILL=${ENABLE_CHUNKED_PREFILL}"
 log "ENABLE_PREFIX_CACHING=${ENABLE_PREFIX_CACHING}"
 log "KV_CACHE_DTYPE=${KV_CACHE_DTYPE}"
@@ -549,6 +639,16 @@ log "VLLM_ROCM_USE_AITER=${VLLM_ROCM_USE_AITER}"
 log "VLLM_USE_TRITON_FLASH_ATTN=${VLLM_USE_TRITON_FLASH_ATTN}"
 log "EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND=${EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND}"
 log "VLLM_NODE_LIST=${VLLM_NODE_LIST_CSV}"
+
+GENERATOR_REASONING_EFFORT_ARG=()
+if [[ -n "${GENERATOR_REASONING_EFFORT}" ]]; then
+  GENERATOR_REASONING_EFFORT_ARG=(--generator-reasoning-effort "${GENERATOR_REASONING_EFFORT}")
+fi
+
+SMOKE_REASONING_EFFORT_ARG=()
+if [[ -n "${SMOKE_REASONING_EFFORT}" ]]; then
+  SMOKE_REASONING_EFFORT_ARG=(--generator-reasoning-effort "${SMOKE_REASONING_EFFORT}")
+fi
 
 if [[ "${SMOKE_TEST_ONLY}" == "1" && "${RUN_SMOKE_TEST}" != "1" ]]; then
   log "SMOKE_TEST_ONLY=1 requires RUN_SMOKE_TEST=1."
@@ -625,17 +725,19 @@ run_smoke_cache_precompute_gate() {
     fi
     SMOKE_REPORT_TOKEN="$(printf '%s_%s' "${SMOKE_SELECTOR}" "${SMOKE_VALUE}" | tr -c 'A-Za-z0-9_.-' '_')"
     SMOKE_PRECOMPUTE_REPORT_PATH="${OUT_DIR}/smoke_cache_precompute_${SMOKE_REPORT_TOKEN}.json"
-    if ! srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
-      bash --noprofile --norc -c "
+    if ! "${STEP_LAUNCHER[@]}" --overlap -N1 -n1 -w "${HEAD_NODE}" -- \
+      /bin/bash --noprofile --norc -c "
         set -euo pipefail
         source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
         source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
+        export USE_TORCH=0
+        export TRANSFORMERS_NO_TORCH=1
         export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
         export HIP_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES}
         unset ROCR_VISIBLE_DEVICES || true
         cd '${REPO_ROOT}'
         export PYTHONPATH='${REPO_ROOT}':\${PYTHONPATH:-}
-        python scripts/precompute_smoke_caches.py \
+        "\${MENTOR_PYTHON_EXE}" scripts/precompute_smoke_caches.py \
           --tasks-path '${TASKS_PATH}' \
           --store-dir '${STORE_DIR}' \
           ${RWR_HPC_ARGS[*]@Q} \
@@ -682,6 +784,8 @@ export VLLM_USE_RAY_COMPILED_DAG=0
 export VLLM_USE_RAY_SPMD_WORKER=0
 export VLLM_ROCM_USE_AITER
 export VLLM_USE_TRITON_FLASH_ATTN
+export VLLM_NO_USAGE_STATS=1
+export DO_NOT_TRACK=1
 export NCCL_IB_DISABLE=1
 export NCCL_SOCKET_IFNAME=hsn0
 export NCCL_SOCKET_FAMILY=AF_INET
@@ -704,14 +808,14 @@ if [[ -n "${RWR_HPC_SERVICE_NODE}" ]]; then
     RWR_HPC_SERVICE_EDGELIST_ARG="--rwr-hpc-edgelist-no-headers"
   fi
   log "Starting RWR++ service on ${RWR_HPC_SERVICE_NODE} at ${RWR_HPC_SERVICE_URL}"
-  srun --overlap -N1 -n1 -w "${RWR_HPC_SERVICE_NODE}" --export=ALL \
-    bash --noprofile --norc -c "
+  "${STEP_LAUNCHER[@]}" --overlap -N1 -n1 -w "${RWR_HPC_SERVICE_NODE}" -- \
+    /bin/bash --noprofile --norc -c "
       set -euo pipefail
       source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
       source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
       cd '${REPO_ROOT}'
       export PYTHONPATH='${REPO_ROOT}':\${PYTHONPATH:-}
-      python scripts/rwr_hpc_worker_service.py \
+      "\${MENTOR_PYTHON_EXE}" scripts/rwr_hpc_worker_service.py \
         --host 0.0.0.0 \
         --port '${RWR_HPC_SERVICE_PORT}' \
         --store-dir '${STORE_DIR}' \
@@ -750,8 +854,8 @@ run_smoke_cache_precompute_gate
 
 if [[ "${EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND}" == "ray" ]]; then
   log "Starting Ray head on ${HEAD_NODE}"
-  srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
-    bash --noprofile --norc -c "
+  "${STEP_LAUNCHER[@]}" --overlap -N1 -n1 -w "${HEAD_NODE}" -- \
+    /bin/bash --noprofile --norc -c "
       set -euo pipefail
       source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
       source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
@@ -779,8 +883,8 @@ if [[ "${EFFECTIVE_DISTRIBUTED_EXECUTOR_BACKEND}" == "ray" ]]; then
       exit 1
     fi
     log "Starting Ray worker on ${WORKER_NODE}"
-    srun --overlap -N1 -n1 -w "${WORKER_NODE}" --export=ALL \
-      bash --noprofile --norc -c "
+    "${STEP_LAUNCHER[@]}" --overlap -N1 -n1 -w "${WORKER_NODE}" -- \
+      /bin/bash --noprofile --norc -c "
         set -euo pipefail
         source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
         source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
@@ -825,7 +929,7 @@ if [[ "${CALCULATE_KV_SCALES}" == "1" ]]; then
   VLLM_CALCULATE_KV_SCALES_FLAG="--calculate-kv-scales"
 fi
 
-APPTAINER_CMD=(apptainer exec --fakeroot --writable-tmpfs "${SIF}")
+APPTAINER_CMD=("${APPTAINER_BASE_ARGS[@]}")
 SERVER_LOG="${OUT_DIR}/vllm_server.log"
 VLLM_SERVE_ARGS=(
   vllm serve "${SERVE_MODEL_PATH}"
@@ -834,9 +938,12 @@ VLLM_SERVE_ARGS=(
   --tensor-parallel-size "${TENSOR_PARALLEL_SIZE}"
   --max-model-len "${MAX_MODEL_LEN}"
   --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}"
-  --max-num-seqs "${MAX_NUM_SEQS}"
   --max-num-batched-tokens "${MAX_NUM_BATCHED_TOKENS}"
 )
+
+if [[ "${VLLM_OMIT_MAX_NUM_SEQS}" != "1" ]]; then
+  VLLM_SERVE_ARGS+=(--max-num-seqs "${MAX_NUM_SEQS}")
+fi
 
 if [[ "${MODEL_USES_TIKTOKEN}" != "1" ]]; then
   VLLM_SERVE_ARGS+=(
@@ -847,29 +954,71 @@ if [[ "${MODEL_USES_TIKTOKEN}" != "1" ]]; then
     --load-format "${VLLM_LOAD_FORMAT}"
     --safetensors-load-strategy "${VLLM_SAFETENSORS_LOAD_STRATEGY}"
     --kv-cache-dtype "${KV_CACHE_DTYPE}"
-    --tool-call-parser openai
-    --enable-auto-tool-choice
-    --disable-custom-all-reduce
+    --tool-call-parser "${VLLM_TOOL_CALL_PARSER}"
     ${VLLM_ENABLE_CHUNKED_PREFILL_FLAG}
     ${VLLM_ENABLE_PREFIX_CACHING_FLAG}
   )
   if [[ -n "${VLLM_CALCULATE_KV_SCALES_FLAG}" ]]; then
     VLLM_SERVE_ARGS+=("${VLLM_CALCULATE_KV_SCALES_FLAG}")
   fi
+  if [[ "${VLLM_ENABLE_AUTO_TOOL_CHOICE}" == "1" ]]; then
+    VLLM_SERVE_ARGS+=(--enable-auto-tool-choice)
+  fi
+  if [[ "${VLLM_DISABLE_CUSTOM_ALL_REDUCE}" == "1" ]]; then
+    VLLM_SERVE_ARGS+=(--disable-custom-all-reduce)
+  fi
   if [[ -n "${VLLM_ENFORCE_EAGER_FLAG}" ]]; then
     VLLM_SERVE_ARGS+=("${VLLM_ENFORCE_EAGER_FLAG}")
   fi
 fi
 
+if [[ -n "${VLLM_REASONING_PARSER}" ]]; then
+  VLLM_SERVE_ARGS+=(--reasoning-parser "${VLLM_REASONING_PARSER}")
+fi
+if [[ -n "${VLLM_CHAT_TEMPLATE}" ]]; then
+  VLLM_SERVE_ARGS+=(--chat-template "${VLLM_CHAT_TEMPLATE}")
+fi
+if [[ -n "${VLLM_MOE_BACKEND}" ]]; then
+  VLLM_SERVE_ARGS+=(--moe-backend "${VLLM_MOE_BACKEND}")
+fi
+if [[ -n "${VLLM_ATTENTION_BACKEND}" ]]; then
+  VLLM_SERVE_ARGS+=(--attention-backend "${VLLM_ATTENTION_BACKEND}")
+fi
+if [[ "${VLLM_ASYNC_SCHEDULING}" == "1" ]]; then
+  VLLM_SERVE_ARGS+=(--async-scheduling)
+fi
+if [[ -n "${VLLM_LIMIT_MM_PER_PROMPT}" ]]; then
+  VLLM_SERVE_ARGS+=(--limit-mm-per-prompt "${VLLM_LIMIT_MM_PER_PROMPT}")
+fi
+
+VLLM_SERVER_WRAPPER="${OUT_DIR}/run_vllm_server.sh"
+{
+  echo '#!/bin/bash'
+  echo 'set -euo pipefail'
+  echo 'unset CONDA_PREFIX CONDA_DEFAULT_ENV PYTHONPATH PYTHONHOME LD_LIBRARY_PATH ROCM_PATH ROCM_HOME HIP_PATH'
+  printf 'export PATH=%q\n' "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  printf 'export VLLM_HOST_IP=%q\n' "${HEAD_IP}"
+  printf 'export TIKTOKEN_ENCODINGS_BASE=%q\n' "${SERVE_ENCODINGS_DIR}"
+  printf 'export CUDA_VISIBLE_DEVICES=%q\n' "0,1,2,3,4,5,6,7"
+  printf 'export HIP_VISIBLE_DEVICES=%q\n' "0,1,2,3,4,5,6,7"
+  printf 'export ROCR_VISIBLE_DEVICES=%q\n' "0,1,2,3,4,5,6,7"
+  printf 'export XDG_CACHE_HOME=%q\n' "${VLLM_LOCAL_CACHE_DIR}"
+  printf 'export VLLM_CACHE_ROOT=%q\n' "${VLLM_LOCAL_CACHE_DIR}/vllm"
+  printf 'export TORCHINDUCTOR_CACHE_DIR=%q\n' "${VLLM_LOCAL_CACHE_DIR}/torchinductor"
+  printf 'export TRITON_CACHE_DIR=%q\n' "${VLLM_LOCAL_CACHE_DIR}/triton"
+  printf 'export VLLM_NO_USAGE_STATS=%q\n' "1"
+  printf 'export DO_NOT_TRACK=%q\n' "1"
+  printf 'export HF_HOME=%q\n' "${VLLM_LOCAL_CACHE_DIR}/hf"
+  printf 'exec'
+  printf ' %q' "${APPTAINER_CMD[@]}" "${VLLM_SERVE_ARGS[@]}"
+  printf '\n'
+} > "${VLLM_SERVER_WRAPPER}"
+chmod +x "${VLLM_SERVER_WRAPPER}"
+
 log "Starting vLLM on ${HEAD_NODE}"
-/usr/bin/time -v srun --overlap -N1 -n1 -c56 -G8 -w "${HEAD_NODE}" \
-  --ntasks-per-node=1 --gpu-bind=closest --export=ALL \
-  env -u CONDA_PREFIX -u CONDA_DEFAULT_ENV -u PYTHONPATH -u PYTHONHOME \
-  -u LD_LIBRARY_PATH -u ROCM_PATH -u ROCM_HOME -u HIP_PATH \
-  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-  VLLM_HOST_IP="${HEAD_IP}" TIKTOKEN_ENCODINGS_BASE="${SERVE_ENCODINGS_DIR}" \
-  "${APPTAINER_CMD[@]}" \
-  "${VLLM_SERVE_ARGS[@]}" \
+/usr/bin/time -v "${STEP_LAUNCHER[@]}" --overlap -N1 -n1 -c56 -G8 -w "${HEAD_NODE}" \
+  --ntasks-per-node=1 --gpu-bind=closest -- \
+  /bin/bash --noprofile --norc "${VLLM_SERVER_WRAPPER}" \
   >"${SERVER_LOG}" 2>&1 &
 SERVER_PID=$!
 
@@ -1120,17 +1269,19 @@ if [[ "${RUN_SMOKE_TEST}" == "1" ]]; then
       SMOKE_REPORT_TOKEN="$(printf '%s_%s' "${SMOKE_SELECTOR}" "${SMOKE_VALUE}" | tr -c 'A-Za-z0-9_.-' '_')"
       SMOKE_PRECOMPUTE_REPORT_PATH="${OUT_DIR}/smoke_cache_precompute_${SMOKE_REPORT_TOKEN}.json"
       log "Precomputing smoke-test caches; report will be written to ${SMOKE_PRECOMPUTE_REPORT_PATH}"
-      if ! srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
-        bash --noprofile --norc -c "
+      if ! "${STEP_LAUNCHER[@]}" --overlap -N1 -n1 -w "${HEAD_NODE}" -- \
+        /bin/bash --noprofile --norc -c "
           set -euo pipefail
           source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
           source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
+          export USE_TORCH=0
+          export TRANSFORMERS_NO_TORCH=1
           export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
           export HIP_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES}
           unset ROCR_VISIBLE_DEVICES || true
           cd '${REPO_ROOT}'
           export PYTHONPATH='${REPO_ROOT}':\${PYTHONPATH:-}
-          python scripts/precompute_smoke_caches.py \
+          "\${MENTOR_PYTHON_EXE}" scripts/precompute_smoke_caches.py \
             --tasks-path '${TASKS_PATH}' \
             --store-dir '${STORE_DIR}' \
             ${RWR_HPC_ARGS[*]@Q} \
@@ -1151,17 +1302,19 @@ if [[ "${RUN_SMOKE_TEST}" == "1" ]]; then
       fi
     fi
 
-    if ! srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
-      bash --noprofile --norc -c "
+    if ! "${STEP_LAUNCHER[@]}" --overlap -N1 -n1 -w "${HEAD_NODE}" -- \
+      /bin/bash --noprofile --norc -c "
         set -euo pipefail
         source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
         source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
+        export USE_TORCH=0
+        export TRANSFORMERS_NO_TORCH=1
         export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
         export HIP_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES}
         unset ROCR_VISIBLE_DEVICES || true
         cd '${REPO_ROOT}'
         export PYTHONPATH='${REPO_ROOT}':\${PYTHONPATH:-}
-        python scripts/smoke_test_generator.py \
+        "\${MENTOR_PYTHON_EXE}" scripts/smoke_test_generator.py \
           --tasks-path '${TASKS_PATH}' \
           --store-dir '${STORE_DIR}' \
           ${RWR_HPC_ARGS[*]@Q} \
@@ -1184,7 +1337,7 @@ if [[ "${RUN_SMOKE_TEST}" == "1" ]]; then
           --generator-verifier-repair-retry-count ${GENERATOR_VERIFIER_REPAIR_RETRY_COUNT} \
           --generator-actor-tool-repair-retry-count ${GENERATOR_ACTOR_TOOL_REPAIR_RETRY_COUNT} \
           --generator-prompt-token-limit ${GENERATOR_PROMPT_TOKEN_LIMIT} \
-          --generator-reasoning-effort ${SMOKE_REASONING_EFFORT} \
+          ${SMOKE_REASONING_EFFORT_ARG[*]@Q} \
           --actor-sampling-strategy ${SMOKE_ACTOR_SAMPLING_STRATEGY} \
           ${SMOKE_TASK_FLAGS[*]@Q}
       "; then
@@ -1200,17 +1353,19 @@ if [[ "${RUN_SMOKE_TEST}" == "1" ]]; then
 fi
 
 log "Launching trajectory generation"
-srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
-  bash --noprofile --norc -c "
+"${STEP_LAUNCHER[@]}" --overlap -N1 -n1 -w "${HEAD_NODE}" -- \
+  /bin/bash --noprofile --norc -c "
     set -euo pipefail
     source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
     source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
+    export USE_TORCH=0
+    export TRANSFORMERS_NO_TORCH=1
     export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
     export HIP_VISIBLE_DEVICES=\${CUDA_VISIBLE_DEVICES}
     unset ROCR_VISIBLE_DEVICES || true
     cd '${REPO_ROOT}'
     export PYTHONPATH='${REPO_ROOT}':\${PYTHONPATH:-}
-    python scripts/generate_trajectories.py \
+    "\${MENTOR_PYTHON_EXE}" scripts/generate_trajectories.py \
       --tasks-path '${TASKS_PATH}' \
       --out-dir '${OUT_DIR}' \
       --store-dir '${STORE_DIR}' \
@@ -1232,7 +1387,7 @@ srun --overlap -N1 -n1 -w "${HEAD_NODE}" --export=ALL \
       --generator-verifier-repair-retry-count ${GENERATOR_VERIFIER_REPAIR_RETRY_COUNT} \
       --generator-actor-tool-repair-retry-count ${GENERATOR_ACTOR_TOOL_REPAIR_RETRY_COUNT} \
       --generator-prompt-token-limit ${GENERATOR_PROMPT_TOKEN_LIMIT} \
-      --generator-reasoning-effort ${GENERATOR_REASONING_EFFORT} \
+      ${GENERATOR_REASONING_EFFORT_ARG[*]@Q} \
       --actor-sampling-strategy ${ACTOR_SAMPLING_STRATEGY} \
       --selection-policy ${SELECTION_POLICY} \
       --selection-score-epsilon ${SELECTION_SCORE_EPSILON} \

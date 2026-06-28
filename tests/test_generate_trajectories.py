@@ -1281,6 +1281,17 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             {"tool_name": "induce_subgraph", "arguments": {"genes": ["ENSG1", "ENSG2"]}},
         )
 
+    def test_model_tool_action_normalization_accepts_compact_named_tool_payload(self) -> None:
+        tool_action, errors = _normalize_runtime_tool_action(
+            {"rwr": {"seed_genes": ["ENSG1", "ENSG2"], "top_k": 5}}
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(
+            tool_action,
+            {"tool_name": "rwr", "arguments": {"seed_genes": ["ENSG1", "ENSG2"], "top_k": 5}},
+        )
+
     def test_model_prompt_payloads_do_not_include_corum_ground_truth_metadata(self) -> None:
         task_row = _task_rows()[0]
         interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
@@ -2479,6 +2490,71 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertNotIn("prompt_token_ids", actor_candidates[0]["raw_text"])
         self.assertIn('"enable_thinking": false', first_request["prompt"])
 
+    def test_openai_candidate_generator_can_force_completions_for_gemma4(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+        generator = OpenAICompatibleCandidateGenerator(
+            ModelGeneratorConfig(
+                api_base="http://unused",
+                api_mode="completions",
+                model_name="/models/gemma-4-26B-A4B-it",
+                reasoning_effort="medium",
+            )
+        )
+        generator.session = _RecordingSession(
+            [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "stop",
+                            "text": (
+                                "Use a restart walk to expand the current group.\n"
+                                'TOOL_ACTION: {"rwr": '
+                                '{"seed_genes": ["ENSG1", "ENSG2"], "top_k": 5}}'
+                            ),
+                            "token_ids": [1, 2, 3],
+                        }
+                    ]
+                }
+            ]
+        )
+        tokenizer_calls: list[dict] = []
+
+        def fake_from_pretrained(*args, **kwargs):
+            tokenizer_calls.append({"args": args, "kwargs": kwargs})
+            return _FakeTokenizer()
+
+        fake_transformers = types.SimpleNamespace(
+            AutoTokenizer=types.SimpleNamespace(from_pretrained=fake_from_pretrained)
+        )
+        with patch.dict(sys.modules, {"transformers": fake_transformers}):
+            actor_candidates = generator.generate_actor_candidates(
+                context,
+                task_row=task_row,
+                step_index=0,
+                n_act=1,
+                seed=5,
+            )
+
+        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr")
+        self.assertEqual(actor_candidates[0]["tool_action"]["arguments"]["top_k"], 5)
+        self.assertEqual(
+            tokenizer_calls[0]["kwargs"],
+            {"extra_special_tokens": {"video_token": "<|video|>"}},
+        )
+        first_request = generator.session.requests[0]["json"]
+        self.assertTrue(generator.session.requests[0]["url"].endswith("/completions"))
+        self.assertNotIn("reasoning_effort", first_request)
+        self.assertIn('"enable_thinking": false', first_request["prompt"])
+
     def test_openai_candidate_generator_can_force_completions_for_gpt_oss_verifier(self) -> None:
         task_row = _task_rows()[0]
         interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
@@ -2900,6 +2976,68 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertNotIn('"task_type"', first_request["messages"][1]["content"])
         self.assertNotIn('"difficulty"', first_request["messages"][1]["content"])
         self.assertNotIn('"evidence_mode"', first_request["messages"][1]["content"])
+
+    def test_openai_candidate_generator_disables_hidden_thinking_for_gemma4_chat(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+        generator = OpenAICompatibleCandidateGenerator(
+            ModelGeneratorConfig(
+                api_base="http://unused",
+                api_mode="chat_completions",
+                model_name="gemma-4-26B-A4B-it",
+                reasoning_effort="medium",
+            )
+        )
+        generator.session = _RecordingSession(
+            [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "tool_calls",
+                            "message": {
+                                "tool_calls": [
+                                    {
+                                        "id": "call_rwr",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "rwr",
+                                            "arguments": json.dumps(
+                                                {
+                                                    "seed_genes": ["ENSG1", "ENSG2"],
+                                                    "top_k": 5,
+                                                }
+                                            ),
+                                        },
+                                    }
+                                ],
+                            },
+                        }
+                    ]
+                }
+            ]
+        )
+
+        actor_candidates = generator.generate_actor_candidates(
+            context,
+            task_row=task_row,
+            step_index=0,
+            n_act=1,
+            seed=5,
+        )
+
+        self.assertEqual(actor_candidates[0]["tool_action"]["tool_name"], "rwr")
+        first_request = generator.session.requests[0]["json"]
+        self.assertEqual(first_request["chat_template_kwargs"], {"enable_thinking": False})
+        self.assertNotIn("reasoning_effort", first_request)
+        self.assertEqual(first_request["tool_choice"], "auto")
 
     def test_openai_candidate_generator_accepts_freeform_actor_text_without_tool(self) -> None:
         task_row = _task_rows()[0]
