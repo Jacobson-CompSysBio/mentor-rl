@@ -20,6 +20,9 @@ DEFAULT_PROMPT_PREVIEW_LIMIT = 40
 EXACT_PAIR_CATEGORIES = frozenset(
     {"exact_recovery", "exact_refinement", "exact_over_partial"}
 )
+SCAFFOLDED_EXACT_PAIR_CATEGORIES = frozenset(
+    {"scaffolded_exact_recovery", "scaffolded_exact_refinement"}
+)
 
 
 def _read_json(path: Path | None) -> dict[str, Any] | None:
@@ -315,6 +318,33 @@ def _deterministic_edit(branch: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _branch_scaffolded_membership_edit(branch: dict[str, Any]) -> bool:
+    metadata = branch.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    edit = metadata.get("deterministic_membership_edit")
+    return (
+        isinstance(edit, dict)
+        and (
+            edit.get("requires_model_validation") is True
+            or metadata.get("scaffolded_membership_edit_requires_validation") is True
+        )
+    )
+
+
+def _branch_scaffolded_exact_membership(branch: dict[str, Any]) -> bool:
+    metadata = branch.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    return (
+        _branch_scaffolded_membership_edit(branch)
+        and (
+            metadata.get("scaffolded_exact_membership") is True
+            or _branch_exact_membership(branch)
+        )
+    )
+
+
 def _source_task_id(row: dict[str, Any]) -> str:
     value = row.get("source_task_id")
     if isinstance(value, str) and value:
@@ -373,6 +403,8 @@ class _TaskAccumulator:
         self.selected_branch_count = 0
         self.exact_branch_count = 0
         self.selected_exact_branch_count = 0
+        self.scaffolded_exact_branch_count = 0
+        self.selected_scaffolded_exact_branch_count = 0
         self.rwr_ranks: dict[str, float] = {}
         self.prompt_preview_gene_ids: set[str] = set()
         self.edit_frontier_gene_ids: set[str] = set()
@@ -384,8 +416,10 @@ class _TaskAccumulator:
         self.selected_edit_branch_count = 0
         self.pair_count_raw = 0
         self.exact_pair_count_raw = 0
+        self.scaffolded_exact_pair_count_raw = 0
         self.pair_count_balanced = 0
         self.exact_pair_count_balanced = 0
+        self.scaffolded_exact_pair_count_balanced = 0
 
     def note_initial(self, step_index: int, current_gene_ids: set[str]) -> None:
         if self.initial_step_index is None or step_index < self.initial_step_index:
@@ -404,6 +438,10 @@ class _TaskAccumulator:
             self.exact_branch_count += 1
             if selected:
                 self.selected_exact_branch_count += 1
+        if _branch_scaffolded_exact_membership(branch):
+            self.scaffolded_exact_branch_count += 1
+            if selected:
+                self.selected_scaffolded_exact_branch_count += 1
 
         for gene_id, rank in _ranked_gene_ranks(branch).items():
             if gene_id not in self.rwr_ranks or rank < self.rwr_ranks[gene_id]:
@@ -499,10 +537,14 @@ class _TaskAccumulator:
             "selected_deterministic_edit_branch_count": self.selected_edit_branch_count,
             "exact_branch_count": self.exact_branch_count,
             "selected_exact_branch_count": self.selected_exact_branch_count,
+            "scaffolded_exact_branch_count": self.scaffolded_exact_branch_count,
+            "selected_scaffolded_exact_branch_count": self.selected_scaffolded_exact_branch_count,
             "pair_count_raw": self.pair_count_raw,
             "exact_pair_count_raw": self.exact_pair_count_raw,
+            "scaffolded_exact_pair_count_raw": self.scaffolded_exact_pair_count_raw,
             "pair_count_balanced": self.pair_count_balanced,
             "exact_pair_count_balanced": self.exact_pair_count_balanced,
+            "scaffolded_exact_pair_count_balanced": self.scaffolded_exact_pair_count_balanced,
         }
 
     def _gene_detail(self, gene_id: str, *, target_role: str) -> dict[str, Any]:
@@ -642,11 +684,27 @@ def _pair_is_exact(row: dict[str, Any]) -> bool:
     if not isinstance(provenance, dict):
         provenance = {}
     category = _pair_category(row)
+    if _pair_is_scaffolded_exact(row):
+        return False
     return (
         category in EXACT_PAIR_CATEGORIES
         or (
             provenance.get("chosen_exact_membership") is True
             and provenance.get("rejected_exact_membership") is not True
+        )
+    )
+
+
+def _pair_is_scaffolded_exact(row: dict[str, Any]) -> bool:
+    provenance = row.get("provenance")
+    if not isinstance(provenance, dict):
+        provenance = {}
+    category = _pair_category(row)
+    return (
+        category in SCAFFOLDED_EXACT_PAIR_CATEGORIES
+        or (
+            provenance.get("chosen_scaffolded_exact_membership") is True
+            and provenance.get("rejected_scaffolded_exact_membership") is not True
         )
     )
 
@@ -669,10 +727,14 @@ def _count_pairs(
                 accumulator.pair_count_raw += 1
                 if _pair_is_exact(row):
                     accumulator.exact_pair_count_raw += 1
+                if _pair_is_scaffolded_exact(row):
+                    accumulator.scaffolded_exact_pair_count_raw += 1
             else:
                 accumulator.pair_count_balanced += 1
                 if _pair_is_exact(row):
                     accumulator.exact_pair_count_balanced += 1
+                if _pair_is_scaffolded_exact(row):
+                    accumulator.scaffolded_exact_pair_count_balanced += 1
 
 
 def _sum(rows: list[dict[str, Any]], key: str) -> int:
@@ -716,8 +778,12 @@ def _aggregate(by_task: list[dict[str, Any]]) -> dict[str, Any]:
         "selected_deterministic_edit_branch_count": _sum(by_task, "selected_deterministic_edit_branch_count"),
         "exact_branch_count": _sum(by_task, "exact_branch_count"),
         "selected_exact_branch_count": _sum(by_task, "selected_exact_branch_count"),
+        "scaffolded_exact_branch_count": _sum(by_task, "scaffolded_exact_branch_count"),
+        "selected_scaffolded_exact_branch_count": _sum(by_task, "selected_scaffolded_exact_branch_count"),
         "exact_pair_count_raw": exact_pair_raw,
         "exact_pair_count_balanced": exact_pair_balanced,
+        "scaffolded_exact_pair_count_raw": _sum(by_task, "scaffolded_exact_pair_count_raw"),
+        "scaffolded_exact_pair_count_balanced": _sum(by_task, "scaffolded_exact_pair_count_balanced"),
         "recovery_missing_target_gene_count": recovery_missing,
         "recovery_frontier_recalled_gene_count": _sum(recovery, "frontier_recalled_gene_count"),
         "recovery_frontier_surfaced_at_preview_gene_count": recovery_preview,

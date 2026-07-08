@@ -137,6 +137,8 @@ class FrontierDiagnosticsTests(unittest.TestCase):
                 "removed_gene_ids": [],
                 "candidate_gene_ids": ["ENSG3"],
                 "candidate_frontier": [{"gene_id": "ENSG3", "rank": 5}],
+                "requires_model_validation": True,
+                "validation_status": "pending_model_or_tool_validation",
             }
             branch_pools_path = run_dir / "branch_pools.jsonl"
             _write_jsonl(
@@ -182,9 +184,11 @@ class FrontierDiagnosticsTests(unittest.TestCase):
                     {
                         "trajectory_id": "toy.recovery.easy.seed0",
                         "provenance": {
-                            "pair_category": "exact_recovery",
+                            "pair_category": "scaffolded_exact_recovery",
                             "chosen_exact_membership": True,
                             "rejected_exact_membership": False,
+                            "chosen_scaffolded_exact_membership": True,
+                            "rejected_scaffolded_exact_membership": False,
                         },
                     }
                 ],
@@ -200,7 +204,10 @@ class FrontierDiagnosticsTests(unittest.TestCase):
         self.assertEqual(aggregate["recovery_edit_frontier_gene_count"], 1)
         self.assertEqual(aggregate["recovery_added_to_selected_branch_gene_count"], 1)
         self.assertEqual(aggregate["exact_branch_count"], 1)
-        self.assertEqual(aggregate["exact_pair_count_raw"], 1)
+        self.assertEqual(aggregate["scaffolded_exact_branch_count"], 1)
+        self.assertEqual(aggregate["selected_scaffolded_exact_branch_count"], 1)
+        self.assertEqual(aggregate["exact_pair_count_raw"], 0)
+        self.assertEqual(aggregate["scaffolded_exact_pair_count_raw"], 1)
         task_report = report["by_task"][0]
         self.assertEqual(task_report["missing_target_gene_details"][0]["gene_id"], "ENSG3")
         self.assertEqual(task_report["missing_target_gene_details"][0]["rwr_best_rank"], 5.0)

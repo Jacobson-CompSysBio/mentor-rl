@@ -180,7 +180,9 @@ class RenderTrajectoryReviewTests(unittest.TestCase):
                     "recovery_added_to_selected_branch_rate": 0.5,
                     "refinement_frontier_flagged_extra_rate": None,
                     "exact_branch_count": 1,
+                    "scaffolded_exact_branch_count": 1,
                     "exact_pair_count_raw": 1,
+                    "scaffolded_exact_pair_count_raw": 1,
                     "branch_pool_parse_error_count": 0,
                 },
                 "by_task": [
@@ -200,7 +202,9 @@ class RenderTrajectoryReviewTests(unittest.TestCase):
                         "added_to_any_branch_rate": 0.5,
                         "added_to_selected_branch_rate": 0.5,
                         "exact_branch_count": 1,
+                        "scaffolded_exact_branch_count": 1,
                         "exact_pair_count_raw": 1,
+                        "scaffolded_exact_pair_count_raw": 1,
                         "missing_target_gene_details": [
                             {
                                 "gene_id": "ENSG3",
@@ -242,6 +246,7 @@ class RenderTrajectoryReviewTests(unittest.TestCase):
                             "relationship_status": "validated_group",
                             "target_gene_ids": ["ENSG1", "ENSG2"],
                         },
+                        "provenance": {"source": "RWR_LOE_FULL_BRAIN"},
                         "mechanism_labels": None,
                     }
                 },
@@ -261,6 +266,7 @@ class RenderTrajectoryReviewTests(unittest.TestCase):
         self.assertIn("mechanism-evidence", markdown)
         self.assertIn("Frontier Diagnostics", markdown)
         self.assertIn("RWR top-k recall", markdown)
+        self.assertIn("Scaffolded exact branches", markdown)
         self.assertIn("ENSG3", markdown)
         self.assertIn("[validated_group] enrichment supports toy process.", markdown)
         self.assertIn("<!doctype html>", html)
@@ -270,6 +276,8 @@ class RenderTrajectoryReviewTests(unittest.TestCase):
         self.assertIn("Task Buckets", html)
         self.assertIn("Explanation / Minimal / Complete", html)
         self.assertNotIn("explanation/minimal/complete=1", html)
+        self.assertIn("Task Sources", html)
+        self.assertIn("LOE modules", html)
         self.assertIn("selected branch", html)
         self.assertIn("unselected candidate", html)
         self.assertIn("Success / Partial / Failure", html)
@@ -279,6 +287,7 @@ class RenderTrajectoryReviewTests(unittest.TestCase):
         self.assertIn("Final Output", html)
         self.assertIn("Alignment Summary", html)
         self.assertIn("Exact-Membership Frontier Diagnostics", html)
+        self.assertIn("scaffolded exact", html)
         self.assertIn("recovery RWR recall", html)
         self.assertIn("Missing target gene diagnostics", html)
         self.assertIn("ENSG3", html)

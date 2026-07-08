@@ -83,11 +83,18 @@ def test_gemma4_fat_launcher_prepares_multi_node_run(tmp_path: Path) -> None:
     assert config["max_model_len"] == "16384"
     assert config["max_num_batched_tokens"] == "16384"
     assert config["lane_task_strategy"] == "round_robin_selected_tasks"
+    assert config["rwr_result_preview_limit"] == "64"
+    assert config["rwr_non_seed_id_preview_limit"] == "120"
+    assert config["tool_reference_gene_limit"] == "160"
+    assert config["membership_edit_top_k"] == "32"
+    assert config["membership_edit_max_combination_branches"] == "48"
 
     entry = (run_root / "entry.sh").read_text(encoding="utf-8")
     assert "run_lane" in entry
     assert 'TASKS_PATH="${lane_tasks_path}"' in entry
     assert "export MAX_TASKS=all" in entry
+    assert "export RECOVERY_RWR_TOP_K" in entry
+    assert "export MEMBERSHIP_EDIT_MAX_COMBINATION_BRANCHES" in entry
     assert "FRONTIER_PYTHON" in entry
     assert "merge_trajectory_lanes.py" in entry
 

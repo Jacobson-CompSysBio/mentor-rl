@@ -32,8 +32,14 @@ from scripts.generate_trajectories import (
     DEFAULT_FULL_BRAIN_RWR_HPC_FLIST,
     DEFAULT_MEMBERSHIP_EDIT_BRANCHES,
     DEFAULT_MEMBERSHIP_EDIT_MAX_CUMULATIVE_ADDITIONS,
+    DEFAULT_MEMBERSHIP_EDIT_MAX_COMBINATION_ADDITIONS,
+    DEFAULT_MEMBERSHIP_EDIT_MAX_COMBINATION_BRANCHES,
     DEFAULT_MEMBERSHIP_EDIT_MAX_DROP_PAIRS,
     DEFAULT_MEMBERSHIP_EDIT_TOP_K,
+    DEFAULT_PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT,
+    DEFAULT_PROMPT_RWR_NON_SEED_PREVIEW_LIMIT,
+    DEFAULT_PROMPT_RWR_RESULT_PREVIEW_LIMIT,
+    DEFAULT_PROMPT_TOOL_REFERENCE_GENE_LIMIT,
     DEFAULT_REQUIRE_RWR_HPC,
     DEFAULT_RWR_HPC_EDGELIST_HAS_HEADERS,
     DEFAULT_STORE_DIR,
@@ -877,7 +883,19 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             args.membership_edit_max_cumulative_additions,
             DEFAULT_MEMBERSHIP_EDIT_MAX_CUMULATIVE_ADDITIONS,
         )
+        self.assertEqual(
+            args.membership_edit_max_combination_additions,
+            DEFAULT_MEMBERSHIP_EDIT_MAX_COMBINATION_ADDITIONS,
+        )
+        self.assertEqual(
+            args.membership_edit_max_combination_branches,
+            DEFAULT_MEMBERSHIP_EDIT_MAX_COMBINATION_BRANCHES,
+        )
         self.assertEqual(args.membership_edit_max_drop_pairs, DEFAULT_MEMBERSHIP_EDIT_MAX_DROP_PAIRS)
+        self.assertEqual(args.rwr_result_preview_limit, DEFAULT_PROMPT_RWR_RESULT_PREVIEW_LIMIT)
+        self.assertEqual(args.rwr_non_seed_preview_limit, DEFAULT_PROMPT_RWR_NON_SEED_PREVIEW_LIMIT)
+        self.assertEqual(args.rwr_non_seed_id_preview_limit, DEFAULT_PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT)
+        self.assertEqual(args.tool_reference_gene_limit, DEFAULT_PROMPT_TOOL_REFERENCE_GENE_LIMIT)
         self.assertEqual(rwr_hpc_flist, DEFAULT_FULL_BRAIN_RWR_HPC_FLIST)
 
     def test_parse_args_uses_default_store_only_after_rwr_hpc_opt_out(self) -> None:
@@ -1155,6 +1173,8 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             prior_actions=[],
             top_k=3,
             max_cumulative_additions=3,
+            max_combination_additions=2,
+            max_combination_branches=3,
             max_drop_pairs=0,
         )
 
@@ -1162,14 +1182,128 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertIn(("ENSG1", "ENSG2", "ENSG3"), gene_sets)
         self.assertIn(("ENSG1", "ENSG2", "ENSG3", "ENSG4"), gene_sets)
         self.assertIn(("ENSG1", "ENSG2", "ENSG3", "ENSG4", "ENSG5"), gene_sets)
+        self.assertIn(("ENSG1", "ENSG2", "ENSG3", "ENSG5"), gene_sets)
         self.assertTrue(any(
             branch.metadata["deterministic_membership_edit"]["edit_kind"] == "recovery_add_single"
             for branch in branches
         ))
+        self.assertTrue(any(
+            branch.metadata["deterministic_membership_edit"]["edit_kind"] == "recovery_add_combo2"
+            for branch in branches
+        ))
         for branch in branches:
             self.assertIn("deterministic_membership_edit", branch.metadata)
+            edit = branch.metadata["deterministic_membership_edit"]
+            self.assertTrue(edit["requires_model_validation"])
+            self.assertEqual(edit["validation_status"], "pending_model_or_tool_validation")
+            self.assertEqual(branch.verifier_step.continuation_decision, ContinuationState.CONTINUE)
+            self.assertTrue(branch.metadata["scaffolded_membership_edit_requires_validation"])
             self.assertFalse(_collect_json_keys(branch.metadata) & {"hidden_target", "target_gene_ids", "target_gene_symbols"})
             self.assertFalse(_collect_json_keys(branch.observation.to_dict()["provenance"]) & {"hidden_target", "target_gene_ids", "target_gene_symbols"})
+
+    def test_scaffolded_membership_edit_requires_fresh_tool_evidence_before_stop(self) -> None:
+        task_row = _task_rows()[0]
+        _interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        source = _tool_evidence_branch(
+            "rwr_source_validation",
+            state,
+            ["ENSG1", "ENSG2"],
+            tool_name="rwr",
+            arguments={"seed_genes": ["ENSG1", "ENSG2"], "top_k": 8},
+            payload={
+                "seed_gene_ids": ["ENSG1", "ENSG2"],
+                "results": [
+                    {"gene_id": "ENSG1", "rank": 1, "score": 1.0},
+                    {"gene_id": "ENSG3", "rank": 2, "score": 0.9},
+                    {"gene_id": "ENSG2", "rank": 3, "score": 0.8},
+                ],
+            },
+            metrics={"jaccard": 2.0 / 3.0, "precision": 1.0, "recall": 2.0 / 3.0},
+        )
+        scaffold = _deterministic_membership_edit_branches(
+            task_row=task_row,
+            prior_state=state,
+            branches=[source],
+            trajectory_id="traj_scaffold_validation",
+            step_index=0,
+            max_steps=3,
+            symbol_lookup={"ENSG1": "GENE1", "ENSG2": "GENE2", "ENSG3": "GENE3"},
+            environment=_build_environment(),
+            prior_actions=[],
+            top_k=2,
+            max_cumulative_additions=1,
+            max_combination_additions=0,
+            max_combination_branches=0,
+            max_drop_pairs=0,
+        )[0]
+        scaffold_state = scaffold.verifier_step.updated_state
+        no_tool_stop = _branch_for_exactness_test(
+            "no_tool_stop_after_scaffold",
+            scaffold_state,
+            ["ENSG1", "ENSG2", "ENSG3"],
+            metrics={"jaccard": 1.0, "precision": 1.0, "recall": 1.0},
+            task_success_level="positive",
+            normalized_score=1.0,
+            total_score=10.0,
+        )
+
+        no_tool_stop = _score_branch(
+            task_row,
+            scaffold_state,
+            no_tool_stop,
+            step_index=1,
+            max_steps=3,
+            prior_actions=[],
+            environment=_build_environment(),
+        )
+
+        self.assertEqual(no_tool_stop.verifier_step.continuation_decision, ContinuationState.CONTINUE)
+        self.assertIn("scaffolded_membership_validation_nonterminal_override", no_tool_stop.metadata)
+
+        tool_validated_stop = _branch_for_exactness_test(
+            "tool_validated_stop_after_scaffold",
+            scaffold_state,
+            ["ENSG1", "ENSG2", "ENSG3"],
+            metrics={"jaccard": 1.0, "precision": 1.0, "recall": 1.0},
+            task_success_level="positive",
+            normalized_score=1.0,
+            total_score=10.0,
+        )
+        tool_validated_stop.actor_step = ActorStep(
+            reasoning_text="Validate the scaffold with a graph query.",
+            tool_action=ToolAction(
+                tool_name="induce_subgraph",
+                arguments={"genes": ["ENSG1", "ENSG2", "ENSG3"]},
+                call_id="validate_scaffold_tool",
+            ),
+        )
+        tool_validated_stop.observation = ToolObservation(
+            status=ToolObservationStatus.SUCCESS,
+            provenance={"tool_name": "induce_subgraph", "runtime": "unit_test"},
+            call_id="validate_scaffold_tool",
+            payload={
+                "query_gene_ids": ["ENSG1", "ENSG2", "ENSG3"],
+                "present_gene_ids": ["ENSG1", "ENSG2", "ENSG3"],
+                "combined_edge_count": 2,
+            },
+        )
+
+        tool_validated_stop = _score_branch(
+            task_row,
+            scaffold_state,
+            tool_validated_stop,
+            step_index=1,
+            max_steps=3,
+            prior_actions=[],
+            environment=_build_environment(),
+        )
+
+        self.assertEqual(tool_validated_stop.verifier_step.continuation_decision, ContinuationState.STOP)
+        self.assertTrue(
+            tool_validated_stop.metadata["scaffolded_membership_edit_validation"][
+                "validated_by_current_tool_observation"
+            ]
+        )
 
     def test_deterministic_refinement_edits_generate_leave_one_out_and_bounded_pair_drops(self) -> None:
         task_row = json.loads(json.dumps(_task_rows()[0]))
@@ -1208,6 +1342,8 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             prior_actions=[],
             top_k=4,
             max_cumulative_additions=3,
+            max_combination_additions=0,
+            max_combination_branches=0,
             max_drop_pairs=2,
         )
 
@@ -1357,6 +1493,55 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertIn("shortest_paths source_genes and target_genes", " ".join(reference["rules"]))
         self.assertIn("enrich_gene_set", reference["argument_shapes"])
         self.assertIn("query_mygene", reference["argument_shapes"])
+
+    def test_actor_prompt_payload_exposes_ranked_rwr_non_seed_candidates(self) -> None:
+        task_row = _task_rows()[0]
+        interpretation, state = initialize_state_from_corum_task(task_row, max_budget=3)
+        observation = ToolObservation(
+            status=ToolObservationStatus.SUCCESS,
+            provenance={"tool_name": "rwr", "runtime": "unit_test"},
+            call_id="rwr_prompt_frontier",
+            payload={
+                "seed_gene_ids": ["ENSG1", "ENSG2"],
+                "results": [
+                    {"gene_id": "ENSG1", "rank": 1, "score": 1.0},
+                    {"gene_id": "ENSG3", "rank": 2, "score": 0.9},
+                    {"gene_id": "ENSG4", "rank": 3, "score": 0.8},
+                    {"gene_id": "ENSG2", "rank": 4, "score": 0.7},
+                ],
+            },
+        )
+        evidence_record = _build_evidence_record(
+            observation,
+            step_index=0,
+            branch_id="rwr_prompt_frontier_branch",
+            symbol_lookup={
+                "ENSG1": "GENE1",
+                "ENSG2": "GENE2",
+                "ENSG3": "GENE3",
+                "ENSG4": "GENE4",
+            },
+        )
+        self.assertIsNotNone(evidence_record)
+        state = append_evidence_record(state, evidence_record)
+        context = SharedPrefixContext(
+            query_text=task_row["query_text"],
+            user_evidence=task_row["visible_inputs"],
+            interpretation=interpretation,
+            state=state,
+            source_task_id=task_row["task_id"],
+        )
+
+        actor_payload = _actor_prompt_payload(
+            context,
+            step_index=1,
+            environment=_build_environment(),
+        )
+
+        candidate_gene_ids = actor_payload["tool_argument_reference"]["candidate_gene_ids"]
+        self.assertIn("ENSG3", candidate_gene_ids)
+        self.assertIn("ENSG4", candidate_gene_ids)
+        self.assertLess(candidate_gene_ids.index("ENSG3"), candidate_gene_ids.index("ENSG4"))
 
     def test_actor_prompt_payload_includes_prior_tool_actions(self) -> None:
         task_row = _task_rows()[0]

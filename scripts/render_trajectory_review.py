@@ -1075,6 +1075,35 @@ def _summary_task_row(summary: dict[str, Any] | None, task_rows: dict[str, dict[
     return task_rows.get(str(summary.get("source_task_id", "")))
 
 
+def _task_source_label(summary: dict[str, Any] | None, task_row: dict[str, Any] | None) -> str:
+    """Classify the upstream task source for dashboard summaries."""
+
+    candidates: list[Any] = []
+    if isinstance(task_row, dict):
+        provenance = task_row.get("provenance")
+        if isinstance(provenance, dict):
+            candidates.extend(
+                provenance.get(key)
+                for key in (
+                    "source",
+                    "source_corpus_dir",
+                    "source_module_id",
+                    "rank_cache_path",
+                    "rank_cache_context_dir",
+                )
+            )
+        candidates.extend(task_row.get(key) for key in ("task_id", "query_template_id"))
+    if isinstance(summary, dict):
+        candidates.extend(summary.get(key) for key in ("source_task_id", "trajectory_id", "task_type"))
+
+    normalized = " ".join(str(candidate).lower() for candidate in candidates if candidate)
+    if "rwr_loe" in normalized or "rwr-loe" in normalized or "rwr loe" in normalized:
+        return "LOE modules"
+    if "gw_dendrogram" in normalized or "gw-dendrogram" in normalized or "dendrogram" in normalized:
+        return "GW dendrogram"
+    return "Other / unknown"
+
+
 def _frontier_diagnostics_by_id(frontier_diagnostics: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
     if not frontier_diagnostics:
         return {}
@@ -1155,6 +1184,8 @@ def _frontier_diagnostic_markdown(row: dict[str, Any] | None) -> list[str]:
                 f"- Added to any/selected branch: `{_diagnostic_count_text(row, 'added_to_any_branch_gene_count')}` / "
                 f"`{_diagnostic_count_text(row, 'added_to_selected_branch_gene_count')}`",
                 f"- Exact branches/raw exact pairs: `{row.get('exact_branch_count', 0)}` / `{row.get('exact_pair_count_raw', 0)}`",
+                f"- Scaffolded exact branches/raw pairs: `{row.get('scaffolded_exact_branch_count', 0)}` / "
+                f"`{row.get('scaffolded_exact_pair_count_raw', 0)}`",
             ]
         )
     elif row.get("task_type") == "refinement":
@@ -1167,6 +1198,8 @@ def _frontier_diagnostic_markdown(row: dict[str, Any] | None) -> list[str]:
                 f"`{_diagnostic_count_text(row, 'removed_by_selected_edit_gene_count')}`",
                 f"- Selected branch pruned extras: `{_diagnostic_count_text(row, 'selected_branch_pruned_extra_gene_count')}`",
                 f"- Exact branches/raw exact pairs: `{row.get('exact_branch_count', 0)}` / `{row.get('exact_pair_count_raw', 0)}`",
+                f"- Scaffolded exact branches/raw pairs: `{row.get('scaffolded_exact_branch_count', 0)}` / "
+                f"`{row.get('scaffolded_exact_pair_count_raw', 0)}`",
             ]
         )
     details = row.get("missing_target_gene_details") or row.get("extra_gene_details")
@@ -1333,6 +1366,10 @@ def _html_run_dashboard(
     task_counts = Counter(str(summary.get("task_type", "unknown")) for summary in selected_summaries)
     evidence_counts = Counter(str(summary.get("evidence_mode", "unknown")) for summary in selected_summaries)
     difficulty_counts = Counter(str(summary.get("difficulty", "unknown")) for summary in selected_summaries)
+    source_counts = Counter(
+        _task_source_label(summary, _summary_task_row(summary, task_rows))
+        for summary in selected_summaries
+    )
     tool_counts, observation_counts = _selected_tool_stats(turns_by_trajectory, trajectory_ids)
     failure_counts = _failure_reason_counts(summaries, trajectory_ids)
     alignments = [
@@ -1362,7 +1399,9 @@ def _html_run_dashboard(
               {_html_metric("recovery selected-add", _diagnostic_rate_text(frontier_aggregate.get("recovery_added_to_selected_branch_rate")))}
               {_html_metric("refinement flagged", _diagnostic_rate_text(frontier_aggregate.get("refinement_frontier_flagged_extra_rate")))}
               {_html_metric("exact branches", frontier_aggregate.get("exact_branch_count", 0))}
+              {_html_metric("scaffolded exact", frontier_aggregate.get("scaffolded_exact_branch_count", 0))}
               {_html_metric("raw exact pairs", frontier_aggregate.get("exact_pair_count_raw", 0))}
+              {_html_metric("scaffolded pairs", frontier_aggregate.get("scaffolded_exact_pair_count_raw", 0))}
               {_html_metric("parse errors", frontier_aggregate.get("branch_pool_parse_error_count", 0))}
             </div>
           </div>
@@ -1385,6 +1424,7 @@ def _html_run_dashboard(
           <div class="dashboard-panel"><h3>Success / Partial / Failure</h3>{_html_success_distribution(success_counts)}</div>
           <div class="dashboard-panel"><h3>Final Status</h3>{_html_distribution_bar(status_counts, class_prefix="status")}</div>
           <div class="dashboard-panel"><h3>Task Types</h3>{_html_distribution_bar(task_counts, class_prefix="task")}</div>
+          <div class="dashboard-panel"><h3>Task Sources</h3>{_html_distribution_bar(source_counts, class_prefix="source", label_func=str)}</div>
           <div class="dashboard-panel"><h3>Evidence Modes</h3>{_html_distribution_bar(evidence_counts, class_prefix="mode")}</div>
           <div class="dashboard-panel"><h3>Difficulties</h3>{_html_distribution_bar(difficulty_counts, class_prefix="difficulty")}</div>
           <div class="dashboard-panel">
@@ -1576,7 +1616,9 @@ def _html_frontier_diagnostic_panel(row: dict[str, Any] | None) -> str:
                 _html_metric("any branch add", _diagnostic_rate_text(row.get("added_to_any_branch_rate"))),
                 _html_metric("selected branch add", _diagnostic_rate_text(row.get("added_to_selected_branch_rate"))),
                 _html_metric("exact branches", row.get("exact_branch_count", 0)),
+                _html_metric("scaffolded exact", row.get("scaffolded_exact_branch_count", 0)),
                 _html_metric("raw exact pairs", row.get("exact_pair_count_raw", 0)),
+                _html_metric("scaffolded pairs", row.get("scaffolded_exact_pair_count_raw", 0)),
             ]
         )
     else:
@@ -1592,7 +1634,9 @@ def _html_frontier_diagnostic_panel(row: dict[str, Any] | None) -> str:
                 _html_metric("selected edit removed", _diagnostic_rate_text(row.get("removed_by_selected_edit_rate"))),
                 _html_metric("selected pruned", _diagnostic_rate_text(row.get("selected_branch_pruned_extra_rate"))),
                 _html_metric("exact branches", row.get("exact_branch_count", 0)),
+                _html_metric("scaffolded exact", row.get("scaffolded_exact_branch_count", 0)),
                 _html_metric("raw exact pairs", row.get("exact_pair_count_raw", 0)),
+                _html_metric("scaffolded pairs", row.get("scaffolded_exact_pair_count_raw", 0)),
             ]
         )
     return f"""
@@ -2237,6 +2281,7 @@ def render_html(
     .dist-track i.success-missing, .dist-track i.success-unknown {{ background: #64748b; }}
     .dist-track i.status {{ background: #7c3aed; }}
 	    .dist-track i.task {{ background: #0284c7; }}
+	    .dist-track i.source {{ background: #4f46e5; }}
 	    .dist-track i.mode {{ background: #0f766e; }}
 	    .dist-track i.difficulty {{ background: #ea580c; }}
 	    .dist-track i.tool {{ background: #0891b2; }}

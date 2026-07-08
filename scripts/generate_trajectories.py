@@ -35,6 +35,7 @@ import sys
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from itertools import combinations
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -106,17 +107,21 @@ DEFAULT_VERIFIER_REPAIR_RETRY_COUNT = 1
 DEFAULT_PREFERENCE_PAIR_MARGIN = 0.10
 DEFAULT_SELECTION_SCORE_EPSILON = 0.02
 DEFAULT_RECOVERY_RWR_TOP_K = 1500
+DEFAULT_PROMPT_RWR_RESULT_PREVIEW_LIMIT = 8
+DEFAULT_PROMPT_RWR_NON_SEED_PREVIEW_LIMIT = 10
+DEFAULT_PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT = 40
+DEFAULT_PROMPT_TOOL_REFERENCE_GENE_LIMIT = 80
 GPT_OSS_FINAL_CHANNEL_PREFIX = "<|start|>assistant<|channel|>final<|message|>"
 PROMPT_TEXT_MAX_CHARS = 500
 PROMPT_ACTOR_REASONING_MAX_CHARS = 800
 PROMPT_LIST_PREVIEW_LIMIT = 12
-PROMPT_RWR_RESULT_PREVIEW_LIMIT = 8
-PROMPT_RWR_NON_SEED_PREVIEW_LIMIT = 10
-PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT = 40
+PROMPT_RWR_RESULT_PREVIEW_LIMIT = DEFAULT_PROMPT_RWR_RESULT_PREVIEW_LIMIT
+PROMPT_RWR_NON_SEED_PREVIEW_LIMIT = DEFAULT_PROMPT_RWR_NON_SEED_PREVIEW_LIMIT
+PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT = DEFAULT_PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT
 PROMPT_LAYER_PREVIEW_LIMIT = 8
 PROMPT_EDGE_PREVIEW_LIMIT = 12
 PROMPT_MYGENE_PREVIEW_LIMIT = 5
-PROMPT_TOOL_REFERENCE_GENE_LIMIT = 80
+PROMPT_TOOL_REFERENCE_GENE_LIMIT = DEFAULT_PROMPT_TOOL_REFERENCE_GENE_LIMIT
 PROMPT_TOOL_REFERENCE_LAYER_LIMIT = 24
 PROMPT_EVIDENCE_SUMMARY_LIMIT = 8
 PROMPT_EVIDENCE_SUPPORT_GENE_LIMIT = 20
@@ -135,6 +140,8 @@ MEMBERSHIP_EDIT_BRANCH_MODES = ("off", "hybrid")
 DEFAULT_MEMBERSHIP_EDIT_BRANCHES = "hybrid"
 DEFAULT_MEMBERSHIP_EDIT_TOP_K = 8
 DEFAULT_MEMBERSHIP_EDIT_MAX_CUMULATIVE_ADDITIONS = 3
+DEFAULT_MEMBERSHIP_EDIT_MAX_COMBINATION_ADDITIONS = 2
+DEFAULT_MEMBERSHIP_EDIT_MAX_COMBINATION_BRANCHES = 24
 DEFAULT_MEMBERSHIP_EDIT_MAX_DROP_PAIRS = 5
 VISIBLE_SEED_GENES_HANDLE = "__visible_seed_genes__"
 CURRENT_CANDIDATE_GROUP_HANDLE = "__current_candidate_group__"
@@ -385,17 +392,19 @@ PAIR_CATEGORY_PRIORITIES = {
     "refinement_precision": 4,
     "tool_supported_improvement": 5,
     "task_correctness_improvement": 6,
-    "explanation_preservation": 7,
-    "recovery_recall": 8,
-    "refinement_jaccard": 9,
-    "abstention_correct": 10,
-    "calibrated_abstention": 11,
-    "mechanism_evidence_improvement": 12,
-    "unsupported_mechanism_rejected": 13,
-    "none_abstention": 14,
-    "score_margin": 15,
-    "mechanism_label_only": 16,
-    "conservative_stop": 17,
+    "scaffolded_exact_recovery": 7,
+    "scaffolded_exact_refinement": 8,
+    "explanation_preservation": 9,
+    "recovery_recall": 10,
+    "refinement_jaccard": 11,
+    "abstention_correct": 12,
+    "calibrated_abstention": 13,
+    "mechanism_evidence_improvement": 14,
+    "unsupported_mechanism_rejected": 15,
+    "none_abstention": 16,
+    "score_margin": 17,
+    "mechanism_label_only": 18,
+    "conservative_stop": 19,
 }
 TRAJECTORY_STAGES = (
     ("load_tasks", "Load canonical task rows"),
@@ -1139,6 +1148,32 @@ def _append_unique_strings(target: list[str], values: Iterable[Any]) -> None:
             seen.add(value)
 
 
+def _rwr_non_seed_gene_ids_from_payload(payload: dict[str, Any], *, limit: int) -> list[str]:
+    seed_gene_ids = set(
+        _safe_list_of_strings(payload.get("seed_gene_ids"))
+        or _safe_list_of_strings(payload.get("seed_genes"))
+    )
+    ranked_gene_ids: list[str] = []
+    results = payload.get("results", payload.get("ranked_genes", []))
+    result_list = results if isinstance(results, list) else []
+    for item in result_list:
+        gene_id = _rwr_result_gene_id(item)
+        if gene_id is not None and gene_id not in seed_gene_ids:
+            ranked_gene_ids.append(gene_id)
+    return _preview_unique_strings(ranked_gene_ids, limit=limit)
+
+
+def _rwr_non_seed_gene_ids_from_evidence_record(record: EvidenceRecord, *, limit: int) -> list[str]:
+    provenance = record.provenance if isinstance(record.provenance, dict) else {}
+    payload = provenance.get("payload")
+    if not isinstance(payload, dict):
+        return []
+    gene_ids = _safe_list_of_strings(payload.get("ranked_non_seed_gene_ids"))
+    if gene_ids:
+        return _preview_unique_strings(gene_ids, limit=limit)
+    return _rwr_non_seed_gene_ids_from_payload(payload, limit=limit)
+
+
 def _candidate_gene_ids_for_tool_reference(context: SharedPrefixContext) -> list[str]:
     gene_ids: list[str] = []
     visible_inputs = context.user_evidence if isinstance(context.user_evidence, dict) else {}
@@ -1147,6 +1182,13 @@ def _candidate_gene_ids_for_tool_reference(context: SharedPrefixContext) -> list
 
     for evidence_record in context.state.evidence_log:
         _append_unique_strings(gene_ids, evidence_record.supporting_gene_ids)
+        _append_unique_strings(
+            gene_ids,
+            _rwr_non_seed_gene_ids_from_evidence_record(
+                evidence_record,
+                limit=PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT,
+            ),
+        )
     return gene_ids
 
 
@@ -1751,6 +1793,7 @@ def _verifier_prompt_payload(
                 "Inspect ranked non-seed tool candidates before marking the seed group complete.",
                 "Add a non-seed candidate only when the visible observation gives credible support.",
                 "When evidence supports a specific expanded gene set, update predicted_gene_ids to that set instead of only planning another expansion.",
+                "If the prior state came from a deterministic_membership_edit that requires validation, use a new model/tool-backed evidence step before stop.",
                 "If any plausible non-seed candidate remains untested, choose continue and set next_subgoal to the addition test.",
                 "If no non-seed candidate is supported, explain that limitation and choose continue when another query could help.",
             ],
@@ -1766,6 +1809,7 @@ def _verifier_prompt_payload(
             "candidate_policy": [
                 "Treat extra genes as unresolved until graph or annotation evidence supports keeping them.",
                 "When evidence identifies unsupported extras, update predicted_gene_ids to the pruned coherent subset instead of only describing the pruning plan.",
+                "If the prior state came from a deterministic_membership_edit that requires validation, use a new model/tool-backed evidence step before stop.",
                 "Prefer continuing when the current state is only partially observed and pruning evidence is incomplete.",
                 "If any questionable extra or supported member remains untested, choose continue and set next_subgoal to the pruning/preservation test.",
                 "Do not let a plausible mechanism label compensate for unsupported extra genes.",
@@ -4679,10 +4723,15 @@ def _evidence_payload_for_record(observation: ToolObservation) -> dict[str, Any]
             "paths": _preview_list(payload.get("paths"), limit=10),
         }
     if tool_name in RWR_RESULT_TOOL_NAMES:
+        ranked_non_seed_gene_ids = _rwr_non_seed_gene_ids_from_payload(
+            payload,
+            limit=PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT,
+        )
         return {
             "seed_gene_ids": _preview_list(payload.get("seed_gene_ids") or payload.get("seed_genes"), limit=PROMPT_TOOL_REFERENCE_GENE_LIMIT),
             "active_seed_gene_ids": _preview_list(payload.get("active_seed_gene_ids")),
             "top_k": payload.get("top_k"),
+            "ranked_non_seed_gene_ids": ranked_non_seed_gene_ids,
             "results": _preview_list(payload.get("results") or payload.get("ranked_genes"), limit=PROMPT_RWR_RESULT_PREVIEW_LIMIT),
         }
     if tool_name == "get_rank":
@@ -5070,6 +5119,20 @@ def _render_finding_text(branch: CandidateBranch) -> str:
     return f"[{relationship}] score={score:.4f} {summary}"
 
 
+def _branch_scaffolded_membership_edit(branch: CandidateBranch) -> bool:
+    edit = branch.metadata.get("deterministic_membership_edit")
+    if not isinstance(edit, dict):
+        return False
+    return edit.get("requires_model_validation") is True
+
+
+def _branch_scaffolded_exact_membership(branch: CandidateBranch) -> bool:
+    return (
+        _branch_scaffolded_membership_edit(branch)
+        and branch.metadata.get("scaffolded_exact_membership") is True
+    )
+
+
 def _build_finding_record(
     *,
     task_row: dict[str, Any],
@@ -5141,6 +5204,8 @@ def _pair_category(
     rejected_success_level = str(rejected_features["task_success_level"])
 
     if task_type in {"recovery", "refinement"} and chosen_exact and not rejected_exact:
+        if _branch_scaffolded_exact_membership(chosen_branch):
+            return f"scaffolded_exact_{task_type}"
         if rejected_success_level == "partial":
             return "exact_over_partial"
         if task_type == "recovery":
@@ -5247,6 +5312,10 @@ def _pair_quality_provenance(
         "rejected_exact_membership": rejected_features["exact_membership"],
         "chosen_task_success_level": chosen_features["task_success_level"],
         "rejected_task_success_level": rejected_features["task_success_level"],
+        "chosen_scaffolded_membership_edit": _branch_scaffolded_membership_edit(chosen_branch),
+        "rejected_scaffolded_membership_edit": _branch_scaffolded_membership_edit(rejected_branch),
+        "chosen_scaffolded_exact_membership": _branch_scaffolded_exact_membership(chosen_branch),
+        "rejected_scaffolded_exact_membership": _branch_scaffolded_exact_membership(rejected_branch),
         "chosen_relationship_status": chosen_features["relationship_status"],
         "rejected_relationship_status": rejected_features["relationship_status"],
         "chosen_final_jaccard": chosen_features["post_jaccard"],
@@ -6142,6 +6211,7 @@ def _score_branch(
         available_layers=environment.available_layers,
     )
     branch = _enforce_exact_membership_nonterminal(task_row, branch)
+    branch = _enforce_scaffolded_membership_validation_nonterminal(task_row, branch)
     return branch
 
 
@@ -6328,6 +6398,7 @@ def _build_deterministic_membership_edit_branch(
     step_index: int,
     max_steps: int,
     symbol_lookup: dict[str, str],
+    candidate_frontier_limit: int,
 ) -> CandidateBranch:
     action_payload = (
         source_branch.actor_step.tool_action.to_dict()
@@ -6336,6 +6407,13 @@ def _build_deterministic_membership_edit_branch(
     )
     tool_action = ToolAction.from_dict(action_payload) if action_payload is not None else None
     source_tool_name = tool_action.tool_name if tool_action is not None else None
+    updated_state = clone_state(prior_state)
+    updated_state = decrement_budget(updated_state)
+    continuation_state = (
+        ContinuationState.CONTINUE
+        if updated_state.remaining_budget > 0
+        else ContinuationState.STOP
+    )
     edit_metadata = {
         "task_type": task_row["task_type"],
         "edit_kind": edit_kind,
@@ -6344,18 +6422,22 @@ def _build_deterministic_membership_edit_branch(
         "added_gene_ids": list(added_gene_ids),
         "removed_gene_ids": list(removed_gene_ids),
         "candidate_gene_ids": list(added_gene_ids or removed_gene_ids),
-        "candidate_frontier": candidate_frontier[:DEFAULT_MEMBERSHIP_EDIT_TOP_K],
+        "candidate_frontier": candidate_frontier[:candidate_frontier_limit],
+        "requires_model_validation": True,
+        "validation_status": (
+            "pending_model_or_tool_validation"
+            if continuation_state == ContinuationState.CONTINUE
+            else "budget_exhausted_unvalidated"
+        ),
     }
     observation = _clone_tool_observation_with_provenance(
         source_branch.observation,
         {
             "deterministic_membership_edit": edit_metadata,
-            "candidate_frontier": candidate_frontier[:DEFAULT_MEMBERSHIP_EDIT_TOP_K],
+            "candidate_frontier": candidate_frontier[:candidate_frontier_limit],
         },
     )
 
-    updated_state = clone_state(prior_state)
-    updated_state = decrement_budget(updated_state)
     if tool_action is not None:
         invalid_tool = not _observation_is_valid_evidence(observation)
         updated_state = record_tool_call(updated_state, invalid=invalid_tool)
@@ -6382,9 +6464,9 @@ def _build_deterministic_membership_edit_branch(
     )
     updated_state = set_continuation_state(
         updated_state,
-        ContinuationState.STOP,
-        termination_reason=TerminationReason.MODEL_STOP
-        if updated_state.remaining_budget > 0
+        continuation_state,
+        termination_reason=None
+        if continuation_state == ContinuationState.CONTINUE
         else TerminationReason.BUDGET_EXHAUSTED,
     )
 
@@ -6401,7 +6483,7 @@ def _build_deterministic_membership_edit_branch(
         RelationshipStatus.VALIDATED_GROUP,
         updated_state.mechanistic_labels,
         summary,
-        ContinuationState.STOP,
+        continuation_state,
         symbol_lookup=symbol_lookup,
     )
     return CandidateBranch(
@@ -6417,8 +6499,11 @@ def _build_deterministic_membership_edit_branch(
         verifier_step=VerifierStep(
             updated_interpretation=updated_interpretation,
             updated_state=updated_state,
-            continuation_decision=ContinuationState.STOP,
-            verifier_notes="deterministic_membership_edit",
+            continuation_decision=continuation_state,
+            verifier_notes=(
+                "deterministic_membership_edit; requires model/tool validation "
+                "before being treated as a terminal exact positive"
+            ),
         ),
         local_score=LocalScoreBreakdown(
             schema_score=0.0,
@@ -6430,7 +6515,8 @@ def _build_deterministic_membership_edit_branch(
         metadata={
             "generator_backend": "deterministic_membership_edit",
             "deterministic_membership_edit": edit_metadata,
-            "candidate_frontier": candidate_frontier[:DEFAULT_MEMBERSHIP_EDIT_TOP_K],
+            "candidate_frontier": candidate_frontier[:candidate_frontier_limit],
+            "scaffolded_membership_edit_requires_validation": True,
             "step_index": step_index,
             "task_type": task_row["task_type"],
         },
@@ -6450,6 +6536,8 @@ def _deterministic_membership_edit_branches(
     prior_actions: list[ToolAction],
     top_k: int,
     max_cumulative_additions: int,
+    max_combination_additions: int,
+    max_combination_branches: int,
     max_drop_pairs: int,
 ) -> list[CandidateBranch]:
     task_type = str(task_row.get("task_type", ""))
@@ -6491,13 +6579,13 @@ def _deterministic_membership_edit_branches(
         removed_gene_ids: list[str],
         candidate_frontier: list[dict[str, Any]],
         suffix: str,
-    ) -> None:
+    ) -> bool:
         unique_gene_ids = _unique(updated_gene_ids)
         if not unique_gene_ids:
-            return
+            return False
         key = tuple(unique_gene_ids)
         if key in seen_gene_sets:
-            return
+            return False
         seen_gene_sets.add(key)
         branch = _build_deterministic_membership_edit_branch(
             task_row=task_row,
@@ -6512,6 +6600,7 @@ def _deterministic_membership_edit_branches(
             step_index=step_index,
             max_steps=max_steps,
             symbol_lookup=symbol_lookup,
+            candidate_frontier_limit=top_k,
         )
         branch = _score_branch(
             task_row,
@@ -6522,7 +6611,14 @@ def _deterministic_membership_edit_branches(
             prior_actions=prior_actions,
             environment=environment,
         )
+        if branch.metadata.get("scaffolded_membership_edit_requires_validation"):
+            task_success = branch.local_score.score_metadata.get("task_success", {})
+            branch.metadata["scaffolded_exact_membership"] = (
+                isinstance(task_success, dict)
+                and task_success.get("task_success_level") == "positive"
+            )
         edit_branches.append(branch)
+        return True
 
     for source_index, source_branch in enumerate(source_branches):
         observation = source_branch.observation
@@ -6562,6 +6658,36 @@ def _deterministic_membership_edit_branches(
                     candidate_frontier=frontier,
                     suffix=f"recovery.source{source_index}.add_rank{rank_index}",
                 )
+            combination_branch_count = 0
+            combination_size_limit = min(
+                max_combination_additions,
+                len(frontier_gene_ids),
+            )
+            if max_combination_branches > 0 and combination_size_limit >= 2:
+                for combination_size in range(2, combination_size_limit + 1):
+                    for combo_index, additions_tuple in enumerate(
+                        combinations(frontier_gene_ids[:top_k], combination_size),
+                        start=1,
+                    ):
+                        if combination_branch_count >= max_combination_branches:
+                            break
+                        additions = list(additions_tuple)
+                        added = add_edit_branch(
+                            source_branch,
+                            current_gene_ids + additions,
+                            edit_kind=f"recovery_add_combo{combination_size}",
+                            added_gene_ids=additions,
+                            removed_gene_ids=[],
+                            candidate_frontier=frontier,
+                            suffix=(
+                                f"recovery.source{source_index}."
+                                f"combo{combination_size}.{combo_index}"
+                            ),
+                        )
+                        if added:
+                            combination_branch_count += 1
+                    if combination_branch_count >= max_combination_branches:
+                        break
         else:
             drop_limit = len(current_gene_ids) if len(current_gene_ids) <= 12 else 12
             drop_candidates = _refinement_drop_candidates(
@@ -6603,6 +6729,33 @@ def _deterministic_membership_edit_branches(
                 if pair_count >= max_drop_pairs:
                     break
     return edit_branches
+
+
+def _evidence_record_has_unvalidated_scaffolded_membership_edit(record: EvidenceRecord) -> bool:
+    provenance = record.provenance if isinstance(record.provenance, dict) else {}
+    edit = provenance.get("deterministic_membership_edit")
+    return (
+        isinstance(edit, dict)
+        and edit.get("requires_model_validation") is True
+        and edit.get("validation_status") != "validated_by_model_or_tool"
+    )
+
+
+def _state_has_unvalidated_scaffolded_membership_edit(state: Any) -> bool:
+    return any(
+        _evidence_record_has_unvalidated_scaffolded_membership_edit(record)
+        for record in getattr(state, "evidence_log", [])
+        if isinstance(record, EvidenceRecord)
+    )
+
+
+def _branch_has_fresh_non_scaffold_tool_evidence(branch: CandidateBranch) -> bool:
+    if branch.actor_step.tool_action is None:
+        return False
+    if not _observation_is_valid_evidence(branch.observation):
+        return False
+    provenance = branch.observation.provenance if branch.observation is not None else {}
+    return not isinstance(provenance.get("deterministic_membership_edit"), dict)
 
 
 def _enforce_exact_membership_nonterminal(
@@ -6665,6 +6818,66 @@ def _enforce_exact_membership_nonterminal(
     branch.metadata["exact_membership_nonterminal_override"] = {
         "applied": True,
         "reason": reason,
+        "original_continuation_decision": ContinuationState.STOP.value,
+        "original_termination_reason": original_termination_reason,
+        "replacement_continuation_decision": ContinuationState.CONTINUE.value,
+        "remaining_budget": updated_state.remaining_budget,
+    }
+    return branch
+
+
+def _enforce_scaffolded_membership_validation_nonterminal(
+    task_row: dict[str, Any],
+    branch: CandidateBranch,
+) -> CandidateBranch:
+    """Require fresh evidence before stopping after a deterministic edit scaffold."""
+
+    task_type = str(task_row.get("task_type", ""))
+    if task_type not in {"recovery", "refinement"}:
+        return branch
+
+    verifier_step = branch.verifier_step
+    updated_state = verifier_step.updated_state
+    if updated_state.remaining_budget <= 0:
+        return branch
+    if verifier_step.continuation_decision != ContinuationState.STOP:
+        return branch
+    if not _state_has_unvalidated_scaffolded_membership_edit(updated_state):
+        return branch
+    if _branch_has_fresh_non_scaffold_tool_evidence(branch):
+        branch.metadata["scaffolded_membership_edit_validation"] = {
+            "validated_by_current_tool_observation": True,
+            "tool_name": branch.actor_step.tool_action.tool_name
+            if branch.actor_step.tool_action is not None
+            else None,
+            "remaining_budget": updated_state.remaining_budget,
+        }
+        return branch
+
+    original_termination_reason = (
+        updated_state.termination_reason.value
+        if updated_state.termination_reason is not None
+        else None
+    )
+    updated_state = set_continuation_state(
+        updated_state,
+        ContinuationState.CONTINUE,
+        termination_reason=None,
+    )
+    notes = verifier_step.verifier_notes.strip()
+    override_note = (
+        "Controller override: deterministic_membership_edit requires fresh "
+        "non-scaffold tool evidence before terminal recovery/refinement stop."
+    )
+    branch.verifier_step = VerifierStep(
+        updated_interpretation=verifier_step.updated_interpretation,
+        updated_state=updated_state,
+        continuation_decision=ContinuationState.CONTINUE,
+        verifier_notes=f"{notes} {override_note}".strip(),
+    )
+    branch.metadata["scaffolded_membership_validation_nonterminal_override"] = {
+        "applied": True,
+        "reason": "unvalidated_deterministic_membership_edit",
         "original_continuation_decision": ContinuationState.STOP.value,
         "original_termination_reason": original_termination_reason,
         "replacement_continuation_decision": ContinuationState.CONTINUE.value,
@@ -7078,9 +7291,15 @@ class TrajectoryGenerationConfig:
     pair_mining_strategy: str = "score_margin"
     tool_coverage_retry_count: int = 0
     recovery_rwr_top_k: int = DEFAULT_RECOVERY_RWR_TOP_K
+    rwr_result_preview_limit: int = DEFAULT_PROMPT_RWR_RESULT_PREVIEW_LIMIT
+    rwr_non_seed_preview_limit: int = DEFAULT_PROMPT_RWR_NON_SEED_PREVIEW_LIMIT
+    rwr_non_seed_id_preview_limit: int = DEFAULT_PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT
+    tool_reference_gene_limit: int = DEFAULT_PROMPT_TOOL_REFERENCE_GENE_LIMIT
     membership_edit_branches: str = DEFAULT_MEMBERSHIP_EDIT_BRANCHES
     membership_edit_top_k: int = DEFAULT_MEMBERSHIP_EDIT_TOP_K
     membership_edit_max_cumulative_additions: int = DEFAULT_MEMBERSHIP_EDIT_MAX_CUMULATIVE_ADDITIONS
+    membership_edit_max_combination_additions: int = DEFAULT_MEMBERSHIP_EDIT_MAX_COMBINATION_ADDITIONS
+    membership_edit_max_combination_branches: int = DEFAULT_MEMBERSHIP_EDIT_MAX_COMBINATION_BRANCHES
     membership_edit_max_drop_pairs: int = DEFAULT_MEMBERSHIP_EDIT_MAX_DROP_PAIRS
 
     def __post_init__(self) -> None:
@@ -7108,6 +7327,14 @@ class TrajectoryGenerationConfig:
             raise ValueError("tool_coverage_retry_count must be non-negative.")
         if self.recovery_rwr_top_k <= 0:
             raise ValueError("recovery_rwr_top_k must be positive.")
+        if self.rwr_result_preview_limit <= 0:
+            raise ValueError("rwr_result_preview_limit must be positive.")
+        if self.rwr_non_seed_preview_limit <= 0:
+            raise ValueError("rwr_non_seed_preview_limit must be positive.")
+        if self.rwr_non_seed_id_preview_limit <= 0:
+            raise ValueError("rwr_non_seed_id_preview_limit must be positive.")
+        if self.tool_reference_gene_limit <= 0:
+            raise ValueError("tool_reference_gene_limit must be positive.")
         if self.membership_edit_branches not in MEMBERSHIP_EDIT_BRANCH_MODES:
             allowed = ", ".join(MEMBERSHIP_EDIT_BRANCH_MODES)
             raise ValueError(f"membership_edit_branches must be one of: {allowed}.")
@@ -7115,8 +7342,24 @@ class TrajectoryGenerationConfig:
             raise ValueError("membership_edit_top_k must be positive.")
         if self.membership_edit_max_cumulative_additions <= 0:
             raise ValueError("membership_edit_max_cumulative_additions must be positive.")
+        if self.membership_edit_max_combination_additions < 0:
+            raise ValueError("membership_edit_max_combination_additions must be non-negative.")
+        if self.membership_edit_max_combination_branches < 0:
+            raise ValueError("membership_edit_max_combination_branches must be non-negative.")
         if self.membership_edit_max_drop_pairs < 0:
             raise ValueError("membership_edit_max_drop_pairs must be non-negative.")
+
+
+def _apply_prompt_preview_config(config: TrajectoryGenerationConfig) -> None:
+    global PROMPT_RWR_RESULT_PREVIEW_LIMIT
+    global PROMPT_RWR_NON_SEED_PREVIEW_LIMIT
+    global PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT
+    global PROMPT_TOOL_REFERENCE_GENE_LIMIT
+
+    PROMPT_RWR_RESULT_PREVIEW_LIMIT = config.rwr_result_preview_limit
+    PROMPT_RWR_NON_SEED_PREVIEW_LIMIT = config.rwr_non_seed_preview_limit
+    PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT = config.rwr_non_seed_id_preview_limit
+    PROMPT_TOOL_REFERENCE_GENE_LIMIT = config.tool_reference_gene_limit
 
 
 class ProgressTracker:
@@ -7733,6 +7976,8 @@ def generate_task_trajectory(
                     prior_actions=prior_actions,
                     top_k=config.membership_edit_top_k,
                     max_cumulative_additions=config.membership_edit_max_cumulative_additions,
+                    max_combination_additions=config.membership_edit_max_combination_additions,
+                    max_combination_branches=config.membership_edit_max_combination_branches,
                     max_drop_pairs=config.membership_edit_max_drop_pairs,
                 )
             )
@@ -7843,6 +8088,7 @@ def generate_trajectories(
 ) -> dict[str, Any]:
     """Generate trajectories for a task list and write the run artifacts."""
 
+    _apply_prompt_preview_config(config)
     out_dir.mkdir(parents=True, exist_ok=True)
     progress_tracker = ProgressTracker(progress_path or (out_dir / DEFAULT_PROGRESS_FILENAME), TRAJECTORY_STAGES)
 
@@ -8051,10 +8297,20 @@ def generate_trajectories(
                 "pair_mining_strategy": config.pair_mining_strategy,
                 "tool_coverage_retry_count": config.tool_coverage_retry_count,
                 "recovery_rwr_top_k": config.recovery_rwr_top_k,
+                "rwr_result_preview_limit": config.rwr_result_preview_limit,
+                "rwr_non_seed_preview_limit": config.rwr_non_seed_preview_limit,
+                "rwr_non_seed_id_preview_limit": config.rwr_non_seed_id_preview_limit,
+                "tool_reference_gene_limit": config.tool_reference_gene_limit,
                 "membership_edit_branches": config.membership_edit_branches,
                 "membership_edit_top_k": config.membership_edit_top_k,
                 "membership_edit_max_cumulative_additions": (
                     config.membership_edit_max_cumulative_additions
+                ),
+                "membership_edit_max_combination_additions": (
+                    config.membership_edit_max_combination_additions
+                ),
+                "membership_edit_max_combination_branches": (
+                    config.membership_edit_max_combination_branches
                 ),
                 "membership_edit_max_drop_pairs": config.membership_edit_max_drop_pairs,
             },
@@ -8453,6 +8709,30 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--rwr-result-preview-limit",
+        type=int,
+        default=DEFAULT_PROMPT_RWR_RESULT_PREVIEW_LIMIT,
+        help="Number of ranked RWR rows kept in compact prompt/evidence payloads.",
+    )
+    parser.add_argument(
+        "--rwr-non-seed-preview-limit",
+        type=int,
+        default=DEFAULT_PROMPT_RWR_NON_SEED_PREVIEW_LIMIT,
+        help="Number of non-seed RWR rows shown with rank/score in verifier prompts.",
+    )
+    parser.add_argument(
+        "--rwr-non-seed-id-preview-limit",
+        type=int,
+        default=DEFAULT_PROMPT_RWR_NON_SEED_ID_PREVIEW_LIMIT,
+        help="Number of ranked non-seed RWR ids exposed to prompts and tool argument references.",
+    )
+    parser.add_argument(
+        "--tool-reference-gene-limit",
+        type=int,
+        default=DEFAULT_PROMPT_TOOL_REFERENCE_GENE_LIMIT,
+        help="Maximum candidate_gene_ids exposed in actor tool-argument references.",
+    )
+    parser.add_argument(
         "--membership-edit-branches",
         choices=MEMBERSHIP_EDIT_BRANCH_MODES,
         default=DEFAULT_MEMBERSHIP_EDIT_BRANCHES,
@@ -8472,6 +8752,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=DEFAULT_MEMBERSHIP_EDIT_MAX_CUMULATIVE_ADDITIONS,
         help="Maximum top-k cumulative additions synthesized for recovery edit branches.",
+    )
+    parser.add_argument(
+        "--membership-edit-max-combination-additions",
+        type=int,
+        default=DEFAULT_MEMBERSHIP_EDIT_MAX_COMBINATION_ADDITIONS,
+        help="Maximum add-combination size for recovery edit-search beams. Use 0 to disable.",
+    )
+    parser.add_argument(
+        "--membership-edit-max-combination-branches",
+        type=int,
+        default=DEFAULT_MEMBERSHIP_EDIT_MAX_COMBINATION_BRANCHES,
+        help="Maximum non-prefix recovery add-combination branches synthesized per source observation.",
     )
     parser.add_argument(
         "--membership-edit-max-drop-pairs",
@@ -8615,9 +8907,15 @@ def main() -> None:
         pair_mining_strategy=args.pair_mining_strategy,
         tool_coverage_retry_count=args.tool_coverage_retry_count,
         recovery_rwr_top_k=args.recovery_rwr_top_k,
+        rwr_result_preview_limit=args.rwr_result_preview_limit,
+        rwr_non_seed_preview_limit=args.rwr_non_seed_preview_limit,
+        rwr_non_seed_id_preview_limit=args.rwr_non_seed_id_preview_limit,
+        tool_reference_gene_limit=args.tool_reference_gene_limit,
         membership_edit_branches=args.membership_edit_branches,
         membership_edit_top_k=args.membership_edit_top_k,
         membership_edit_max_cumulative_additions=args.membership_edit_max_cumulative_additions,
+        membership_edit_max_combination_additions=args.membership_edit_max_combination_additions,
+        membership_edit_max_combination_branches=args.membership_edit_max_combination_branches,
         membership_edit_max_drop_pairs=args.membership_edit_max_drop_pairs,
     )
     model_generator_config = None

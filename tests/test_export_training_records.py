@@ -152,6 +152,27 @@ class ExportTrainingRecordsTests(unittest.TestCase):
             _write_jsonl(run_dir / "preference_pairs_raw.jsonl", [pair.to_dict()])
             _write_jsonl(run_dir / "branch_pools.jsonl", [{"trajectory_id": "traj_export", "branches": []}])
             _write_jsonl(
+                run_dir / "trajectory_turns.jsonl",
+                [
+                    {
+                        "trajectory_id": "traj_recovery_positive",
+                        "branch": {"branch_id": "normal_terminal", "metadata": {}},
+                    },
+                    {
+                        "trajectory_id": "traj_recovery_scaffolded",
+                        "branch": {
+                            "branch_id": "scaffold_terminal",
+                            "metadata": {
+                                "deterministic_membership_edit": {
+                                    "requires_model_validation": True,
+                                    "validation_status": "pending_model_or_tool_validation",
+                                }
+                            },
+                        },
+                    },
+                ],
+            )
+            _write_jsonl(
                 run_dir / "final_summaries.jsonl",
                 [
                     {
@@ -159,13 +180,23 @@ class ExportTrainingRecordsTests(unittest.TestCase):
                         "source_task_id": "recovery_positive",
                         "task_type": "recovery",
                         "task_success_level": "positive",
+                        "selected_branch_ids": ["normal_terminal"],
                         "rendered_summary": "Recovered the exact module.",
+                    },
+                    {
+                        "trajectory_id": "traj_recovery_scaffolded",
+                        "source_task_id": "recovery_scaffolded",
+                        "task_type": "recovery",
+                        "task_success_level": "positive",
+                        "selected_branch_ids": ["scaffold_terminal"],
+                        "rendered_summary": "Controller scaffold found the exact module.",
                     },
                     {
                         "trajectory_id": "traj_refinement_partial",
                         "source_task_id": "refinement_partial",
                         "task_type": "refinement",
                         "task_success_level": "partial",
+                        "selected_branch_ids": ["partial_terminal"],
                         "rendered_summary": "Partially refined the module.",
                     },
                     {
@@ -182,6 +213,7 @@ class ExportTrainingRecordsTests(unittest.TestCase):
 
             self.assertEqual(manifest["dpo_record_count"], 1)
             self.assertEqual(manifest["sft_record_count"], 1)
+            self.assertEqual(manifest["sft_scaffolded_membership_edit_excluded_count"], 1)
             dpo_records = _read_jsonl(out_dir / "dpo_records.jsonl")
             self.assertEqual(dpo_records[0]["metadata"]["pair_category"], "exact_over_partial")
             self.assertEqual(dpo_records[0]["metadata"]["score_margin"], 0.0)
@@ -197,6 +229,7 @@ class ExportTrainingRecordsTests(unittest.TestCase):
                 include_partial=True,
             )
             self.assertEqual(partial_manifest["sft_record_count"], 2)
+            self.assertEqual(partial_manifest["sft_scaffolded_membership_edit_excluded_count"], 1)
 
 
 if __name__ == "__main__":

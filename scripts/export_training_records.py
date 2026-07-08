@@ -149,6 +149,60 @@ def _eligible_sft_summary(row: dict[str, Any], *, include_partial: bool) -> bool
     return include_partial and str(row.get("task_success_level")) == "partial"
 
 
+def _branch_metadata_from_turn(row: dict[str, Any]) -> tuple[str | None, str | None, dict[str, Any]]:
+    trajectory_id = row.get("trajectory_id")
+    branch = row.get("branch")
+    if not isinstance(branch, dict):
+        return (trajectory_id if isinstance(trajectory_id, str) else None, None, {})
+    branch_id = branch.get("branch_id")
+    metadata = branch.get("metadata")
+    return (
+        trajectory_id if isinstance(trajectory_id, str) else None,
+        branch_id if isinstance(branch_id, str) else None,
+        metadata if isinstance(metadata, dict) else {},
+    )
+
+
+def _metadata_is_scaffolded_membership_edit(metadata: dict[str, Any]) -> bool:
+    edit = metadata.get("deterministic_membership_edit")
+    return (
+        isinstance(edit, dict)
+        and (
+            edit.get("requires_model_validation") is True
+            or metadata.get("scaffolded_membership_edit_requires_validation") is True
+        )
+    )
+
+
+def _scaffolded_selected_branch_ids_by_trajectory(run_dir: Path) -> dict[str, set[str]]:
+    path = run_dir / "trajectory_turns.jsonl"
+    if not path.exists():
+        return {}
+    branch_ids_by_trajectory: dict[str, set[str]] = {}
+    for row in _iter_jsonl(path):
+        trajectory_id, branch_id, metadata = _branch_metadata_from_turn(row)
+        if trajectory_id is None or branch_id is None:
+            continue
+        if _metadata_is_scaffolded_membership_edit(metadata):
+            branch_ids_by_trajectory.setdefault(trajectory_id, set()).add(branch_id)
+    return branch_ids_by_trajectory
+
+
+def _summary_ends_on_scaffolded_membership_edit(
+    row: dict[str, Any],
+    scaffolded_branch_ids_by_trajectory: dict[str, set[str]],
+) -> bool:
+    trajectory_id = row.get("trajectory_id")
+    if not isinstance(trajectory_id, str):
+        return False
+    scaffolded_branch_ids = scaffolded_branch_ids_by_trajectory.get(trajectory_id, set())
+    selected_branch_ids = row.get("selected_branch_ids")
+    if not isinstance(selected_branch_ids, list) or not selected_branch_ids:
+        return False
+    terminal_branch_id = selected_branch_ids[-1]
+    return isinstance(terminal_branch_id, str) and terminal_branch_id in scaffolded_branch_ids
+
+
 def export_training_records(
     run_dir: Path,
     out_dir: Path | None = None,
@@ -169,10 +223,21 @@ def export_training_records(
     pairs = _load_valid_pairs(run_dir / "preference_pairs.jsonl")
     dpo_records = [render_dpo_record(pair) for pair in pairs]
     summaries = _iter_jsonl(run_dir / "final_summaries.jsonl")
-    sft_records = [
-        _sft_record_from_summary(row)
+    scaffolded_branch_ids_by_trajectory = _scaffolded_selected_branch_ids_by_trajectory(run_dir)
+    sft_eligible_summaries = [
+        row
         for row in summaries
         if _eligible_sft_summary(row, include_partial=include_partial)
+    ]
+    sft_scaffolded_excluded_count = sum(
+        1
+        for row in sft_eligible_summaries
+        if _summary_ends_on_scaffolded_membership_edit(row, scaffolded_branch_ids_by_trajectory)
+    )
+    sft_records = [
+        _sft_record_from_summary(row)
+        for row in sft_eligible_summaries
+        if not _summary_ends_on_scaffolded_membership_edit(row, scaffolded_branch_ids_by_trajectory)
     ]
 
     dpo_path = out_dir / "dpo_records.jsonl"
@@ -188,6 +253,7 @@ def export_training_records(
         "include_partial_sft": include_partial,
         "dpo_record_count": len(dpo_records),
         "sft_record_count": len(sft_records),
+        "sft_scaffolded_membership_edit_excluded_count": sft_scaffolded_excluded_count,
         "outputs": {
             "dpo_records": str(dpo_path),
             "sft_exact_trajectories": str(sft_path),

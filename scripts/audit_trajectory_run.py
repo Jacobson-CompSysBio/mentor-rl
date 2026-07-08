@@ -59,6 +59,9 @@ POSITIVE_TASK_SUCCESS_THRESHOLDS = {
 EXACT_MEMBERSHIP_PAIR_CATEGORIES = frozenset(
     {"exact_recovery", "exact_refinement", "exact_over_partial"}
 )
+SCAFFOLDED_EXACT_PAIR_CATEGORIES = frozenset(
+    {"scaffolded_exact_recovery", "scaffolded_exact_refinement"}
+)
 CONTEXT_LIMIT_RE = re.compile(
     r"maximum context length is (?P<limit>\d+) tokens.*request has (?P<input>\d+) input tokens",
     re.IGNORECASE,
@@ -634,6 +637,34 @@ def _branch_has_successful_rwr_hpc_observation(branch_payload: dict[str, Any]) -
     return _observation_status(_branch_observation(branch_payload)) == "success"
 
 
+def _branch_metadata(branch_payload: dict[str, Any]) -> dict[str, Any]:
+    metadata = branch_payload.get("metadata")
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _branch_scaffolded_membership_edit(branch_payload: dict[str, Any]) -> bool:
+    metadata = _branch_metadata(branch_payload)
+    edit = metadata.get("deterministic_membership_edit")
+    return (
+        isinstance(edit, dict)
+        and (
+            edit.get("requires_model_validation") is True
+            or metadata.get("scaffolded_membership_edit_requires_validation") is True
+        )
+    )
+
+
+def _branch_scaffolded_exact_membership(branch_payload: dict[str, Any]) -> bool:
+    metadata = _branch_metadata(branch_payload)
+    return (
+        _branch_scaffolded_membership_edit(branch_payload)
+        and (
+            metadata.get("scaffolded_exact_membership") is True
+            or _branch_membership_metrics_exact(branch_payload)
+        )
+    )
+
+
 def _predicted_gene_count(branch_payload: dict[str, Any]) -> int:
     state = branch_payload.get("verifier_step", {}).get("updated_state", {})
     groups = state.get("predicted_groups") if isinstance(state, dict) else None
@@ -713,6 +744,10 @@ def _audit_branch_pools(rows: list[dict[str, Any]], report: AuditReport, config:
     membership_metrics_exact_count = 0
     membership_metrics_exact_mismatch_count = 0
     membership_metrics_exact_mismatch_by_task: Counter[str] = Counter()
+    scaffolded_membership_edit_branch_count = 0
+    scaffolded_exact_membership_branch_count = 0
+    selected_scaffolded_membership_edit_branch_count = 0
+    selected_scaffolded_exact_membership_branch_count = 0
     task_quality_outside_score_window_count = 0
     task_quality_outside_score_window_gap_max = 0.0
     all_tie_count = 0
@@ -801,8 +836,18 @@ def _audit_branch_pools(rows: list[dict[str, Any]], report: AuditReport, config:
                 generator_error_count += len(errors)
             if branch.metadata.get("generator_backend") == "heuristic_fallback":
                 fallback_branch_count += 1
+            scaffolded_edit = _branch_scaffolded_membership_edit(branch_payload)
+            scaffolded_exact = _branch_scaffolded_exact_membership(branch_payload)
+            if scaffolded_edit:
+                scaffolded_membership_edit_branch_count += 1
+            if scaffolded_exact:
+                scaffolded_exact_membership_branch_count += 1
             if branch.branch_id == selected_branch_id:
                 selected_branch = branch_payload
+                if scaffolded_edit:
+                    selected_scaffolded_membership_edit_branch_count += 1
+                if scaffolded_exact:
+                    selected_scaffolded_exact_membership_branch_count += 1
 
         if not scores or len(normalized_scores) != len(scores):
             continue
@@ -993,6 +1038,10 @@ def _audit_branch_pools(rows: list[dict[str, Any]], report: AuditReport, config:
             "branch_membership_metrics_exact_mismatch_by_task": _counter_to_sorted_dict(
                 membership_metrics_exact_mismatch_by_task
             ),
+            "scaffolded_membership_edit_branch_count": scaffolded_membership_edit_branch_count,
+            "scaffolded_exact_membership_branch_count": scaffolded_exact_membership_branch_count,
+            "selected_scaffolded_membership_edit_branch_count": selected_scaffolded_membership_edit_branch_count,
+            "selected_scaffolded_exact_membership_branch_count": selected_scaffolded_exact_membership_branch_count,
             "task_quality_outside_score_window_count": task_quality_outside_score_window_count,
             "task_quality_outside_score_window_gap_max": task_quality_outside_score_window_gap_max,
             "selected_gene_count_distribution": _counter_to_sorted_dict(selected_gene_counts),
@@ -1381,6 +1430,7 @@ def _audit_preference_pairs(
     decision_step_counts: Counter[int] = Counter()
     pair_step_keys: set[tuple[str, int]] = set()
     exact_membership_pair_count = 0
+    scaffolded_exact_pair_count = 0
     rwr_hpc_pair_count = 0
     rwr_hpc_supported_pair_count = 0
     margins: list[float] = []
@@ -1397,8 +1447,16 @@ def _audit_preference_pairs(
         category = pair.provenance.get("pair_category", "score_margin")
         if not isinstance(category, str) or not category:
             category = "score_margin"
-        exact_membership_pair = category in EXACT_MEMBERSHIP_PAIR_CATEGORIES or (
-            pair.provenance.get("chosen_exact_membership") is True
+        scaffolded_exact_pair = category in SCAFFOLDED_EXACT_PAIR_CATEGORIES or (
+            pair.provenance.get("chosen_scaffolded_exact_membership") is True
+            and pair.provenance.get("rejected_scaffolded_exact_membership") is not True
+        )
+        exact_membership_pair = (
+            not scaffolded_exact_pair
+            and category in EXACT_MEMBERSHIP_PAIR_CATEGORIES
+        ) or (
+            not scaffolded_exact_pair
+            and pair.provenance.get("chosen_exact_membership") is True
             and pair.provenance.get("rejected_exact_membership") is not True
         )
         reversed_score_allowed = (
@@ -1433,6 +1491,8 @@ def _audit_preference_pairs(
         pair_category_counts_by_task[f"{pair.task_type.value}/{category}"] += 1
         if exact_membership_pair:
             exact_membership_pair_count += 1
+        if scaffolded_exact_pair:
+            scaffolded_exact_pair_count += 1
         pair_tool_counts[f"{pair.provenance.get('chosen_tool_name', 'unknown')}->{pair.provenance.get('rejected_tool_name', 'unknown')}"] += 1
         chosen_payload = row.get("chosen") if isinstance(row.get("chosen"), dict) else pair.chosen.to_dict()
         rejected_payload = row.get("rejected") if isinstance(row.get("rejected"), dict) else pair.rejected.to_dict()
@@ -1494,6 +1554,9 @@ def _audit_preference_pairs(
         )
         exact_membership_pair_rate = (
             exact_membership_pair_count / total_pairs if total_pairs else 0.0
+        )
+        scaffolded_exact_pair_rate = (
+            scaffolded_exact_pair_count / total_pairs if total_pairs else 0.0
         )
 
         if (
@@ -1586,6 +1649,8 @@ def _audit_preference_pairs(
                 "step0_pair_rate": step0_pair_rate,
                 "exact_membership_pair_count": exact_membership_pair_count,
                 "exact_membership_pair_rate": exact_membership_pair_rate,
+                "scaffolded_exact_pair_count": scaffolded_exact_pair_count,
+                "scaffolded_exact_pair_rate": scaffolded_exact_pair_rate,
                 "rwr_hpc_pair_count": rwr_hpc_pair_count,
                 "rwr_hpc_supported_pair_count": rwr_hpc_supported_pair_count,
                 "rwr_hpc_supported_pair_rate": rwr_hpc_supported_pair_rate,
@@ -1599,6 +1664,8 @@ def _audit_preference_pairs(
             {
                 "raw_preference_pair_count": len(rows),
                 "raw_preference_pair_bins": {f"{task_type}/{difficulty}": count for (task_type, difficulty), count in sorted(pair_bins.items())},
+                "raw_exact_membership_pair_count": exact_membership_pair_count,
+                "raw_scaffolded_exact_pair_count": scaffolded_exact_pair_count,
                 "raw_rwr_hpc_pair_count": rwr_hpc_pair_count,
                 "raw_rwr_hpc_supported_pair_count": rwr_hpc_supported_pair_count,
             }
@@ -1752,6 +1819,9 @@ def _print_human(report: AuditReport) -> None:
         "terminal_membership_metrics_exact_mismatch_count",
         "branch_membership_metrics_exact_count",
         "branch_membership_metrics_exact_mismatch_count",
+        "scaffolded_membership_edit_branch_count",
+        "scaffolded_exact_membership_branch_count",
+        "selected_scaffolded_exact_membership_branch_count",
         "terminal_jaccard_mean",
         "selected_no_tool_rate",
         "positive_selected_no_tool_rate",
@@ -1763,6 +1833,7 @@ def _print_human(report: AuditReport) -> None:
         "rwr_hpc_cache_hit_rate",
         "recovery_expansion_pair_rate",
         "exact_membership_pair_rate",
+        "scaffolded_exact_pair_rate",
         "tool_supported_pair_rate",
         "rwr_hpc_supported_pair_rate",
         "mechanism_label_only_pair_rate",
