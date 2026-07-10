@@ -41,6 +41,19 @@ def _create_inference_accelerator(config_path: Optional[str] = None):
     return Accelerator(deepspeed_plugin=ds_inference_plugin), hf_ds_config
 
 
+def _context_limit(model, tokenizer, max_total_tokens: Optional[int]) -> Optional[int]:
+    if max_total_tokens is not None and max_total_tokens > 0:
+        return max_total_tokens
+    for value in (
+        getattr(getattr(model, "config", None), "max_position_embeddings", None),
+        getattr(getattr(model, "config", None), "n_positions", None),
+        getattr(tokenizer, "model_max_length", None),
+    ):
+        if isinstance(value, int) and 0 < value < 1_000_000:
+            return value
+    return None
+
+
 def infer(
     model,
     tokenizer,
@@ -50,6 +63,10 @@ def infer(
     max_new_tokens=50,
     temperature=0.7,
     top_p=0.9,
+    do_sample=True,
+    max_total_tokens: Optional[int] = None,
+    enable_thinking: bool = True,
+    reasoning_effort: Optional[str] = "low",
     return_indices=False,
     prepare_model=False,
 ):
@@ -78,21 +95,35 @@ def infer(
         dataloader = inference_accelerator.prepare(dataloader)
 
     results = []
+    context_limit = _context_limit(inference_model, tokenizer, max_total_tokens)
     with torch.no_grad():
         for _, example in enumerate(dataloader):
             formatted = format_fn(example)
             inputs = tokenizer(formatted, return_tensors="pt").to(inference_accelerator.device)
             input_len = inputs["input_ids"].shape[1]
+            safe_max_new_tokens = max_new_tokens
+            if context_limit is not None:
+                room = context_limit - input_len
+                if room <= 0:
+                    keep_tokens = max(1, context_limit - 1)
+                    inputs = {key: value[:, -keep_tokens:] for key, value in inputs.items()}
+                    input_len = inputs["input_ids"].shape[1]
+                    room = max(1, context_limit - input_len)
+                safe_max_new_tokens = max(1, min(max_new_tokens, room))
 
-            output = inference_model.generate(
+            generate_kwargs = {
                 **inputs,
-                max_new_tokens=max_new_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                do_sample=True,
-                eos_token_id=tokenizer.eos_token_id,
-                synced_gpus=True,
-            )
+                "max_new_tokens": safe_max_new_tokens,
+                "do_sample": do_sample,
+                "eos_token_id": tokenizer.eos_token_id,
+                "pad_token_id": tokenizer.pad_token_id,
+                "synced_gpus": inference_accelerator.num_processes > 1,
+            }
+            if do_sample:
+                generate_kwargs["temperature"] = temperature
+                generate_kwargs["top_p"] = top_p
+
+            output = inference_model.generate(**generate_kwargs)
 
             new_ids = output[0][input_len:]
             text = tokenizer.decode(new_ids, skip_special_tokens=True)
@@ -139,6 +170,22 @@ class InferenceArguments:
         default=0.9,
         metadata={"help": "Top-p nucleus sampling value for generation."},
     )
+    do_sample: bool = field(
+        default=True,
+        metadata={"help": "Sample during generation. Set False for deterministic holdout-style generation."},
+    )
+    max_total_tokens: Optional[int] = field(
+        default=None,
+        metadata={"help": "Optional hard cap on prompt tokens plus generated tokens."},
+    )
+    enable_thinking: bool = field(
+        default=True,
+        metadata={"help": "Use the model's thinking-capable generation prompt when supported by the chat template."},
+    )
+    reasoning_effort: Optional[str] = field(
+        default="low",
+        metadata={"help": "Reasoning effort passed to chat templates that support it."},
+    )
     deepspeed_config: Optional[str] = field(
         default=None,
         metadata={"help": "Path to the DeepSpeed ZeRO-3 inference config."},
@@ -167,7 +214,12 @@ def run_inference(args: InferenceArguments):
         tokenizer.pad_token = tokenizer.eos_token
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
-    format_fn = build_formatting_func(tokenizer, train=False)
+    format_fn = build_formatting_func(
+        tokenizer,
+        train=False,
+        enable_thinking=args.enable_thinking,
+        reasoning_effort=args.reasoning_effort,
+    )
 
     dataset = load_dataset("json", data_files=args.dataset_path, split="train")
 
@@ -197,6 +249,10 @@ def run_inference(args: InferenceArguments):
         max_new_tokens=args.max_new_tokens,
         temperature=args.temperature,
         top_p=args.top_p,
+        do_sample=args.do_sample,
+        max_total_tokens=args.max_total_tokens,
+        enable_thinking=args.enable_thinking,
+        reasoning_effort=args.reasoning_effort,
         return_indices=True,
         prepare_model=True,
     )

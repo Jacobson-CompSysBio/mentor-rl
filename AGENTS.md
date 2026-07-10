@@ -66,6 +66,186 @@ first acceptance target for recovery/refinement. See the `Exact-Membership
 Solution Exploration` section below for the diagnosis-first plan and the tiered
 solution directions to explore.
 
+## Pre-Trajectory Multiplex SFT Direction
+
+The current SFT focus is pre-trajectory multiplex training, not SFT on the
+existing near-miss trajectory pool. Treat it as an upstream curriculum for a
+biological multiplex world model: the model should internalize entity identity,
+layer/schema conventions, local topology, global rank/distance structure,
+module set relationships, calibration negatives, and schema-valid tool use
+before later DPO or GRPO trajectory optimization. Keep richer free-form
+biological interpretation mostly for DPO/RL, where grounded and overclaiming
+answers can be compared under the same evidence context.
+
+The detailed source spec is `agents/MENTOR-RL SFT Spec.md`. Keep this section
+as the concise operational contract and update it when the spec or generator
+changes. This pre-trajectory SFT step does not replace exact-membership
+trajectory generation: downstream trajectory SFT/DPO still needs exact-positive,
+evidence-backed recovery/refinement branches and same-prefix rejected branches.
+
+### Source And Schema Contract
+
+For this curriculum, treat `data/gw_dendrogram_corpus_full_brain` as the
+MENTOR-EV module source and `data/rwr_loe_corpus_full_brain` as the RWR-LOE
+module/rank source. The mixed corpus at `data/module_corpus_full_brain_mixed`
+can supply balanced task/module references, but generated SFT records must
+preserve the underlying source so MENTOR-EV dendrogram evidence is not blurred
+with RWR-LOE elbow/rank evidence.
+
+Use `data/runtime/full_brain_multiplex_store` and `data/full_brain_flist.tsv`
+as the active full-brain graph context unless a run explicitly declares another
+version. Exact graph claims must carry graph/store/flist identity and parser
+schema identity. Ensembl gene IDs are the canonical graph keys; gene symbols
+are display aliases. Ambiguous symbols must be resolved or rejected before any
+graph lookup.
+
+Every generated example should include standardized metadata, at minimum:
+`schema_version`, `book_mode` (`closed_book`, `open_book`, or `tool_call`),
+`question_family`, `multiplex_id`, `store_id`, `flist_id`, `layer_scope`,
+`layer_ids`, `layer_families`, `entity_namespace`, `module_source`,
+`answer_format`, and provenance/evidence handles when available.
+
+### Curriculum Stages
+
+Train in staged blocks rather than one undifferentiated QA pool:
+
+1. Closed-book entity/schema grounding: Ensembl-symbol alignment, canonical
+   entity strings, multiplex IDs, layer tags, module IDs, rank/distance
+   conventions, and graph-version tags.
+2. Closed-book atlas priors: layer families, module-source distinctions,
+   topology vocabulary, evidence calibration rules, and negative/absence
+   language.
+3. Open-book table/vector/matrix QA: exact extraction and comparison from
+   neighbor tables, edge tables, RWR-LOE rank vectors, distance-matrix shards,
+   module tables, and provenance records.
+4. Global module and cohesion QA: MENTOR-EV/RWR-LOE membership, set algebra,
+   overlap/containment, dendrogram parent-child relations, within-vs-random
+   cohesion, clustering ratio, density, conductance, and cell-type/layer
+   specificity.
+5. Structured tool-call SFT: choose and format model-facing graph/RWR tools
+   using biological arguments, parse compact tool observations, refuse raw
+   CLI/file-path arguments, and update structured candidate state from evidence.
+
+### Required Question Families
+
+The generator should cover all of these families with exact, validator-checkable
+answers. Closed-book rows are appropriate only for selected stable facts; most
+global facts should also have open-book or tool-observation variants.
+
+- Entity normalization and alignment: symbol to Ensembl ID, Ensembl ID to
+  symbol, ambiguous alias handling, cross-context identity checks between rank
+  vectors, module tables, and graph shards.
+- Multiplex and layer metadata: multiplex identifier parsing, layer tag
+  parsing, layer-family classification, layer membership for a gene, and nodes
+  present or absent in a layer.
+- Local topology: monoplex and multiplex edge existence, edge payloads, direct
+  neighbors by layer, unique multiplex neighbors with neighbor-to-layer maps,
+  monoplex and aggregate shortest paths, path layer decomposition,
+  monoplex-vs-multiplex comparisons, induced subgraphs, connected components,
+  shared/common neighbors, degree/hub-bias, and layer-specific claim
+  calibration.
+- RWR-LOE rank/vector QA: rank and score lookup, pairwise candidate comparison
+  within one rank vector, closest non-seed entities, query-gene filtering,
+  elbow cutoff membership, rank-gap/elbow reasoning, top-k neighborhood
+  intersections/Jaccard, and leave-one-out support for refinement.
+- Sharded distance-matrix QA: pair lookup, row comparison, closest entities,
+  cross-shard routing, distance percentile calibration, and consistency checks
+  between rank vectors and distance-matrix context.
+- MENTOR-EV/RWR-LOE module set algebra: module membership, intersections, set
+  differences, subset/superset checks, near-subset violating genes, Jaccard,
+  containment coefficients, best-matching modules, ranked overlaps,
+  parent/child and sibling clades, multi-module intersections, source-specific
+  unique genes, module provenance, and set-overlap-vs-topological-distance
+  distinctions.
+- Global cohesion and null comparison: within-module distance, within-vs-random
+  empirical p-values, clustering ratio, layer density, conductance/boundary
+  ratio, cell-type-specific cohesion, layer-sensitive cohesion, and nearest
+  module lookup.
+- Calibration negatives: no edge/path, no direct edge with high RWR proximity,
+  gene absent from layer, target absent from top-k but not necessarily absent
+  from the full vector, hub-like proximity, layer-only support, insufficient
+  context, and phrase-only evidence that must not become `validated_group`.
+- Structured tool-call QA: choose tools such as `rwr`, `rwr_loe`, `get_rank`,
+  `get_distance`, `get_gene_layers`, `get_component_summary`,
+  `induce_subgraph`, and `get_layer_ablation`; parse returned rank/distance or
+  module-overlap observations; include provenance; and produce structured state
+  updates such as `predicted_groups`, `relationship_status`, evidence IDs, and
+  `continuation_state`.
+
+### Mixture Target
+
+Use the current spec mixture:
+
+- 8% entity normalization, Ensembl/gene-symbol alignment, and schema tags.
+- 10% multiplex identifiers, layer tags, layer membership, and layer metadata.
+- 12% edge existence, monoplex/multiplex neighbors, and local topology.
+- 8% shortest paths and path layer counts.
+- 10% induced subgraphs, components, shared neighbors, degree, and hubness.
+- 15% RWR-LOE rank/vector lookup, vector comparison, and distance-matrix QA.
+- 20% MENTOR-EV/RWR-LOE module set algebra: subsets, supersets,
+  intersections, overlap, and containment.
+- 10% global multiplex context, module cohesion, calibration negatives, and
+  null/random comparison.
+- 7% open-book/tool-call QA over structured tables, rank vectors, distance
+  shards, and provenance.
+
+### Current Implementation
+
+The active generator is `scripts/build_pretrajectory_sft_dataset.py` with
+`schema_version=pretrajectory-sft-v2`. It emits ordinary split files plus
+curriculum shards under `curriculum/<stage>/{train,val,test}.jsonl`, where
+stages are `stage1_entity_schema`, `stage2_topology_priors`,
+`stage3_open_book_vectors`, `stage4_module_world_model`,
+`stage5_structured_tools`, and `stage6_blend`.
+
+Use `--preset patchcheck` for a 10k/1k/1k validation corpus and
+`--preset full_1m` for a 1M/50k/50k target corpus. The current clean
+interactive artifact is `data/pretrajectory_sft/v4_patchcheck`, generated with
+three context modes and 32 sampled graph layers; its audit report has zero
+fatal errors and zero warnings. The all-layer/full-size generation path should
+be run as an HPC job rather than interactively.
+
+Use `scripts/audit_pretrajectory_sft_dataset.py` for dataset validation,
+`scripts/evaluate_pretrajectory_sft_predictions.py` for exact answer reports
+and HTML summaries, and `scripts/check_pretrajectory_sft_readiness.py` as the
+strict move-to-DPO gate. The training launcher
+`train_pretrajectory_sft_v1_medium_wandb.slurm` accepts
+`PRETRAJ_CURRICULUM_STAGE` to swap between stage shards without editing the
+launcher, and `AUTO_RESUME=1` plus a stable `PERSISTENT_OUTPUT_DIR` to resume
+from the latest checkpoint.
+
+### Oracle And Validation Rules
+
+Use deterministic graph oracles and existing MENTOR/RWR++ modules to produce
+labels. The LLM must not invent graph facts. Examples should render
+oracle-backed facts and rule-derived calibrations into JSON-like answers, not
+unvalidated prose.
+
+Required validators include entity resolution, edge validity, path validity,
+layer correctness, directionality correctness, graph-version consistency,
+rank/score correctness, distance-matrix lookup correctness, module set-algebra
+correctness, cohesion/null-statistic arithmetic, provenance completeness,
+tool-call schema validity, no hallucinated edges, no unsupported causal
+language, required caveat inclusion, and open-book faithfulness to the provided
+context.
+
+Keep these interpretation rules active:
+
+- High RWR/RWR-LOE support with weak direct evidence means network-proximal or
+  network-inferred support, not confirmed causality.
+- Candidate degree percentile above the recorded hub threshold adds a hub-bias
+  caveat.
+- Layer ablation or cell-type-specific cohesion adds a layer-sensitive or
+  context-specific caveat.
+- Coexpression-only or PEN-only evidence must not be described as direct
+  physical protein interaction.
+- Absence from a graph shard means "not recorded in this graph version and
+  layer scope," not "biologically impossible."
+- A target missing from top-k RWR results is only top-k absence unless the full
+  vector was checked.
+- String-only biological plausibility is not validation; exact graph facts,
+  set relations, vectors, matrices, and provenance should dominate SFT labels.
+
 ## Proposal Methodology Context
 
 The methods proposal in `shared_memory/methods_proposal.tex` is conceptual
@@ -77,9 +257,10 @@ truth. The key ideas to preserve are:
 - The runtime is deterministic and schema-grounded. Tools execute through
   structured interfaces, and rewards should come from verifiable state changes
   rather than proprietary judge models.
-- Warm-start SFT teaches schema-valid biological tool use, entity
-  normalization, annotation retrieval, literature-grounded extraction, and
-  evidence-to-finding generation.
+- Warm-start SFT now prioritizes schema-valid biological tool use, entity
+  normalization, graph/table/vector/matrix QA, module set algebra, and
+  evidence-backed structured state updates. Long free-form interpretation is
+  shaped later through DPO/RL under matched evidence contexts.
 - MENTOR-derived modules from a genome-wide dendrogram over the brain multiplex
   are the primary target source for current task and trajectory generation.
 - CORUM-grounded tasks were part of the proposal's original supervision plan,

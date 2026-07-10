@@ -10,20 +10,32 @@ SYSTEM_PROMPT = (
     "return the correct answer."
 )
 
-def build_formatting_func(tokenizer, train=True):
+def build_formatting_func(
+    tokenizer,
+    train=True,
+    *,
+    enable_thinking: bool | None = None,
+    reasoning_effort: str | None = None,
+):
     def _fmt(example):
+        system_prompt = example.get("system") or SYSTEM_PROMPT
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": example["question"]},
         ]
         if train:
             messages.append({"role": "assistant", "content": example["answer"]})
 
-        return tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=not train,
-        )
+        template_kwargs = {
+            "tokenize": False,
+            "add_generation_prompt": not train,
+        }
+        if not train and enable_thinking is not None:
+            template_kwargs["enable_thinking"] = enable_thinking
+        if reasoning_effort is not None:
+            template_kwargs["reasoning_effort"] = reasoning_effort
+
+        return tokenizer.apply_chat_template(messages, **template_kwargs)
 
     return _fmt
 
@@ -42,12 +54,29 @@ def make_run_name(script_args, peft_args, training_args, slurm_args):
     dataset_name = script_args.dataset_path.split("/")[-1].split(".")[0]
 
     # gbs
-    gbs = training_args.per_device_train_batch_size * training_args.gradient_accumulation_steps * slurm_args.nnodes
-    run_name = f"{model_name}-{dataset_name}-{peft_args.lora_r}lora-{gbs}gbs-{training_args.per_device_train_batch_size}mbs" \
-        f"-{slurm_args.nnodes}nodes-{slurm_args.timeout}timeout-" \
-        f"-{training_args.gradient_accumulation_steps}acc-{training_args.num_train_epochs}ep" \
-        f"-{training_args.learning_rate}lr"
-    return run_name
+    world_size = int(getattr(slurm_args, "ntasks", getattr(slurm_args, "nnodes", 1)))
+    gbs = training_args.per_device_train_batch_size * training_args.gradient_accumulation_steps * world_size
+    parts = [
+        model_name,
+        dataset_name,
+        f"{peft_args.lora_r}lora",
+        f"{gbs}gbs",
+        f"{training_args.per_device_train_batch_size}mbs",
+        f"{slurm_args.nnodes}nodes",
+        f"{world_size}ranks",
+        f"{slurm_args.timeout}timeout",
+        f"{training_args.gradient_accumulation_steps}acc",
+        f"{training_args.num_train_epochs}ep",
+        f"{training_args.learning_rate}lr",
+    ]
+    if training_args.max_steps and training_args.max_steps > 0:
+        parts.append(f"{training_args.max_steps}steps")
+    if script_args.dataset_subset_size:
+        parts.append(f"{script_args.dataset_subset_size}subset")
+    run_label = os.environ.get("MENTOR_RUN_LABEL")
+    if run_label:
+        parts.insert(0, run_label)
+    return "-".join(parts)
 
 def make_grpo_run_name(script_args, peft_args, grpo_args, slurm_args):
     """
