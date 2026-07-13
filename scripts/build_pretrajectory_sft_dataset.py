@@ -14,6 +14,7 @@ import hashlib
 import json
 import math
 import random
+import re
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -59,6 +60,17 @@ DEFAULT_BUCKET_WEIGHTS = {
     "calibration_global_context": 0.10,
     "tool_observation_state_updates": 0.07,
 }
+ANSWER_BUDGET_CONTRACT_VERSION = "pretrajectory-answer-budget-v1"
+PORTABLE_TOKEN_ESTIMATOR = "utf8_bytes_and_lexical_v1"
+DEFAULT_TRAINING_MAX_SEQUENCE_TOKENS = 1024
+DEFAULT_EVAL_MAX_ANSWER_TOKENS = 192
+DEFAULT_MAX_ANSWER_CHARACTERS = 4096
+DEFAULT_CHAT_TEMPLATE_OVERHEAD_TOKENS = 16
+DEFAULT_MIXTURE_CONTRACT_MIN_RECORDS = 1000
+DEFAULT_MIXTURE_ABSOLUTE_UNDERFILL_TOLERANCE = 0.01
+DEFAULT_MIXTURE_RELATIVE_UNDERFILL_TOLERANCE = 0.25
+DEFAULT_MIXTURE_UNDERFILL_POLICY = "fatal"
+MIXTURE_UNDERFILL_POLICIES = ("ignore", "warning", "fatal")
 CURRICULUM_STAGE_BY_BUCKET = {
     "entity_schema_grounding": "stage1_entity_schema",
     "multiplex_layer_metadata": "stage1_entity_schema",
@@ -199,6 +211,34 @@ class Candidate:
         return str(self.record["metadata"]["mixture_bucket"])
 
 
+@dataclass(frozen=True)
+class AnswerBudgetContract:
+    """Portable generation-time limits matching the current train/eval launchers.
+
+    The estimator intentionally has no tokenizer dependency. It is conservative
+    for JSON-heavy answers: punctuation counts as one token and long word-like
+    spans count in four-byte chunks. Exact model tokenization can still be run as
+    a downstream diagnostic, but records may not rely on it to pass this contract.
+    """
+
+    training_max_sequence_tokens: int = DEFAULT_TRAINING_MAX_SEQUENCE_TOKENS
+    eval_max_answer_tokens: int = DEFAULT_EVAL_MAX_ANSWER_TOKENS
+    max_answer_characters: int = DEFAULT_MAX_ANSWER_CHARACTERS
+    chat_template_overhead_tokens: int = DEFAULT_CHAT_TEMPLATE_OVERHEAD_TOKENS
+    token_estimator: str = PORTABLE_TOKEN_ESTIMATOR
+    contract_version: str = ANSWER_BUDGET_CONTRACT_VERSION
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "contract_version": self.contract_version,
+            "token_estimator": self.token_estimator,
+            "training_max_sequence_tokens": self.training_max_sequence_tokens,
+            "eval_max_answer_tokens": self.eval_max_answer_tokens,
+            "max_answer_characters": self.max_answer_characters,
+            "chat_template_overhead_tokens": self.chat_template_overhead_tokens,
+        }
+
+
 def deduplicate_candidates(candidates: Iterable[Candidate]) -> list[Candidate]:
     by_record_id: dict[str, Candidate] = {}
     for candidate in candidates:
@@ -223,6 +263,66 @@ def stable_id(prefix: str, payload: Any) -> str:
 
 def stable_order_key(value: Any, *, seed: int) -> str:
     return stable_hash({"seed": seed, "value": value})
+
+
+def estimate_portable_tokens(text: str) -> int:
+    """Return a deterministic, conservative tokenizer-free token estimate."""
+
+    encoded_length = len(text.encode("utf-8"))
+    byte_chunk_estimate = math.ceil(encoded_length / 4) if encoded_length else 0
+    lexical_estimate = 0
+    for match in re.finditer(r"\w+|[^\w\s]", text, flags=re.UNICODE):
+        token = match.group(0)
+        if re.fullmatch(r"\w+", token, flags=re.UNICODE):
+            lexical_estimate += max(1, math.ceil(len(token.encode("utf-8")) / 4))
+        else:
+            lexical_estimate += 1
+    return max(byte_chunk_estimate, lexical_estimate)
+
+
+def answer_budget_measurements(
+    record: dict[str, Any],
+    contract: AnswerBudgetContract,
+) -> dict[str, Any]:
+    system = str(record.get("system", ""))
+    question = str(record.get("question", ""))
+    answer = str(record.get("answer", ""))
+    answer_tokens = estimate_portable_tokens(answer)
+    sequence_tokens = (
+        contract.chat_template_overhead_tokens
+        + estimate_portable_tokens(system)
+        + estimate_portable_tokens(question)
+        + answer_tokens
+    )
+    violations: list[str] = []
+    if answer_tokens > contract.eval_max_answer_tokens:
+        violations.append("eval_answer_tokens")
+    if sequence_tokens > contract.training_max_sequence_tokens:
+        violations.append("training_sequence_tokens")
+    if len(answer) > contract.max_answer_characters:
+        violations.append("answer_characters")
+    return {
+        "answer_token_estimate": answer_tokens,
+        "training_sequence_token_estimate": sequence_tokens,
+        "answer_character_count": len(answer),
+        "violations": violations,
+    }
+
+
+def answer_budget_contract_from_dict(payload: dict[str, Any] | None) -> AnswerBudgetContract:
+    payload = payload if isinstance(payload, dict) else {}
+    return AnswerBudgetContract(
+        training_max_sequence_tokens=int(
+            payload.get("training_max_sequence_tokens", DEFAULT_TRAINING_MAX_SEQUENCE_TOKENS)
+        ),
+        eval_max_answer_tokens=int(payload.get("eval_max_answer_tokens", DEFAULT_EVAL_MAX_ANSWER_TOKENS)),
+        max_answer_characters=int(payload.get("max_answer_characters", DEFAULT_MAX_ANSWER_CHARACTERS)),
+        chat_template_overhead_tokens=int(
+            payload.get("chat_template_overhead_tokens", DEFAULT_CHAT_TEMPLATE_OVERHEAD_TOKENS)
+        ),
+        token_estimator=str(payload.get("token_estimator", PORTABLE_TOKEN_ESTIMATOR)),
+        contract_version=str(payload.get("contract_version", ANSWER_BUDGET_CONTRACT_VERSION)),
+    )
 
 
 def split_for_key(key: Any, *, seed: int) -> str:
@@ -421,6 +521,270 @@ def _record(
         },
         canonical_object=canonical_object,
     )
+
+
+_CORE_RECORD_METADATA_KEYS = {
+    "record_id",
+    "schema_version",
+    "view_type",
+    "mixture_bucket",
+    "curriculum_stage",
+    "source",
+    "split",
+    "canonical_object_id",
+    "graph_version",
+    "answer_budget",
+}
+
+
+def _rebuild_candidate(
+    candidate: Candidate,
+    *,
+    question: str,
+    answer: str,
+    payload: dict[str, Any],
+    answer_compaction: dict[str, Any],
+) -> Candidate:
+    metadata = candidate.record.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    context_mode = metadata.get("context_mode")
+    extra_metadata = {
+        key: value
+        for key, value in metadata.items()
+        if key not in _CORE_RECORD_METADATA_KEYS and key not in {"answer_compaction", "context_mode"}
+    }
+    extra_metadata["answer_compaction"] = answer_compaction
+    rebuilt = _record(
+        view_type=str(metadata["view_type"]),
+        split=str(metadata["split"]),
+        source=str(metadata["source"]),
+        graph_version=str(metadata["graph_version"]),
+        system=str(candidate.record["system"]),
+        question=question,
+        answer=answer,
+        object_type=str(candidate.canonical_object["object_type"]),
+        payload=payload,
+        metadata=extra_metadata,
+    )
+    if isinstance(context_mode, str) and context_mode in CONTEXT_MODES:
+        contextual_question = _question_for_context_mode(rebuilt, context_mode)
+        contextual_record = dict(rebuilt.record)
+        contextual_metadata = dict(contextual_record["metadata"])
+        contextual_metadata["context_mode"] = context_mode
+        contextual_metadata["record_id"] = stable_id(
+            "sft",
+            {
+                "view_type": contextual_metadata["view_type"],
+                "object_id": contextual_metadata["canonical_object_id"],
+                "context_mode": context_mode,
+                "question": contextual_question,
+            },
+        )
+        contextual_record["question"] = contextual_question
+        contextual_record["metadata"] = contextual_metadata
+        rebuilt = Candidate(record=contextual_record, canonical_object=rebuilt.canonical_object)
+    return rebuilt
+
+
+def _compact_unique_multiplex_neighbors(
+    candidate: Candidate,
+    contract: AnswerBudgetContract,
+) -> Candidate | None:
+    payload = candidate.canonical_object.get("payload")
+    if not isinstance(payload, dict) or not isinstance(payload.get("neighbor_layer_map"), dict):
+        return None
+    gene_id = str(payload.get("gene_id", ""))
+    retained_map = {
+        str(neighbor): sorted(str(layer) for layer in layers)
+        for neighbor, layers in payload["neighbor_layer_map"].items()
+        if isinstance(layers, list)
+    }
+    ordered_neighbors = sorted(retained_map)
+    declared_total = payload.get("unique_neighbor_count")
+    total_neighbors = int(declared_total) if isinstance(declared_total, int) else len(ordered_neighbors)
+    prior_omitted_layers = payload.get("omitted_layer_count_by_neighbor")
+    prior_omitted_layers = prior_omitted_layers if isinstance(prior_omitted_layers, dict) else {}
+    combinations = [
+        (neighbor_limit, layer_limit)
+        for neighbor_limit in range(min(12, len(ordered_neighbors)), -1, -1)
+        for layer_limit in range(8, 0, -1)
+    ]
+    combinations.sort(key=lambda item: (-(item[0] * item[1]), -item[0], -item[1]))
+    for neighbor_limit, layer_limit in combinations:
+        sampled_neighbors = ordered_neighbors[:neighbor_limit]
+        sampled_map = {
+            neighbor: retained_map[neighbor][:layer_limit]
+            for neighbor in sampled_neighbors
+        }
+        omitted_layers = {
+            neighbor: (
+                len(retained_map[neighbor])
+                + int(prior_omitted_layers.get(neighbor, 0))
+                - len(sampled_map[neighbor])
+            )
+            for neighbor in sampled_neighbors
+            if (
+                len(retained_map[neighbor])
+                + int(prior_omitted_layers.get(neighbor, 0))
+                > len(sampled_map[neighbor])
+            )
+        }
+        compact_payload = {
+            "gene_id": gene_id,
+            "unique_neighbor_count": total_neighbors,
+            "neighbor_layer_map": sampled_map,
+            "neighbor_map_scope": "lexicographic_prefix",
+            "omitted_neighbor_count": total_neighbors - len(sampled_map),
+            "omitted_layer_count_by_neighbor": omitted_layers,
+        }
+        question = (
+            f"How many unique direct neighbors does {gene_id} have across the aggregate multiplex? "
+            "Return the exact total and the budgeted lexicographic neighbor-to-layer sample; "
+            "report omitted neighbor/layer counts explicitly."
+        )
+        answer = json.dumps(compact_payload, sort_keys=True, separators=(",", ":"))
+        rebuilt = _rebuild_candidate(
+            candidate,
+            question=question,
+            answer=answer,
+            payload=compact_payload,
+            answer_compaction={
+                "strategy": "lexicographic_neighbor_layer_sample_v1",
+                "original_neighbor_count": total_neighbors,
+                "retained_neighbor_count": len(sampled_map),
+                "max_layers_per_retained_neighbor": layer_limit,
+            },
+        )
+        if not answer_budget_measurements(rebuilt.record, contract)["violations"]:
+            return rebuilt
+    return None
+
+
+def _compact_structured_state_update(
+    candidate: Candidate,
+    contract: AnswerBudgetContract,
+) -> Candidate | None:
+    payload = candidate.canonical_object.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    predicted = payload.get("predicted_gene_ids")
+    if not isinstance(predicted, list):
+        return None
+    ordered_gene_ids = sorted(dict.fromkeys(str(gene) for gene in predicted))
+    declared_predicted_count = payload.get("predicted_gene_count")
+    total_predicted_gene_count = (
+        int(declared_predicted_count)
+        if isinstance(declared_predicted_count, int)
+        else len(ordered_gene_ids)
+    )
+    for gene_limit in range(min(32, len(ordered_gene_ids)), -1, -1):
+        retained = ordered_gene_ids[:gene_limit]
+        compact_payload: dict[str, Any] = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"visible_genes", "predicted_gene_ids"}
+        }
+        compact_payload.update(
+            {
+                "predicted_gene_ids": retained,
+                "predicted_gene_count": total_predicted_gene_count,
+                "prediction_scope": "lexicographic_prefix",
+                "omitted_predicted_gene_count": total_predicted_gene_count - len(retained),
+            }
+        )
+        task_id = str(compact_payload.get("task_id", "this task"))
+        question = (
+            f"Write the budgeted evidence-backed state update for recovery task `{task_id}` without hidden targets. "
+            "Preserve the relationship/continuation decision and report an exact gene count plus a deterministic "
+            "lexicographic prefix when the full visible set does not fit."
+        )
+        answer = json.dumps(compact_payload, sort_keys=True, separators=(",", ":"))
+        rebuilt = _rebuild_candidate(
+            candidate,
+            question=question,
+            answer=answer,
+            payload=compact_payload,
+            answer_compaction={
+                "strategy": "structured_state_gene_prefix_v1",
+                "original_predicted_gene_count": total_predicted_gene_count,
+                "retained_predicted_gene_count": len(retained),
+            },
+        )
+        if not answer_budget_measurements(rebuilt.record, contract)["violations"]:
+            return rebuilt
+    return None
+
+
+def _attach_answer_budget_metadata(
+    candidate: Candidate,
+    contract: AnswerBudgetContract,
+) -> Candidate:
+    measurements = answer_budget_measurements(candidate.record, contract)
+    record = dict(candidate.record)
+    metadata = dict(record["metadata"])
+    prior_compaction = metadata.get("answer_compaction")
+    metadata["answer_budget"] = {
+        "contract_version": contract.contract_version,
+        "token_estimator": contract.token_estimator,
+        "answer_token_estimate": measurements["answer_token_estimate"],
+        "training_sequence_token_estimate": measurements["training_sequence_token_estimate"],
+        "answer_character_count": measurements["answer_character_count"],
+        "action": "compacted" if isinstance(prior_compaction, dict) else "unchanged",
+        "limits": {
+            "training_max_sequence_tokens": contract.training_max_sequence_tokens,
+            "eval_max_answer_tokens": contract.eval_max_answer_tokens,
+            "max_answer_characters": contract.max_answer_characters,
+            "chat_template_overhead_tokens": contract.chat_template_overhead_tokens,
+        },
+    }
+    record["metadata"] = metadata
+    return Candidate(record=record, canonical_object=candidate.canonical_object)
+
+
+def enforce_answer_budget_contract(
+    candidates: Iterable[Candidate],
+    *,
+    contract: AnswerBudgetContract,
+    annotate_records: bool = True,
+) -> tuple[list[Candidate], dict[str, Any]]:
+    """Compact supported long targets and deterministically exclude any remainder."""
+
+    kept: list[Candidate] = []
+    initial_count = 0
+    compacted_count = 0
+    excluded_by_view: Counter[str] = Counter()
+    excluded_by_violation: Counter[str] = Counter()
+    for candidate in candidates:
+        initial_count += 1
+        measurements = answer_budget_measurements(candidate.record, contract)
+        working = candidate
+        if measurements["violations"]:
+            view_type = candidate.view_type
+            compacted: Candidate | None = None
+            if view_type == "unique_multiplex_neighbors":
+                compacted = _compact_unique_multiplex_neighbors(candidate, contract)
+            elif view_type == "structured_state_update":
+                compacted = _compact_structured_state_update(candidate, contract)
+            if compacted is not None:
+                working = compacted
+                compacted_count += 1
+                measurements = answer_budget_measurements(working.record, contract)
+            if measurements["violations"]:
+                excluded_by_view[view_type] += 1
+                excluded_by_violation.update(measurements["violations"])
+                continue
+        if annotate_records:
+            working = _attach_answer_budget_metadata(working, contract)
+        kept.append(working)
+    return kept, {
+        "contract": contract.to_dict(),
+        "initial_candidate_count": initial_count,
+        "kept_candidate_count": len(kept),
+        "compacted_candidate_count": compacted_count,
+        "excluded_candidate_count": initial_count - len(kept),
+        "excluded_candidate_count_by_view_type": dict(sorted(excluded_by_view.items())),
+        "excluded_candidate_count_by_violation": dict(sorted(excluded_by_violation.items())),
+    }
 
 
 def _compact_value(value: Any, *, max_list_items: int = 24, max_dict_items: int = 24) -> Any:
@@ -2255,7 +2619,75 @@ def sample_records(
     return selected
 
 
-def validate_records(candidates: list[Candidate]) -> dict[str, Any]:
+def build_mixture_contract_report(
+    counts_by_bucket: dict[str, int] | Counter[str],
+    *,
+    total_records: int,
+    target_weights: dict[str, float] = DEFAULT_BUCKET_WEIGHTS,
+    minimum_records: int = DEFAULT_MIXTURE_CONTRACT_MIN_RECORDS,
+    absolute_underfill_tolerance: float = DEFAULT_MIXTURE_ABSOLUTE_UNDERFILL_TOLERANCE,
+    relative_underfill_tolerance: float = DEFAULT_MIXTURE_RELATIVE_UNDERFILL_TOLERANCE,
+    underfill_policy: str = DEFAULT_MIXTURE_UNDERFILL_POLICY,
+) -> dict[str, Any]:
+    if underfill_policy not in MIXTURE_UNDERFILL_POLICIES:
+        raise ValueError(f"Unsupported mixture underfill policy: {underfill_policy}")
+    if minimum_records < 0:
+        raise ValueError("Mixture contract minimum_records must be nonnegative.")
+    if not 0.0 <= absolute_underfill_tolerance <= 1.0:
+        raise ValueError("Mixture absolute underfill tolerance must be between 0 and 1.")
+    if not 0.0 <= relative_underfill_tolerance <= 1.0:
+        raise ValueError("Mixture relative underfill tolerance must be between 0 and 1.")
+    eligible = total_records >= minimum_records
+    buckets: dict[str, dict[str, Any]] = {}
+    material_underfilled_buckets: list[str] = []
+    for bucket, target_share in target_weights.items():
+        count = int(counts_by_bucket.get(bucket, 0))
+        actual_share = count / total_records if total_records else 0.0
+        delta_share = actual_share - target_share
+        relative_underfill = max(0.0, (target_share - actual_share) / target_share) if target_share else 0.0
+        absolute_underfill = max(0.0, target_share - actual_share)
+        materially_underfilled = bool(
+            eligible
+            and absolute_underfill > absolute_underfill_tolerance
+            and relative_underfill > relative_underfill_tolerance
+        )
+        if materially_underfilled:
+            material_underfilled_buckets.append(bucket)
+        buckets[bucket] = {
+            "target_share": target_share,
+            "target_record_count": total_records * target_share,
+            "actual_share": actual_share,
+            "actual_record_count": count,
+            "delta_share": delta_share,
+            "absolute_underfill": absolute_underfill,
+            "relative_underfill": relative_underfill,
+            "materially_underfilled": materially_underfilled,
+        }
+    return {
+        "contract": {
+            "target_weights": target_weights,
+            "minimum_records": minimum_records,
+            "absolute_underfill_tolerance": absolute_underfill_tolerance,
+            "relative_underfill_tolerance": relative_underfill_tolerance,
+            "underfill_policy": underfill_policy,
+            "material_underfill_rule": (
+                "record_count >= minimum_records AND absolute_underfill > absolute_underfill_tolerance "
+                "AND relative_underfill > relative_underfill_tolerance"
+            ),
+        },
+        "eligible": eligible,
+        "total_records": total_records,
+        "material_underfilled_bucket_count": len(material_underfilled_buckets),
+        "material_underfilled_buckets": sorted(material_underfilled_buckets),
+        "buckets": buckets,
+    }
+
+
+def validate_records(
+    candidates: list[Candidate],
+    *,
+    answer_budget_contract: AnswerBudgetContract | None = None,
+) -> dict[str, Any]:
     errors: list[dict[str, Any]] = []
     object_splits: dict[str, set[str]] = defaultdict(set)
     record_ids: set[str] = set()
@@ -2290,6 +2722,20 @@ def validate_records(candidates: list[Candidate]) -> dict[str, Any]:
             object_splits[object_id].add(split)
         if "definitely causally" in str(record.get("answer", "")).lower():
             errors.append({"record_id": record_id, "error": "unsupported_causal_language_in_answer"})
+        if answer_budget_contract is not None:
+            measurements = answer_budget_measurements(record, answer_budget_contract)
+            if measurements["violations"]:
+                errors.append(
+                    {
+                        "record_id": record_id,
+                        "error": "answer_budget_exceeded",
+                        "violations": measurements["violations"],
+                        **{key: value for key, value in measurements.items() if key != "violations"},
+                    }
+                )
+            answer_budget = metadata.get("answer_budget")
+            if not isinstance(answer_budget, dict):
+                errors.append({"record_id": record_id, "error": "missing_answer_budget_metadata"})
     leaking = {object_id: sorted(splits) for object_id, splits in object_splits.items() if len(splits) > 1}
     for object_id, splits in leaking.items():
         errors.append({"object_id": object_id, "splits": splits, "error": "canonical_object_split_leakage"})
@@ -2298,6 +2744,10 @@ def validate_records(candidates: list[Candidate]) -> dict[str, Any]:
     counts_by_bucket = Counter(candidate.bucket for candidate in candidates)
     counts_by_stage = Counter(str(candidate.record.get("metadata", {}).get("curriculum_stage", "unspecified")) for candidate in candidates)
     counts_by_context_mode = Counter(str(candidate.record.get("metadata", {}).get("context_mode", "unspecified")) for candidate in candidates)
+    counts_by_budget_action = Counter(
+        str(candidate.record.get("metadata", {}).get("answer_budget", {}).get("action", "unspecified"))
+        for candidate in candidates
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "fatal_error_count": len(errors),
@@ -2309,6 +2759,7 @@ def validate_records(candidates: list[Candidate]) -> dict[str, Any]:
         "record_count_by_mixture_bucket": dict(sorted(counts_by_bucket.items())),
         "record_count_by_curriculum_stage": dict(sorted(counts_by_stage.items())),
         "record_count_by_context_mode": dict(sorted(counts_by_context_mode.items())),
+        "record_count_by_answer_budget_action": dict(sorted(counts_by_budget_action.items())),
     }
 
 
@@ -2349,11 +2800,31 @@ def build_pretrajectory_sft_dataset(
     max_rwr_seeds: int = 500,
     context_modes: tuple[str, ...] = DEFAULT_CONTEXT_MODES,
     target_counts: dict[str, int] | None = TARGET_SPLIT_COUNTS,
+    training_max_sequence_tokens: int = DEFAULT_TRAINING_MAX_SEQUENCE_TOKENS,
+    eval_max_answer_tokens: int = DEFAULT_EVAL_MAX_ANSWER_TOKENS,
+    max_answer_characters: int = DEFAULT_MAX_ANSWER_CHARACTERS,
+    chat_template_overhead_tokens: int = DEFAULT_CHAT_TEMPLATE_OVERHEAD_TOKENS,
+    mixture_contract_min_records: int = DEFAULT_MIXTURE_CONTRACT_MIN_RECORDS,
+    mixture_absolute_underfill_tolerance: float = DEFAULT_MIXTURE_ABSOLUTE_UNDERFILL_TOLERANCE,
+    mixture_relative_underfill_tolerance: float = DEFAULT_MIXTURE_RELATIVE_UNDERFILL_TOLERANCE,
+    mixture_underfill_policy: str = DEFAULT_MIXTURE_UNDERFILL_POLICY,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     invalid_context_modes = [mode for mode in context_modes if mode not in CONTEXT_MODES]
     if invalid_context_modes:
         raise ValueError(f"Unsupported context mode(s): {', '.join(invalid_context_modes)}")
+    if min(training_max_sequence_tokens, eval_max_answer_tokens, max_answer_characters) <= 0:
+        raise ValueError("Answer-budget limits must all be positive.")
+    if chat_template_overhead_tokens < 0:
+        raise ValueError("Chat-template token overhead must be nonnegative.")
+    if mixture_underfill_policy not in MIXTURE_UNDERFILL_POLICIES:
+        raise ValueError(f"Unsupported mixture underfill policy: {mixture_underfill_policy}")
+    answer_budget_contract = AnswerBudgetContract(
+        training_max_sequence_tokens=training_max_sequence_tokens,
+        eval_max_answer_tokens=eval_max_answer_tokens,
+        max_answer_characters=max_answer_characters,
+        chat_template_overhead_tokens=chat_template_overhead_tokens,
+    )
     if out_dir.exists() and any(out_dir.iterdir()) and not overwrite:
         raise FileExistsError(f"Output directory is not empty: {out_dir}")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -2445,7 +2916,7 @@ def build_pretrajectory_sft_dataset(
         graph_version=graph_version,
         max_seeds=max_rwr_seeds,
     )
-    base_candidates = deduplicate_candidates(
+    raw_base_candidates = deduplicate_candidates(
         entity_schema_candidates
         + layer_metadata_candidates
         + module_candidates
@@ -2454,15 +2925,36 @@ def build_pretrajectory_sft_dataset(
         + rwr_candidates
         + structured_tool_candidates
     )
+    base_candidates, base_budget_report = enforce_answer_budget_contract(
+        raw_base_candidates,
+        contract=answer_budget_contract,
+        annotate_records=False,
+    )
     if target_counts is not None:
         preexpanded_candidates = sample_records(base_candidates, target_counts=target_counts, seed=seed)
     else:
         preexpanded_candidates = base_candidates
-    all_candidates = deduplicate_candidates(expand_context_mode_candidates(preexpanded_candidates, context_modes))
+    expanded_candidates = deduplicate_candidates(expand_context_mode_candidates(preexpanded_candidates, context_modes))
+    all_candidates, expanded_budget_report = enforce_answer_budget_contract(
+        expanded_candidates,
+        contract=answer_budget_contract,
+        annotate_records=True,
+    )
     selected = sample_records(all_candidates, target_counts=target_counts, seed=seed)
-    validation = validate_records(selected)
+    validation = validate_records(selected, answer_budget_contract=answer_budget_contract)
     if validation["fatal_error_count"]:
         raise ValueError(f"Generated dataset failed validation with {validation['fatal_error_count']} errors.")
+    mixture_report = build_mixture_contract_report(
+        Counter(candidate.bucket for candidate in selected),
+        total_records=len(selected),
+        minimum_records=mixture_contract_min_records,
+        absolute_underfill_tolerance=mixture_absolute_underfill_tolerance,
+        relative_underfill_tolerance=mixture_relative_underfill_tolerance,
+        underfill_policy=mixture_underfill_policy,
+    )
+    if mixture_underfill_policy == "fatal" and mixture_report["material_underfilled_buckets"]:
+        buckets = ", ".join(mixture_report["material_underfilled_buckets"])
+        raise ValueError(f"Generated dataset materially underfills mixture buckets: {buckets}")
 
     records_by_split: dict[str, list[dict[str, Any]]] = {split: [] for split in SPLITS}
     for candidate in selected:
@@ -2489,7 +2981,8 @@ def build_pretrajectory_sft_dataset(
         "target_counts": target_counts,
         "mixture_weights": DEFAULT_BUCKET_WEIGHTS,
         "context_modes": list(context_modes),
-        "base_candidate_count": len(base_candidates),
+        "base_candidate_count": len(raw_base_candidates),
+        "budget_eligible_base_candidate_count": len(base_candidates),
         "preexpanded_candidate_count": len(preexpanded_candidates),
         "base_candidate_count_by_family": {
             "entity_schema": len(entity_schema_candidates),
@@ -2523,6 +3016,36 @@ def build_pretrajectory_sft_dataset(
         "record_count_by_mixture_bucket": validation["record_count_by_mixture_bucket"],
         "record_count_by_curriculum_stage": validation["record_count_by_curriculum_stage"],
         "record_count_by_context_mode": validation["record_count_by_context_mode"],
+        "record_count_by_answer_budget_action": validation["record_count_by_answer_budget_action"],
+        "answer_budget_contract": answer_budget_contract.to_dict(),
+        "answer_budget_report": {
+            "base_candidates": base_budget_report,
+            "expanded_candidates": expanded_budget_report,
+            "selected_record_count_by_action": validation["record_count_by_answer_budget_action"],
+            "selected_max_answer_token_estimate": max(
+                (
+                    int(candidate.record["metadata"]["answer_budget"]["answer_token_estimate"])
+                    for candidate in selected
+                ),
+                default=0,
+            ),
+            "selected_max_training_sequence_token_estimate": max(
+                (
+                    int(candidate.record["metadata"]["answer_budget"]["training_sequence_token_estimate"])
+                    for candidate in selected
+                ),
+                default=0,
+            ),
+            "selected_max_answer_character_count": max(
+                (
+                    int(candidate.record["metadata"]["answer_budget"]["answer_character_count"])
+                    for candidate in selected
+                ),
+                default=0,
+            ),
+        },
+        "mixture_contract": mixture_report["contract"],
+        "mixture_report": mixture_report,
     }
     write_json(out_dir / "manifest.json", manifest)
     return {"manifest": manifest, "validation_report": validation, "records": selected}
@@ -2578,6 +3101,41 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-train-records", type=int, default=TARGET_SPLIT_COUNTS["train"])
     parser.add_argument("--target-val-records", type=int, default=TARGET_SPLIT_COUNTS["val"])
     parser.add_argument("--target-test-records", type=int, default=TARGET_SPLIT_COUNTS["test"])
+    parser.add_argument(
+        "--training-max-sequence-tokens",
+        type=int,
+        default=DEFAULT_TRAINING_MAX_SEQUENCE_TOKENS,
+        help="Portable estimated-token cap for system + question + answer (matches the current training max_length).",
+    )
+    parser.add_argument(
+        "--eval-max-answer-tokens",
+        type=int,
+        default=DEFAULT_EVAL_MAX_ANSWER_TOKENS,
+        help="Portable estimated-token cap for the gold answer (matches exact-eval max_new_tokens).",
+    )
+    parser.add_argument("--max-answer-characters", type=int, default=DEFAULT_MAX_ANSWER_CHARACTERS)
+    parser.add_argument(
+        "--chat-template-overhead-tokens",
+        type=int,
+        default=DEFAULT_CHAT_TEMPLATE_OVERHEAD_TOKENS,
+    )
+    parser.add_argument("--mixture-contract-min-records", type=int, default=DEFAULT_MIXTURE_CONTRACT_MIN_RECORDS)
+    parser.add_argument(
+        "--mixture-absolute-underfill-tolerance",
+        type=float,
+        default=DEFAULT_MIXTURE_ABSOLUTE_UNDERFILL_TOLERANCE,
+    )
+    parser.add_argument(
+        "--mixture-relative-underfill-tolerance",
+        type=float,
+        default=DEFAULT_MIXTURE_RELATIVE_UNDERFILL_TOLERANCE,
+    )
+    parser.add_argument(
+        "--mixture-underfill-policy",
+        choices=MIXTURE_UNDERFILL_POLICIES,
+        default=DEFAULT_MIXTURE_UNDERFILL_POLICY,
+        help="How material target-mixture underfill is handled after sampling.",
+    )
     parser.add_argument("--all-candidates", action="store_true", help="Do not sample to target counts; write every generated candidate.")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--json", action="store_true")
@@ -2602,6 +3160,14 @@ def main() -> None:
         max_rwr_seeds=args.max_rwr_seeds,
         context_modes=_context_modes_from_args(args),
         target_counts=_target_counts_from_args(args),
+        training_max_sequence_tokens=args.training_max_sequence_tokens,
+        eval_max_answer_tokens=args.eval_max_answer_tokens,
+        max_answer_characters=args.max_answer_characters,
+        chat_template_overhead_tokens=args.chat_template_overhead_tokens,
+        mixture_contract_min_records=args.mixture_contract_min_records,
+        mixture_absolute_underfill_tolerance=args.mixture_absolute_underfill_tolerance,
+        mixture_relative_underfill_tolerance=args.mixture_relative_underfill_tolerance,
+        mixture_underfill_policy=args.mixture_underfill_policy,
         overwrite=args.overwrite,
     )
     summary = {
@@ -2610,6 +3176,8 @@ def main() -> None:
         "record_count_by_split": result["manifest"]["record_count_by_split"],
         "record_count_by_mixture_bucket": result["manifest"]["record_count_by_mixture_bucket"],
         "record_count_by_context_mode": result["manifest"]["record_count_by_context_mode"],
+        "record_count_by_answer_budget_action": result["manifest"]["record_count_by_answer_budget_action"],
+        "material_underfilled_mixture_buckets": result["manifest"]["mixture_report"]["material_underfilled_buckets"],
     }
     if args.json:
         print(json.dumps(summary, indent=2, sort_keys=True))

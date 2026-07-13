@@ -1,4 +1,5 @@
 import argparse
+import itertools
 import os
 import string
 
@@ -9,6 +10,167 @@ SYSTEM_PROMPT = (
     "You are a helpful biological chatbot. You will be given a biological question; "
     "return the correct answer."
 )
+
+
+def build_prompt_completion_example(example):
+    """Convert one graph-QA record to TRL's conversational prompt/completion form.
+
+    Keeping the assistant turn in ``completion`` (rather than rendering the whole
+    conversation into a single text field) lets ``SFTTrainer`` construct a
+    completion mask and exclude the system/user prompt from the language-model
+    loss.
+    """
+
+    system_prompt = example.get("system") or SYSTEM_PROMPT
+    question = example.get("question")
+    answer = example.get("answer")
+    for field_name, value in (
+        ("system", system_prompt),
+        ("question", question),
+        ("answer", answer),
+    ):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"SFT record field {field_name!r} must be a non-empty string")
+
+    return {
+        "prompt": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": question},
+        ],
+        "completion": [{"role": "assistant", "content": answer}],
+    }
+
+
+def _plain_list(value):
+    """Return tensors/arrays/lists as plain Python lists for mask checks."""
+
+    if hasattr(value, "detach"):
+        value = value.detach()
+    if hasattr(value, "cpu"):
+        value = value.cpu()
+    if hasattr(value, "tolist"):
+        value = value.tolist()
+    return value
+
+
+def _first_batch_row(value, field_name):
+    value = _plain_list(value)
+    if not isinstance(value, list) or not value:
+        raise RuntimeError(f"Completion-only preflight received an empty {field_name}")
+    if isinstance(value[0], list):
+        if len(value) != 1:
+            raise RuntimeError(
+                f"Completion-only preflight expected a one-example {field_name} batch, got {len(value)} rows"
+            )
+        value = value[0]
+    return value
+
+
+def assert_completion_only_supervision(trainer, max_examples=8):
+    """Fail fast unless the trainer's actual collator masks every prompt token.
+
+    This checks post-tokenization examples from ``trainer.train_dataset`` and
+    labels emitted by ``trainer.data_collator``.  It therefore guards the exact
+    path used for training, including chat templating, truncation, and packing,
+    instead of merely trusting a configuration flag.
+    """
+
+    if getattr(trainer, "completion_only_loss", None) is not True:
+        raise RuntimeError(
+            "SFT completion-only preflight failed: trainer.completion_only_loss is not True"
+        )
+
+    dataset = trainer.train_dataset
+    try:
+        dataset_size = len(dataset)
+    except TypeError:
+        dataset_size = None
+
+    if dataset_size == 0:
+        raise RuntimeError("SFT completion-only preflight failed: training dataset is empty")
+
+    if dataset_size is None:
+        examples = list(itertools.islice(iter(dataset), max_examples))
+    else:
+        examples = [dataset[index] for index in range(min(max_examples, dataset_size))]
+    if not examples:
+        raise RuntimeError("SFT completion-only preflight failed: no training examples were inspectable")
+
+    checked_prompt_tokens = 0
+    checked_completion_tokens = 0
+    for example_index, example in enumerate(examples):
+        if "completion_mask" not in example:
+            raise RuntimeError(
+                "SFT completion-only preflight failed: tokenized example "
+                f"{example_index} has no completion_mask; use prompt/completion dataset columns"
+            )
+
+        completion_mask = _plain_list(example["completion_mask"])
+        if not isinstance(completion_mask, list) or not completion_mask:
+            raise RuntimeError(
+                f"SFT completion-only preflight failed: example {example_index} has an empty completion_mask"
+            )
+        if any(value not in (0, 1, False, True) for value in completion_mask):
+            raise RuntimeError(
+                f"SFT completion-only preflight failed: example {example_index} has a non-binary completion_mask"
+            )
+
+        batch = trainer.data_collator([example])
+        if "labels" not in batch or "input_ids" not in batch:
+            raise RuntimeError(
+                "SFT completion-only preflight failed: data collator did not return input_ids and labels"
+            )
+        labels = _first_batch_row(batch["labels"], "labels")
+        input_ids = _first_batch_row(batch["input_ids"], "input_ids")
+        token_count = len(completion_mask)
+        if len(labels) < token_count or len(input_ids) < token_count:
+            raise RuntimeError(
+                "SFT completion-only preflight failed: collated sequence is shorter than its completion mask"
+            )
+
+        prompt_positions = [index for index, flag in enumerate(completion_mask) if not flag]
+        completion_positions = [index for index, flag in enumerate(completion_mask) if flag]
+        if not prompt_positions:
+            raise RuntimeError(
+                f"SFT completion-only preflight failed: example {example_index} has no prompt tokens"
+            )
+        if not completion_positions:
+            raise RuntimeError(
+                "SFT completion-only preflight failed: example "
+                f"{example_index} has no completion tokens after tokenization/truncation"
+            )
+
+        leaked_positions = [index for index in prompt_positions if labels[index] != -100]
+        if leaked_positions:
+            raise RuntimeError(
+                "SFT completion-only preflight failed: prompt/system/user tokens have trainable labels "
+                f"in example {example_index} at positions {leaked_positions[:8]}"
+            )
+
+        masked_completion_positions = [index for index in completion_positions if labels[index] == -100]
+        if masked_completion_positions:
+            raise RuntimeError(
+                "SFT completion-only preflight failed: assistant completion tokens are masked "
+                f"in example {example_index} at positions {masked_completion_positions[:8]}"
+            )
+        wrong_completion_labels = [
+            index for index in completion_positions if labels[index] != input_ids[index]
+        ]
+        if wrong_completion_labels:
+            raise RuntimeError(
+                "SFT completion-only preflight failed: assistant labels differ from input tokens "
+                f"in example {example_index} at positions {wrong_completion_labels[:8]}"
+            )
+
+        checked_prompt_tokens += len(prompt_positions)
+        checked_completion_tokens += len(completion_positions)
+
+    return {
+        "examples_checked": len(examples),
+        "prompt_tokens_masked": checked_prompt_tokens,
+        "completion_tokens_trainable": checked_completion_tokens,
+    }
+
 
 def build_formatting_func(
     tokenizer,

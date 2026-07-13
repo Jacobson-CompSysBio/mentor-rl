@@ -77,6 +77,10 @@ class PeftArguments:
 class SftTrainingArguments(TrainingArguments):
     max_length: Optional[int] = field(default=2048, metadata={"help": "The maximum sequence length for SFTTrainer"})
     packing: Optional[bool] = field(default=False, metadata={"help": "Enable packing for SFTTrainer"})
+    completion_only_loss: bool = field(
+        default=True,
+        metadata={"help": "Require loss on assistant completion tokens only"},
+    )
     ddp_find_unused_parameters: Optional[bool] = field(default=True, metadata={"help": "When using FSDP activation checkpointing, this must be set to True"})
 
 def configure_device(rank: int) -> None:
@@ -144,7 +148,7 @@ def _load_sft_dataset(path: str):
     dataset = load_dataset("json", data_files=path, split="train")
     if "system" not in dataset.column_names:
         dataset = dataset.map(lambda x: {"system": SYSTEM_PROMPT})
-    return dataset
+    return dataset.map(build_prompt_completion_example)
 
 def _select_first_n(dataset, n: Optional[int], label: str, rank: int):
     if n is None:
@@ -198,6 +202,18 @@ def _default_holdout_paths(training_args, script_args):
     exact_report_path = Path(script_args.holdout_exact_report_path) if script_args.holdout_exact_report_path else output_dir / "holdout_exact_report.json"
     html_report_path = Path(script_args.holdout_html_report_path) if script_args.holdout_html_report_path else output_dir / "holdout_review.html"
     return predictions_path, report_path, exact_report_path, html_report_path
+
+def _find_canonical_objects_path(dataset_path: Optional[str]) -> Optional[Path]:
+    """Find the dataset-root canonical objects from a primary or stage shard."""
+
+    if dataset_path is None:
+        return None
+    resolved = Path(dataset_path).resolve()
+    for parent in list(resolved.parents)[:4]:
+        candidate = parent / "canonical_objects.jsonl"
+        if candidate.is_file():
+            return candidate
+    return None
 
 def _write_holdout_artifacts(predictions_path: Path, report_path: Path, rows: list[dict], mean_score: float) -> None:
     predictions_path.parent.mkdir(parents=True, exist_ok=True)
@@ -270,8 +286,6 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
         tokenizer.pad_token_id = tokenizer.eos_token_id
     
-    formatting_func = build_formatting_func(tokenizer)
-
     # load model (attn is eager for compatibility)
     model = AutoModelForCausalLM.from_pretrained(
         script_args.model_path,
@@ -346,9 +360,18 @@ def main():
         train_dataset=dataset,
         eval_dataset=eval_dataset,
         peft_config=peft_config,
-        formatting_func=formatting_func,
         processing_class=tokenizer,
     )
+
+    completion_only_report = assert_completion_only_supervision(trainer)
+    if rank == 0:
+        print(
+            "Completion-only supervision verified: "
+            f"{completion_only_report['examples_checked']} examples, "
+            f"{completion_only_report['prompt_tokens_masked']} prompt tokens masked, "
+            f"{completion_only_report['completion_tokens_trainable']} assistant tokens trainable.",
+            flush=True,
+        )
 
     if rank == 0:
         print(f"Trainer initialized successfully, beginning training...") 
@@ -436,11 +459,9 @@ def main():
                 )
             holdout_output_path, holdout_report_path, holdout_exact_report_path, holdout_html_report_path = _default_holdout_paths(training_args, script_args)
             _write_holdout_artifacts(holdout_output_path, holdout_report_path, rows, post_score)
-            canonical_objects_path = None
-            if script_args.holdout_dataset_path is not None:
-                candidate_path = Path(script_args.holdout_dataset_path).resolve().parent / "canonical_objects.jsonl"
-                if candidate_path.exists():
-                    canonical_objects_path = candidate_path
+            canonical_objects_path = _find_canonical_objects_path(
+                script_args.holdout_dataset_path
+            )
             canonical_objects = load_canonical_objects(canonical_objects_path)
             exact_report = evaluate_prediction_rows(rows, canonical_objects_by_id=canonical_objects)
             write_exact_json(holdout_exact_report_path, exact_report)

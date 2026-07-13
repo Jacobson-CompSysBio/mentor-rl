@@ -272,6 +272,18 @@ class PretrajectorySftDatasetTests(unittest.TestCase):
             self.assertEqual(set(sft.CONTEXT_MODES), context_modes)
             self.assertEqual(result["manifest"]["schema_version"], "pretrajectory-sft-v2")
             self.assertIn("record_count_by_curriculum_stage", result["manifest"])
+            self.assertEqual(
+                result["manifest"]["answer_budget_contract"]["eval_max_answer_tokens"],
+                sft.DEFAULT_EVAL_MAX_ANSWER_TOKENS,
+            )
+            self.assertEqual(result["manifest"]["mixture_contract"]["underfill_policy"], "fatal")
+            for record in records:
+                measurements = sft.answer_budget_measurements(record, sft.AnswerBudgetContract())
+                self.assertEqual(measurements["violations"], [])
+                self.assertEqual(
+                    record["metadata"]["answer_budget"]["answer_token_estimate"],
+                    measurements["answer_token_estimate"],
+                )
             self.assertTrue((out_dir / "curriculum" / "stage1_entity_schema" / "train.jsonl").exists())
             self.assertTrue((out_dir / "curriculum" / "stage6_blend" / "train.jsonl").exists())
 
@@ -354,6 +366,94 @@ class PretrajectorySftDatasetTests(unittest.TestCase):
             self.assertLessEqual(counts["test"], 3)
             self.assertEqual(result["manifest"]["selected_record_count"], sum(counts.values()))
             self.assertEqual(result["validation_report"]["fatal_error_count"], 0)
+
+    def test_budget_compaction_preserves_original_totals_across_recompression(self) -> None:
+        neighbor_map = {
+            f"GENE_{index:04d}": [f"atlas:family:layer_{layer:03d}" for layer in range(24)]
+            for index in range(80)
+        }
+        neighbor_candidate = sft._record(
+            view_type="unique_multiplex_neighbors",
+            split="train",
+            source=sft.GRAPH_TOPOLOGY_SOURCE,
+            graph_version="toy-v1",
+            system="Return exact graph facts.",
+            question="Return every unique neighbor and supporting layer.",
+            answer=json.dumps(neighbor_map, sort_keys=True),
+            object_type="multiplex_neighbors",
+            payload={"gene_id": "SEED", "neighbor_layer_map": neighbor_map},
+        )
+        first_contract = sft.AnswerBudgetContract()
+        first_rows, first_report = sft.enforce_answer_budget_contract(
+            [neighbor_candidate],
+            contract=first_contract,
+            annotate_records=False,
+        )
+        self.assertEqual(first_report["compacted_candidate_count"], 1)
+        self.assertEqual(len(first_rows), 1)
+        first_payload = first_rows[0].canonical_object["payload"]
+        self.assertEqual(first_payload["unique_neighbor_count"], 80)
+        self.assertGreater(first_payload["omitted_neighbor_count"], 0)
+
+        stricter_contract = sft.AnswerBudgetContract(
+            training_max_sequence_tokens=320,
+            eval_max_answer_tokens=120,
+            max_answer_characters=2048,
+        )
+        second_rows, second_report = sft.enforce_answer_budget_contract(
+            first_rows,
+            contract=stricter_contract,
+            annotate_records=True,
+        )
+        self.assertEqual(second_report["compacted_candidate_count"], 1)
+        self.assertEqual(len(second_rows), 1)
+        second_payload = second_rows[0].canonical_object["payload"]
+        self.assertEqual(second_payload["unique_neighbor_count"], 80)
+        self.assertEqual(
+            len(second_payload["neighbor_layer_map"]) + second_payload["omitted_neighbor_count"],
+            80,
+        )
+        self.assertEqual(
+            sft.answer_budget_measurements(second_rows[0].record, stricter_contract)["violations"],
+            [],
+        )
+
+        genes = [f"GENE_{index:04d}" for index in range(300)]
+        state_candidate = sft._record(
+            view_type="structured_state_update",
+            split="train",
+            source=sft.MENTOR_EV_SOURCE,
+            graph_version="toy-v1",
+            system="Return a compact JSON state.",
+            question="Return the complete state.",
+            answer=json.dumps({"predicted_gene_ids": genes}),
+            object_type="structured_state_update",
+            payload={
+                "task_id": "task-1",
+                "module_id": "module-1",
+                "visible_genes": genes,
+                "predicted_gene_ids": genes,
+                "relationship_status": "partial_module_support",
+                "continue": True,
+            },
+        )
+        state_first, _ = sft.enforce_answer_budget_contract(
+            [state_candidate],
+            contract=first_contract,
+            annotate_records=False,
+        )
+        state_second, _ = sft.enforce_answer_budget_contract(
+            state_first,
+            contract=stricter_contract,
+            annotate_records=True,
+        )
+        self.assertEqual(len(state_second), 1)
+        state_payload = state_second[0].canonical_object["payload"]
+        self.assertEqual(state_payload["predicted_gene_count"], 300)
+        self.assertEqual(
+            len(state_payload["predicted_gene_ids"]) + state_payload["omitted_predicted_gene_count"],
+            300,
+        )
 
 
 if __name__ == "__main__":

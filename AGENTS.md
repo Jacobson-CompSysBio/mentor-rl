@@ -77,7 +77,7 @@ before later DPO or GRPO trajectory optimization. Keep richer free-form
 biological interpretation mostly for DPO/RL, where grounded and overclaiming
 answers can be compared under the same evidence context.
 
-The detailed source spec is `agents/MENTOR-RL SFT Spec.md`. Keep this section
+The detailed source spec is `agents/mentor_rl_sft_spec.md`. Keep this section
 as the concise operational contract and update it when the spec or generator
 changes. This pre-trajectory SFT step does not replace exact-membership
 trajectory generation: downstream trajectory SFT/DPO still needs exact-positive,
@@ -126,6 +126,37 @@ Train in staged blocks rather than one undifferentiated QA pool:
    using biological arguments, parse compact tool observations, refuse raw
    CLI/file-path arguments, and update structured candidate state from evidence.
 
+These stages are a progression contract, not merely directory labels. Assign a
+row from its `book_mode`, difficulty, evidence requirements, and learning goal;
+do not infer stage from mixture bucket alone. Train stages sequentially, retain
+a controlled replay slice of earlier stages in later stages, and promote only
+after the current stage's held-out gates pass without material regression on
+earlier stages. `stage6_blend` is the final consolidation/rehearsal stage, not a
+substitute for stages 1-5.
+
+### Representation Boundary And Numerical Policy
+
+The checkpoint should internalize the multiplex coordinate system: canonical
+entity identity, graph/layer/module schemas, selected stable integer and set
+facts, broad topology and module priors, calibration rules, and the policy for
+choosing and using deterministic tools. It should not be expected to memorize
+every edge weight, RWR score, distance-matrix entry, empirical p-value, or
+other arbitrary full-multiplex floating-point artifact. Large/global numerical
+facts normally belong in open-book tables, matrix/vector shards, or structured
+tool observations.
+
+Use these scoring rules:
+
+- IDs, integer ranks, counts, exact sets, and membership are exact.
+- Floating-point values use a declared precision, normally 3-5 significant
+  figures, and an absolute/relative tolerance derived from that rendering.
+- Derived metrics are recomputed from the returned sets or counts.
+- Top-k results use precision@k, recall@k, ordering accuracy, and exact
+  seed/self exclusion where required.
+- Closed-book numerical questions are sparse and favor stable integer facts or
+  bins such as `unusually_close`, `typical`, `far`, `not_in_top_k`, and
+  `insufficient_context` rather than arbitrary raw floats.
+
 ### Required Question Families
 
 The generator should cover all of these families with exact, validator-checkable
@@ -161,6 +192,9 @@ global facts should also have open-book or tool-observation variants.
   empirical p-values, clustering ratio, layer density, conductance/boundary
   ratio, cell-type-specific cohesion, layer-sensitive cohesion, and nearest
   module lookup.
+- Perturbation and whole-multiplex profiles: layer ablation, node perturbation,
+  seed essentiality, nearest/median/farthest distance bins, and layer-coverage
+  profiles that distinguish local proximity from global hub-like context.
 - Calibration negatives: no edge/path, no direct edge with high RWR proximity,
   gene absent from layer, target absent from top-k but not necessarily absent
   from the full vector, hub-like proximity, layer-only support, insufficient
@@ -170,7 +204,10 @@ global facts should also have open-book or tool-observation variants.
   `induce_subgraph`, and `get_layer_ablation`; parse returned rank/distance or
   module-overlap observations; include provenance; and produce structured state
   updates such as `predicted_groups`, `relationship_status`, evidence IDs, and
-  `continuation_state`.
+  `continuation_state`. Prefer the cheapest specific cached tool, such as
+  `get_rank` or `get_rank_vector_summary`, over a fresh full `rwr_loe` call when
+  it already answers the question, and never teach fields unsupported by the
+  live wrapper schema.
 
 ### Mixture Target
 
@@ -189,30 +226,243 @@ Use the current spec mixture:
 - 7% open-book/tool-call QA over structured tables, rank vectors, distance
   shards, and provenance.
 
+These percentages are the content-family mixture. Stage, `book_mode`,
+difficulty, context-budget profile, module source, and layer family are
+orthogonal axes. In particular, the final 7% is not a cap on all open-book or
+tool-observation variants required throughout stages 3-5.
+
+### Curriculum Build Plan And Coverage Contract
+
+Every new dataset version must preserve the creation plan as data, not only as
+prose. Write a versioned `curriculum_plan.json` before generation and copy it
+into the dataset directory. The plan and generated `manifest.json`,
+`coverage_report.json`, `leakage_report.json`, and `audit_report.json` must make
+the intended and realized curriculum reviewable.
+
+At minimum, record requested, generated, compacted, filtered, and selected
+counts for every relevant cross-cell of stage, question family, `book_mode`,
+difficulty source, context-budget profile, module source, and layer family.
+Also report unique coverage of canonical genes, layers, edges, gene-layer
+pairs, path endpoints, RWR seeds/rank facts, modules, module relations, and
+tool schemas. Material empty or underfilled cells are fatal unless the plan
+explicitly marks them unavailable.
+
+Split by the underlying oracle fact and its entity/module/seed grouping before
+rendering variants. Closed-book, open-book, tool-observation, paraphrased, and
+paged variants of the same fact must remain in one split. Audit exact and
+near-duplicate leakage across splits.
+
+Graph sampling must be deterministic, coverage-aware, and independent of file
+order. Stratify across all intended layers, layer families, nodes, degree bins,
+positive edges, degree-matched hard negatives, and path difficulty. Do not use
+the first N edges of each text file as a production sampling policy. Dense
+neighbor maps, matrices, and state payloads must be paged or deterministically
+partitioned so multiple bounded examples cover the object without teaching one
+repeated prefix.
+
+### Multiplex Learning Evaluation And Scaling Contract
+
+Keep separate, immutable suites for:
+
+1. Closed-book identity, schema, selected stable facts, and atlas-memory QA.
+2. Open-book extraction, sorting, arithmetic, and matrix/vector/table QA.
+3. Compositional topology, global/module reasoning, and calibration negatives.
+4. Tool choice, argument schema, observation parsing, provenance, and
+   evidence-backed state updates.
+5. Downstream exact-positive recovery/refinement trajectory yield.
+
+Add representation and corruption probes for nearest-neighbor consistency,
+layer-family separability, module-membership clustering, distance-bin
+prediction, true versus shuffled layers, rewired edges, swapped module IDs,
+and mismatched rank-vector caches. Use paired underlying queries across
+closed-book/open-book/tool modes where possible. Each major family/context cell
+needs enough examples for a stable estimate; tiny incidental holdout cells are
+diagnostic only.
+
+Scale models and data with matched examples/tokens, global batch, curriculum,
+optimizer settings, and evaluation suites. Include base-model anchors,
+checkpoint learning curves, repeated seeds, and targeted ablations over stage,
+mixture, book-mode ratio, context length, numerical tolerance, hard negatives,
+and LoRA capacity. Do not infer a model-size law from equal optimizer steps
+when world size or global batch makes exposure unequal.
+
 ### Current Implementation
 
-The active generator is `scripts/build_pretrajectory_sft_dataset.py` with
-`schema_version=pretrajectory-sft-v2`. It emits ordinary split files plus
-curriculum shards under `curriculum/<stage>/{train,val,test}.jsonl`, where
-stages are `stage1_entity_schema`, `stage2_topology_priors`,
-`stage3_open_book_vectors`, `stage4_module_world_model`,
-`stage5_structured_tools`, and `stage6_blend`.
+The active machine-readable curriculum is
+`config/pretrajectory_sft_curriculum_v1.json`; its validated plan hash is
+`7a1e3a6c7b67c8dd8dd528c78a5ca653bce4ecbf430c3afc6480bd4ffb676556`.
+It records all 81 required question families, the five sequential stages plus
+`stage6_blend`, exact mixture weights, split/group leakage rules, three context
+budget profiles, replay fractions, promotion thresholds, and required coverage
+and artifact reports. Validate it with
+`scripts/validate_pretrajectory_sft_curriculum_plan.py`.
 
-Use `--preset patchcheck` for a 10k/1k/1k validation corpus and
-`--preset full_1m` for a 1M/50k/50k target corpus. The current clean
-interactive artifact is `data/pretrajectory_sft/v4_patchcheck`, generated with
-three context modes and 32 sampled graph layers; its audit report has zero
-fatal errors and zero warnings. The all-layer/full-size generation path should
-be run as an HPC job rather than interactively.
+The active generator is `scripts/build_pretrajectory_sft_curriculum.py` with
+`dataset_schema_version=pretrajectory-sft-v3`. It queries the complete binary
+store through `scripts/multiplex_store_oracle.py`, the complete validated RWR
+rank/distance artifacts through `runtime/rwr_curriculum_reader.py`, the mixed
+MENTOR-EV/RWR-LOE module corpus, a versioned MyGene alias cache, and only live
+tool schemas through `runtime/tool_curriculum_contract.py`. The older
+`scripts/build_pretrajectory_sft_dataset.py` and v2 datasets remain compatibility
+fixtures, not production curriculum inputs.
 
-Use `scripts/audit_pretrajectory_sft_dataset.py` for dataset validation,
-`scripts/evaluate_pretrajectory_sft_predictions.py` for exact answer reports
-and HTML summaries, and `scripts/check_pretrajectory_sft_readiness.py` as the
-strict move-to-DPO gate. The training launcher
-`train_pretrajectory_sft_v1_medium_wandb.slurm` accepts
-`PRETRAJ_CURRICULUM_STAGE` to swap between stage shards without editing the
-launcher, and `AUTO_RESUME=1` plus a stable `PERSISTENT_OUTPUT_DIR` to resume
-from the latest checkpoint.
+The current audited patchcheck is
+`data/pretrajectory_sft/v5_curriculum_patchcheck`. Rebuild it with:
+
+```bash
+python scripts/build_pretrajectory_sft_curriculum.py \
+  --plan config/pretrajectory_sft_curriculum_v1.json \
+  --profile patchcheck \
+  --out-dir data/pretrajectory_sft/v5_curriculum_patchcheck \
+  --seed 20260713 --overwrite --json
+```
+
+The published content hash is
+`4e3d299d916c2c4149643d8ec5f6c4759bea9eff31d9d4a3219850e39b2981fc`.
+It contains 10,000 train, 1,000 validation, and 1,000 test rows, 19,341
+canonical objects, all 81 families, and the exact 8/10/12/8/10/15/20/10/7
+content mixture. All 154 material orthogonal cross-cells have at least four
+selected rows; deterministic post-selection repair used 42 within-split,
+within-bucket swaps and left split, mixture, and family quotas unchanged.
+
+Current unique coverage is 16,647 genes, all 358 layers, 1,386 positive edges,
+534 degree-aware negative edges, 6,549 gene-layer pairs, 787 path endpoint
+pairs, 452 RWR seed sets, 2,136 RWR rank facts, 1,110 MENTOR-EV modules, 1,156
+RWR-LOE modules, 2,329 module relations, and seven live tool schemas. Store,
+flist, alias-cache, mixed-module-corpus, source-manifest, RWR-cache-context, and
+RWR-HPC-build identities are hashed in `manifest.json`; model-facing records do
+not contain raw filesystem paths.
+
+The required native artifacts are `curriculum_plan.json`, `manifest.json`,
+`coverage_report.json`, `leakage_report.json`, `audit_report.json`,
+`canonical_objects.jsonl`, the primary splits, and the stage shards under
+`curriculum/<stage>/{train,val,test}.jsonl`. Native audit and leakage pass with
+zero selected-row budget, metadata, raw-path, tool-schema, exact-duplicate,
+near-duplicate, oracle-fact, or group leakage violations. Native audit reports
+980 warnings only because invalid raw candidates were deliberately filtered;
+none were selected. The independent bridge report
+`audit_report_contract_v3.json` passes with zero fatal errors and zero warnings
+after independently rehashing the plan/content and rechecking rows, canonical
+references, budgets, cross-cells, native reports, and leakage.
+
+Budget profiles are `atomic_1k` (192 answer/1,024 total tokens), `evidence_2k`
+(256/2,048), and `matrix_state_4k` (384/4,096), with 4,096/8,192/16,384 answer
+character ceilings. The final 12,000-row corpus was also rendered through the
+local gpt-oss tokenizer: observed maxima were 407, 1,463, and 1,484 total
+tokens respectively, with zero profile or 4,096-token trainer violations.
+Large objects remain paged; these caps are profiles, not an argument for one
+unbounded context limit.
+
+Stage shards enforce book mode and learning goal, then add the declared replay
+fraction from prior stages. `stage6_blend` contains the exact 12/13/28/27/20
+source-stage blend in every split. Do not jump directly to the blend: advance
+stages only after the current-stage suite passes and earlier-stage regression
+stays within two percentage points.
+
+Tool-call rows cover `get_component_summary`, `get_distance`,
+`get_gene_layers`, `get_layer_ablation`, `get_rank_vector_summary`,
+`induce_subgraph`, and `rwr_loe`; all 840 selected tool rows validate against
+the live runtime schemas. Missing materialized tool results produce honest
+empty/insufficient observations rather than invented outputs, and raw CLI or
+file-path arguments are rejected.
+
+`scripts/train_sft.py` now converts records to explicit conversational
+`prompt`/`completion` columns and sets `completion_only_loss=True`. Its
+preflight inspects the actual post-tokenization `completion_mask` and collator
+labels, requires all prompt/system/user labels to be `-100`, and requires
+assistant labels to remain trainable. This matches installed TRL 0.24.0. The
+stage holdout path also resolves `canonical_objects.jsonl` from the dataset
+root rather than incorrectly searching only beside a nested shard.
+
+Use `scripts/audit_pretrajectory_sft_dataset.py` for the independent v3 bridge,
+`scripts/evaluate_pretrajectory_sft_predictions.py` for exact/HTML reports,
+`scripts/run_pretrajectory_sft_exact_eval.py` or
+`eval_pretrajectory_sft_exact.slurm` for saved/base checkpoints, and
+`scripts/check_pretrajectory_sft_readiness.py` as the strict move-to-DPO gate.
+The active contracts are `pretrajectory-sft-audit-v3`,
+`pretrajectory-sft-exact-v3`, and `pretrajectory-sft-readiness-v2`; v2 audit
+and dataset handling remain supported for historical comparisons. Runner and
+readiness checks require passed native reports, zero fatal/budget failures, and
+matching plan/content hashes so a stale audit cannot authorize a model run.
+Gold self-evaluation on the final validation split passes 1,000/1,000 exact.
+
+Three families are intentionally not claims about observed perturbation runs:
+`rwr_loe_leave_one_out_support`, `layer_ablation`, and
+`node_perturbation_seed_essentiality` include open-book supplied-evidence rows
+tagged `observed_multiplex_fact=false`. They teach table interpretation and
+calibrated language only. Exclude them from claims that a checkpoint learned
+true multiplex perturbation behavior, and replace them with executed
+multi-seed LOO/perturbation artifacts before treating a full-scale build as a
+complete perturbation curriculum. Real page-level two-layer ablation evidence
+is separately present in `layer_sensitive_cohesion`.
+
+### Current Scaling Status
+
+As of 2026-07-13, no model has yet been trained or scored on the corrected v5
+curriculum. The latest model evidence remains the rescoring of saved predictions
+from the legacy `v4_patchcheck/stage6_blend` runs. This did not rerun inference;
+all four reports used the same 256 selected examples and 200 exact-only rows.
+
+| Model checkpoint | Exact | ID recall | Layer recall | Number recall | Yes/no accuracy |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Llama 1B, step 200 | 0.330 | 0.881 | 0.827 | 0.453 | 0.807 |
+| gpt-oss 20B, step 100 | 0.355 | 0.918 | 0.804 | 0.534 | 0.807 |
+| gpt-oss 20B, step 200 | 0.460 | 0.934 | 0.861 | 0.496 | 0.819 |
+| gpt-oss 120B, step 200 | 0.530 | 0.943 | 0.844 | 0.560 | 0.867 |
+
+The 120B checkpoint is the strongest legacy exact-QA checkpoint in this
+comparison, but it is still a no-go for DPO: exact pass is below 0.80 and layer
+recall is just below 0.85. Its v3 exact report is
+`checkpoints/pretrajectory_sft_v4_patchcheck_120b_blend_200steps_lr1e4/exact_eval_4976297/holdout_exact_report_contract_v3.json`.
+
+Independently of model quality, `data/pretrajectory_sft/v4_patchcheck` is now
+classified as a legacy, contract-invalid corpus. Its v2 audit at
+`data/pretrajectory_sft/v4_patchcheck/audit_report_contract_v2.json` records
+531 fatal errors: 528 over-budget rows, a missing manifest budget contract, a
+missing mixture contract, and material entity-family underfill (39 examples
+observed versus 960 targeted). It separately warns that all 12,000 rows lack
+per-record budget metadata. Consequently, all v2
+readiness reports have `valid=false` and decision
+`repair_evaluation_or_dataset_contract`; the 120B report is
+`checkpoints/pretrajectory_sft_v4_patchcheck_120b_blend_200steps_lr1e4/exact_eval_4976297/readiness_report_contract_v3.json`.
+
+The size comparison is not exposure-matched: the 1B, 20B step-200, and 120B
+step-200 runs presented about 1,600, 3,200, and 12,800 examples respectively
+because their global batches were 8, 16, and 64. The 120B result is encouraging,
+especially on no-context and RWR/module QA, but its gain cannot be attributed
+to model size alone. Match global batch and examples/tokens seen in the next
+20B/120B replay.
+
+Because the corpus used prefix-sampled topology and synthesized tool contexts,
+these scores measure fit to the legacy QA corpus, not successful internalization
+of the complete full-brain multiplex. They justify repairing and rerunning the
+curriculum; they do not justify scaling the current rows unchanged.
+
+The v5 patchcheck resolves the prior completion-loss, prefix-oracle, missing
+family, tool-schema, context-budget, coverage, and leakage blockers. It is now
+ready for an infrastructure smoke and for construction of separate evaluation
+suites; it is not by itself a stage-promotion benchmark. Its primary held-out
+counts for stages 1, 2, and 5 are only 120, 54, and 70, below the plan's minimum
+200 examples per reported metric. Do not inflate those denominators by reusing
+training rows or repeated variants.
+
+The next testing sequence is:
+
+1. Build frozen, non-training evaluation suites with at least 200 independent
+   examples per reported stage metric and explicit regimes for held-out oracle
+   facts, entities, modules, seed sets, and compositional/global structure.
+   Include corrupted-layer, rewired-edge, swapped-module, mismatched-cache, and
+   fixture-exclusion slices.
+2. Run base-model anchors before SFT, then a short 20B stage-1 training smoke to
+   validate masking, checkpointing, inference, and exact-report identity end to
+   end. Do not use the patchcheck holdout to claim curriculum promotion.
+3. Train stages 1-5 sequentially with their frozen suites and replay, then run
+   `stage6_blend` only after all stage gates pass.
+4. Compare 20B and 120B with matched examples or supervised tokens, global
+   batch, optimizer schedule, LoRA capacity, and evaluation rows. The legacy
+   120B advantage is a useful hypothesis, not yet a size law.
+5. Keep DPO/trajectory generation blocked until the v5 model gates and the
+   separate downstream exact-positive recovery/refinement gate both pass.
 
 ### Oracle And Validation Rules
 

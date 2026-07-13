@@ -12,16 +12,16 @@
 #SBATCH --open-mode=truncate
 #SBATCH --signal=B:USR1@600
 
-# Defaults to data/pretrajectory_sft/v1_medium. Swap datasets with:
-# sbatch --export=ALL,PRETRAJ_DATASET_NAME=v2_250k,PRETRAJ_RUN_SUFFIX=v2_250k train_pretrajectory_sft_v1_medium_wandb.slurm
+# Defaults to the audited v5 patchcheck and stage 1. Advance
+# PRETRAJ_CURRICULUM_STAGE only after the prior stage's held-out gate passes.
 # Add TRAIN_MAX_STEPS=<n> for bounded smoke runs without changing the launcher.
 # For a 120B multi-node smoke, override Slurm resources on the sbatch command line, e.g.:
-# sbatch -N 4 -p extended -t 06:00:00 --export=ALL,MODEL_NAME=gpt-oss-120b-bf16,PRETRAJ_DATASET_NAME=v3_250k,PRETRAJ_RUN_SUFFIX=v3_250k_120b_smoke,TRAIN_MAX_STEPS=100,RUN_HOLDOUT_AFTER_TRAINING=False train_pretrajectory_sft_v1_medium_wandb.slurm
-# For staged v4 curriculum training, set PRETRAJ_CURRICULUM_STAGE to one of:
+# sbatch -N 4 -p extended -t 06:00:00 --export=ALL,MODEL_NAME=gpt-oss-120b-bf16,PRETRAJ_DATASET_NAME=v5_curriculum_patchcheck,PRETRAJ_CURRICULUM_STAGE=stage1_entity_schema,PRETRAJ_RUN_SUFFIX=v5_120b_stage1_smoke,TRAIN_MAX_STEPS=100,RUN_HOLDOUT_AFTER_TRAINING=False train_pretrajectory_sft_v1_medium_wandb.slurm
+# For staged v5 curriculum training, set PRETRAJ_CURRICULUM_STAGE to one of:
 # stage1_entity_schema, stage2_topology_priors, stage3_open_book_vectors,
 # stage4_module_world_model, stage5_structured_tools, stage6_blend.
 # Example:
-# sbatch -N 4 -p extended -t 06:00:00 --export=ALL,MODEL_NAME=gpt-oss-120b-bf16,PRETRAJ_DATASET_NAME=v4_spec_120b,PRETRAJ_CURRICULUM_STAGE=stage1_entity_schema,PRETRAJ_RUN_SUFFIX=v4_120b_stage1,AUTO_RESUME=1 train_pretrajectory_sft_v1_medium_wandb.slurm
+# sbatch -N 4 -p extended -t 06:00:00 --export=ALL,MODEL_NAME=gpt-oss-120b-bf16,PRETRAJ_DATASET_NAME=v5_curriculum_patchcheck,PRETRAJ_CURRICULUM_STAGE=stage1_entity_schema,PRETRAJ_RUN_SUFFIX=v5_120b_stage1,AUTO_RESUME=1 train_pretrajectory_sft_v1_medium_wandb.slurm
 # For restartable runs, use a stable PERSISTENT_OUTPUT_DIR and AUTO_RESUME=1.
 
 set -euo pipefail
@@ -47,13 +47,16 @@ if [ -z "${PRETRAJ_DATASET_NAME:-}" ]; then
   if [ -n "${PRETRAJ_DATASET_DIR:-}" ]; then
     PRETRAJ_DATASET_NAME="$(basename "${PRETRAJ_DATASET_DIR}")"
   else
-    PRETRAJ_DATASET_NAME="v1_medium"
+    PRETRAJ_DATASET_NAME="v5_curriculum_patchcheck"
   fi
 fi
 export PRETRAJ_DATASET_NAME
 export PRETRAJ_DATASET_DIR="${PRETRAJ_DATASET_DIR:-${SLURM_SUBMIT_DIR}/data/pretrajectory_sft/${PRETRAJ_DATASET_NAME}}"
+export PRETRAJ_DATASET_AUDIT_PATH="${PRETRAJ_DATASET_AUDIT_PATH:-${PRETRAJ_DATASET_DIR}/audit_report_contract_v3.json}"
 export PRETRAJ_RUN_SUFFIX="${PRETRAJ_RUN_SUFFIX:-${PRETRAJ_DATASET_NAME}}"
-export PRETRAJ_CURRICULUM_STAGE="${PRETRAJ_CURRICULUM_STAGE:-}"
+# Use `${name-default}` so an explicitly empty export can still select the
+# all-stage primary mixture for diagnostics.
+export PRETRAJ_CURRICULUM_STAGE="${PRETRAJ_CURRICULUM_STAGE-stage1_entity_schema}"
 
 if [ -n "${PRETRAJ_CURRICULUM_STAGE}" ]; then
   export PRETRAJ_STAGE_DATASET_DIR="${PRETRAJ_DATASET_DIR}/curriculum/${PRETRAJ_CURRICULUM_STAGE}"
@@ -89,15 +92,15 @@ export LOGGING_STEPS="${LOGGING_STEPS:-10}"
 export SAVE_STRATEGY="${SAVE_STRATEGY:-steps}"
 export SAVE_STEPS="${SAVE_STEPS:-100}"
 export SAVE_TOTAL_LIMIT="${SAVE_TOTAL_LIMIT:-2}"
-export MAX_LENGTH="${MAX_LENGTH:-1024}"
+export MAX_LENGTH="${MAX_LENGTH:-4096}"
 export LORA_R="${LORA_R:-8}"
 export LORA_ALPHA="${LORA_ALPHA:-16}"
 export LORA_DROPOUT="${LORA_DROPOUT:-0.05}"
 export HOLDOUT_SAMPLE_SIZE="${HOLDOUT_SAMPLE_SIZE:-64}"
-export HOLDOUT_MAX_NEW_TOKENS="${HOLDOUT_MAX_NEW_TOKENS:-192}"
+export HOLDOUT_MAX_NEW_TOKENS="${HOLDOUT_MAX_NEW_TOKENS:-384}"
 export HOLDOUT_ENABLE_THINKING="${HOLDOUT_ENABLE_THINKING:-True}"
 export HOLDOUT_REASONING_EFFORT="${HOLDOUT_REASONING_EFFORT:-low}"
-export HOLDOUT_MAX_TOTAL_TOKENS="${HOLDOUT_MAX_TOTAL_TOKENS:-1536}"
+export HOLDOUT_MAX_TOTAL_TOKENS="${HOLDOUT_MAX_TOTAL_TOKENS:-5120}"
 export RUN_HOLDOUT_AFTER_TRAINING="${RUN_HOLDOUT_AFTER_TRAINING:-True}"
 export SEED="${SEED:-900913}"
 export LOCAL_FILES_ONLY="${LOCAL_FILES_ONLY:-True}"
@@ -200,9 +203,19 @@ sync_outputs_safe() {
 start_sync_loop() {
   if [ "${CHECKPOINT_SYNC_INTERVAL_SECONDS}" -gt 0 ]; then
     (
-      trap '' TERM
+      sleep_pid=""
+      stop_periodic_sync() {
+        if [ -n "${sleep_pid}" ]; then
+          kill "${sleep_pid}" 2>/dev/null || true
+        fi
+        exit 0
+      }
+      trap stop_periodic_sync TERM INT
       while true; do
-        sleep "${CHECKPOINT_SYNC_INTERVAL_SECONDS}"
+        sleep "${CHECKPOINT_SYNC_INTERVAL_SECONDS}" &
+        sleep_pid="$!"
+        wait "${sleep_pid}" || exit 0
+        sleep_pid=""
         sync_outputs_safe "periodic"
       done
     ) &
@@ -250,6 +263,7 @@ echo "Head node: ${HEAD_NODE}"
 echo "Node count: ${NUM_NODES}"
 echo "Dataset name: ${PRETRAJ_DATASET_NAME}"
 echo "Dataset dir: ${PRETRAJ_DATASET_DIR}"
+echo "Dataset audit: ${PRETRAJ_DATASET_AUDIT_PATH}"
 echo "Curriculum stage: ${PRETRAJ_CURRICULUM_STAGE:-none}"
 echo "Dataset: ${DATASET_PATH}"
 echo "Validation dataset: ${VAL_DATASET_PATH}"
@@ -274,12 +288,14 @@ echo "Holdout thinking: ${HOLDOUT_ENABLE_THINKING}"
 echo "Holdout reasoning effort: ${HOLDOUT_REASONING_EFFORT}"
 echo "Holdout max total tokens: ${HOLDOUT_MAX_TOTAL_TOKENS}"
 
-for required_dataset_file in "${DATASET_PATH}" "${VAL_DATASET_PATH}" "${HOLDOUT_DATASET_PATH}"; do
+for required_dataset_file in "${DATASET_PATH}" "${VAL_DATASET_PATH}" "${HOLDOUT_DATASET_PATH}" "${PRETRAJ_DATASET_AUDIT_PATH}"; do
   if [ ! -f "${required_dataset_file}" ]; then
     echo "[ERROR] Required dataset file is missing: ${required_dataset_file}" >&2
     exit 2
   fi
 done
+
+python -c 'import json, os; p=os.environ["PRETRAJ_DATASET_AUDIT_PATH"]; r=json.load(open(p)); assert r.get("passed") is True and r.get("fatal_error_count") == 0, f"dataset audit did not pass: {p}"'
 
 srun --nodes=1 --ntasks=1 --ntasks-per-node=1 -w "${HEAD_NODE}" bash -c "
   set -euo pipefail

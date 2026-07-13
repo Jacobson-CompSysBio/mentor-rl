@@ -9,6 +9,19 @@ from pathlib import Path
 from typing import Any
 
 
+READINESS_SCHEMA_VERSION = "pretrajectory-sft-readiness-v2"
+LEGACY_DATASET_AUDIT_SCHEMA_VERSION = "pretrajectory-sft-audit-v2"
+CURRICULUM_DATASET_AUDIT_SCHEMA_VERSION = "pretrajectory-sft-audit-v3"
+CURRICULUM_DATASET_SCHEMA_VERSION = "pretrajectory-sft-v3"
+REQUIRED_DATASET_AUDIT_SCHEMA_VERSION = LEGACY_DATASET_AUDIT_SCHEMA_VERSION
+REQUIRED_EVALUATOR_CONTRACT_VERSION = "pretrajectory-sft-exact-v3"
+CURRICULUM_NATIVE_REPORT_NAMES = (
+    "audit_report.json",
+    "leakage_report.json",
+    "coverage_report.json",
+)
+
+
 def read_json(path: Path | None) -> dict[str, Any]:
     if path is None:
         return {}
@@ -22,7 +35,11 @@ def nested_metric(payload: dict[str, Any], path: tuple[str, ...]) -> float | Non
         if not isinstance(value, dict):
             return None
         value = value.get(key)
-    return float(value) if isinstance(value, (int, float)) else None
+    return (
+        float(value)
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+        else None
+    )
 
 
 def first_present_metric(payload: dict[str, Any], *paths: tuple[str, ...]) -> float | None:
@@ -31,6 +48,44 @@ def first_present_metric(payload: dict[str, Any], *paths: tuple[str, ...]) -> fl
         if value is not None:
             return value
     return None
+
+
+def _curriculum_audit_schema_is_current(dataset_audit: dict[str, Any]) -> bool:
+    dataset_schema_version = dataset_audit.get("dataset_schema_version")
+    if dataset_schema_version == CURRICULUM_DATASET_SCHEMA_VERSION:
+        return dataset_audit.get("schema_version") == CURRICULUM_DATASET_AUDIT_SCHEMA_VERSION
+    return dataset_audit.get("schema_version") == LEGACY_DATASET_AUDIT_SCHEMA_VERSION
+
+
+def _curriculum_native_reports_are_current(dataset_audit: dict[str, Any]) -> bool:
+    native_reports = dataset_audit.get("native_reports")
+    plan_hash = dataset_audit.get("plan_hash")
+    return (
+        isinstance(plan_hash, str)
+        and bool(plan_hash)
+        and isinstance(native_reports, dict)
+        and all(
+            isinstance(native_reports.get(name), dict)
+            and native_reports[name].get("passed") is True
+            and native_reports[name].get("plan_hash") == plan_hash
+            for name in CURRICULUM_NATIVE_REPORT_NAMES
+        )
+    )
+
+
+def _curriculum_exact_identity_matches(
+    dataset_audit: dict[str, Any],
+    exact_report: dict[str, Any],
+) -> bool:
+    identity = exact_report.get("dataset_identity")
+    return (
+        isinstance(identity, dict)
+        and identity.get("dataset_schema_version") == CURRICULUM_DATASET_SCHEMA_VERSION
+        and identity.get("plan_hash") == dataset_audit.get("plan_hash")
+        and identity.get("content_hash") == dataset_audit.get("content_hash")
+        and isinstance(identity.get("content_hash"), str)
+        and bool(identity["content_hash"])
+    )
 
 
 def add_gate(
@@ -72,20 +127,115 @@ def check_readiness(
     args: argparse.Namespace,
 ) -> dict[str, Any]:
     gates: list[dict[str, Any]] = []
+    is_curriculum_v3 = (
+        dataset_audit.get("dataset_schema_version") == CURRICULUM_DATASET_SCHEMA_VERSION
+    )
 
     add_gate(
         gates,
+        name="dataset_audit_schema_current",
+        observed=int(_curriculum_audit_schema_is_current(dataset_audit)),
+        threshold=1,
+        op="==",
+    )
+    add_gate(
+        gates,
         name="dataset_audit_fatal_errors",
-        observed=dataset_audit.get("fatal_error_count"),
+        observed=nested_metric(dataset_audit, ("fatal_error_count",)),
         threshold=0,
         op="==",
     )
+    if is_curriculum_v3:
+        add_gate(
+            gates,
+            name="dataset_audit_passed",
+            observed=int(dataset_audit.get("passed") is True),
+            threshold=1,
+            op="==",
+        )
+        add_gate(
+            gates,
+            name="dataset_native_reports_current",
+            observed=int(_curriculum_native_reports_are_current(dataset_audit)),
+            threshold=1,
+            op="==",
+        )
+    add_gate(
+        gates,
+        name="dataset_manifest_budget_contract_present",
+        observed=int(
+            isinstance(dataset_audit.get("answer_budget_report"), dict)
+            and dataset_audit["answer_budget_report"].get("manifest_contract_present") is True
+        ),
+        threshold=1,
+        op="==",
+    )
+    add_gate(
+        gates,
+        name="dataset_over_budget_record_count",
+        observed=nested_metric(dataset_audit, ("answer_budget_report", "over_budget_record_count")),
+        threshold=0,
+        op="==",
+    )
+    if is_curriculum_v3:
+        add_gate(
+            gates,
+            name="dataset_missing_budget_metadata_count",
+            observed=nested_metric(
+                dataset_audit,
+                ("answer_budget_report", "missing_record_budget_metadata_count"),
+            ),
+            threshold=0,
+            op="==",
+        )
     if args.fail_on_dataset_warnings:
         add_gate(
             gates,
             name="dataset_audit_warnings",
-            observed=dataset_audit.get("warning_count"),
+            observed=nested_metric(dataset_audit, ("warning_count",)),
             threshold=0,
+            op="==",
+        )
+
+    add_gate(
+        gates,
+        name="evaluator_contract_current",
+        observed=int(
+            exact_report.get("evaluator_contract", {}).get("version")
+            == REQUIRED_EVALUATOR_CONTRACT_VERSION
+            if isinstance(exact_report.get("evaluator_contract"), dict)
+            else False
+        ),
+        threshold=1,
+        op="==",
+    )
+    add_gate(
+        gates,
+        name="gold_self_evaluation_passed",
+        observed=int(
+            exact_report.get("gold_self_evaluation", {}).get("passed") is True
+            if isinstance(exact_report.get("gold_self_evaluation"), dict)
+            else False
+        ),
+        threshold=1,
+        op="==",
+    )
+    add_gate(
+        gates,
+        name="exact_only_summary_present",
+        observed=int(
+            isinstance(exact_report.get("summary"), dict)
+            and isinstance(exact_report["summary"].get("exact_only"), dict)
+        ),
+        threshold=1,
+        op="==",
+    )
+    if is_curriculum_v3:
+        add_gate(
+            gates,
+            name="exact_report_dataset_identity_current",
+            observed=int(_curriculum_exact_identity_matches(dataset_audit, exact_report)),
+            threshold=1,
             op="==",
         )
 
@@ -106,21 +256,21 @@ def check_readiness(
     add_gate(
         gates,
         name="mean_id_recall",
-        observed=nested_metric(exact_report, ("summary", "mean_id_recall")),
+        observed=nested_metric(exact_report, ("summary", "exact_only", "mean_id_recall")),
         threshold=args.min_id_recall,
         op=">=",
     )
     add_gate(
         gates,
         name="mean_layer_recall",
-        observed=nested_metric(exact_report, ("summary", "mean_layer_recall")),
+        observed=nested_metric(exact_report, ("summary", "exact_only", "mean_layer_recall")),
         threshold=args.min_layer_recall,
         op=">=",
     )
     add_gate(
         gates,
         name="mean_number_recall",
-        observed=nested_metric(exact_report, ("summary", "mean_number_recall")),
+        observed=nested_metric(exact_report, ("summary", "exact_only", "mean_number_recall")),
         threshold=args.min_number_recall,
         op=">=",
         required=False,
@@ -147,15 +297,30 @@ def check_readiness(
         required=False,
     )
 
-    for bucket, threshold in (
-        ("entity_schema_grounding", args.min_schema_exact),
-        ("multiplex_layer_metadata", args.min_schema_exact),
-        ("local_topology", args.min_topology_exact),
-        ("shortest_paths", args.min_topology_exact),
-        ("rwr_vector_lookup", args.min_rwr_exact),
-        ("module_set_algebra", args.min_module_exact),
-        ("tool_observation_state_updates", args.min_tool_schema_exact),
-    ):
+    bucket_thresholds = (
+        (
+            ("entity_normalization_schema", args.min_schema_exact),
+            ("layer_metadata_membership", args.min_schema_exact),
+            ("edge_neighbor_topology", args.min_topology_exact),
+            ("paths_layer_counts", args.min_topology_exact),
+            ("subgraph_components_hubness", args.min_topology_exact),
+            ("global_cohesion_calibration", args.min_topology_exact),
+            ("rwr_distance_vectors", args.min_rwr_exact),
+            ("module_set_algebra", args.min_module_exact),
+            ("structured_context_and_tools", args.min_tool_schema_exact),
+        )
+        if is_curriculum_v3
+        else (
+            ("entity_schema_grounding", args.min_schema_exact),
+            ("multiplex_layer_metadata", args.min_schema_exact),
+            ("local_topology", args.min_topology_exact),
+            ("shortest_paths", args.min_topology_exact),
+            ("rwr_vector_lookup", args.min_rwr_exact),
+            ("module_set_algebra", args.min_module_exact),
+            ("tool_observation_state_updates", args.min_tool_schema_exact),
+        )
+    )
+    for bucket, threshold in bucket_thresholds:
         add_gate(
             gates,
             name=f"{bucket}_exact_pass_rate",
@@ -200,16 +365,40 @@ def check_readiness(
             op=">=",
         )
 
+    contract_gate_names = {
+        "dataset_audit_schema_current",
+        "dataset_audit_fatal_errors",
+        "dataset_audit_passed",
+        "dataset_native_reports_current",
+        "dataset_manifest_budget_contract_present",
+        "dataset_over_budget_record_count",
+        "dataset_missing_budget_metadata_count",
+        "evaluator_contract_current",
+        "gold_self_evaluation_passed",
+        "exact_only_summary_present",
+        "exact_report_dataset_identity_current",
+    }
     failed = [gate for gate in gates if gate["required"] and not gate["passed"]]
     advisory_failed = [gate for gate in gates if not gate["required"] and not gate["passed"]]
+    failed_contract_gates = [gate for gate in failed if gate["name"] in contract_gate_names]
+    contract_valid = not failed_contract_gates
+    if failed_contract_gates:
+        decision = "repair_evaluation_or_dataset_contract"
+    elif failed:
+        decision = "continue_pretrajectory_sft_or_data_repair"
+    else:
+        decision = "move_to_dpo_trajectory_generation"
     return {
+        "schema_version": READINESS_SCHEMA_VERSION,
+        "valid": contract_valid,
         "passed": not failed,
         "required_failure_count": len(failed),
         "advisory_failure_count": len(advisory_failed),
         "gates": gates,
         "failed_required_gates": failed,
         "failed_advisory_gates": advisory_failed,
-        "decision": "move_to_dpo_trajectory_generation" if not failed else "continue_pretrajectory_sft_or_data_repair",
+        "failed_contract_gates": failed_contract_gates,
+        "decision": decision,
     }
 
 

@@ -1,0 +1,384 @@
+{
+  "contract_version": "pretrajectory-sft-curriculum-plan-v1",
+  "plan_id": "full_brain_pretrajectory_curriculum_v1",
+  "dataset_schema_version": "pretrajectory-sft-v3",
+  "description": "Scale-blocking curriculum contract for learning the full-brain multiplex coordinate system, oracle-backed graph facts, global module structure, and schema-valid tool use.",
+  "graph_contract": {
+    "multiplex_id": "full_brain_multiplex_v1",
+    "store_path": "data/runtime/full_brain_multiplex_store",
+    "flist_path": "data/full_brain_flist.tsv",
+    "entity_namespace": "ensembl_gene_id_primary",
+    "mentor_ev_source": "data/gw_dendrogram_corpus_full_brain",
+    "rwr_loe_source": "data/rwr_loe_corpus_full_brain",
+    "mixed_module_source": "data/module_corpus_full_brain_mixed",
+    "full_store_is_oracle": true,
+    "candidate_sampling_may_define_truth": false,
+    "file_prefix_sampling_allowed": false,
+    "exact_claims_require_store_identity": true
+  },
+  "book_modes": [
+    "closed_book",
+    "open_book",
+    "tool_call"
+  ],
+  "record_contract": {
+    "required_metadata_fields": [
+      "schema_version",
+      "record_id",
+      "oracle_fact_id",
+      "book_mode",
+      "question_family",
+      "multiplex_id",
+      "store_id",
+      "flist_id",
+      "layer_scope",
+      "layer_ids",
+      "layer_families",
+      "entity_namespace",
+      "module_source",
+      "answer_format",
+      "difficulty_source",
+      "context_budget_profile",
+      "evidence_handles",
+      "provenance"
+    ],
+    "answer_format": "json",
+    "canonical_entity_namespace": "ensembl_gene_id_primary",
+    "raw_paths_forbidden_in_question_context_answer": true,
+    "oracle_fact_id_assigned_before_rendering": true
+  },
+  "numeric_policy": {
+    "exact_types": ["identifier", "integer_rank", "integer_count", "set", "membership", "tool_schema"],
+    "tolerance_types": ["edge_weight", "rwr_score", "distance", "p_value", "derived_float"],
+    "default_significant_figures": 4,
+    "float_answers_require_declared_absolute_or_relative_tolerance": true,
+    "closed_book_arbitrary_floats_allowed": false,
+    "derived_metrics_recomputed_by_validator": true,
+    "top_k_metrics": ["precision_at_k", "recall_at_k", "ordering_accuracy", "seed_exclusion_accuracy"]
+  },
+  "context_budget_profiles": {
+    "atomic_1k": {
+      "max_prompt_tokens": 832,
+      "max_answer_tokens": 192,
+      "max_total_tokens": 1024,
+      "max_answer_characters": 4096,
+      "paging_required_for_oversized_objects": true
+    },
+    "evidence_2k": {
+      "max_prompt_tokens": 1792,
+      "max_answer_tokens": 256,
+      "max_total_tokens": 2048,
+      "max_answer_characters": 8192,
+      "paging_required_for_oversized_objects": true
+    },
+    "matrix_state_4k": {
+      "max_prompt_tokens": 3712,
+      "max_answer_tokens": 384,
+      "max_total_tokens": 4096,
+      "max_answer_characters": 16384,
+      "paging_required_for_oversized_objects": true
+    }
+  },
+  "mixture": {
+    "content_buckets": {
+      "entity_normalization_schema": 0.08,
+      "layer_metadata_membership": 0.10,
+      "edge_neighbor_topology": 0.12,
+      "paths_layer_counts": 0.08,
+      "subgraph_components_hubness": 0.10,
+      "rwr_distance_vectors": 0.15,
+      "module_set_algebra": 0.20,
+      "global_cohesion_calibration": 0.10,
+      "structured_context_and_tools": 0.07
+    },
+    "fraction_tolerance": 0.02,
+    "orthogonal_dimensions": [
+      "stage",
+      "question_family",
+      "book_mode",
+      "difficulty_source",
+      "context_budget_profile",
+      "module_source",
+      "layer_family"
+    ],
+    "selection_rule": "Meet content-bucket targets while separately reporting every material orthogonal cross-cell; open-book and tool variants are not capped by the structured_context_and_tools bucket."
+  },
+  "build_profiles": {
+    "patchcheck": {
+      "split_counts": {
+        "train": 10000,
+        "val": 1000,
+        "test": 1000
+      },
+      "minimum_selected_per_required_family": 8,
+      "minimum_selected_per_material_cross_cell": 4
+    },
+    "full_1m": {
+      "split_counts": {
+        "train": 1000000,
+        "val": 50000,
+        "test": 50000
+      },
+      "minimum_selected_per_required_family": 128,
+      "minimum_selected_per_material_cross_cell": 32
+    }
+  },
+  "question_families": [
+    {"id": 1, "name": "entity_symbol_to_ensembl", "primary_stage": "stage1_entity_schema", "mixture_bucket": "entity_normalization_schema", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "entity_alignment"},
+    {"id": 2, "name": "entity_ensembl_to_symbol", "primary_stage": "stage1_entity_schema", "mixture_bucket": "entity_normalization_schema", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "entity_alignment"},
+    {"id": 3, "name": "ambiguous_alias_resolution", "primary_stage": "stage1_entity_schema", "mixture_bucket": "entity_normalization_schema", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "entity_alignment"},
+    {"id": 4, "name": "cross_context_entity_alignment", "primary_stage": "stage1_entity_schema", "mixture_bucket": "entity_normalization_schema", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "entity_alignment"},
+    {"id": 5, "name": "multiplex_identifier_parsing", "primary_stage": "stage1_entity_schema", "mixture_bucket": "layer_metadata_membership", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "schema_grounding"},
+    {"id": 6, "name": "layer_tag_parsing", "primary_stage": "stage1_entity_schema", "mixture_bucket": "layer_metadata_membership", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "schema_grounding"},
+    {"id": 7, "name": "layer_family_classification", "primary_stage": "stage1_entity_schema", "mixture_bucket": "layer_metadata_membership", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "schema_grounding"},
+    {"id": 8, "name": "gene_layer_membership", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "layer_metadata_membership", "allowed_book_modes": ["open_book"], "difficulty_source": "closed_book_exact_graph_fact"},
+    {"id": 9, "name": "nodes_by_layer", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "layer_metadata_membership", "allowed_book_modes": ["open_book"], "difficulty_source": "large_context_extraction"},
+    {"id": 10, "name": "layer_edge_existence", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "edge_neighbor_topology", "allowed_book_modes": ["open_book"], "difficulty_source": "closed_book_exact_graph_fact"},
+    {"id": 11, "name": "multiplex_edge_existence", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "edge_neighbor_topology", "allowed_book_modes": ["open_book"], "difficulty_source": "multiplex_layer_aggregation"},
+    {"id": 12, "name": "layer_direct_neighbors", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "edge_neighbor_topology", "allowed_book_modes": ["open_book"], "difficulty_source": "large_context_extraction"},
+    {"id": 13, "name": "multiplex_direct_neighbors", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "edge_neighbor_topology", "allowed_book_modes": ["open_book"], "difficulty_source": "multiplex_layer_aggregation"},
+    {"id": 14, "name": "monoplex_shortest_path", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "paths_layer_counts", "allowed_book_modes": ["open_book"], "difficulty_source": "path_search"},
+    {"id": 15, "name": "multiplex_shortest_path", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "paths_layer_counts", "allowed_book_modes": ["open_book"], "difficulty_source": "path_search"},
+    {"id": 16, "name": "path_layer_decomposition", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "paths_layer_counts", "allowed_book_modes": ["open_book"], "difficulty_source": "multiplex_layer_aggregation"},
+    {"id": 17, "name": "monoplex_multiplex_path_comparison", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "paths_layer_counts", "allowed_book_modes": ["open_book"], "difficulty_source": "path_search"},
+    {"id": 18, "name": "induced_subgraph", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "subgraph_components_hubness", "allowed_book_modes": ["open_book"], "difficulty_source": "subgraph_extraction"},
+    {"id": 19, "name": "connected_component", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "subgraph_components_hubness", "allowed_book_modes": ["open_book"], "difficulty_source": "subgraph_extraction"},
+    {"id": 20, "name": "shared_neighbors", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "subgraph_components_hubness", "allowed_book_modes": ["open_book"], "difficulty_source": "set_extraction"},
+    {"id": 21, "name": "degree_hub_bias", "primary_stage": "stage2_topology_priors", "mixture_bucket": "subgraph_components_hubness", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "numeric_calibration"},
+    {"id": 22, "name": "layer_specificity", "primary_stage": "stage2_topology_priors", "mixture_bucket": "subgraph_components_hubness", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "calibration_rule"},
+    {"id": 23, "name": "rwr_loe_rank_lookup", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "rwr_distance_vectors", "allowed_book_modes": ["open_book"], "difficulty_source": "numeric_extraction"},
+    {"id": 24, "name": "rwr_loe_pair_comparison", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "rwr_distance_vectors", "allowed_book_modes": ["open_book"], "difficulty_source": "numeric_extraction"},
+    {"id": 25, "name": "rwr_loe_closest_entities", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "rwr_distance_vectors", "allowed_book_modes": ["open_book"], "difficulty_source": "vector_ordering"},
+    {"id": 26, "name": "rwr_loe_query_filtering", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "rwr_distance_vectors", "allowed_book_modes": ["open_book"], "difficulty_source": "vector_filtering"},
+    {"id": 27, "name": "rwr_loe_elbow_membership", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "rwr_distance_vectors", "allowed_book_modes": ["open_book"], "difficulty_source": "elbow_reasoning"},
+    {"id": 28, "name": "rwr_loe_rank_gap", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "rwr_distance_vectors", "allowed_book_modes": ["open_book"], "difficulty_source": "elbow_reasoning"},
+    {"id": 29, "name": "rwr_loe_vector_intersection", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "rwr_distance_vectors", "allowed_book_modes": ["open_book"], "difficulty_source": "vector_set_algebra"},
+    {"id": 30, "name": "rwr_loe_leave_one_out_support", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "rwr_distance_vectors", "allowed_book_modes": ["open_book"], "difficulty_source": "leave_one_out_reasoning"},
+    {"id": 31, "name": "distance_shard_pair_lookup", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "rwr_distance_vectors", "allowed_book_modes": ["open_book"], "difficulty_source": "matrix_extraction"},
+    {"id": 32, "name": "distance_shard_comparison", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "rwr_distance_vectors", "allowed_book_modes": ["open_book"], "difficulty_source": "matrix_extraction"},
+    {"id": 33, "name": "distance_row_closest_entities", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "rwr_distance_vectors", "allowed_book_modes": ["open_book"], "difficulty_source": "matrix_ordering"},
+    {"id": 34, "name": "distance_cross_shard_lookup", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "rwr_distance_vectors", "allowed_book_modes": ["open_book"], "difficulty_source": "shard_routing"},
+    {"id": 35, "name": "distance_percentile_calibration", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "rwr_distance_vectors", "allowed_book_modes": ["open_book"], "difficulty_source": "numeric_calibration"},
+    {"id": 36, "name": "rank_distance_consistency", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "rwr_distance_vectors", "allowed_book_modes": ["open_book"], "difficulty_source": "cross_context_consistency"},
+    {"id": 37, "name": "layer_ablation", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "rwr_distance_vectors", "allowed_book_modes": ["open_book"], "difficulty_source": "perturbation_reasoning"},
+    {"id": 38, "name": "node_perturbation_seed_essentiality", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "rwr_distance_vectors", "allowed_book_modes": ["open_book"], "difficulty_source": "perturbation_reasoning"},
+    {"id": 39, "name": "mentor_ev_module_membership", "primary_stage": "stage4_module_world_model", "mixture_bucket": "module_set_algebra", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "module_set_fact"},
+    {"id": 40, "name": "rwr_loe_module_membership", "primary_stage": "stage4_module_world_model", "mixture_bucket": "module_set_algebra", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "module_set_fact"},
+    {"id": 41, "name": "cross_source_module_intersection", "primary_stage": "stage4_module_world_model", "mixture_bucket": "module_set_algebra", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "large_set_algebra"},
+    {"id": 42, "name": "module_set_difference", "primary_stage": "stage4_module_world_model", "mixture_bucket": "module_set_algebra", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "large_set_algebra"},
+    {"id": 43, "name": "rwr_subset_of_mentor", "primary_stage": "stage4_module_world_model", "mixture_bucket": "module_set_algebra", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "large_set_algebra"},
+    {"id": 44, "name": "mentor_superset_of_rwr", "primary_stage": "stage4_module_world_model", "mixture_bucket": "module_set_algebra", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "large_set_algebra"},
+    {"id": 45, "name": "near_subset_violations", "primary_stage": "stage4_module_world_model", "mixture_bucket": "module_set_algebra", "allowed_book_modes": ["open_book"], "difficulty_source": "large_set_algebra"},
+    {"id": 46, "name": "module_jaccard", "primary_stage": "stage4_module_world_model", "mixture_bucket": "module_set_algebra", "allowed_book_modes": ["open_book"], "difficulty_source": "set_arithmetic"},
+    {"id": 47, "name": "module_containment", "primary_stage": "stage4_module_world_model", "mixture_bucket": "module_set_algebra", "allowed_book_modes": ["open_book"], "difficulty_source": "set_arithmetic"},
+    {"id": 48, "name": "best_matching_module", "primary_stage": "stage4_module_world_model", "mixture_bucket": "module_set_algebra", "allowed_book_modes": ["open_book"], "difficulty_source": "global_module_retrieval"},
+    {"id": 49, "name": "module_overlap_ranking", "primary_stage": "stage4_module_world_model", "mixture_bucket": "module_set_algebra", "allowed_book_modes": ["open_book"], "difficulty_source": "global_module_retrieval"},
+    {"id": 50, "name": "module_parent_child", "primary_stage": "stage4_module_world_model", "mixture_bucket": "module_set_algebra", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "dendrogram_relation"},
+    {"id": 51, "name": "sibling_modules", "primary_stage": "stage4_module_world_model", "mixture_bucket": "module_set_algebra", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "dendrogram_relation"},
+    {"id": 52, "name": "multi_module_intersection", "primary_stage": "stage4_module_world_model", "mixture_bucket": "module_set_algebra", "allowed_book_modes": ["open_book"], "difficulty_source": "large_set_algebra"},
+    {"id": 53, "name": "source_unique_genes", "primary_stage": "stage4_module_world_model", "mixture_bucket": "module_set_algebra", "allowed_book_modes": ["open_book"], "difficulty_source": "large_set_algebra"},
+    {"id": 54, "name": "module_provenance", "primary_stage": "stage4_module_world_model", "mixture_bucket": "module_set_algebra", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "provenance_tracking"},
+    {"id": 55, "name": "overlap_vs_topological_distance", "primary_stage": "stage4_module_world_model", "mixture_bucket": "module_set_algebra", "allowed_book_modes": ["open_book"], "difficulty_source": "set_distance_integration"},
+    {"id": 56, "name": "within_clade_distance", "primary_stage": "stage4_module_world_model", "mixture_bucket": "global_cohesion_calibration", "allowed_book_modes": ["open_book"], "difficulty_source": "numeric_aggregation"},
+    {"id": 57, "name": "within_clade_vs_random", "primary_stage": "stage4_module_world_model", "mixture_bucket": "global_cohesion_calibration", "allowed_book_modes": ["open_book"], "difficulty_source": "null_comparison"},
+    {"id": 58, "name": "clustering_ratio", "primary_stage": "stage4_module_world_model", "mixture_bucket": "global_cohesion_calibration", "allowed_book_modes": ["open_book"], "difficulty_source": "numeric_aggregation"},
+    {"id": 59, "name": "subgraph_density", "primary_stage": "stage4_module_world_model", "mixture_bucket": "global_cohesion_calibration", "allowed_book_modes": ["open_book"], "difficulty_source": "numeric_aggregation"},
+    {"id": 60, "name": "conductance_boundary_ratio", "primary_stage": "stage4_module_world_model", "mixture_bucket": "global_cohesion_calibration", "allowed_book_modes": ["open_book"], "difficulty_source": "numeric_aggregation"},
+    {"id": 61, "name": "cell_type_specific_cohesion", "primary_stage": "stage4_module_world_model", "mixture_bucket": "global_cohesion_calibration", "allowed_book_modes": ["open_book"], "difficulty_source": "layer_sensitive_global_context"},
+    {"id": 62, "name": "layer_sensitive_cohesion", "primary_stage": "stage4_module_world_model", "mixture_bucket": "global_cohesion_calibration", "allowed_book_modes": ["open_book"], "difficulty_source": "layer_sensitive_global_context"},
+    {"id": 63, "name": "nearest_modules", "primary_stage": "stage4_module_world_model", "mixture_bucket": "global_cohesion_calibration", "allowed_book_modes": ["open_book"], "difficulty_source": "global_module_retrieval"},
+    {"id": 64, "name": "no_edge_no_path_calibration", "primary_stage": "stage2_topology_priors", "mixture_bucket": "global_cohesion_calibration", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "calibration_rule"},
+    {"id": 65, "name": "no_edge_with_network_proximity", "primary_stage": "stage2_topology_priors", "mixture_bucket": "global_cohesion_calibration", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "calibration_rule"},
+    {"id": 66, "name": "gene_absent_from_layer", "primary_stage": "stage3_open_book_vectors", "mixture_bucket": "layer_metadata_membership", "allowed_book_modes": ["open_book"], "difficulty_source": "closed_book_exact_graph_fact"},
+    {"id": 67, "name": "rwr_outside_top_k_calibration", "primary_stage": "stage2_topology_priors", "mixture_bucket": "global_cohesion_calibration", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "calibration_rule"},
+    {"id": 68, "name": "phrase_only_evidence_calibration", "primary_stage": "stage2_topology_priors", "mixture_bucket": "global_cohesion_calibration", "allowed_book_modes": ["closed_book", "open_book"], "difficulty_source": "calibration_rule"},
+    {"id": 69, "name": "choose_rwr_loe_tool", "primary_stage": "stage5_structured_tools", "mixture_bucket": "structured_context_and_tools", "allowed_book_modes": ["tool_call"], "difficulty_source": "tool_selection"},
+    {"id": 70, "name": "choose_pairwise_distance_tool", "primary_stage": "stage5_structured_tools", "mixture_bucket": "structured_context_and_tools", "allowed_book_modes": ["tool_call"], "difficulty_source": "tool_selection"},
+    {"id": 71, "name": "choose_layer_membership_tool", "primary_stage": "stage5_structured_tools", "mixture_bucket": "structured_context_and_tools", "allowed_book_modes": ["tool_call"], "difficulty_source": "tool_selection"},
+    {"id": 72, "name": "choose_component_summary_tool", "primary_stage": "stage5_structured_tools", "mixture_bucket": "structured_context_and_tools", "allowed_book_modes": ["tool_call"], "difficulty_source": "tool_selection"},
+    {"id": 73, "name": "choose_induced_subgraph_tool", "primary_stage": "stage5_structured_tools", "mixture_bucket": "structured_context_and_tools", "allowed_book_modes": ["tool_call"], "difficulty_source": "tool_selection"},
+    {"id": 74, "name": "choose_layer_ablation_tool", "primary_stage": "stage5_structured_tools", "mixture_bucket": "structured_context_and_tools", "allowed_book_modes": ["tool_call"], "difficulty_source": "tool_selection"},
+    {"id": 75, "name": "parse_rwr_loe_result", "primary_stage": "stage5_structured_tools", "mixture_bucket": "structured_context_and_tools", "allowed_book_modes": ["tool_call"], "difficulty_source": "tool_observation_parsing"},
+    {"id": 76, "name": "parse_distance_shard", "primary_stage": "stage5_structured_tools", "mixture_bucket": "structured_context_and_tools", "allowed_book_modes": ["tool_call"], "difficulty_source": "tool_observation_parsing"},
+    {"id": 77, "name": "parse_module_overlap", "primary_stage": "stage5_structured_tools", "mixture_bucket": "structured_context_and_tools", "allowed_book_modes": ["tool_call"], "difficulty_source": "tool_observation_parsing"},
+    {"id": 78, "name": "provenance_answer", "primary_stage": "stage5_structured_tools", "mixture_bucket": "structured_context_and_tools", "allowed_book_modes": ["tool_call"], "difficulty_source": "provenance_tracking"},
+    {"id": 79, "name": "refuse_raw_cli_path", "primary_stage": "stage5_structured_tools", "mixture_bucket": "structured_context_and_tools", "allowed_book_modes": ["tool_call"], "difficulty_source": "tool_schema_control"},
+    {"id": 80, "name": "structured_state_update", "primary_stage": "stage5_structured_tools", "mixture_bucket": "structured_context_and_tools", "allowed_book_modes": ["tool_call"], "difficulty_source": "evidence_to_state_update"},
+    {"id": 81, "name": "whole_multiplex_context_profile", "primary_stage": "stage4_module_world_model", "mixture_bucket": "global_cohesion_calibration", "allowed_book_modes": ["open_book"], "difficulty_source": "global_multiplex_context"}
+  ],
+  "stages": [
+    {
+      "index": 1,
+      "name": "stage1_entity_schema",
+      "learning_goal": "Internalize canonical entity identity and the versioned multiplex coordinate system.",
+      "allowed_book_modes": ["closed_book"],
+      "allowed_budget_profiles": ["atomic_1k"],
+      "required_question_families": ["entity_symbol_to_ensembl", "entity_ensembl_to_symbol", "ambiguous_alias_resolution", "cross_context_entity_alignment", "multiplex_identifier_parsing", "layer_tag_parsing", "layer_family_classification"],
+      "closed_book_scope": "Identifiers, aliases, schema conventions, directionality conventions, and immutable version tags only.",
+      "earlier_stage_replay_fraction": 0.0
+    },
+    {
+      "index": 2,
+      "name": "stage2_topology_priors",
+      "learning_goal": "Internalize atlas-level topology vocabulary, module-source distinctions, and calibrated absence/proximity language.",
+      "allowed_book_modes": ["closed_book"],
+      "allowed_budget_profiles": ["atomic_1k"],
+      "required_question_families": ["degree_hub_bias", "layer_specificity", "no_edge_no_path_calibration", "no_edge_with_network_proximity", "rwr_outside_top_k_calibration", "phrase_only_evidence_calibration"],
+      "closed_book_scope": "Qualitative bins, stable conventions, and rule-derived calibrations; no arbitrary floats or exhaustive graph facts.",
+      "earlier_stage_replay_fraction": 0.15
+    },
+    {
+      "index": 3,
+      "name": "stage3_open_book_vectors",
+      "learning_goal": "Extract, filter, compare, route, and recompute exact facts from bounded tables, vectors, matrix shards, and graph evidence.",
+      "allowed_book_modes": ["open_book"],
+      "allowed_budget_profiles": ["atomic_1k", "evidence_2k", "matrix_state_4k"],
+      "required_question_families": ["gene_layer_membership", "nodes_by_layer", "layer_edge_existence", "multiplex_edge_existence", "layer_direct_neighbors", "multiplex_direct_neighbors", "monoplex_shortest_path", "multiplex_shortest_path", "path_layer_decomposition", "monoplex_multiplex_path_comparison", "induced_subgraph", "connected_component", "shared_neighbors", "rwr_loe_rank_lookup", "rwr_loe_pair_comparison", "rwr_loe_closest_entities", "rwr_loe_query_filtering", "rwr_loe_elbow_membership", "rwr_loe_rank_gap", "rwr_loe_vector_intersection", "rwr_loe_leave_one_out_support", "distance_shard_pair_lookup", "distance_shard_comparison", "distance_row_closest_entities", "distance_cross_shard_lookup", "distance_percentile_calibration", "rank_distance_consistency", "layer_ablation", "node_perturbation_seed_essentiality", "gene_absent_from_layer"],
+      "closed_book_scope": "none",
+      "earlier_stage_replay_fraction": 0.20
+    },
+    {
+      "index": 4,
+      "name": "stage4_module_world_model",
+      "learning_goal": "Build module-aware global representations through exact set relations, dendrogram structure, cohesion, null comparisons, and layer sensitivity.",
+      "allowed_book_modes": ["closed_book", "open_book"],
+      "allowed_budget_profiles": ["atomic_1k", "evidence_2k", "matrix_state_4k"],
+      "required_question_families": ["mentor_ev_module_membership", "rwr_loe_module_membership", "cross_source_module_intersection", "module_set_difference", "rwr_subset_of_mentor", "mentor_superset_of_rwr", "near_subset_violations", "module_jaccard", "module_containment", "best_matching_module", "module_overlap_ranking", "module_parent_child", "sibling_modules", "multi_module_intersection", "source_unique_genes", "module_provenance", "overlap_vs_topological_distance", "within_clade_distance", "within_clade_vs_random", "clustering_ratio", "subgraph_density", "conductance_boundary_ratio", "cell_type_specific_cohesion", "layer_sensitive_cohesion", "nearest_modules", "whole_multiplex_context_profile"],
+      "closed_book_scope": "Selected immutable module IDs, source/provenance, hierarchy, and bounded stable integer/set facts only; global floats remain open-book.",
+      "earlier_stage_replay_fraction": 0.20
+    },
+    {
+      "index": 5,
+      "name": "stage5_structured_tools",
+      "learning_goal": "Choose the cheapest sufficient live tool, emit schema-valid biological arguments, parse observations, preserve provenance, and update evidence-backed state.",
+      "allowed_book_modes": ["tool_call"],
+      "allowed_budget_profiles": ["evidence_2k", "matrix_state_4k"],
+      "required_question_families": ["choose_rwr_loe_tool", "choose_pairwise_distance_tool", "choose_layer_membership_tool", "choose_component_summary_tool", "choose_induced_subgraph_tool", "choose_layer_ablation_tool", "parse_rwr_loe_result", "parse_distance_shard", "parse_module_overlap", "provenance_answer", "refuse_raw_cli_path", "structured_state_update"],
+      "closed_book_scope": "none",
+      "earlier_stage_replay_fraction": 0.20
+    },
+    {
+      "index": 6,
+      "name": "stage6_blend",
+      "learning_goal": "Consolidate and rehearse stages 1-5 after their individual promotion gates pass.",
+      "allowed_book_modes": ["closed_book", "open_book", "tool_call"],
+      "allowed_budget_profiles": ["atomic_1k", "evidence_2k", "matrix_state_4k"],
+      "required_question_families": [],
+      "source_stage_weights": {
+        "stage1_entity_schema": 0.12,
+        "stage2_topology_priors": 0.13,
+        "stage3_open_book_vectors": 0.28,
+        "stage4_module_world_model": 0.27,
+        "stage5_structured_tools": 0.20
+      },
+      "closed_book_scope": "Inherited from source stage; blend rendering must not broaden a family's allowed modes.",
+      "earlier_stage_replay_fraction": 1.0
+    }
+  ],
+  "coverage_contract": {
+    "underfill_policy": "fatal",
+    "unavailable_cell_policy": "A material empty cell is permitted only when the plan records an explicit unavailable reason before generation.",
+    "required_cross_cell_dimensions": [
+      "stage",
+      "question_family",
+      "book_mode",
+      "difficulty_source",
+      "context_budget_profile",
+      "module_source",
+      "layer_family"
+    ],
+    "count_lifecycle_fields": [
+      "requested",
+      "generated",
+      "compacted",
+      "filtered",
+      "selected"
+    ],
+    "required_unique_object_metrics": [
+      "canonical_genes",
+      "layers",
+      "positive_edges",
+      "negative_edges",
+      "gene_layer_pairs",
+      "path_endpoint_pairs",
+      "rwr_seed_sets",
+      "rwr_rank_facts",
+      "mentor_ev_modules",
+      "rwr_loe_modules",
+      "module_relations",
+      "live_tool_schemas"
+    ],
+    "required_polarities": ["positive", "negative", "insufficient_context"],
+    "deterministic_sampling": true,
+    "sampling_independent_of_file_order": true,
+    "stratification_axes": ["layer", "layer_family", "node", "degree_bin", "edge_polarity", "hard_negative_degree_bin", "path_difficulty", "module_source"]
+  },
+  "split_contract": {
+    "split_unit": "oracle_fact_group",
+    "primary_group_key": "oracle_fact_id",
+    "co_grouping_keys_when_present": ["entity_group_id", "module_group_id", "seed_group_id", "path_endpoint_group_id", "evidence_object_id"],
+    "render_variants_same_split": true,
+    "variants": ["closed_book", "open_book", "tool_call", "paraphrase", "page"],
+    "assignment_fractions": {"train": 0.90, "val": 0.05, "test": 0.05},
+    "assignment_hash_inputs": ["plan_id", "multiplex_id", "oracle_fact_id", "strongest_available_group_id"],
+    "required_eval_regimes": ["held_out_oracle_facts", "held_out_entities", "held_out_modules", "held_out_seed_sets", "compositional_global"],
+    "fatal_leakage_checks": ["oracle_fact_cross_split", "group_cross_split", "exact_duplicate_cross_split", "near_duplicate_cross_split", "evidence_page_cross_split"]
+  },
+  "artifact_contract": {
+    "required_dataset_files": ["curriculum_plan.json", "manifest.json", "coverage_report.json", "leakage_report.json", "audit_report.json"],
+    "manifest_must_embed_plan_hash": true,
+    "reports_must_embed_plan_hash": true,
+    "raw_filesystem_paths_forbidden_in_model_text": true,
+    "tool_rows_require_live_schema_validation": true,
+    "tool_schema_validity_required": 1.0
+  },
+  "promotion_contract": {
+    "minimum_examples_per_reported_metric": 200,
+    "maximum_absolute_regression_on_any_earlier_stage": 0.02,
+    "gold_self_evaluation_required": true,
+    "zero_fatal_dataset_audit_errors_required": true,
+    "stages": {
+      "stage1_entity_schema": {
+        "exact_answer_accuracy_min": 0.98,
+        "canonical_id_recall_min": 0.99,
+        "ambiguous_alias_action_accuracy_min": 0.99,
+        "schema_tag_accuracy_min": 0.99
+      },
+      "stage2_topology_priors": {
+        "calibration_accuracy_min": 0.95,
+        "unsupported_claim_rate_max": 0.005,
+        "layer_family_accuracy_min": 0.95,
+        "module_source_accuracy_min": 0.95
+      },
+      "stage3_open_book_vectors": {
+        "open_book_exact_accuracy_min": 0.95,
+        "context_faithfulness_min": 0.99,
+        "rank_ordering_accuracy_min": 0.95,
+        "numeric_within_tolerance_min": 0.95,
+        "path_and_layer_validity_min": 0.99
+      },
+      "stage4_module_world_model": {
+        "module_membership_exact_min": 0.95,
+        "set_algebra_exact_min": 0.95,
+        "derived_metric_within_tolerance_min": 0.95,
+        "module_provenance_accuracy_min": 0.99,
+        "calibration_accuracy_min": 0.95
+      },
+      "stage5_structured_tools": {
+        "tool_choice_accuracy_min": 0.95,
+        "tool_schema_validity_min": 1.0,
+        "raw_path_rejection_accuracy_min": 1.0,
+        "observation_parse_exact_min": 0.95,
+        "state_schema_validity_min": 0.99,
+        "provenance_accuracy_min": 0.99
+      },
+      "stage6_blend": {
+        "overall_exact_accuracy_min": 0.85,
+        "open_book_exact_accuracy_min": 0.90,
+        "tool_schema_validity_min": 1.0,
+        "unsupported_claim_rate_max": 0.005,
+        "all_prior_stage_gates_still_pass": true
+      }
+    }
+  }
+}
