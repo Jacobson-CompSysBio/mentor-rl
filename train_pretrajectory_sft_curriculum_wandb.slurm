@@ -12,16 +12,16 @@
 #SBATCH --open-mode=truncate
 #SBATCH --signal=B:USR1@600
 
-# Defaults to the audited v5 patchcheck and stage 1. Advance
+# Runs only against the audited v5 patchcheck. Advance
 # PRETRAJ_CURRICULUM_STAGE only after the prior stage's held-out gate passes.
 # Add TRAIN_MAX_STEPS=<n> for bounded smoke runs without changing the launcher.
 # For a 120B multi-node smoke, override Slurm resources on the sbatch command line, e.g.:
-# sbatch -N 4 -p extended -t 06:00:00 --export=ALL,MODEL_NAME=gpt-oss-120b-bf16,PRETRAJ_DATASET_NAME=v5_curriculum_patchcheck,PRETRAJ_CURRICULUM_STAGE=stage1_entity_schema,PRETRAJ_RUN_SUFFIX=v5_120b_stage1_smoke,TRAIN_MAX_STEPS=100,RUN_HOLDOUT_AFTER_TRAINING=False train_pretrajectory_sft_v1_medium_wandb.slurm
+# sbatch -N 4 -p extended -t 06:00:00 --export=ALL,MODEL_NAME=gpt-oss-120b-bf16,PRETRAJ_CURRICULUM_STAGE=stage1_entity_schema,PRETRAJ_RUN_SUFFIX=v5_120b_stage1_smoke,TRAIN_MAX_STEPS=100,RUN_HOLDOUT_AFTER_TRAINING=False train_pretrajectory_sft_curriculum_wandb.slurm
 # For staged v5 curriculum training, set PRETRAJ_CURRICULUM_STAGE to one of:
 # stage1_entity_schema, stage2_topology_priors, stage3_open_book_vectors,
 # stage4_module_world_model, stage5_structured_tools, stage6_blend.
 # Example:
-# sbatch -N 4 -p extended -t 06:00:00 --export=ALL,MODEL_NAME=gpt-oss-120b-bf16,PRETRAJ_DATASET_NAME=v5_curriculum_patchcheck,PRETRAJ_CURRICULUM_STAGE=stage1_entity_schema,PRETRAJ_RUN_SUFFIX=v5_120b_stage1,AUTO_RESUME=1 train_pretrajectory_sft_v1_medium_wandb.slurm
+# sbatch -N 4 -p extended -t 06:00:00 --export=ALL,MODEL_NAME=gpt-oss-120b-bf16,PRETRAJ_CURRICULUM_STAGE=stage1_entity_schema,PRETRAJ_RUN_SUFFIX=v5_120b_stage1,AUTO_RESUME=1 train_pretrajectory_sft_curriculum_wandb.slurm
 # For restartable runs, use a stable PERSISTENT_OUTPUT_DIR and AUTO_RESUME=1.
 
 set -euo pipefail
@@ -43,31 +43,24 @@ source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
 export MODEL_NAME="${MODEL_NAME:-gpt-oss-20b-bf16}"
 export MODEL_PATH="${MODEL_PATH:-/lustre/orion/syb111/proj-shared/Personal/krusepi/projects/llms/models/${MODEL_NAME}}"
 
-if [ -z "${PRETRAJ_DATASET_NAME:-}" ]; then
-  if [ -n "${PRETRAJ_DATASET_DIR:-}" ]; then
-    PRETRAJ_DATASET_NAME="$(basename "${PRETRAJ_DATASET_DIR}")"
-  else
-    PRETRAJ_DATASET_NAME="v5_curriculum_patchcheck"
-  fi
-fi
-export PRETRAJ_DATASET_NAME
-export PRETRAJ_DATASET_DIR="${PRETRAJ_DATASET_DIR:-${SLURM_SUBMIT_DIR}/data/pretrajectory_sft/${PRETRAJ_DATASET_NAME}}"
-export PRETRAJ_DATASET_AUDIT_PATH="${PRETRAJ_DATASET_AUDIT_PATH:-${PRETRAJ_DATASET_DIR}/audit_report_contract_v3.json}"
+export PRETRAJ_DATASET_NAME="v5_curriculum_patchcheck"
+export PRETRAJ_DATASET_DIR="${SLURM_SUBMIT_DIR}/data/pretrajectory_sft/v5_curriculum_patchcheck"
+export PRETRAJ_DATASET_AUDIT_PATH="${PRETRAJ_DATASET_DIR}/audit_report_contract_v3.json"
+export PRETRAJ_EXPECTED_PLAN_HASH="7a1e3a6c7b67c8dd8dd528c78a5ca653bce4ecbf430c3afc6480bd4ffb676556"
+export PRETRAJ_EXPECTED_CONTENT_HASH="4e3d299d916c2c4149643d8ec5f6c4759bea9eff31d9d4a3219850e39b2981fc"
 export PRETRAJ_RUN_SUFFIX="${PRETRAJ_RUN_SUFFIX:-${PRETRAJ_DATASET_NAME}}"
-# Use `${name-default}` so an explicitly empty export can still select the
-# all-stage primary mixture for diagnostics.
-export PRETRAJ_CURRICULUM_STAGE="${PRETRAJ_CURRICULUM_STAGE-stage1_entity_schema}"
-
-if [ -n "${PRETRAJ_CURRICULUM_STAGE}" ]; then
-  export PRETRAJ_STAGE_DATASET_DIR="${PRETRAJ_DATASET_DIR}/curriculum/${PRETRAJ_CURRICULUM_STAGE}"
-  export DATASET_PATH="${DATASET_PATH:-${PRETRAJ_STAGE_DATASET_DIR}/train.jsonl}"
-  export VAL_DATASET_PATH="${VAL_DATASET_PATH:-${PRETRAJ_STAGE_DATASET_DIR}/val.jsonl}"
-  export HOLDOUT_DATASET_PATH="${HOLDOUT_DATASET_PATH:-${PRETRAJ_STAGE_DATASET_DIR}/test.jsonl}"
-else
-  export DATASET_PATH="${DATASET_PATH:-${PRETRAJ_DATASET_DIR}/train.jsonl}"
-  export VAL_DATASET_PATH="${VAL_DATASET_PATH:-${PRETRAJ_DATASET_DIR}/val.jsonl}"
-  export HOLDOUT_DATASET_PATH="${HOLDOUT_DATASET_PATH:-${PRETRAJ_DATASET_DIR}/test.jsonl}"
-fi
+export PRETRAJ_CURRICULUM_STAGE="${PRETRAJ_CURRICULUM_STAGE:-stage1_entity_schema}"
+case "${PRETRAJ_CURRICULUM_STAGE}" in
+  stage1_entity_schema|stage2_topology_priors|stage3_open_book_vectors|stage4_module_world_model|stage5_structured_tools|stage6_blend) ;;
+  *)
+    echo "[ERROR] Unsupported or empty v5 curriculum stage: ${PRETRAJ_CURRICULUM_STAGE}" >&2
+    exit 2
+    ;;
+esac
+export PRETRAJ_STAGE_DATASET_DIR="${PRETRAJ_DATASET_DIR}/curriculum/${PRETRAJ_CURRICULUM_STAGE}"
+export DATASET_PATH="${PRETRAJ_STAGE_DATASET_DIR}/train.jsonl"
+export VAL_DATASET_PATH="${PRETRAJ_STAGE_DATASET_DIR}/val.jsonl"
+export HOLDOUT_DATASET_PATH="${PRETRAJ_STAGE_DATASET_DIR}/test.jsonl"
 export DS_CONFIG="${DS_CONFIG:-${SLURM_SUBMIT_DIR}/config/ds_zero3_lora_no_offload.json}"
 export PERSISTENT_OUTPUT_DIR="${PERSISTENT_OUTPUT_DIR:-${SLURM_SUBMIT_DIR}/checkpoints/pretrajectory_sft_${PRETRAJ_RUN_SUFFIX}_${SLURM_JOB_ID}}"
 export NUM_NODES="${SLURM_JOB_NUM_NODES:-${SLURM_NNODES:-1}}"
@@ -295,7 +288,7 @@ for required_dataset_file in "${DATASET_PATH}" "${VAL_DATASET_PATH}" "${HOLDOUT_
   fi
 done
 
-python -c 'import json, os; p=os.environ["PRETRAJ_DATASET_AUDIT_PATH"]; r=json.load(open(p)); assert r.get("passed") is True and r.get("fatal_error_count") == 0, f"dataset audit did not pass: {p}"'
+python -c 'import json, os; p=os.environ["PRETRAJ_DATASET_AUDIT_PATH"]; r=json.load(open(p)); assert r.get("schema_version") == "pretrajectory-sft-audit-v3", f"wrong audit schema: {p}"; assert r.get("dataset_schema_version") == "pretrajectory-sft-v3", f"wrong dataset schema: {p}"; assert r.get("passed") is True and r.get("fatal_error_count") == 0, f"dataset audit did not pass: {p}"; assert r.get("plan_hash") == os.environ["PRETRAJ_EXPECTED_PLAN_HASH"], f"unexpected v5 plan hash: {p}"; assert r.get("content_hash") == os.environ["PRETRAJ_EXPECTED_CONTENT_HASH"], f"unexpected v5 content hash: {p}"'
 
 srun --nodes=1 --ntasks=1 --ntasks-per-node=1 -w "${HEAD_NODE}" bash -c "
   set -euo pipefail

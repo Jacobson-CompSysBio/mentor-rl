@@ -290,7 +290,7 @@ run_lane() {
     export RWR_HPC_BUILD_DIR="${DATA_ROOT}/external/rwr_hpc/build_frontier"
     export RWR_HPC_CACHE_DIR="${RUN_ROOT}/rwr_hpc_cache/node_${lane_index}"
     export RWR_HPC_SCRATCH_ROOT="${RUN_ROOT}/rwr_hpc_scratch/node_${lane_index}"
-    export ENRICHMENT_BACKGROUND_PATH="${DATA_ROOT}/data/gw_dendrogram_corpus/modules.jsonl"
+    export ENRICHMENT_BACKGROUND_PATH="${DATA_ROOT}/data/gw_dendrogram_corpus_full_brain/modules.jsonl"
     export HF_HOME="${RUN_ROOT}/hf_home/node_${lane_index}"
     export LOCAL_NVME_ROOT="/mnt/bb/${USER}/${SLURM_JOB_ID}_gemma4_node_${lane_index}"
     export RUN_SMOKE_TEST=0

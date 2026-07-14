@@ -3,6 +3,13 @@
 Update this file as implementation progress is made and project decisions
 change, so future agents inherit the current repo direction.
 
+## Communication Style
+
+Keep user-facing responses concise, readable, and written in plain language.
+Avoid invented terminology, obscure wording, and unnecessary jargon. Use exact
+technical names when they matter, but define unfamiliar terms briefly and lead
+with the result, decision, or next action.
+
 ## Project Goal
 
 MENTOR-RL is a reasoning environment for scalable biological mechanistic
@@ -66,7 +73,7 @@ first acceptance target for recovery/refinement. See the `Exact-Membership
 Solution Exploration` section below for the diagnosis-first plan and the tiered
 solution directions to explore.
 
-## Pre-Trajectory Multiplex SFT Direction
+## Pre-Trajectory Multiplex SFT — v5 Patch Testing Only
 
 The current SFT focus is pre-trajectory multiplex training, not SFT on the
 existing near-miss trajectory pool. Treat it as an upstream curriculum for a
@@ -77,27 +84,42 @@ before later DPO or GRPO trajectory optimization. Keep richer free-form
 biological interpretation mostly for DPO/RL, where grounded and overclaiming
 answers can be compared under the same evidence context.
 
-The detailed source spec is `agents/mentor_rl_sft_spec.md`. Keep this section
-as the concise operational contract and update it when the spec or generator
-changes. This pre-trajectory SFT step does not replace exact-membership
-trajectory generation: downstream trajectory SFT/DPO still needs exact-positive,
-evidence-backed recovery/refinement branches and same-prefix rejected branches.
+The only active pre-trajectory SFT dataset is
+`data/pretrajectory_sft/v5_curriculum_patchcheck`. Training, exact evaluation,
+and readiness decisions must resolve to that root and its stage shards. Do not
+select, rebuild, compare against, or draw evidence from another directory under
+`data/pretrajectory_sft`, and do not use pre-v5 run artifacts in current scaling
+decisions.
+
+The machine-readable authority is the curriculum plan, v5 manifest, native
+reports, and independent audit described below. Names such as
+`pretrajectory_sft_curriculum_v1.json`, `pretrajectory-sft-v3`,
+`pretrajectory-sft-exact-v3`, and `pretrajectory-sft-readiness-v2` are plan or
+protocol versions; they are not alternate corpora. This pre-trajectory SFT step
+does not replace exact-membership trajectory generation: downstream trajectory
+SFT/DPO still needs exact-positive, evidence-backed recovery/refinement branches
+and same-prefix rejected branches.
 
 ### Source And Schema Contract
 
-For this curriculum, treat `data/gw_dendrogram_corpus_full_brain` as the
-MENTOR-EV module source and `data/rwr_loe_corpus_full_brain` as the RWR-LOE
-module/rank source. The mixed corpus at `data/module_corpus_full_brain_mixed`
-can supply balanced task/module references, but generated SFT records must
-preserve the underlying source so MENTOR-EV dendrogram evidence is not blurred
-with RWR-LOE elbow/rank evidence.
+The v5 builder uses `data/gw_dendrogram_corpus_full_brain`,
+`data/rwr_loe_corpus_full_brain`, and `data/module_corpus_full_brain_mixed` as
+construction sources recorded in the v5 manifest. They are not selectable SFT
+datasets and must never be passed as `DATASET_PATH`, `VAL_DATASET_PATH`, or
+`HOLDOUT_DATASET_PATH`. Generated v5 records preserve the underlying module
+source so MENTOR-EV dendrogram evidence is not blurred with RWR-LOE elbow/rank
+evidence.
 
-Use `data/runtime/full_brain_multiplex_store` and `data/full_brain_flist.tsv`
-as the active full-brain graph context unless a run explicitly declares another
-version. Exact graph claims must carry graph/store/flist identity and parser
-schema identity. Ensembl gene IDs are the canonical graph keys; gene symbols
-are display aliases. Ambiguous symbols must be resolved or rejected before any
-graph lookup.
+The v5 MyGene alias input lives at
+`data/runtime/alias_registry/mygene_query_cache.json`. Keep its content hash
+stable while testing the frozen v5 corpus; it is a construction dependency, not
+an alternate dataset.
+
+The v5 manifest pins `data/runtime/full_brain_multiplex_store` and
+`data/full_brain_flist.tsv` as its full-brain graph context. Exact graph claims
+must carry graph/store/flist identity and parser schema identity. Ensembl gene
+IDs are the canonical graph keys; gene symbols are display aliases. Ambiguous
+symbols must be resolved or rejected before any graph lookup.
 
 Every generated example should include standardized metadata, at minimum:
 `schema_version`, `book_mode` (`closed_book`, `open_book`, or `tool_call`),
@@ -297,25 +319,27 @@ budget profiles, replay fractions, promotion thresholds, and required coverage
 and artifact reports. Validate it with
 `scripts/validate_pretrajectory_sft_curriculum_plan.py`.
 
-The active generator is `scripts/build_pretrajectory_sft_curriculum.py` with
+The sole generator is `scripts/build_pretrajectory_sft_curriculum.py` with
 `dataset_schema_version=pretrajectory-sft-v3`. It queries the complete binary
 store through `scripts/multiplex_store_oracle.py`, the complete validated RWR
 rank/distance artifacts through `runtime/rwr_curriculum_reader.py`, the mixed
 MENTOR-EV/RWR-LOE module corpus, a versioned MyGene alias cache, and only live
-tool schemas through `runtime/tool_curriculum_contract.py`. The older
-`scripts/build_pretrajectory_sft_dataset.py` and v2 datasets remain compatibility
-fixtures, not production curriculum inputs.
+tool schemas through `runtime/tool_curriculum_contract.py`.
 
 The current audited patchcheck is
-`data/pretrajectory_sft/v5_curriculum_patchcheck`. Rebuild it with:
+`data/pretrajectory_sft/v5_curriculum_patchcheck`. Treat this root as frozen for
+the July 13 patch tests. Validate its plan and independent audit with:
 
 ```bash
-python scripts/build_pretrajectory_sft_curriculum.py \
-  --plan config/pretrajectory_sft_curriculum_v1.json \
-  --profile patchcheck \
-  --out-dir data/pretrajectory_sft/v5_curriculum_patchcheck \
-  --seed 20260713 --overwrite --json
+python scripts/validate_pretrajectory_sft_curriculum_plan.py \
+  config/pretrajectory_sft_curriculum_v1.json
+python scripts/audit_pretrajectory_sft_dataset.py \
+  data/pretrajectory_sft/v5_curriculum_patchcheck
 ```
+
+Do not overwrite this root during patch testing. A newly generated corpus needs
+a new versioned directory, a passing native and independent audit, and an
+explicit decision to replace v5 before any launcher or guidance is repointed.
 
 The published content hash is
 `4e3d299d916c2c4149643d8ec5f6c4759bea9eff31d9d4a3219850e39b2981fc`.
@@ -380,10 +404,10 @@ Use `scripts/audit_pretrajectory_sft_dataset.py` for the independent v3 bridge,
 `eval_pretrajectory_sft_exact.slurm` for saved/base checkpoints, and
 `scripts/check_pretrajectory_sft_readiness.py` as the strict move-to-DPO gate.
 The active contracts are `pretrajectory-sft-audit-v3`,
-`pretrajectory-sft-exact-v3`, and `pretrajectory-sft-readiness-v2`; v2 audit
-and dataset handling remain supported for historical comparisons. Runner and
-readiness checks require passed native reports, zero fatal/budget failures, and
-matching plan/content hashes so a stale audit cannot authorize a model run.
+`pretrajectory-sft-exact-v3`, and `pretrajectory-sft-readiness-v2`. Runner and
+readiness checks accept only the v5 dataset/audit contract, require passed native
+reports, zero fatal/budget failures, and matching plan/content hashes so a stale
+audit cannot authorize a model run.
 Gold self-evaluation on the final validation split passes 1,000/1,000 exact.
 
 Three families are intentionally not claims about observed perturbation runs:
@@ -398,71 +422,45 @@ is separately present in `layer_sensitive_cohesion`.
 
 ### Current Scaling Status
 
-As of 2026-07-13, no model has yet been trained or scored on the corrected v5
-curriculum. The latest model evidence remains the rescoring of saved predictions
-from the legacy `v4_patchcheck/stage6_blend` runs. This did not rerun inference;
-all four reports used the same 256 selected examples and 200 exact-only rows.
+Use only runs submitted on July 13, 2026 against the pinned v5 stage-1 shard as
+current model evidence:
 
-| Model checkpoint | Exact | ID recall | Layer recall | Number recall | Yes/no accuracy |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Llama 1B, step 200 | 0.330 | 0.881 | 0.827 | 0.453 | 0.807 |
-| gpt-oss 20B, step 100 | 0.355 | 0.918 | 0.804 | 0.534 | 0.807 |
-| gpt-oss 20B, step 200 | 0.460 | 0.934 | 0.861 | 0.496 | 0.819 |
-| gpt-oss 120B, step 200 | 0.530 | 0.943 | 0.844 | 0.560 | 0.867 |
+- Job `4982142` completed the first 120B one-epoch patch train. It established
+  infrastructure feasibility, but final validation mean token accuracy was only
+  `0.6671`; do not treat this adapter as the intended matched 120B quality run.
+- Job `4983297` completed the tuned 20B stage-1 run for two epochs. Its adapter
+  is `checkpoints/v5_20b_stage1_seed900913_2ep_lr1e4`; final validation loss was
+  `0.2326` and mean token accuracy was `0.9545`.
+- Job `4983991` evaluated that 20B adapter on the 120 stage-1 test rows. The
+  pipeline and gold contracts passed, while model exact accuracy was `60/120`,
+  ID recall was `0.50`, and layer recall was `0.75`. All layer parsing,
+  layer-family, and cross-context rows passed; all 60 unseen arbitrary entity
+  lookup rows failed. This is useful unseen-fact generalization evidence, not a
+  valid measurement of whether the checkpoint retained mappings shown in SFT.
 
-The 120B checkpoint is the strongest legacy exact-QA checkpoint in this
-comparison, but it is still a no-go for DPO: exact pass is below 0.80 and layer
-recall is just below 0.85. Its v3 exact report is
-`checkpoints/pretrajectory_sft_v4_patchcheck_120b_blend_200steps_lr1e4/exact_eval_4976297/holdout_exact_report_contract_v3.json`.
+For closed-book stage-1 lookup learning, use two diagnostic regimes instead of
+treating unseen arbitrary mappings as the memorization gate:
 
-Independently of model quality, `data/pretrajectory_sft/v4_patchcheck` is now
-classified as a legacy, contract-invalid corpus. Its v2 audit at
-`data/pretrajectory_sft/v4_patchcheck/audit_report_contract_v2.json` records
-531 fatal errors: 528 over-budget rows, a missing manifest budget contract, a
-missing mixture contract, and material entity-family underfill (39 examples
-observed versus 960 targeted). It separately warns that all 12,000 rows lack
-per-record budget metadata. Consequently, all v2
-readiness reports have `valid=false` and decision
-`repair_evaluation_or_dataset_contract`; the 120B report is
-`checkpoints/pretrajectory_sft_v4_patchcheck_120b_blend_200steps_lr1e4/exact_eval_4976297/readiness_report_contract_v3.json`.
+1. `seen_fact_heldout_rendering` is the default in
+   `eval_pretrajectory_sft_exact.slurm`. The job builds an audited suite under
+   its own `EXACT_EVAL_OUTDIR`, leaving the frozen v5 root unchanged. It selects
+   32 seen facts from each of `entity_symbol_to_ensembl`,
+   `entity_ensembl_to_symbol`, and `ambiguous_alias_resolution`, then asks each
+   with a novel family-specific prompt. The 96-generation report includes exact
+   rates by family and prompt template plus Wilson intervals.
+2. `seen_row_recall` samples the same 32-per-family strata with the literal
+   training prompts. Use it only to distinguish failure to retain the rows from
+   brittleness to prompt rewording when the held-out-rendering diagnostic fails.
 
-The size comparison is not exposure-matched: the 1B, 20B step-200, and 120B
-step-200 runs presented about 1,600, 3,200, and 12,800 examples respectively
-because their global batches were 8, 16, and 64. The 120B result is encouraging,
-especially on no-context and RWR/module QA, but its gain cannot be attributed
-to model size alone. Match global batch and examples/tokens seen in the next
-20B/120B replay.
-
-Because the corpus used prefix-sampled topology and synthesized tool contexts,
-these scores measure fit to the legacy QA corpus, not successful internalization
-of the complete full-brain multiplex. They justify repairing and rerunning the
-curriculum; they do not justify scaling the current rows unchanged.
-
-The v5 patchcheck resolves the prior completion-loss, prefix-oracle, missing
-family, tool-schema, context-budget, coverage, and leakage blockers. It is now
-ready for an infrastructure smoke and for construction of separate evaluation
-suites; it is not by itself a stage-promotion benchmark. Its primary held-out
-counts for stages 1, 2, and 5 are only 120, 54, and 70, below the plan's minimum
-200 examples per reported metric. Do not inflate those denominators by reusing
-training rows or repeated variants.
-
-The next testing sequence is:
-
-1. Build frozen, non-training evaluation suites with at least 200 independent
-   examples per reported stage metric and explicit regimes for held-out oracle
-   facts, entities, modules, seed sets, and compositional/global structure.
-   Include corrupted-layer, rewired-edge, swapped-module, mismatched-cache, and
-   fixture-exclusion slices.
-2. Run base-model anchors before SFT, then a short 20B stage-1 training smoke to
-   validate masking, checkpointing, inference, and exact-report identity end to
-   end. Do not use the patchcheck holdout to claim curriculum promotion.
-3. Train stages 1-5 sequentially with their frozen suites and replay, then run
-   `stage6_blend` only after all stage gates pass.
-4. Compare 20B and 120B with matched examples or supervised tokens, global
-   batch, optimizer schedule, LoRA capacity, and evaluation rows. The legacy
-   120B advantage is a useful hypothesis, not yet a size law.
-5. Keep DPO/trajectory generation blocked until the v5 model gates and the
-   separate downstream exact-positive recovery/refinement gate both pass.
+Both regimes are explicitly intermediate diagnostics:
+`official_readiness_eligible=false`, and `readiness_report.json` records
+`passed=null` with decision `diagnostic_only_no_readiness_decision`. The
+diagnostic `retention_report.json` calls a result a strong memorization signal
+only when every family has at least 32 examples and exact accuracy at least
+`0.80`. This does not replace the plan's final promotion requirement of at least
+200 independent examples per reported metric. Unseen facts remain advisory for
+arbitrary lookups and remain useful only where the task is actually expected to
+generalize.
 
 ### Oracle And Validation Rules
 
@@ -513,8 +511,6 @@ truth. The key ideas to preserve are:
   shaped later through DPO/RL under matched evidence contexts.
 - MENTOR-derived modules from a genome-wide dendrogram over the brain multiplex
   are the primary target source for current task and trajectory generation.
-- CORUM-grounded tasks were part of the proposal's original supervision plan,
-  but CORUM is no longer the repo's source of truth.
 - DPO examples should prefer shared-prefix trajectory branches so the compared
   continuations differ after the same query and evidence context.
 - GRPO and later online RL should use terminal trajectory rewards plus
@@ -522,14 +518,25 @@ truth. The key ideas to preserve are:
   label quality, schema validity, evidence provenance, and tool efficiency.
 - Evaluation should prioritize held-out MENTOR-derived brain-multiplex modules,
   expert-preference evaluation, and ablations for verifier mode, graph tools,
-  retrieval, and curriculum settings. CORUM is historical proposal context only
-  and should not be used as an active task, reward, enrichment, label, or
-  evaluation source.
+  retrieval, and curriculum settings.
 
 Hidden targets must remain hidden from the actor and verifier. They are for
 scoring and validation only.
 
-## Current Data Source Of Truth
+## Trajectory-Generation Sources (Not SFT Datasets)
+
+The paths in this section support trajectory generation and are also hashed
+construction dependencies where recorded by the v5 manifest. They are not
+alternative pre-trajectory SFT datasets. For every current SFT train, eval, or
+readiness command, use only `data/pretrajectory_sft/v5_curriculum_patchcheck`
+and its stage shards.
+
+Do not delete DPO/trajectory assets as part of pre-trajectory cleanup. This
+includes `data/corum_corpus`, `data/gw_dendrogram_corpus`, the current full-brain
+module corpora, and their `*_trajectories` directories. They remain available
+for trajectory generation and DPO mining, but none may be selected by a v5
+pre-trajectory launcher or used as evidence when interpreting the July 13 SFT
+runs.
 
 Use MENTOR-derived modules from the genome-wide dendrogram sourced from the
 brain multiplex as the source of truth for large-scale trajectory generation.
@@ -547,13 +554,13 @@ There is also a relative local copy:
 
 Use the local copy for `RWR_HPC_FLIST`. It should contain 358 full-brain layer
 entries and should match `data/runtime/full_brain_multiplex_store`.
-Do not use the old HumanNet/brain multiplex flist with the full-brain store.
 
 The active full-brain runtime store is:
 
 `data/runtime/full_brain_multiplex_store`
 
-Current exact-membership pilots should use the mixed full-brain corpus:
+Current exact-membership trajectory pilots should use the mixed full-brain
+source corpus:
 
 `data/module_corpus_full_brain_mixed`
 
@@ -571,10 +578,7 @@ The full-brain dendrogram corpus remains an underlying source corpus:
 `data/gw_dendrogram_corpus_full_brain`
 
 This corpus is built from `data/gw_dendrogram.txt` paired with
-`data/runtime/full_brain_multiplex_store`. Do not use
-`data/gw_dendrogram_corpus` for current full-brain trajectory pilots; that
-older corpus was built against `data/humannet_multiplex_store` and can include
-task genes that are absent from the active full-brain runtime graph.
+`data/runtime/full_brain_multiplex_store`.
 
 As of the RWR-LOE corpus implementation, dendrogram corpus schema
 `gw-dendrogram-corpus-v2` is the valid MENTOR dendrogram schema. Its distance
@@ -607,11 +611,6 @@ cannot batch one module per seed gene. Use `scripts/mix_module_corpora.py` to
 build the combined full-brain training/testing corpus at
 `data/module_corpus_full_brain_mixed` from the dendrogram and LOE corpora.
 
-CORUM should not be treated as authoritative for current production work. It
-can remain in legacy tests and proposal-history utilities, but it should not
-drive active corpora, reward targets, source-of-truth language, enrichment
-queries, mechanistic labels, sanity checks, or auxiliary evaluation.
-
 ## Proposal Divergences In This Repo
 
 Several implementation decisions have intentionally moved beyond or away from
@@ -622,10 +621,9 @@ changes direction.
   `shortest_path`, `rwr_multiplex`, and `rwr_monoplex`; production model-facing
   tools should now use the structured RWR++ names and wrappers listed in the
   RWR++ Tool Contract. Legacy names may remain as compatibility aliases.
-- The graph backend and task source have shifted from the proposal's in-house
-  HumanNet/CORUM framing to Ken's full-brain multiplex flist plus
-  MENTOR-derived genome-wide dendrogram modules. These modules are now the
-  primary source of truth for trajectory targets.
+- The graph backend and task source use Ken's full-brain multiplex flist plus
+  MENTOR-derived genome-wide dendrogram modules. These modules are the primary
+  source of truth for trajectory targets.
 - The runtime binding is not the proposal's pybind11 interface. The current
   compiled backend uses `ctypes` around `libmentor_runtime.so`.
 - The binary store choice is raw CSR directories with binary metadata, not
@@ -637,12 +635,10 @@ changes direction.
 - The model-serving path is not fixed to the proposal's example base model.
   Current trajectory generation supports OpenAI-compatible vLLM style serving
   and deterministic heuristic paths for tests.
-- The corpus is no longer CORUM-centered. Scripts such as
-  `scripts/build_gw_dendrogram_corpus.py` support MENTOR genome-wide
+- `scripts/build_gw_dendrogram_corpus.py` supports MENTOR genome-wide
   dendrogram modules while preserving task shapes for recovery, explanation,
-  refinement, insufficient support, and multiple groups. For current
-  full-brain runs, build this corpus with `--store-dir
-  data/runtime/full_brain_multiplex_store` and write it to
+  refinement, insufficient support, and multiple groups. Its defaults use
+  `data/runtime/full_brain_multiplex_store` and write to
   `data/gw_dendrogram_corpus_full_brain`.
 - Multiple-group recognition is an explicit repo goal and appears in the
   structured schema. The proposal mentions multiple groups in structured state,
@@ -824,8 +820,8 @@ Older pilot details are mostly historical. Preserve only durable lessons:
 - Full-brain smoke and pilot runs should keep
   `RWR_HPC_APP_TIMEOUT_SECONDS=1800` unless measured timings justify a smaller
   value.
-- Use stratified full-brain pilot task files, never the first N rows and never
-  stale `data/gw_dendrogram_corpus` pilot files.
+- Use stratified pilot task files under
+  `data/module_corpus_full_brain_mixed/pilots`, never the first N rows.
 - Recovery/refinement generation should retry when sampled actor candidates
   lack any RWR++ model-facing tool, and preference mining should prioritize
   exact-positive recovery/refinement over partial or negative branches.

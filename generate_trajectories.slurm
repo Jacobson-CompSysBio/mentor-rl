@@ -65,7 +65,7 @@ if [[ "${MODEL_PRESET}" == "gemma4-26b-a4b-it" || "${MODEL_PRESET}" == "gemma-4-
 fi
 
 MODEL_PATH_INPUT="${MODEL_PATH:-${MODEL_PATH_DEFAULT}}"
-TASKS_PATH="${TASKS_PATH:-${REPO_ROOT}/data/gw_dendrogram_corpus/tasks.train.jsonl}"
+TASKS_PATH="${TASKS_PATH:-${REPO_ROOT}/data/module_corpus_full_brain_mixed/tasks.train.jsonl}"
 STORE_DIR="${STORE_DIR:-${REPO_ROOT}/data/runtime/full_brain_multiplex_store}"
 FULL_BRAIN_STORE_DIR="${FULL_BRAIN_STORE_DIR:-${REPO_ROOT}/data/runtime/full_brain_multiplex_store}"
 USE_FULL_BRAIN_RWR_HPC="${USE_FULL_BRAIN_RWR_HPC:-1}"
@@ -213,7 +213,7 @@ MEMBERSHIP_EDIT_MAX_DROP_PAIRS="${MEMBERSHIP_EDIT_MAX_DROP_PAIRS:-8}"
 ALLOW_MODEL_FALLBACK="${ALLOW_MODEL_FALLBACK:-0}"
 MYGENE_CACHE_PATH="${MYGENE_CACHE_PATH:-${OUT_DIR}/mygene_cache.json}"
 ENRICHMENT_CACHE_PATH="${ENRICHMENT_CACHE_PATH:-${OUT_DIR}/gprofiler_enrichment_cache.json}"
-ENRICHMENT_BACKGROUND_PATH="${ENRICHMENT_BACKGROUND_PATH:-${REPO_ROOT}/data/gw_dendrogram_corpus/modules.jsonl}"
+ENRICHMENT_BACKGROUND_PATH="${ENRICHMENT_BACKGROUND_PATH:-${REPO_ROOT}/data/gw_dendrogram_corpus_full_brain/modules.jsonl}"
 ALLOW_NETWORK_MYGENE="${ALLOW_NETWORK_MYGENE:-1}"
 ALLOW_NETWORK_ENRICHMENT="${ALLOW_NETWORK_ENRICHMENT:-1}"
 PREFETCH_MECHANISM_CACHE="${PREFETCH_MECHANISM_CACHE:-1}"

@@ -51,8 +51,10 @@ Active full-brain runs use:
 - RWR-LOE corpus: `data/rwr_loe_corpus_full_brain`
 - Mixed corpus: `data/module_corpus_full_brain_mixed`
 
-CORUM remains useful for legacy tests and proposal history, but it is no longer
-the active source of truth for production task generation.
+These trajectory/DPO corpora are separate from pre-trajectory SFT. Current
+pre-trajectory patch tests use only
+`data/pretrajectory_sft/v5_curriculum_patchcheck`; do not delete the DPO assets
+when cleaning up older SFT datasets.
 
 ## Important Concepts
 
@@ -228,6 +230,5 @@ reduced task counts or `--max-genes`.
   for tests and small smoke runs.
 - Keep `AGENTS.md` aligned with current implementation decisions. It is the
   repo's living guidance for agents and future work.
-- Keep proposal text separate from operational truth. The implementation has
-  moved from CORUM/HumanNet framing to MENTOR and RWR-LOE modules over the
-  full-brain multiplex.
+- Keep proposal text separate from operational truth. The implementation uses
+  MENTOR and RWR-LOE modules over the full-brain multiplex.

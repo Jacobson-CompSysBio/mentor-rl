@@ -52,7 +52,9 @@ from scripts.validate_pretrajectory_sft_curriculum_plan import (
 
 
 DEFAULT_PLAN_PATH = REPO_ROOT / "config" / "pretrajectory_sft_curriculum_v1.json"
-DEFAULT_ALIAS_CACHE_PATH = REPO_ROOT / "data" / "corum_corpus" / "cache" / "mygene_query_cache.json"
+DEFAULT_ALIAS_CACHE_PATH = (
+    REPO_ROOT / "data" / "runtime" / "alias_registry" / "mygene_query_cache.json"
+)
 DEFAULT_RANK_CACHE_ROOT = REPO_ROOT / "data" / "runtime" / "rwr_loe_full_brain_rank_cache"
 DEFAULT_OUT_DIR = REPO_ROOT / "data" / "pretrajectory_sft" / "v5_curriculum_patchcheck"
 SPLITS = ("train", "val", "test")

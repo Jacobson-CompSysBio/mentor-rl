@@ -86,9 +86,9 @@ from runtime import (
 )
 
 
-DEFAULT_TASKS_PATH = REPO_ROOT / "data" / "gw_dendrogram_corpus" / "tasks.train.jsonl"
+DEFAULT_TASKS_PATH = REPO_ROOT / "data" / "module_corpus_full_brain_mixed" / "tasks.train.jsonl"
 DEFAULT_OUT_DIR = REPO_ROOT / "data" / "gw_dendrogram_trajectories"
-DEFAULT_STORE_DIR = REPO_ROOT / "data" / "humannet_multiplex_store"
+DEFAULT_STORE_DIR = REPO_ROOT / "data" / "runtime" / "full_brain_multiplex_store"
 DEFAULT_RWR_HPC_BUILD_DIR = REPO_ROOT / "external" / "rwr_hpc" / "build_frontier"
 DEFAULT_RWR_HPC_CACHE_DIR = REPO_ROOT / "data" / "runtime" / "rwr_hpc_cache"
 DEFAULT_FULL_BRAIN_RWR_HPC_FLIST = Path(
@@ -8438,7 +8438,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=None,
         help=(
-            "Compiled multiplex store directory. If omitted, the default HumanNet "
+            "Compiled multiplex store directory. If omitted, the default full-brain "
             "store is used only when no flist or RWR-HPC flist is requested."
         ),
     )

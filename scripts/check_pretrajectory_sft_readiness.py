@@ -10,10 +10,9 @@ from typing import Any
 
 
 READINESS_SCHEMA_VERSION = "pretrajectory-sft-readiness-v2"
-LEGACY_DATASET_AUDIT_SCHEMA_VERSION = "pretrajectory-sft-audit-v2"
 CURRICULUM_DATASET_AUDIT_SCHEMA_VERSION = "pretrajectory-sft-audit-v3"
 CURRICULUM_DATASET_SCHEMA_VERSION = "pretrajectory-sft-v3"
-REQUIRED_DATASET_AUDIT_SCHEMA_VERSION = LEGACY_DATASET_AUDIT_SCHEMA_VERSION
+REQUIRED_DATASET_AUDIT_SCHEMA_VERSION = CURRICULUM_DATASET_AUDIT_SCHEMA_VERSION
 REQUIRED_EVALUATOR_CONTRACT_VERSION = "pretrajectory-sft-exact-v3"
 CURRICULUM_NATIVE_REPORT_NAMES = (
     "audit_report.json",
@@ -51,10 +50,10 @@ def first_present_metric(payload: dict[str, Any], *paths: tuple[str, ...]) -> fl
 
 
 def _curriculum_audit_schema_is_current(dataset_audit: dict[str, Any]) -> bool:
-    dataset_schema_version = dataset_audit.get("dataset_schema_version")
-    if dataset_schema_version == CURRICULUM_DATASET_SCHEMA_VERSION:
-        return dataset_audit.get("schema_version") == CURRICULUM_DATASET_AUDIT_SCHEMA_VERSION
-    return dataset_audit.get("schema_version") == LEGACY_DATASET_AUDIT_SCHEMA_VERSION
+    return (
+        dataset_audit.get("schema_version") == REQUIRED_DATASET_AUDIT_SCHEMA_VERSION
+        and dataset_audit.get("dataset_schema_version") == CURRICULUM_DATASET_SCHEMA_VERSION
+    )
 
 
 def _curriculum_native_reports_are_current(dataset_audit: dict[str, Any]) -> bool:
@@ -127,9 +126,6 @@ def check_readiness(
     args: argparse.Namespace,
 ) -> dict[str, Any]:
     gates: list[dict[str, Any]] = []
-    is_curriculum_v3 = (
-        dataset_audit.get("dataset_schema_version") == CURRICULUM_DATASET_SCHEMA_VERSION
-    )
 
     add_gate(
         gates,
@@ -145,21 +141,20 @@ def check_readiness(
         threshold=0,
         op="==",
     )
-    if is_curriculum_v3:
-        add_gate(
-            gates,
-            name="dataset_audit_passed",
-            observed=int(dataset_audit.get("passed") is True),
-            threshold=1,
-            op="==",
-        )
-        add_gate(
-            gates,
-            name="dataset_native_reports_current",
-            observed=int(_curriculum_native_reports_are_current(dataset_audit)),
-            threshold=1,
-            op="==",
-        )
+    add_gate(
+        gates,
+        name="dataset_audit_passed",
+        observed=int(dataset_audit.get("passed") is True),
+        threshold=1,
+        op="==",
+    )
+    add_gate(
+        gates,
+        name="dataset_native_reports_current",
+        observed=int(_curriculum_native_reports_are_current(dataset_audit)),
+        threshold=1,
+        op="==",
+    )
     add_gate(
         gates,
         name="dataset_manifest_budget_contract_present",
@@ -177,17 +172,16 @@ def check_readiness(
         threshold=0,
         op="==",
     )
-    if is_curriculum_v3:
-        add_gate(
-            gates,
-            name="dataset_missing_budget_metadata_count",
-            observed=nested_metric(
-                dataset_audit,
-                ("answer_budget_report", "missing_record_budget_metadata_count"),
-            ),
-            threshold=0,
-            op="==",
-        )
+    add_gate(
+        gates,
+        name="dataset_missing_budget_metadata_count",
+        observed=nested_metric(
+            dataset_audit,
+            ("answer_budget_report", "missing_record_budget_metadata_count"),
+        ),
+        threshold=0,
+        op="==",
+    )
     if args.fail_on_dataset_warnings:
         add_gate(
             gates,
@@ -230,14 +224,49 @@ def check_readiness(
         threshold=1,
         op="==",
     )
-    if is_curriculum_v3:
-        add_gate(
-            gates,
-            name="exact_report_dataset_identity_current",
-            observed=int(_curriculum_exact_identity_matches(dataset_audit, exact_report)),
-            threshold=1,
-            op="==",
-        )
+    add_gate(
+        gates,
+        name="exact_report_dataset_identity_current",
+        observed=int(_curriculum_exact_identity_matches(dataset_audit, exact_report)),
+        threshold=1,
+        op="==",
+    )
+
+    if exact_report.get("official_readiness_eligible") is False:
+        failed_contract_gates = [
+            gate for gate in gates if gate["required"] and not gate["passed"]
+        ]
+        if failed_contract_gates:
+            return {
+                "schema_version": READINESS_SCHEMA_VERSION,
+                "valid": False,
+                "applicable": False,
+                "passed": False,
+                "official_readiness_eligible": False,
+                "evaluation_regime": exact_report.get("evaluation_regime"),
+                "required_failure_count": len(failed_contract_gates),
+                "advisory_failure_count": 0,
+                "gates": gates,
+                "failed_required_gates": failed_contract_gates,
+                "failed_advisory_gates": [],
+                "failed_contract_gates": failed_contract_gates,
+                "decision": "repair_evaluation_or_dataset_contract",
+            }
+        return {
+            "schema_version": READINESS_SCHEMA_VERSION,
+            "valid": True,
+            "applicable": False,
+            "passed": None,
+            "official_readiness_eligible": False,
+            "evaluation_regime": exact_report.get("evaluation_regime"),
+            "required_failure_count": 0,
+            "advisory_failure_count": 0,
+            "gates": gates,
+            "failed_required_gates": [],
+            "failed_advisory_gates": [],
+            "failed_contract_gates": [],
+            "decision": "diagnostic_only_no_readiness_decision",
+        }
 
     add_gate(
         gates,
@@ -298,27 +327,15 @@ def check_readiness(
     )
 
     bucket_thresholds = (
-        (
-            ("entity_normalization_schema", args.min_schema_exact),
-            ("layer_metadata_membership", args.min_schema_exact),
-            ("edge_neighbor_topology", args.min_topology_exact),
-            ("paths_layer_counts", args.min_topology_exact),
-            ("subgraph_components_hubness", args.min_topology_exact),
-            ("global_cohesion_calibration", args.min_topology_exact),
-            ("rwr_distance_vectors", args.min_rwr_exact),
-            ("module_set_algebra", args.min_module_exact),
-            ("structured_context_and_tools", args.min_tool_schema_exact),
-        )
-        if is_curriculum_v3
-        else (
-            ("entity_schema_grounding", args.min_schema_exact),
-            ("multiplex_layer_metadata", args.min_schema_exact),
-            ("local_topology", args.min_topology_exact),
-            ("shortest_paths", args.min_topology_exact),
-            ("rwr_vector_lookup", args.min_rwr_exact),
-            ("module_set_algebra", args.min_module_exact),
-            ("tool_observation_state_updates", args.min_tool_schema_exact),
-        )
+        ("entity_normalization_schema", args.min_schema_exact),
+        ("layer_metadata_membership", args.min_schema_exact),
+        ("edge_neighbor_topology", args.min_topology_exact),
+        ("paths_layer_counts", args.min_topology_exact),
+        ("subgraph_components_hubness", args.min_topology_exact),
+        ("global_cohesion_calibration", args.min_topology_exact),
+        ("rwr_distance_vectors", args.min_rwr_exact),
+        ("module_set_algebra", args.min_module_exact),
+        ("structured_context_and_tools", args.min_tool_schema_exact),
     )
     for bucket, threshold in bucket_thresholds:
         add_gate(

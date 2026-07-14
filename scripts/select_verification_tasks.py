@@ -21,8 +21,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-DEFAULT_TASKS_PATH = REPO_ROOT / "data" / "gw_dendrogram_corpus" / "tasks.train.jsonl"
-DEFAULT_PILOT_DIR = REPO_ROOT / "data" / "gw_dendrogram_corpus" / "pilots"
+DEFAULT_TASKS_PATH = REPO_ROOT / "data" / "module_corpus_full_brain_mixed" / "tasks.train.jsonl"
+DEFAULT_PILOT_DIR = REPO_ROOT / "data" / "module_corpus_full_brain_mixed" / "pilots"
 DEFAULT_SELECTION_SEED = 42
 TASK_TYPE_ORDER = ("explanation", "recovery", "refinement", "none")
 EVIDENCE_MODE_ORDER = ("graph", "minimal", "contextual", "full")

@@ -4,14 +4,20 @@ import unittest
 from pathlib import Path
 
 from scripts import audit_pretrajectory_sft_dataset as audit
-from scripts import build_pretrajectory_sft_dataset as sft
-from tests.test_build_pretrajectory_sft_dataset import _read_jsonl, _write_json, _write_rank_cache, _write_toy_corpus, _write_toy_graph
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
+
+
+def _read_jsonl(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 
 
 def _write_v3_curriculum_fixture(tmp_path: Path) -> Path:
@@ -187,111 +193,7 @@ def _write_v3_curriculum_fixture(tmp_path: Path) -> Path:
 
 
 class PretrajectorySftAuditTests(unittest.TestCase):
-    def _build_toy_dataset(self, tmp_path: Path) -> Path:
-        graph_flist = _write_toy_graph(tmp_path)
-        corpus_dir = _write_toy_corpus(tmp_path)
-        rank_context = _write_rank_cache(tmp_path)
-        store_manifest = tmp_path / "store_manifest.json"
-        _write_json(store_manifest, {"format_version": "toy-graph-v1"})
-        out_dir = tmp_path / "sft_out"
-        sft.build_pretrajectory_sft_dataset(
-            out_dir=out_dir,
-            mixed_corpus_dir=corpus_dir,
-            store_manifest_path=store_manifest,
-            graph_flist=graph_flist,
-            graph_layer_limit=None,
-            graph_max_edges_per_layer=None,
-            rank_cache_context_dir=rank_context,
-            seed=17,
-            max_rwr_seeds=5,
-            target_counts=None,
-        )
-        return out_dir
-
-    def test_audit_pretrajectory_sft_dataset_passes_clean_dataset(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            out_dir = self._build_toy_dataset(Path(tmp))
-            report = audit.audit_pretrajectory_sft_dataset(
-                out_dir,
-                output_path=out_dir / "audit_report.json",
-                coverage_min_records=10_000,
-            )
-
-            self.assertTrue(report["passed"])
-            self.assertEqual(report["schema_version"], "pretrajectory-sft-audit-v2")
-            self.assertEqual(report["fatal_error_count"], 0)
-            self.assertTrue((out_dir / "audit_report.json").exists())
-            self.assertGreater(report["record_count_by_view_type"]["monoplex_edge_existence"], 0)
-            self.assertGreater(report["record_count_by_view_type"]["module_overlap_set_algebra"], 0)
-            self.assertGreater(report["record_count_by_curriculum_stage"]["stage1_entity_schema"], 0)
-            self.assertGreater(report["record_count_by_curriculum_stage"]["stage5_structured_tools"], 0)
-            self.assertGreater(report["record_count_by_source"]["MENTOR_GW_DENDROGRAM"], 0)
-            self.assertGreater(report["record_count_by_source"]["RWR_LOE_FULL_BRAIN"], 0)
-
-    def test_audit_catches_split_leakage_and_unsupported_claims(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            out_dir = self._build_toy_dataset(Path(tmp))
-            train_rows = _read_jsonl(out_dir / "train.jsonl")
-            val_rows = _read_jsonl(out_dir / "val.jsonl")
-            train_record = train_rows[0]
-            val_rows[0]["metadata"]["canonical_object_id"] = train_record["metadata"]["canonical_object_id"]
-            val_rows[0]["answer"] = "This evidence definitely causally proves the relationship."
-            _write_jsonl(out_dir / "val.jsonl", val_rows)
-
-            report = audit.audit_pretrajectory_sft_dataset(out_dir, coverage_min_records=10_000)
-            codes = {issue["code"] for issue in report["issues"]}
-
-            self.assertFalse(report["passed"])
-            self.assertIn("canonical_object_split_leakage", codes)
-            self.assertIn("unsupported_causal_language_in_answer", codes)
-
-    def test_audit_catches_over_budget_answer_and_stale_measurement(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            out_dir = self._build_toy_dataset(Path(tmp))
-            train_rows = _read_jsonl(out_dir / "train.jsonl")
-            train_rows[0]["answer"] = "oversized_answer_token " * 1000
-            _write_jsonl(out_dir / "train.jsonl", train_rows)
-
-            report = audit.audit_pretrajectory_sft_dataset(out_dir, coverage_min_records=10_000)
-            codes = {issue["code"] for issue in report["issues"]}
-
-            self.assertFalse(report["passed"])
-            self.assertEqual(report["answer_budget_report"]["over_budget_record_count"], 1)
-            self.assertIn("answer_budget_exceeded", codes)
-            self.assertIn("answer_budget_measurement_mismatch", codes)
-
-    def test_audit_rejects_v2_manifest_without_budget_contract(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            out_dir = self._build_toy_dataset(Path(tmp))
-            manifest_path = out_dir / "manifest.json"
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            manifest.pop("answer_budget_contract")
-            _write_json(manifest_path, manifest)
-
-            report = audit.audit_pretrajectory_sft_dataset(out_dir, coverage_min_records=10_000)
-            codes = {issue["code"] for issue in report["issues"]}
-
-            self.assertFalse(report["passed"])
-            self.assertIn("missing_answer_budget_contract", codes)
-
-    def test_audit_can_make_material_mixture_underfill_fatal(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            out_dir = self._build_toy_dataset(Path(tmp))
-            report = audit.audit_pretrajectory_sft_dataset(
-                out_dir,
-                coverage_min_records=10_000,
-                mixture_contract_min_records=1,
-                mixture_absolute_underfill_tolerance=0.0,
-                mixture_relative_underfill_tolerance=0.0,
-                mixture_underfill_policy="fatal",
-            )
-            codes = {issue["code"] for issue in report["issues"]}
-
-            self.assertFalse(report["passed"])
-            self.assertIn("mixture_bucket_materially_underfilled", codes)
-            self.assertTrue(report["mixture_report"]["material_underfilled_buckets"])
-
-    def test_audit_accepts_plan_driven_v3_without_legacy_contract_fields(self) -> None:
+    def test_audit_accepts_plan_driven_v3_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             out_dir = _write_v3_curriculum_fixture(Path(tmp))
             report = audit.audit_pretrajectory_sft_dataset(
@@ -311,6 +213,20 @@ class PretrajectorySftAuditTests(unittest.TestCase):
             self.assertEqual(report["record_count"], 100)
             self.assertEqual(report["canonical_object_count"], 100)
             self.assertNotIn("validation_report.json", json.dumps(report))
+
+    def test_audit_rejects_non_curriculum_dataset_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = _write_v3_curriculum_fixture(Path(tmp))
+            manifest_path = out_dir / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["dataset_schema_version"] = "unsupported-dataset-schema"
+            _write_json(manifest_path, manifest)
+
+            report = audit.audit_pretrajectory_sft_dataset(out_dir)
+            codes = {issue["code"] for issue in report["issues"]}
+
+            self.assertFalse(report["passed"])
+            self.assertIn("unsupported_dataset_schema_version", codes)
 
     def test_v3_audit_recomputes_budget_and_selected_content_hash(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

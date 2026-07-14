@@ -27,8 +27,8 @@ if str(REPO_ROOT) not in sys.path:
 
 
 DEFAULT_DENDROGRAM_PATH = REPO_ROOT / "data" / "gw_dendrogram.txt"
-DEFAULT_STORE_DIR = REPO_ROOT / "data" / "humannet_multiplex_store"
-DEFAULT_OUT_DIR = REPO_ROOT / "data" / "gw_dendrogram_corpus"
+DEFAULT_STORE_DIR = REPO_ROOT / "data" / "runtime" / "full_brain_multiplex_store"
+DEFAULT_OUT_DIR = REPO_ROOT / "data" / "gw_dendrogram_corpus_full_brain"
 
 SPLITS = ("train", "val", "test")
 TASK_TYPES = ("explanation", "recovery", "refinement", "none")
@@ -53,7 +53,7 @@ DENDROGRAM_DISTANCE_FALLBACK_PERCENTILE_BANDS = {
 }
 
 BUILD_STAGES = (
-    ("load_store_genes", "Load HumanNet store gene universe"),
+    ("load_store_genes", "Load full-brain multiplex store gene universe"),
     ("parse_dendrogram", "Parse genome-wide dendrogram"),
     ("extract_modules", "Extract filtered dendrogram modules"),
     ("assign_splits", "Assign train/val/test splits"),

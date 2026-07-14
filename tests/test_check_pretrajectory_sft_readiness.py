@@ -27,36 +27,6 @@ def _args() -> argparse.Namespace:
 
 
 def _dataset_audit() -> dict:
-    return {
-        "schema_version": "pretrajectory-sft-audit-v2",
-        "fatal_error_count": 0,
-        "warning_count": 0,
-        "answer_budget_report": {
-            "manifest_contract_present": True,
-            "over_budget_record_count": 0,
-        },
-    }
-
-
-def _exact_report(**summary_overrides: float) -> dict:
-    summary = {
-        "exact_graph_fact_pass_rate": 0.82,
-        "unsupported_language_rate": 0.0,
-        "mean_id_recall": 0.91,
-        "mean_layer_recall": 0.86,
-        "mean_number_recall": 0.86,
-    }
-    summary.update(summary_overrides)
-    return {
-        "evaluator_contract": {"version": "pretrajectory-sft-exact-v3"},
-        "gold_self_evaluation": {"passed": True},
-        "summary": {**summary, "exact_only": dict(summary)},
-        "by_context_mode": {},
-        "by_mixture_bucket": {},
-    }
-
-
-def _v3_dataset_audit() -> dict:
     plan_hash = "plan-hash-v3"
     return {
         "schema_version": "pretrajectory-sft-audit-v3",
@@ -78,21 +48,74 @@ def _v3_dataset_audit() -> dict:
     }
 
 
-def _v3_exact_report(**summary_overrides: float) -> dict:
-    report = _exact_report(**summary_overrides)
-    report["dataset_identity"] = {
-        "dataset_schema_version": "pretrajectory-sft-v3",
-        "plan_hash": "plan-hash-v3",
-        "content_hash": "content-hash-v3",
+def _exact_report(**summary_overrides: float) -> dict:
+    summary = {
+        "exact_graph_fact_pass_rate": 0.82,
+        "unsupported_language_rate": 0.0,
+        "mean_id_recall": 0.91,
+        "mean_layer_recall": 0.86,
+        "mean_number_recall": 0.86,
     }
-    return report
+    summary.update(summary_overrides)
+    return {
+        "evaluator_contract": {"version": "pretrajectory-sft-exact-v3"},
+        "gold_self_evaluation": {"passed": True},
+        "summary": {**summary, "exact_only": dict(summary)},
+        "by_context_mode": {},
+        "by_mixture_bucket": {},
+        "dataset_identity": {
+            "dataset_schema_version": "pretrajectory-sft-v3",
+            "plan_hash": "plan-hash-v3",
+            "content_hash": "content-hash-v3",
+        },
+    }
 
 
 class PretrajectorySftReadinessGateTests(unittest.TestCase):
+    def test_diagnostic_exact_report_cannot_produce_readiness_decision(self) -> None:
+        exact_report = _exact_report()
+        exact_report.update(
+            {
+                "official_readiness_eligible": False,
+                "evaluation_regime": "seen_fact_heldout_rendering",
+            }
+        )
+        report = gate.check_readiness(
+            dataset_audit=_dataset_audit(),
+            exact_report=exact_report,
+            trajectory_audit=None,
+            args=_args(),
+        )
+
+        self.assertTrue(report["valid"])
+        self.assertFalse(report["applicable"])
+        self.assertIsNone(report["passed"])
+        self.assertEqual(report["decision"], "diagnostic_only_no_readiness_decision")
+
+    def test_contract_invalid_diagnostic_remains_invalid(self) -> None:
+        exact_report = _exact_report()
+        exact_report.update(
+            {
+                "official_readiness_eligible": False,
+                "evaluation_regime": "seen_fact_heldout_rendering",
+            }
+        )
+        exact_report["gold_self_evaluation"]["passed"] = False
+        report = gate.check_readiness(
+            dataset_audit=_dataset_audit(),
+            exact_report=exact_report,
+            trajectory_audit=None,
+            args=_args(),
+        )
+
+        self.assertFalse(report["valid"])
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["decision"], "repair_evaluation_or_dataset_contract")
+
     def test_v3_bridge_and_matching_exact_identity_pass_contract_gates(self) -> None:
         report = gate.check_readiness(
-            dataset_audit=_v3_dataset_audit(),
-            exact_report=_v3_exact_report(),
+            dataset_audit=_dataset_audit(),
+            exact_report=_exact_report(),
             trajectory_audit=None,
             args=_args(),
         )
@@ -102,9 +125,9 @@ class PretrajectorySftReadinessGateTests(unittest.TestCase):
         self.assertEqual(report["failed_contract_gates"], [])
 
     def test_v3_stale_exact_identity_and_failed_leakage_report_are_invalid(self) -> None:
-        dataset_audit = _v3_dataset_audit()
+        dataset_audit = _dataset_audit()
         dataset_audit["native_reports"]["leakage_report.json"]["passed"] = False
-        exact_report = _v3_exact_report()
+        exact_report = _exact_report()
         exact_report["dataset_identity"]["content_hash"] = "stale-content"
 
         report = gate.check_readiness(
@@ -147,25 +170,48 @@ class PretrajectorySftReadinessGateTests(unittest.TestCase):
         self.assertTrue(report["valid"])
         self.assertEqual(report["failed_required_gates"][0]["observed"], 0.0)
 
-    def test_stale_dataset_and_invalid_gold_make_report_invalid(self) -> None:
+    def test_legacy_audit_schemas_and_invalid_gold_make_report_invalid(self) -> None:
+        for stale_schema in (
+            "pretrajectory-sft-audit-v1",
+            "pretrajectory-sft-audit-v2",
+        ):
+            with self.subTest(stale_schema=stale_schema):
+                dataset_audit = _dataset_audit()
+                dataset_audit["schema_version"] = stale_schema
+                exact_report = _exact_report()
+                exact_report["gold_self_evaluation"]["passed"] = False
+
+                report = gate.check_readiness(
+                    dataset_audit=dataset_audit,
+                    exact_report=exact_report,
+                    trajectory_audit=None,
+                    args=_args(),
+                )
+
+                self.assertFalse(report["passed"])
+                self.assertFalse(report["valid"])
+                self.assertEqual(report["decision"], "repair_evaluation_or_dataset_contract")
+                self.assertEqual(
+                    {item["name"] for item in report["failed_contract_gates"]},
+                    {"dataset_audit_schema_current", "gold_self_evaluation_passed"},
+                )
+
+    def test_stale_dataset_schema_is_contract_invalid(self) -> None:
         dataset_audit = _dataset_audit()
-        dataset_audit["schema_version"] = "pretrajectory-sft-audit-v1"
-        exact_report = _exact_report()
-        exact_report["gold_self_evaluation"]["passed"] = False
+        dataset_audit["dataset_schema_version"] = "pretrajectory-sft-v2"
 
         report = gate.check_readiness(
             dataset_audit=dataset_audit,
-            exact_report=exact_report,
+            exact_report=_exact_report(),
             trajectory_audit=None,
             args=_args(),
         )
 
         self.assertFalse(report["passed"])
         self.assertFalse(report["valid"])
-        self.assertEqual(report["decision"], "repair_evaluation_or_dataset_contract")
         self.assertEqual(
             {item["name"] for item in report["failed_contract_gates"]},
-            {"dataset_audit_schema_current", "gold_self_evaluation_passed"},
+            {"dataset_audit_schema_current"},
         )
 
 

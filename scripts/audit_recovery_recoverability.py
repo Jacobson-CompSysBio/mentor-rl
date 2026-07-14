@@ -2,8 +2,7 @@
 """Check whether recovery-task hidden targets are surfaced by runtime tools.
 
 This diagnostic is intentionally separate from trajectory generation. It uses
-hidden CORUM targets only for offline validation and never writes trajectory
-artifacts.
+hidden targets only for offline validation and never writes trajectory artifacts.
 """
 
 from __future__ import annotations
@@ -24,8 +23,8 @@ from runtime import ToolAction
 from runtime.environment import RuntimeEnvironment
 
 
-DEFAULT_TASKS_PATH = REPO_ROOT / "data" / "corum_corpus" / "tasks.verification_pilot_64.jsonl"
-DEFAULT_STORE_DIR = REPO_ROOT / "data" / "humannet_multiplex_store"
+DEFAULT_TASKS_PATH = REPO_ROOT / "data" / "module_corpus_full_brain_mixed" / "tasks.train.jsonl"
+DEFAULT_STORE_DIR = REPO_ROOT / "data" / "runtime" / "full_brain_multiplex_store"
 DEFAULT_TOP_KS = (50, 100, 250, 500, 1000)
 
 

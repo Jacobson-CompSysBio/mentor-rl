@@ -19,68 +19,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.build_pretrajectory_sft_dataset import (  # noqa: E402
-    ANSWER_BUDGET_CONTRACT_VERSION,
-    BUCKET_BY_VIEW,
-    CURRICULUM_STAGES,
-    DEFAULT_MIXTURE_ABSOLUTE_UNDERFILL_TOLERANCE,
-    DEFAULT_BUCKET_WEIGHTS,
-    DEFAULT_MIXTURE_CONTRACT_MIN_RECORDS,
-    DEFAULT_MIXTURE_RELATIVE_UNDERFILL_TOLERANCE,
-    DEFAULT_MIXTURE_UNDERFILL_POLICY,
-    GRAPH_TOPOLOGY_SOURCE,
-    MENTOR_EV_SOURCE,
-    MIXTURE_UNDERFILL_POLICIES,
-    MIXED_SOURCE,
-    PORTABLE_TOKEN_ESTIMATOR,
-    RWR_LOE_SOURCE,
-    SCHEMA_VERSION,
-    SPLITS,
-    AnswerBudgetContract,
-    answer_budget_contract_from_dict,
-    answer_budget_measurements,
-    build_mixture_contract_report,
-)
 from scripts.validate_pretrajectory_sft_curriculum_plan import (  # noqa: E402
     curriculum_plan_hash,
     validate_curriculum_plan,
 )
 
 
-EXPECTED_MENTOR_EV_SOURCE_DIR = "data/gw_dendrogram_corpus_full_brain"
-EXPECTED_RWR_LOE_SOURCE_DIR = "data/rwr_loe_corpus_full_brain"
-
-TOPOLOGY_VIEW_TYPES = {
-    "monoplex_edge_existence",
-    "multiplex_edge_existence",
-    "direct_neighbors_by_layer",
-    "unique_multiplex_neighbors",
-    "gene_layer_membership",
-    "nodes_present_by_layer",
-    "monoplex_shortest_path",
-    "aggregate_multiplex_shortest_path",
-    "path_layer_decomposition",
-    "monoplex_vs_multiplex_path_comparison",
-    "induced_subgraph",
-    "connected_components",
-    "shared_common_neighbors",
-    "degree_hub_bias",
-    "layer_specific_claim_calibration",
-}
-ENTITY_SCHEMA_VIEW_TYPES = {"entity_id_normalization", "gene_alias_disambiguation", "graph_schema_provenance", "layer_tag_metadata", "layer_family_membership"}
-MODULE_SET_VIEW_TYPES = {
-    "mentor_ev_module_membership",
-    "module_overlap_set_algebra",
-    "module_containment_set_algebra",
-    "module_source_distinction",
-    "module_cohesion_summary",
-}
-RWR_VIEW_TYPES = {"rwr_loe_rank_lookup", "rwr_loe_rank_comparison", "rwr_loe_topk_membership", "rwr_neighborhood_interpretation"}
-STRUCTURED_TOOL_VIEW_TYPES = {"tool_call_choice", "structured_state_update", "provenance_refusal_raw_cli"}
-CALIBRATION_VIEW_TYPES = {"no_edge_no_path_calibration", "critique_preference_sft"}
-RECOMMENDED_VIEW_TYPES = set(BUCKET_BY_VIEW)
-OPTIONAL_CONDITIONAL_VIEW_TYPES = {"gene_alias_disambiguation", "shared_common_neighbors"}
-KNOWN_CONTEXT_MODES = {"no_context", "open_book_context", "tool_observation"}
+SPLITS = ("train", "val", "test")
+MIXTURE_UNDERFILL_POLICIES = ("ignore", "warning", "fatal")
 CURRICULUM_ARTIFACT_SCHEMA_VERSION = "pretrajectory-sft-curriculum-artifacts-v1"
 CURRICULUM_DATASET_SCHEMA_VERSION = "pretrajectory-sft-v3"
 CURRICULUM_AUDIT_SCHEMA_VERSION = "pretrajectory-sft-audit-v3"
@@ -180,6 +126,79 @@ def read_jsonl_file(path: Path, add_issue: Callable[..., None]) -> list[tuple[in
     return rows
 
 
+def build_mixture_contract_report(
+    counts_by_bucket: dict[str, int] | Counter[str],
+    *,
+    total_records: int,
+    target_weights: dict[str, float],
+    minimum_records: int,
+    absolute_underfill_tolerance: float,
+    relative_underfill_tolerance: float,
+    underfill_policy: str,
+) -> dict[str, Any]:
+    """Build the mixture-underfill report required by the v3 curriculum audit."""
+
+    if underfill_policy not in MIXTURE_UNDERFILL_POLICIES:
+        raise ValueError(f"Unsupported mixture underfill policy: {underfill_policy}")
+    if minimum_records < 0:
+        raise ValueError("Mixture contract minimum_records must be nonnegative.")
+    if not 0.0 <= absolute_underfill_tolerance <= 1.0:
+        raise ValueError("Mixture absolute underfill tolerance must be between 0 and 1.")
+    if not 0.0 <= relative_underfill_tolerance <= 1.0:
+        raise ValueError("Mixture relative underfill tolerance must be between 0 and 1.")
+
+    eligible = total_records >= minimum_records
+    buckets: dict[str, dict[str, Any]] = {}
+    material_underfilled_buckets: list[str] = []
+    for bucket, target_share in target_weights.items():
+        count = int(counts_by_bucket.get(bucket, 0))
+        actual_share = count / total_records if total_records else 0.0
+        delta_share = actual_share - target_share
+        absolute_underfill = max(0.0, target_share - actual_share)
+        relative_underfill = (
+            max(0.0, (target_share - actual_share) / target_share)
+            if target_share
+            else 0.0
+        )
+        materially_underfilled = bool(
+            eligible
+            and absolute_underfill > absolute_underfill_tolerance
+            and relative_underfill > relative_underfill_tolerance
+        )
+        if materially_underfilled:
+            material_underfilled_buckets.append(bucket)
+        buckets[bucket] = {
+            "target_share": target_share,
+            "target_record_count": total_records * target_share,
+            "actual_share": actual_share,
+            "actual_record_count": count,
+            "delta_share": delta_share,
+            "absolute_underfill": absolute_underfill,
+            "relative_underfill": relative_underfill,
+            "materially_underfilled": materially_underfilled,
+        }
+
+    return {
+        "contract": {
+            "target_weights": target_weights,
+            "minimum_records": minimum_records,
+            "absolute_underfill_tolerance": absolute_underfill_tolerance,
+            "relative_underfill_tolerance": relative_underfill_tolerance,
+            "underfill_policy": underfill_policy,
+            "material_underfill_rule": (
+                "record_count >= minimum_records AND "
+                "absolute_underfill > absolute_underfill_tolerance AND "
+                "relative_underfill > relative_underfill_tolerance"
+            ),
+        },
+        "eligible": eligible,
+        "total_records": total_records,
+        "material_underfilled_bucket_count": len(material_underfilled_buckets),
+        "material_underfilled_buckets": sorted(material_underfilled_buckets),
+        "buckets": buckets,
+    }
+
+
 def has_negation_near(text: str, start: int) -> bool:
     prefix = text[max(0, start - 32) : start]
     return bool(re.search(r"\b(no|not|never|without|avoid|unsupported)\b", prefix))
@@ -199,353 +218,6 @@ def unsupported_answer_claim(answer: str) -> str | None:
     if pos >= 0 and not has_negation_near(text, pos) and "does not prove" not in text:
         return "answer treats graph absence as biological absence"
     return None
-
-
-def require_payload_keys(
-    payload: dict[str, Any],
-    keys: tuple[str, ...],
-    *,
-    add_issue: Callable[..., None],
-    record_id: str | None,
-    path: Path,
-    line: int,
-    view_type: str,
-) -> None:
-    for key in keys:
-        if key not in payload:
-            add_issue(
-                "fatal",
-                "missing_payload_key",
-                f"{view_type} payload is missing `{key}`.",
-                path=path,
-                line=line,
-                record_id=record_id,
-                context={"view_type": view_type, "key": key},
-            )
-
-
-def audit_topology_payload(
-    *,
-    record: dict[str, Any],
-    canonical_object: dict[str, Any],
-    path: Path,
-    line: int,
-    add_issue: Callable[..., None],
-) -> None:
-    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
-    record_id = metadata.get("record_id") if isinstance(metadata.get("record_id"), str) else None
-    view_type = str(metadata.get("view_type", ""))
-    payload = canonical_object.get("payload")
-    if not isinstance(payload, dict):
-        add_issue("fatal", "missing_payload", f"{view_type} canonical object has no payload.", path=path, line=line, record_id=record_id)
-        return
-
-    paired_layer_views = {
-        "monoplex_edge_existence",
-        "monoplex_vs_multiplex_path_comparison",
-        "layer_specific_claim_calibration",
-        "shared_common_neighbors",
-    }
-    if view_type in paired_layer_views:
-        require_payload_keys(
-            payload,
-            ("layer", "source_gene_id", "target_gene_id"),
-            add_issue=add_issue,
-            record_id=record_id,
-            path=path,
-            line=line,
-            view_type=view_type,
-        )
-    if view_type == "multiplex_edge_existence":
-        require_payload_keys(
-            payload,
-            ("source_gene_id", "target_gene_id", "supporting_layers"),
-            add_issue=add_issue,
-            record_id=record_id,
-            path=path,
-            line=line,
-            view_type=view_type,
-        )
-    if view_type in {"direct_neighbors_by_layer", "degree_hub_bias"}:
-        require_payload_keys(
-            payload,
-            ("layer", "gene_id", "neighbors") if view_type == "direct_neighbors_by_layer" else ("layer", "gene_id", "degree", "degree_percentile"),
-            add_issue=add_issue,
-            record_id=record_id,
-            path=path,
-            line=line,
-            view_type=view_type,
-        )
-    if view_type == "multiplex_edge_existence":
-        layers = payload.get("supporting_layers")
-        has_edge = payload.get("has_edge", True)
-        if not isinstance(layers, list):
-            add_issue("fatal", "supporting_layers_not_list", "Multiplex edge record supporting_layers must be a list.", path=path, line=line, record_id=record_id)
-        elif has_edge is False and layers:
-            add_issue("fatal", "negative_edge_has_supporting_layers", "Negative multiplex edge record must not list supporting layers.", path=path, line=line, record_id=record_id)
-        elif has_edge is not False and not layers:
-            add_issue("fatal", "empty_supporting_layers", "Positive multiplex edge record has no supporting layers.", path=path, line=line, record_id=record_id)
-    if view_type == "direct_neighbors_by_layer":
-        neighbors = payload.get("neighbors")
-        if not isinstance(neighbors, list):
-            add_issue("fatal", "neighbors_not_list", "Direct-neighbor payload must contain a list.", path=path, line=line, record_id=record_id)
-        elif str(len(neighbors)) not in str(record.get("answer", "")):
-            add_issue("warning", "neighbor_count_not_rendered", "Answer does not render the neighbor count from payload.", path=path, line=line, record_id=record_id)
-    if view_type == "unique_multiplex_neighbors":
-        neighbor_map = payload.get("neighbor_layer_map")
-        if not isinstance(neighbor_map, dict):
-            add_issue("fatal", "neighbor_layer_map_not_object", "Unique-neighbor payload must contain a neighbor-to-layer map.", path=path, line=line, record_id=record_id)
-        if payload.get("neighbor_map_scope") == "lexicographic_prefix":
-            require_payload_keys(
-                payload,
-                ("unique_neighbor_count", "omitted_neighbor_count", "omitted_layer_count_by_neighbor"),
-                add_issue=add_issue,
-                record_id=record_id,
-                path=path,
-                line=line,
-                view_type=view_type,
-            )
-            total_neighbors = payload.get("unique_neighbor_count")
-            omitted_neighbors = payload.get("omitted_neighbor_count")
-            if (
-                isinstance(neighbor_map, dict)
-                and isinstance(total_neighbors, int)
-                and isinstance(omitted_neighbors, int)
-                and len(neighbor_map) + omitted_neighbors != total_neighbors
-            ):
-                add_issue(
-                    "fatal",
-                    "compact_neighbor_count_mismatch",
-                    "Compacted unique-neighbor counts do not reconcile.",
-                    path=path,
-                    line=line,
-                    record_id=record_id,
-                )
-    if view_type in {"monoplex_shortest_path", "aggregate_multiplex_shortest_path", "path_layer_decomposition"}:
-        path_nodes = payload.get("path_gene_ids")
-        if not isinstance(path_nodes, list) or len(path_nodes) < 2:
-            add_issue("fatal", "invalid_path_nodes", f"{view_type} payload must contain at least two path nodes.", path=path, line=line, record_id=record_id)
-        if view_type in {"monoplex_shortest_path", "aggregate_multiplex_shortest_path"}:
-            expected_hops = len(path_nodes) - 1 if isinstance(path_nodes, list) else None
-            if expected_hops is not None and str(expected_hops) not in str(record.get("answer", "")):
-                add_issue("warning", "hop_count_not_rendered", "Answer does not render the expected hop count.", path=path, line=line, record_id=record_id)
-    if view_type == "path_layer_decomposition":
-        layer_counts = payload.get("layer_counts")
-        if not isinstance(layer_counts, dict) or not layer_counts:
-            add_issue("fatal", "empty_layer_counts", "Path layer decomposition requires nonempty layer counts.", path=path, line=line, record_id=record_id)
-    if view_type == "induced_subgraph":
-        edges = payload.get("edges")
-        if not isinstance(edges, list):
-            add_issue("fatal", "induced_edges_not_list", "Induced-subgraph payload must contain an edge list.", path=path, line=line, record_id=record_id)
-    if view_type == "connected_components":
-        components = payload.get("components")
-        if not isinstance(components, dict) or not components:
-            add_issue("fatal", "empty_components", "Connected-components payload must contain component membership.", path=path, line=line, record_id=record_id)
-    if view_type == "degree_hub_bias":
-        percentile = payload.get("degree_percentile")
-        answer = str(record.get("answer", "")).lower()
-        if isinstance(percentile, (int, float)) and percentile > 0.95 and "hub-bias" not in answer:
-            add_issue("fatal", "missing_hub_bias_caveat", "Hub-like degree payload lacks hub-bias caveat in answer.", path=path, line=line, record_id=record_id)
-    if view_type in {"no_edge_no_path_calibration", "monoplex_vs_multiplex_path_comparison"}:
-        answer = str(record.get("answer", "")).lower()
-        layer_specific_calibration = "no direct support is recorded" in answer and "layer-specific" in answer
-        if "does not" not in answer and "not prove" not in answer and not layer_specific_calibration:
-            add_issue("warning", "absence_not_calibrated", "Absence/calibration answer may not clearly avoid biological-absence overclaiming.", path=path, line=line, record_id=record_id)
-
-
-def audit_rwr_payload(
-    *,
-    record: dict[str, Any],
-    canonical_object: dict[str, Any],
-    path: Path,
-    line: int,
-    add_issue: Callable[..., None],
-) -> None:
-    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
-    record_id = metadata.get("record_id") if isinstance(metadata.get("record_id"), str) else None
-    view_type = str(metadata.get("view_type", ""))
-    payload = canonical_object.get("payload")
-    if not isinstance(payload, dict):
-        add_issue("fatal", "missing_payload", f"{view_type} canonical object has no payload.", path=path, line=line, record_id=record_id)
-        return
-    if view_type == "rwr_loe_rank_lookup":
-        require_payload_keys(
-            payload,
-            ("seed_gene_id", "candidate_gene_id", "rank", "score"),
-            add_issue=add_issue,
-            record_id=record_id,
-            path=path,
-            line=line,
-            view_type=view_type,
-        )
-        rank = payload.get("rank")
-        score = payload.get("score")
-        if not isinstance(rank, int) or rank <= 0:
-            add_issue("fatal", "invalid_rwr_rank", "RWR-LOE rank must be a positive integer.", path=path, line=line, record_id=record_id)
-        if not isinstance(score, (int, float)):
-            add_issue("fatal", "invalid_rwr_score", "RWR-LOE score must be numeric.", path=path, line=line, record_id=record_id)
-    if view_type == "rwr_neighborhood_interpretation":
-        top_candidates = payload.get("top_candidates")
-        if not isinstance(top_candidates, list) or not top_candidates:
-            add_issue("fatal", "empty_rwr_top_candidates", "RWR neighborhood record requires top candidates.", path=path, line=line, record_id=record_id)
-        elif not all(isinstance(row, dict) and "gene" in row and "rank" in row for row in top_candidates):
-            add_issue("fatal", "malformed_rwr_top_candidates", "RWR top candidates must include gene and rank fields.", path=path, line=line, record_id=record_id)
-    if view_type == "rwr_loe_rank_comparison":
-        require_payload_keys(
-            payload,
-            ("seed_gene_id", "left_candidate_gene_id", "right_candidate_gene_id", "left_rank", "right_rank", "winner_gene_id"),
-            add_issue=add_issue,
-            record_id=record_id,
-            path=path,
-            line=line,
-            view_type=view_type,
-        )
-        left_rank = payload.get("left_rank")
-        right_rank = payload.get("right_rank")
-        if not isinstance(left_rank, int) or not isinstance(right_rank, int):
-            add_issue("fatal", "invalid_rwr_rank_comparison", "RWR rank comparison ranks must be integers.", path=path, line=line, record_id=record_id)
-    if view_type == "rwr_loe_topk_membership":
-        require_payload_keys(
-            payload,
-            ("seed_gene_id", "candidate_gene_id", "top_k", "rank", "is_in_top_k"),
-            add_issue=add_issue,
-            record_id=record_id,
-            path=path,
-            line=line,
-            view_type=view_type,
-        )
-        rank = payload.get("rank")
-        top_k = payload.get("top_k")
-        is_in_top_k = payload.get("is_in_top_k")
-        if isinstance(rank, int) and isinstance(top_k, int) and isinstance(is_in_top_k, bool):
-            if (rank <= top_k) != is_in_top_k:
-                add_issue("fatal", "topk_membership_label_mismatch", "RWR top-k membership label does not match rank/top_k.", path=path, line=line, record_id=record_id)
-    answer = str(record.get("answer", "")).lower()
-    if "causality" not in answer and "causal" not in answer:
-        add_issue("warning", "rwr_missing_causal_caveat", "RWR answer should explicitly avoid causal overclaiming.", path=path, line=line, record_id=record_id)
-
-
-def audit_entity_schema_payload(
-    *,
-    record: dict[str, Any],
-    canonical_object: dict[str, Any],
-    path: Path,
-    line: int,
-    add_issue: Callable[..., None],
-) -> None:
-    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
-    record_id = metadata.get("record_id") if isinstance(metadata.get("record_id"), str) else None
-    view_type = str(metadata.get("view_type", ""))
-    payload = canonical_object.get("payload")
-    if not isinstance(payload, dict):
-        add_issue("fatal", "missing_payload", f"{view_type} canonical object has no payload.", path=path, line=line, record_id=record_id)
-        return
-    if view_type == "entity_id_normalization":
-        require_payload_keys(payload, ("alias", "canonical_gene_id", "is_ambiguous"), add_issue=add_issue, record_id=record_id, path=path, line=line, view_type=view_type)
-        if payload.get("is_ambiguous") is not False:
-            add_issue("fatal", "normalization_marked_ambiguous", "Entity normalization rows must be unambiguous.", path=path, line=line, record_id=record_id)
-    if view_type == "gene_alias_disambiguation":
-        require_payload_keys(payload, ("alias", "candidate_gene_ids", "is_ambiguous"), add_issue=add_issue, record_id=record_id, path=path, line=line, view_type=view_type)
-        candidates = payload.get("candidate_gene_ids")
-        if payload.get("is_ambiguous") is not True or not isinstance(candidates, list) or len(candidates) < 2:
-            add_issue("fatal", "alias_disambiguation_not_ambiguous", "Alias disambiguation rows must list multiple candidates.", path=path, line=line, record_id=record_id)
-    if view_type in {"layer_tag_metadata", "layer_family_membership"}:
-        require_payload_keys(payload, ("layer", "layer_family", "layer_namespace"), add_issue=add_issue, record_id=record_id, path=path, line=line, view_type=view_type)
-    if view_type == "graph_schema_provenance":
-        require_payload_keys(payload, ("source_name", "source_dir", "role"), add_issue=add_issue, record_id=record_id, path=path, line=line, view_type=view_type)
-
-
-def audit_module_set_payload(
-    *,
-    record: dict[str, Any],
-    canonical_object: dict[str, Any],
-    path: Path,
-    line: int,
-    add_issue: Callable[..., None],
-) -> None:
-    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
-    record_id = metadata.get("record_id") if isinstance(metadata.get("record_id"), str) else None
-    view_type = str(metadata.get("view_type", ""))
-    payload = canonical_object.get("payload")
-    if not isinstance(payload, dict):
-        add_issue("fatal", "missing_payload", f"{view_type} canonical object has no payload.", path=path, line=line, record_id=record_id)
-        return
-    if view_type == "mentor_ev_module_membership":
-        require_payload_keys(payload, ("module_id", "gene_id", "has_membership"), add_issue=add_issue, record_id=record_id, path=path, line=line, view_type=view_type)
-    if view_type == "module_source_distinction":
-        require_payload_keys(payload, ("module_id", "source"), add_issue=add_issue, record_id=record_id, path=path, line=line, view_type=view_type)
-    if view_type == "module_overlap_set_algebra":
-        require_payload_keys(payload, ("left_module_id", "right_module_id", "intersection_genes", "intersection_size", "union_size", "overlap_jaccard"), add_issue=add_issue, record_id=record_id, path=path, line=line, view_type=view_type)
-        intersection = payload.get("intersection_genes")
-        if isinstance(intersection, list) and payload.get("intersection_size") != len(intersection):
-            add_issue("fatal", "intersection_size_mismatch", "Module overlap intersection_size does not match intersection_genes.", path=path, line=line, record_id=record_id)
-    if view_type == "module_containment_set_algebra":
-        require_payload_keys(payload, ("left_module_id", "right_module_id", "exact_subset", "violating_genes"), add_issue=add_issue, record_id=record_id, path=path, line=line, view_type=view_type)
-        violating = payload.get("violating_genes")
-        if isinstance(violating, list) and bool(violating) == bool(payload.get("exact_subset")):
-            add_issue("fatal", "subset_label_mismatch", "Module containment exact_subset does not match violating_genes.", path=path, line=line, record_id=record_id)
-    if view_type == "module_cohesion_summary":
-        require_payload_keys(payload, ("module_id", "node_count", "edge_count", "density"), add_issue=add_issue, record_id=record_id, path=path, line=line, view_type=view_type)
-        density = payload.get("density")
-        if not isinstance(density, (int, float)) or density < 0 or density > 1:
-            add_issue("fatal", "invalid_module_density", "Module cohesion density must be between 0 and 1.", path=path, line=line, record_id=record_id)
-
-
-def audit_structured_tool_payload(
-    *,
-    record: dict[str, Any],
-    canonical_object: dict[str, Any],
-    path: Path,
-    line: int,
-    add_issue: Callable[..., None],
-) -> None:
-    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
-    record_id = metadata.get("record_id") if isinstance(metadata.get("record_id"), str) else None
-    view_type = str(metadata.get("view_type", ""))
-    payload = canonical_object.get("payload")
-    if not isinstance(payload, dict):
-        add_issue("fatal", "missing_payload", f"{view_type} canonical object has no payload.", path=path, line=line, record_id=record_id)
-        return
-    if view_type == "tool_call_choice":
-        require_payload_keys(payload, ("tool_name", "arguments"), add_issue=add_issue, record_id=record_id, path=path, line=line, view_type=view_type)
-    if view_type == "structured_state_update":
-        require_payload_keys(payload, ("predicted_gene_ids", "relationship_status", "continue"), add_issue=add_issue, record_id=record_id, path=path, line=line, view_type=view_type)
-        if payload.get("prediction_scope") == "lexicographic_prefix":
-            require_payload_keys(
-                payload,
-                ("predicted_gene_count", "omitted_predicted_gene_count"),
-                add_issue=add_issue,
-                record_id=record_id,
-                path=path,
-                line=line,
-                view_type=view_type,
-            )
-            predicted = payload.get("predicted_gene_ids")
-            predicted_count = payload.get("predicted_gene_count")
-            omitted_count = payload.get("omitted_predicted_gene_count")
-            if (
-                isinstance(predicted, list)
-                and isinstance(predicted_count, int)
-                and isinstance(omitted_count, int)
-                and len(predicted) + omitted_count != predicted_count
-            ):
-                add_issue(
-                    "fatal",
-                    "compact_structured_state_count_mismatch",
-                    "Compacted structured-state gene counts do not reconcile.",
-                    path=path,
-                    line=line,
-                    record_id=record_id,
-                )
-        try:
-            answer_payload = json.loads(str(record.get("answer", "")))
-        except json.JSONDecodeError:
-            add_issue("fatal", "structured_state_answer_not_json", "Structured state update answer must be JSON.", path=path, line=line, record_id=record_id)
-        else:
-            if not isinstance(answer_payload, dict):
-                add_issue("fatal", "structured_state_answer_not_object", "Structured state update answer must be a JSON object.", path=path, line=line, record_id=record_id)
-    if view_type == "provenance_refusal_raw_cli":
-        require_payload_keys(payload, ("forbidden_interface", "allowed_interface", "graph_version"), add_issue=add_issue, record_id=record_id, path=path, line=line, view_type=view_type)
 
 
 def _curriculum_estimate_tokens(text: str) -> int:
@@ -632,7 +304,7 @@ def _audit_curriculum_v3_dataset(
     mixture_relative_underfill_tolerance: float | None,
     mixture_underfill_policy: str | None,
 ) -> dict[str, Any]:
-    """Audit the plan-driven v3 artifact without applying legacy view/source rules."""
+    """Audit the plan-driven v3 artifact and its native curriculum reports."""
 
     plan_path = dataset_dir / "curriculum_plan.json"
     canonical_path = dataset_dir / "canonical_objects.jsonl"
@@ -1306,6 +978,8 @@ def audit_pretrajectory_sft_dataset(
     mixture_relative_underfill_tolerance: float | None = None,
     mixture_underfill_policy: str | None = None,
 ) -> dict[str, Any]:
+    """Audit a plan-driven v3 dataset produced by the active v5 curriculum."""
+
     issues: list[AuditIssue] = []
 
     def add_issue(
@@ -1331,637 +1005,40 @@ def audit_pretrajectory_sft_dataset(
         )
 
     manifest_path = dataset_dir / "manifest.json"
-    validation_path = dataset_dir / "validation_report.json"
-    canonical_path = dataset_dir / "canonical_objects.jsonl"
     manifest = read_json_file(manifest_path, add_issue)
-    if manifest.get("dataset_schema_version") == CURRICULUM_DATASET_SCHEMA_VERSION:
-        return _audit_curriculum_v3_dataset(
-            dataset_dir,
-            manifest=manifest,
-            manifest_path=manifest_path,
-            issues=issues,
-            add_issue=add_issue,
-            output_path=output_path,
-            mixture_tolerance=mixture_tolerance,
-            coverage_min_records=coverage_min_records,
-            strict_coverage=strict_coverage,
-            fail_on_warnings=fail_on_warnings,
-            min_records=min_records,
-            max_issues=max_issues,
-            training_max_sequence_tokens=training_max_sequence_tokens,
-            eval_max_answer_tokens=eval_max_answer_tokens,
-            max_answer_characters=max_answer_characters,
-            mixture_contract_min_records=mixture_contract_min_records,
-            mixture_absolute_underfill_tolerance=mixture_absolute_underfill_tolerance,
-            mixture_relative_underfill_tolerance=mixture_relative_underfill_tolerance,
-            mixture_underfill_policy=mixture_underfill_policy,
-        )
-    validation = read_json_file(validation_path, add_issue)
-    canonical_rows = read_jsonl_file(canonical_path, add_issue)
-
-    manifest_budget_payload = manifest.get("answer_budget_contract")
-    has_manifest_budget_contract = isinstance(manifest_budget_payload, dict)
-    if has_manifest_budget_contract:
-        declared_budget_contract = answer_budget_contract_from_dict(manifest_budget_payload)
-        if declared_budget_contract.contract_version != ANSWER_BUDGET_CONTRACT_VERSION:
-            add_issue(
-                "fatal",
-                "answer_budget_contract_version_mismatch",
-                "Manifest answer-budget contract version is unsupported.",
-                path=manifest_path,
-                context={
-                    "expected": ANSWER_BUDGET_CONTRACT_VERSION,
-                    "actual": declared_budget_contract.contract_version,
-                },
-            )
-        if declared_budget_contract.token_estimator != PORTABLE_TOKEN_ESTIMATOR:
-            add_issue(
-                "fatal",
-                "answer_budget_token_estimator_mismatch",
-                "Manifest answer-budget token estimator is unsupported by this auditor.",
-                path=manifest_path,
-                context={"expected": PORTABLE_TOKEN_ESTIMATOR, "actual": declared_budget_contract.token_estimator},
-            )
-    else:
-        declared_budget_contract = AnswerBudgetContract()
-        legacy_severity = "fatal" if manifest.get("schema_version") == SCHEMA_VERSION else "warning"
+    if manifest.get("dataset_schema_version") != CURRICULUM_DATASET_SCHEMA_VERSION:
         add_issue(
-            legacy_severity,
-            "missing_answer_budget_contract",
-            "Dataset manifest has no answer-budget contract; rows are audited against current defaults.",
+            "fatal",
+            "unsupported_dataset_schema_version",
+            "Dataset must use the active plan-driven curriculum schema.",
             path=manifest_path,
-            context={"defaults": declared_budget_contract.to_dict()},
-        )
-
-    effective_budget_contract = AnswerBudgetContract(
-        training_max_sequence_tokens=(
-            training_max_sequence_tokens
-            if training_max_sequence_tokens is not None
-            else declared_budget_contract.training_max_sequence_tokens
-        ),
-        eval_max_answer_tokens=(
-            eval_max_answer_tokens
-            if eval_max_answer_tokens is not None
-            else declared_budget_contract.eval_max_answer_tokens
-        ),
-        max_answer_characters=(
-            max_answer_characters
-            if max_answer_characters is not None
-            else declared_budget_contract.max_answer_characters
-        ),
-        chat_template_overhead_tokens=declared_budget_contract.chat_template_overhead_tokens,
-    )
-
-    records: list[dict[str, Any]] = []
-    record_locations: dict[str, tuple[Path, int]] = {}
-    for split in SPLITS:
-        split_path = dataset_dir / f"{split}.jsonl"
-        for line, record in read_jsonl_file(split_path, add_issue):
-            metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
-            record_id = metadata.get("record_id") if isinstance(metadata.get("record_id"), str) else None
-            if record_id:
-                record_locations[record_id] = (split_path, line)
-            records.append({"_file_split": split, "_path": split_path, "_line": line, "record": record})
-
-    canonical_by_id: dict[str, dict[str, Any]] = {}
-    canonical_seen: set[str] = set()
-    for line, obj in canonical_rows:
-        object_id = obj.get("object_id")
-        if not isinstance(object_id, str) or not object_id:
-            add_issue("fatal", "missing_canonical_object_id", "Canonical object is missing object_id.", path=canonical_path, line=line)
-            continue
-        if object_id in canonical_seen:
-            add_issue("fatal", "duplicate_canonical_object_id", "Duplicate canonical object id.", path=canonical_path, line=line, context={"object_id": object_id})
-        canonical_seen.add(object_id)
-        canonical_by_id[object_id] = obj
-
-    accepted_schema_versions = {SCHEMA_VERSION, "pretrajectory-sft-v1"}
-    if manifest.get("schema_version") not in accepted_schema_versions:
-        add_issue(
-            "fatal",
-            "schema_version_mismatch",
-            "Manifest schema_version does not match the pre-trajectory SFT schema.",
-            path=manifest_path,
-            context={"expected_one_of": sorted(accepted_schema_versions), "actual": manifest.get("schema_version")},
-        )
-    sources = manifest.get("sources") if isinstance(manifest.get("sources"), dict) else {}
-    if sources.get("mentor_ev_module_source") != EXPECTED_MENTOR_EV_SOURCE_DIR:
-        add_issue(
-            "fatal",
-            "mentor_ev_source_dir_mismatch",
-            "Manifest must identify gw_dendrogram as the MENTOR-EV module source.",
-            path=manifest_path,
-            context={"expected": EXPECTED_MENTOR_EV_SOURCE_DIR, "actual": sources.get("mentor_ev_module_source")},
-        )
-    if sources.get("rwr_loe_source") != EXPECTED_RWR_LOE_SOURCE_DIR:
-        add_issue(
-            "fatal",
-            "rwr_loe_source_dir_mismatch",
-            "Manifest must identify rwr_loe as the RWR-LOE source.",
-            path=manifest_path,
-            context={"expected": EXPECTED_RWR_LOE_SOURCE_DIR, "actual": sources.get("rwr_loe_source")},
-        )
-
-    if min_records and len(records) < min_records:
-        add_issue(
-            "fatal",
-            "record_count_below_minimum",
-            "Dataset contains fewer records than requested.",
-            context={"actual": len(records), "minimum": min_records},
-        )
-    if isinstance(manifest.get("selected_record_count"), int) and manifest["selected_record_count"] != len(records):
-        add_issue(
-            "fatal",
-            "manifest_selected_record_count_mismatch",
-            "Manifest selected_record_count does not match split JSONL row count.",
-            path=manifest_path,
-            context={"manifest": manifest["selected_record_count"], "actual": len(records)},
-        )
-    if isinstance(validation.get("fatal_error_count"), int) and validation["fatal_error_count"] != 0:
-        add_issue(
-            "fatal",
-            "upstream_validation_failed",
-            "Builder validation_report has nonzero fatal_error_count.",
-            path=validation_path,
-            context={"fatal_error_count": validation["fatal_error_count"]},
-        )
-    if isinstance(validation.get("record_count"), int) and validation["record_count"] != len(records):
-        add_issue(
-            "fatal",
-            "validation_record_count_mismatch",
-            "Validation report record_count does not match split JSONL row count.",
-            path=validation_path,
-            context={"validation": validation["record_count"], "actual": len(records)},
-        )
-
-    record_ids: set[str] = set()
-    object_splits: dict[str, set[str]] = defaultdict(set)
-    counts_by_split: Counter[str] = Counter()
-    counts_by_view: Counter[str] = Counter()
-    counts_by_bucket: Counter[str] = Counter()
-    counts_by_stage: Counter[str] = Counter()
-    counts_by_source: Counter[str] = Counter()
-    counts_by_context_mode: Counter[str] = Counter()
-    counts_by_answer_budget_action: Counter[str] = Counter()
-    over_budget_record_count = 0
-    max_answer_token_estimate = 0
-    max_training_sequence_token_estimate = 0
-    max_answer_character_count = 0
-    missing_answer_budget_metadata_count = 0
-    missing_answer_budget_metadata_sample_ids: list[str] = []
-    allowed_sources = {GRAPH_TOPOLOGY_SOURCE, MENTOR_EV_SOURCE, RWR_LOE_SOURCE, MIXED_SOURCE}
-    manifest_graph_version = manifest.get("graph_version")
-
-    for item in records:
-        record = item["record"]
-        path = item["_path"]
-        line = item["_line"]
-        file_split = item["_file_split"]
-        metadata = record.get("metadata")
-        if not isinstance(metadata, dict):
-            add_issue("fatal", "missing_metadata", "Record is missing metadata.", path=path, line=line)
-            continue
-        record_id = metadata.get("record_id") if isinstance(metadata.get("record_id"), str) else None
-        if not record_id:
-            add_issue("fatal", "missing_record_id", "Record metadata is missing record_id.", path=path, line=line)
-        elif record_id in record_ids:
-            add_issue("fatal", "duplicate_record_id", "Duplicate record_id.", path=path, line=line, record_id=record_id)
-        else:
-            record_ids.add(record_id)
-        for key in ("system", "question", "answer"):
-            if not isinstance(record.get(key), str) or not record[key].strip():
-                add_issue("fatal", f"missing_{key}", f"Record is missing nonempty `{key}`.", path=path, line=line, record_id=record_id)
-
-        budget_measurements = answer_budget_measurements(record, effective_budget_contract)
-        max_answer_token_estimate = max(max_answer_token_estimate, int(budget_measurements["answer_token_estimate"]))
-        max_training_sequence_token_estimate = max(
-            max_training_sequence_token_estimate,
-            int(budget_measurements["training_sequence_token_estimate"]),
-        )
-        max_answer_character_count = max(max_answer_character_count, int(budget_measurements["answer_character_count"]))
-        if budget_measurements["violations"]:
-            over_budget_record_count += 1
-            add_issue(
-                "fatal",
-                "answer_budget_exceeded",
-                "Record exceeds the declared training/eval answer-budget contract.",
-                path=path,
-                line=line,
-                record_id=record_id,
-                context={
-                    **budget_measurements,
-                    "effective_contract": effective_budget_contract.to_dict(),
-                },
-            )
-        answer_budget = metadata.get("answer_budget")
-        if not isinstance(answer_budget, dict):
-            missing_answer_budget_metadata_count += 1
-            if record_id and len(missing_answer_budget_metadata_sample_ids) < 10:
-                missing_answer_budget_metadata_sample_ids.append(record_id)
-            budget_action = "missing"
-        else:
-            budget_action = str(answer_budget.get("action", "unspecified"))
-            if budget_action not in {"unchanged", "compacted"}:
-                add_issue(
-                    "fatal",
-                    "invalid_answer_budget_action",
-                    "Record answer-budget metadata has an invalid action.",
-                    path=path,
-                    line=line,
-                    record_id=record_id,
-                    context={"action": budget_action},
-                )
-            for key in ("answer_token_estimate", "training_sequence_token_estimate", "answer_character_count"):
-                if answer_budget.get(key) != budget_measurements[key]:
-                    add_issue(
-                        "fatal",
-                        "answer_budget_measurement_mismatch",
-                        "Stored answer-budget measurement does not match the record.",
-                        path=path,
-                        line=line,
-                        record_id=record_id,
-                        context={"field": key, "stored": answer_budget.get(key), "actual": budget_measurements[key]},
-                    )
-            if answer_budget.get("contract_version") != declared_budget_contract.contract_version:
-                add_issue(
-                    "fatal",
-                    "record_answer_budget_contract_mismatch",
-                    "Record answer-budget contract version does not match the manifest.",
-                    path=path,
-                    line=line,
-                    record_id=record_id,
-                )
-            if answer_budget.get("token_estimator") != declared_budget_contract.token_estimator:
-                add_issue(
-                    "fatal",
-                    "record_answer_budget_estimator_mismatch",
-                    "Record answer-budget token estimator does not match the manifest.",
-                    path=path,
-                    line=line,
-                    record_id=record_id,
-                )
-            expected_limits = {
-                "training_max_sequence_tokens": declared_budget_contract.training_max_sequence_tokens,
-                "eval_max_answer_tokens": declared_budget_contract.eval_max_answer_tokens,
-                "max_answer_characters": declared_budget_contract.max_answer_characters,
-                "chat_template_overhead_tokens": declared_budget_contract.chat_template_overhead_tokens,
-            }
-            if answer_budget.get("limits") != expected_limits:
-                add_issue(
-                    "fatal",
-                    "record_answer_budget_limits_mismatch",
-                    "Record answer-budget limits do not match the manifest.",
-                    path=path,
-                    line=line,
-                    record_id=record_id,
-                    context={"expected": expected_limits, "actual": answer_budget.get("limits")},
-                )
-        counts_by_answer_budget_action[budget_action] += 1
-
-        split = metadata.get("split")
-        if split != file_split:
-            add_issue(
-                "fatal",
-                "metadata_split_file_mismatch",
-                "Record metadata split does not match the split file.",
-                path=path,
-                line=line,
-                record_id=record_id,
-                context={"metadata_split": split, "file_split": file_split},
-            )
-        if split not in SPLITS:
-            add_issue("fatal", "invalid_split", "Record metadata split is invalid.", path=path, line=line, record_id=record_id, context={"split": split})
-
-        view_type = metadata.get("view_type")
-        bucket = metadata.get("mixture_bucket")
-        source = metadata.get("source")
-        graph_version = metadata.get("graph_version")
-        object_id = metadata.get("canonical_object_id")
-        context_mode = metadata.get("context_mode", "unspecified")
-        curriculum_stage = metadata.get("curriculum_stage", "unspecified")
-        if context_mode != "unspecified" and context_mode not in KNOWN_CONTEXT_MODES:
-            add_issue(
-                "fatal",
-                "unknown_context_mode",
-                "Record has unknown context_mode.",
-                path=path,
-                line=line,
-                record_id=record_id,
-                context={"context_mode": context_mode},
-            )
-        if view_type not in BUCKET_BY_VIEW:
-            add_issue("fatal", "unknown_view_type", "Record has unknown view_type.", path=path, line=line, record_id=record_id, context={"view_type": view_type})
-        elif bucket != BUCKET_BY_VIEW[view_type]:
-            add_issue(
-                "fatal",
-                "mixture_bucket_mismatch",
-                "Record mixture_bucket does not match view_type mapping.",
-                path=path,
-                line=line,
-                record_id=record_id,
-                context={"view_type": view_type, "expected": BUCKET_BY_VIEW[view_type], "actual": bucket},
-            )
-        if curriculum_stage != "unspecified" and curriculum_stage not in CURRICULUM_STAGES:
-            add_issue(
-                "fatal",
-                "unknown_curriculum_stage",
-                "Record has unknown curriculum_stage.",
-                path=path,
-                line=line,
-                record_id=record_id,
-                context={"curriculum_stage": curriculum_stage},
-            )
-        if source not in allowed_sources:
-            add_issue("fatal", "unknown_source", "Record source is not one of the expected SFT sources.", path=path, line=line, record_id=record_id, context={"source": source})
-        if manifest_graph_version and graph_version != manifest_graph_version:
-            add_issue(
-                "fatal",
-                "graph_version_mismatch",
-                "Record graph_version does not match manifest graph_version.",
-                path=path,
-                line=line,
-                record_id=record_id,
-                context={"manifest_graph_version": manifest_graph_version, "record_graph_version": graph_version},
-            )
-        if isinstance(object_id, str):
-            object_splits[object_id].add(str(split))
-        else:
-            add_issue("fatal", "missing_canonical_object_id", "Record metadata is missing canonical_object_id.", path=path, line=line, record_id=record_id)
-
-        canonical_object = canonical_by_id.get(object_id) if isinstance(object_id, str) else None
-        if canonical_object is None:
-            add_issue("fatal", "missing_canonical_object", "Record points to a canonical object not present in canonical_objects.jsonl.", path=path, line=line, record_id=record_id, context={"canonical_object_id": object_id})
-        else:
-            if canonical_object.get("source") != source:
-                add_issue("fatal", "canonical_source_mismatch", "Record source does not match canonical object source.", path=path, line=line, record_id=record_id)
-            if canonical_object.get("split") != split:
-                add_issue("fatal", "canonical_split_mismatch", "Record split does not match canonical object split.", path=path, line=line, record_id=record_id)
-            if manifest_graph_version and canonical_object.get("graph_version") != manifest_graph_version:
-                add_issue("fatal", "canonical_graph_version_mismatch", "Canonical object graph_version does not match manifest.", path=path, line=line, record_id=record_id)
-            payload = canonical_object.get("payload")
-            if isinstance(payload, dict) and payload.get("source") and payload.get("source") != source:
-                add_issue("fatal", "payload_source_mismatch", "Canonical payload source does not match record source.", path=path, line=line, record_id=record_id)
-            if view_type in TOPOLOGY_VIEW_TYPES:
-                audit_topology_payload(record=record, canonical_object=canonical_object, path=path, line=line, add_issue=add_issue)
-            if view_type in ENTITY_SCHEMA_VIEW_TYPES:
-                audit_entity_schema_payload(record=record, canonical_object=canonical_object, path=path, line=line, add_issue=add_issue)
-            if view_type in MODULE_SET_VIEW_TYPES:
-                audit_module_set_payload(record=record, canonical_object=canonical_object, path=path, line=line, add_issue=add_issue)
-            if view_type in RWR_VIEW_TYPES:
-                audit_rwr_payload(record=record, canonical_object=canonical_object, path=path, line=line, add_issue=add_issue)
-            if view_type in STRUCTURED_TOOL_VIEW_TYPES:
-                audit_structured_tool_payload(record=record, canonical_object=canonical_object, path=path, line=line, add_issue=add_issue)
-
-        if view_type in TOPOLOGY_VIEW_TYPES and source != GRAPH_TOPOLOGY_SOURCE:
-            add_issue("fatal", "topology_source_mismatch", "Topology view must use the multiplex graph source.", path=path, line=line, record_id=record_id, context={"actual": source})
-        if view_type in ENTITY_SCHEMA_VIEW_TYPES and source != GRAPH_TOPOLOGY_SOURCE:
-            add_issue("fatal", "entity_schema_source_mismatch", "Entity/schema view must use the graph schema source.", path=path, line=line, record_id=record_id, context={"actual": source})
-        if view_type in RWR_VIEW_TYPES and source != RWR_LOE_SOURCE:
-            add_issue("fatal", "rwr_source_mismatch", "RWR view must use the RWR-LOE source.", path=path, line=line, record_id=record_id, context={"actual": source})
-        text = f"{record.get('question', '')}\n{record.get('answer', '')}".lower()
-        if source == MENTOR_EV_SOURCE and view_type not in MODULE_SET_VIEW_TYPES and "rwr-loe" in text:
-            add_issue("warning", "mentor_ev_mentions_rwr_loe", "MENTOR-EV sourced example mentions RWR-LOE; verify source separation.", path=path, line=line, record_id=record_id)
-        if source == RWR_LOE_SOURCE and view_type not in MODULE_SET_VIEW_TYPES and "mentor-ev" in text:
-            add_issue("warning", "rwr_loe_mentions_mentor_ev", "RWR-LOE sourced example mentions MENTOR-EV; verify source separation.", path=path, line=line, record_id=record_id)
-        claim_issue = unsupported_answer_claim(str(record.get("answer", "")))
-        if claim_issue:
-            add_issue("fatal", "unsupported_causal_language_in_answer", claim_issue, path=path, line=line, record_id=record_id)
-
-        if isinstance(split, str):
-            counts_by_split[split] += 1
-        if isinstance(view_type, str):
-            counts_by_view[view_type] += 1
-        if isinstance(bucket, str):
-            counts_by_bucket[bucket] += 1
-        if isinstance(curriculum_stage, str):
-            counts_by_stage[curriculum_stage] += 1
-        if isinstance(source, str):
-            counts_by_source[source] += 1
-        if isinstance(context_mode, str):
-            counts_by_context_mode[context_mode] += 1
-
-    if missing_answer_budget_metadata_count:
-        missing_metadata_severity = "fatal" if has_manifest_budget_contract else "warning"
-        add_issue(
-            missing_metadata_severity,
-            "missing_record_answer_budget_metadata",
-            "Records are missing per-record answer-budget measurements.",
             context={
-                "count": missing_answer_budget_metadata_count,
-                "sample_record_ids": missing_answer_budget_metadata_sample_ids,
+                "expected": CURRICULUM_DATASET_SCHEMA_VERSION,
+                "actual": manifest.get("dataset_schema_version"),
             },
         )
 
-    for object_id, splits in sorted(object_splits.items()):
-        if len(splits) > 1:
-            sample_record = next(
-                (item for item in records if item["record"].get("metadata", {}).get("canonical_object_id") == object_id),
-                None,
-            )
-            path, line = (sample_record["_path"], sample_record["_line"]) if sample_record else (None, None)
-            add_issue(
-                "fatal",
-                "canonical_object_split_leakage",
-                "Canonical object appears in multiple splits.",
-                path=path,
-                line=line,
-                context={"canonical_object_id": object_id, "splits": sorted(splits)},
-            )
-
-    actual_manifest_counts = {
-        "record_count_by_split": dict(sorted(counts_by_split.items())),
-        "record_count_by_view_type": dict(sorted(counts_by_view.items())),
-        "record_count_by_mixture_bucket": dict(sorted(counts_by_bucket.items())),
-        "record_count_by_answer_budget_action": dict(sorted(counts_by_answer_budget_action.items())),
-    }
-    if isinstance(manifest.get("record_count_by_curriculum_stage"), dict):
-        actual_stage_counts = dict(sorted(counts_by_stage.items()))
-        if manifest["record_count_by_curriculum_stage"] != actual_stage_counts:
-            add_issue(
-                "fatal",
-                "manifest_record_count_by_curriculum_stage_mismatch",
-                "Manifest record_count_by_curriculum_stage does not match actual records.",
-                path=manifest_path,
-                context={"manifest": manifest["record_count_by_curriculum_stage"], "actual": actual_stage_counts},
-            )
-    if isinstance(manifest.get("record_count_by_context_mode"), dict):
-        actual_context_counts = dict(sorted(counts_by_context_mode.items()))
-        if manifest["record_count_by_context_mode"] != actual_context_counts:
-            add_issue(
-                "fatal",
-                "manifest_record_count_by_context_mode_mismatch",
-                "Manifest record_count_by_context_mode does not match actual records.",
-                path=manifest_path,
-                context={"manifest": manifest["record_count_by_context_mode"], "actual": actual_context_counts},
-            )
-    for key, actual in actual_manifest_counts.items():
-        if isinstance(manifest.get(key), dict) and manifest[key] != actual:
-            add_issue(
-                "fatal",
-                f"manifest_{key}_mismatch",
-                f"Manifest {key} does not match actual records.",
-                path=manifest_path,
-                context={"manifest": manifest[key], "actual": actual},
-            )
-
-    total = len(records)
-    manifest_mixture_contract = manifest.get("mixture_contract")
-    has_manifest_mixture_contract = isinstance(manifest_mixture_contract, dict)
-    if not has_manifest_mixture_contract:
-        missing_mixture_severity = "fatal" if manifest.get("schema_version") == SCHEMA_VERSION else "warning"
-        add_issue(
-            missing_mixture_severity,
-            "missing_mixture_contract",
-            "Dataset manifest has no explicit target-mixture underfill contract; current defaults are used.",
-            path=manifest_path,
-        )
-    manifest_mixture_contract = manifest_mixture_contract if has_manifest_mixture_contract else {}
-    target_weights = manifest_mixture_contract.get("target_weights")
-    if not isinstance(target_weights, dict):
-        target_weights = DEFAULT_BUCKET_WEIGHTS
-    elif target_weights != DEFAULT_BUCKET_WEIGHTS:
-        add_issue(
-            "fatal",
-            "mixture_target_weights_mismatch",
-            "Manifest mixture target weights do not match the current curriculum contract.",
-            path=manifest_path,
-            context={"expected": DEFAULT_BUCKET_WEIGHTS, "actual": target_weights},
-        )
-    effective_mixture_policy = str(
-        mixture_underfill_policy
-        if mixture_underfill_policy is not None
-        else manifest_mixture_contract.get("underfill_policy", DEFAULT_MIXTURE_UNDERFILL_POLICY)
+    return _audit_curriculum_v3_dataset(
+        dataset_dir,
+        manifest=manifest,
+        manifest_path=manifest_path,
+        issues=issues,
+        add_issue=add_issue,
+        output_path=output_path,
+        mixture_tolerance=mixture_tolerance,
+        coverage_min_records=coverage_min_records,
+        strict_coverage=strict_coverage,
+        fail_on_warnings=fail_on_warnings,
+        min_records=min_records,
+        max_issues=max_issues,
+        training_max_sequence_tokens=training_max_sequence_tokens,
+        eval_max_answer_tokens=eval_max_answer_tokens,
+        max_answer_characters=max_answer_characters,
+        mixture_contract_min_records=mixture_contract_min_records,
+        mixture_absolute_underfill_tolerance=mixture_absolute_underfill_tolerance,
+        mixture_relative_underfill_tolerance=mixture_relative_underfill_tolerance,
+        mixture_underfill_policy=mixture_underfill_policy,
     )
-    if effective_mixture_policy not in MIXTURE_UNDERFILL_POLICIES:
-        add_issue(
-            "fatal",
-            "invalid_mixture_underfill_policy",
-            "Mixture underfill policy is invalid.",
-            path=manifest_path,
-            context={"policy": effective_mixture_policy},
-        )
-        effective_mixture_policy = DEFAULT_MIXTURE_UNDERFILL_POLICY
-    effective_mixture_min_records = int(
-        mixture_contract_min_records
-        if mixture_contract_min_records is not None
-        else manifest_mixture_contract.get("minimum_records", DEFAULT_MIXTURE_CONTRACT_MIN_RECORDS)
-    )
-    effective_absolute_underfill_tolerance = float(
-        mixture_absolute_underfill_tolerance
-        if mixture_absolute_underfill_tolerance is not None
-        else manifest_mixture_contract.get(
-            "absolute_underfill_tolerance",
-            DEFAULT_MIXTURE_ABSOLUTE_UNDERFILL_TOLERANCE,
-        )
-    )
-    effective_relative_underfill_tolerance = float(
-        mixture_relative_underfill_tolerance
-        if mixture_relative_underfill_tolerance is not None
-        else manifest_mixture_contract.get(
-            "relative_underfill_tolerance",
-            DEFAULT_MIXTURE_RELATIVE_UNDERFILL_TOLERANCE,
-        )
-    )
-    mixture_contract_report = build_mixture_contract_report(
-        counts_by_bucket,
-        total_records=total,
-        target_weights={str(key): float(value) for key, value in target_weights.items()},
-        minimum_records=effective_mixture_min_records,
-        absolute_underfill_tolerance=effective_absolute_underfill_tolerance,
-        relative_underfill_tolerance=effective_relative_underfill_tolerance,
-        underfill_policy=effective_mixture_policy,
-    )
-    mixture_contract_report["manifest_contract_present"] = has_manifest_mixture_contract
-    for bucket in mixture_contract_report["material_underfilled_buckets"]:
-        if effective_mixture_policy == "ignore":
-            continue
-        severity = "fatal" if effective_mixture_policy == "fatal" else "warning"
-        add_issue(
-            severity,
-            "mixture_bucket_materially_underfilled",
-            "Mixture bucket is materially below its target share.",
-            context={
-                "bucket": bucket,
-                **mixture_contract_report["buckets"][bucket],
-                "contract": mixture_contract_report["contract"],
-            },
-        )
-    if mixture_tolerance is not None:
-        for bucket, bucket_report in mixture_contract_report["buckets"].items():
-            delta = float(bucket_report["delta_share"])
-            if total >= coverage_min_records and abs(delta) > mixture_tolerance:
-                add_issue(
-                    "warning",
-                    "mixture_bucket_outside_tolerance",
-                    "Mixture bucket share is outside the legacy symmetric tolerance.",
-                    context={
-                        "bucket": bucket,
-                        "target_share": bucket_report["target_share"],
-                        "actual_share": bucket_report["actual_share"],
-                        "delta_share": delta,
-                        "tolerance": mixture_tolerance,
-                    },
-                )
-
-    missing_view_types = sorted(RECOMMENDED_VIEW_TYPES - OPTIONAL_CONDITIONAL_VIEW_TYPES - set(counts_by_view))
-    if total >= coverage_min_records and missing_view_types:
-        severity = "fatal" if strict_coverage else "warning"
-        add_issue(
-            severity,
-            "missing_recommended_view_types",
-            "Dataset is missing recommended SFT view types.",
-            context={"missing_view_types": missing_view_types},
-        )
-    missing_buckets = sorted(set(DEFAULT_BUCKET_WEIGHTS) - set(counts_by_bucket))
-    if total >= coverage_min_records and missing_buckets:
-        severity = "fatal" if strict_coverage else "warning"
-        add_issue(
-            severity,
-            "missing_mixture_buckets",
-            "Dataset is missing one or more topology-heavy mixture buckets.",
-            context={"missing_buckets": missing_buckets},
-        )
-
-    issue_dicts = [issue.to_dict() for issue in issues]
-    fatal_count = sum(1 for issue in issues if issue.severity == "fatal")
-    warning_count = sum(1 for issue in issues if issue.severity == "warning")
-    report = {
-        "schema_version": "pretrajectory-sft-audit-v2",
-        "generated_at": utc_now_iso(),
-        "dataset_dir": str(dataset_dir),
-        "passed": fatal_count == 0 and (warning_count == 0 or not fail_on_warnings),
-        "fatal_error_count": fatal_count,
-        "warning_count": warning_count,
-        "record_count": total,
-        "canonical_object_count": len(canonical_by_id),
-        "record_count_by_split": dict(sorted(counts_by_split.items())),
-        "record_count_by_view_type": dict(sorted(counts_by_view.items())),
-        "record_count_by_mixture_bucket": dict(sorted(counts_by_bucket.items())),
-        "record_count_by_curriculum_stage": dict(sorted(counts_by_stage.items())),
-        "record_count_by_context_mode": dict(sorted(counts_by_context_mode.items())),
-        "record_count_by_answer_budget_action": dict(sorted(counts_by_answer_budget_action.items())),
-        "record_count_by_source": dict(sorted(counts_by_source.items())),
-        "answer_budget_contract": effective_budget_contract.to_dict(),
-        "answer_budget_report": {
-            "manifest_contract_present": has_manifest_budget_contract,
-            "record_count_checked": total,
-            "over_budget_record_count": over_budget_record_count,
-            "missing_record_budget_metadata_count": missing_answer_budget_metadata_count,
-            "max_answer_token_estimate": max_answer_token_estimate,
-            "max_training_sequence_token_estimate": max_training_sequence_token_estimate,
-            "max_answer_character_count": max_answer_character_count,
-            "record_count_by_action": dict(sorted(counts_by_answer_budget_action.items())),
-        },
-        "mixture_contract": mixture_contract_report["contract"],
-        "mixture_report": mixture_contract_report,
-        "missing_recommended_view_types": missing_view_types,
-        "issues": issue_dicts[:max_issues],
-        "truncated_issue_count": max(0, len(issue_dicts) - max_issues),
-    }
-    if output_path is not None:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return report
 
 
 def parse_args() -> argparse.Namespace:
@@ -1971,16 +1048,13 @@ def parse_args() -> argparse.Namespace:
         "--out",
         type=Path,
         default=None,
-        help=(
-            "Audit report path. Defaults to DATASET_DIR/audit_report.json for legacy datasets "
-            "and DATASET_DIR/audit_report_contract_v3.json for plan-driven v3 artifacts."
-        ),
+        help="Audit report path. Defaults to DATASET_DIR/audit_report_contract_v3.json.",
     )
     parser.add_argument(
         "--mixture-tolerance",
         type=float,
         default=None,
-        help="Optional legacy symmetric share tolerance; the underfill contract is enforced separately.",
+        help="Optional symmetric share tolerance; the underfill contract is enforced separately.",
     )
     parser.add_argument("--mixture-contract-min-records", type=int, default=None)
     parser.add_argument("--mixture-absolute-underfill-tolerance", type=float, default=None)
@@ -2000,22 +1074,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    output_path = args.out
-    if output_path is None:
-        output_name = "audit_report.json"
-        try:
-            manifest_preview = json.loads(
-                (args.dataset_dir / "manifest.json").read_text(encoding="utf-8")
-            )
-        except (OSError, json.JSONDecodeError):
-            manifest_preview = {}
-        if (
-            isinstance(manifest_preview, dict)
-            and manifest_preview.get("dataset_schema_version") == CURRICULUM_DATASET_SCHEMA_VERSION
-        ):
-            # audit_report.json is a required native compiler attestation in v3.
-            output_name = "audit_report_contract_v3.json"
-        output_path = args.dataset_dir / output_name
+    output_path = args.out or args.dataset_dir / "audit_report_contract_v3.json"
     report = audit_pretrajectory_sft_dataset(
         args.dataset_dir,
         output_path=output_path,
