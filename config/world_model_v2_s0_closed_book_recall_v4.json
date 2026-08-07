@@ -1,0 +1,40 @@
+{
+  "schema_version": "mentor-rl-world-model-s0-build-v4",
+  "dataset_id": "world_model_v2_s0_human_identifiers_v4",
+  "identifier_registry": {
+    "path": "data/world_model_v2/sources/ensembl_116_human_gene_ids_and_symbols.json",
+    "expected_sha256": "e67a4a1d8839c7f8ea568c3040c18941a189f65afeed66dfeedb03c6e305c4ab"
+  },
+  "split": {
+    "assignment_seed": 1729,
+    "validation": {
+      "unambiguous_component_count": 256,
+      "ambiguous_component_count": 48
+    },
+    "test": {
+      "unambiguous_component_count": 256,
+      "ambiguous_component_count": 48
+    }
+  },
+  "prompt_forms": {
+    "train": {
+      "human_symbol_to_ensembl": "Return one JSON object with exactly these keys: gene_id, gene_symbol, status. Resolve the human Ensembl gene symbol to its Ensembl gene ID. Use the pinned Ensembl release 116 registry. Input: {input_json}.",
+      "human_ensembl_to_symbol": "Return one JSON object with exactly these keys: gene_id, gene_symbols, status. Return every Ensembl gene symbol for the human Ensembl gene ID. Use the pinned Ensembl release 116 registry. Input: {input_json}.",
+      "human_ambiguous_symbol": "Return one JSON object with exactly these keys: action, candidate_gene_ids, gene_symbol, status. Return every candidate Ensembl gene ID and defer. Use the pinned Ensembl release 116 registry. Input: {input_json}."
+    },
+    "validation": {
+      "human_symbol_to_ensembl": "Provide the Ensembl gene ID for the input human Ensembl gene symbol. Use release 116. Return one JSON object with exactly these keys: gene_id, gene_symbol, status. Input: {input_json}.",
+      "human_ensembl_to_symbol": "Provide every Ensembl gene symbol for the input human Ensembl gene ID. Use release 116. Return one JSON object with exactly these keys: gene_id, gene_symbols, status. Input: {input_json}.",
+      "human_ambiguous_symbol": "Provide every candidate Ensembl gene ID for the input ambiguous human gene symbol. Use release 116 and defer. Return one JSON object with exactly these keys: action, candidate_gene_ids, gene_symbol, status. Input: {input_json}."
+    },
+    "test": {
+      "human_symbol_to_ensembl": "Use the Ensembl release 116 registry to map the input human gene symbol to its Ensembl gene ID. Return JSON with exactly these keys: gene_id, gene_symbol, status. Input: {input_json}.",
+      "human_ensembl_to_symbol": "Use the Ensembl release 116 registry to map the input human Ensembl gene ID to all its Ensembl gene symbols. Return JSON with exactly these keys: gene_id, gene_symbols, status. Input: {input_json}.",
+      "human_ambiguous_symbol": "Use the Ensembl release 116 registry to map the input ambiguous human gene symbol to all candidate Ensembl gene IDs. Defer and return JSON with exactly these keys: action, candidate_gene_ids, gene_symbol, status. Input: {input_json}."
+    }
+  },
+  "outputs": {
+    "corpus_dir": "data/world_model_v2/sft/s0_human_identifiers_v4",
+    "evaluator_dir": "data/world_model_v2/eval/s0_human_identifiers_v4"
+  }
+}
