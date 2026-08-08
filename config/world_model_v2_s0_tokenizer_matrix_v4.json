@@ -1,0 +1,238 @@
+{
+  "schema_version": "mentor-rl-world-model-s0-tokenizer-matrix-v4",
+  "matrix_id": "world_model_v2_s0_human_identifier_tokenizer_finetune_matrix_v4",
+  "corpus": {
+    "dataset_id": "world_model_v2_s0_human_identifiers_v4",
+    "root": "data/world_model_v2/sft/s0_human_identifiers_v4",
+    "manifest_sha256": "051cf266ebc9005504f248f0b1cc494eb8744721c7c9219d9a793f82ca391265",
+    "train_sha256": "9b9c1d8b2c932d4a78240fffca5d0dddcd79d970e749f1d363fcd64dfaabe24c",
+    "train_rows": 85286,
+    "identifier_registry_id": "sha256:e67a4a1d8839c7f8ea568c3040c18941a189f65afeed66dfeedb03c6e305c4ab",
+    "training_contract": "closed_book_only_v1",
+    "evaluation_contract": "seen_fact_closed_book_recall_v1"
+  },
+  "base_models": {
+    "oss20b": {
+      "model_name": "gpt-oss-20b-bf16",
+      "path": "../models/gpt-oss-20b-bf16",
+      "config_sha256": "abbfcc94fd07e21544a068152e6cf80f2aa4df0f1c7d4829c125301c1f116bdb",
+      "model_vocab_size": 201088,
+      "base_tokenizer_rows": 200019,
+      "unused_model_rows": 1069,
+      "tokenizer_artifact_hashes": {
+        "chat_template.jinja": "9ad8adf1324b8eb902d6e70087f3184b1b9b345c453bbd3d38949c2f13205c1d",
+        "special_tokens_map.json": "8464cabd6eda239fe46ebf8ae63b46c417721784a961a022f6b59174a2cda0e2",
+        "tokenizer.json": "0614fe83cadab421296e664e1f48f4261fa8fef6e03e63bb75c20f38e37d07d3",
+        "tokenizer_config.json": "9279e942392b742d633c7adbb89ebe002c98399db8926a7af5125c726f404070"
+      }
+    },
+    "oss120b": {
+      "model_name": "gpt-oss-120b-bf16",
+      "path": "../models/gpt-oss-120b-bf16",
+      "config_sha256": "8760a655ceb653e953eba13d8e0d68ba1dcb98b78a2444e155394643e5775fdb",
+      "model_vocab_size": 201088,
+      "base_tokenizer_rows": 200019,
+      "unused_model_rows": 1069,
+      "tokenizer_artifact_hashes": {
+        "chat_template.jinja": "9ad8adf1324b8eb902d6e70087f3184b1b9b345c453bbd3d38949c2f13205c1d",
+        "special_tokens_map.json": "8464cabd6eda239fe46ebf8ae63b46c417721784a961a022f6b59174a2cda0e2",
+        "tokenizer.json": "0614fe83cadab421296e664e1f48f4261fa8fef6e03e63bb75c20f38e37d07d3",
+        "tokenizer_config.json": "9279e942392b742d633c7adbb89ebe002c98399db8926a7af5125c726f404070"
+      }
+    }
+  },
+  "tokenizer_build": {
+    "output_root": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4",
+    "fit_source": "train.jsonl",
+    "fit_complete_values_from_all_train_rows": true,
+    "fit_value_counts": {
+      "ensembl_human_gene": 43458,
+      "human_gene_symbol": 41828
+    },
+    "vocab_per_namespace": 240,
+    "namespaces": [
+      "ensembl_human_gene",
+      "human_gene_symbol"
+    ],
+    "methods": {
+      "plain_base_tokenizer": {
+        "strategy": "unchanged_base_tokenizer",
+        "namespace_rows": 0,
+        "piece_rows": 0,
+        "atomic_rows": 0,
+        "used_model_rows": 0,
+        "spare_model_rows": 1069
+      },
+      "ordinary_domain_bpe": {
+        "strategy": "two_namespace_domain_bpe_v1",
+        "namespace_rows": 2,
+        "piece_rows": 480,
+        "atomic_rows": 0,
+        "used_model_rows": 482,
+        "spare_model_rows": 587
+      },
+      "atomic_plus_domain_bpe": {
+        "strategy": "literal_ensembl_prefix_v1",
+        "namespace_rows": 0,
+        "piece_rows": 480,
+        "atomic_rows": 1,
+        "used_model_rows": 481,
+        "spare_model_rows": 588,
+        "atomic_contract": {
+          "strategy": "literal_ensembl_prefix_v1",
+          "namespace": "ensembl_human_gene",
+          "prefix": "ENSG",
+          "token": "ENSG",
+          "suffix_representation": "domain_bpe",
+          "symbol_representation": "domain_bpe",
+          "applies_to_fact_roles": [
+            "seen"
+          ],
+          "object_registry": false
+        }
+      }
+    }
+  },
+  "loss": {
+    "contract": "s0_target_aware_v2",
+    "completion_weight": 0.5,
+    "mapping_target_weight": 0.5,
+    "mapping_fields": {
+      "human_symbol_to_ensembl": [
+        "gene_id"
+      ],
+      "human_ensembl_to_symbol": [
+        "gene_symbols"
+      ],
+      "human_ambiguous_symbol": [
+        "candidate_gene_ids"
+      ]
+    }
+  },
+  "fine_tune_configurations": {
+    "lora_r32": {
+      "training_mode": "lora",
+      "lora_rank": 32,
+      "lora_alpha": 64,
+      "loader_identity": "peft_adapter_plus_token_row_loader"
+    },
+    "lora_r128": {
+      "training_mode": "lora",
+      "lora_rank": 128,
+      "lora_alpha": 256,
+      "loader_identity": "peft_adapter_plus_token_row_loader"
+    },
+    "lora_r1024": {
+      "training_mode": "lora",
+      "lora_rank": 1024,
+      "lora_alpha": 2048,
+      "loader_identity": "peft_adapter_plus_token_row_loader"
+    },
+    "full_finetune": {
+      "training_mode": "full_finetune",
+      "loader_identity": "full_checkpoint_loader"
+    }
+  },
+  "qualification_20b": [
+    {
+      "method_id": "oss20b__plain_base_tokenizer__lora_r32",
+      "model_size": "oss20b",
+      "tokenizer_method": "plain_base_tokenizer",
+      "fine_tune_configuration": "lora_r32",
+      "promotion_eligible": false
+    },
+    {
+      "method_id": "oss20b__ordinary_domain_bpe__lora_r32",
+      "model_size": "oss20b",
+      "tokenizer_method": "ordinary_domain_bpe",
+      "fine_tune_configuration": "lora_r32",
+      "promotion_eligible": false
+    },
+    {
+      "method_id": "oss20b__atomic_plus_domain_bpe__lora_r32",
+      "model_size": "oss20b",
+      "tokenizer_method": "atomic_plus_domain_bpe",
+      "fine_tune_configuration": "lora_r32",
+      "promotion_eligible": false
+    }
+  ],
+  "matrix_120b": [
+    {
+      "method_id": "oss120b__plain_base_tokenizer__lora_r32",
+      "model_size": "oss120b",
+      "tokenizer_method": "plain_base_tokenizer",
+      "fine_tune_configuration": "lora_r32"
+    },
+    {
+      "method_id": "oss120b__plain_base_tokenizer__lora_r128",
+      "model_size": "oss120b",
+      "tokenizer_method": "plain_base_tokenizer",
+      "fine_tune_configuration": "lora_r128"
+    },
+    {
+      "method_id": "oss120b__plain_base_tokenizer__lora_r1024",
+      "model_size": "oss120b",
+      "tokenizer_method": "plain_base_tokenizer",
+      "fine_tune_configuration": "lora_r1024"
+    },
+    {
+      "method_id": "oss120b__plain_base_tokenizer__full_finetune",
+      "model_size": "oss120b",
+      "tokenizer_method": "plain_base_tokenizer",
+      "fine_tune_configuration": "full_finetune"
+    },
+    {
+      "method_id": "oss120b__ordinary_domain_bpe__lora_r32",
+      "model_size": "oss120b",
+      "tokenizer_method": "ordinary_domain_bpe",
+      "fine_tune_configuration": "lora_r32"
+    },
+    {
+      "method_id": "oss120b__ordinary_domain_bpe__lora_r128",
+      "model_size": "oss120b",
+      "tokenizer_method": "ordinary_domain_bpe",
+      "fine_tune_configuration": "lora_r128"
+    },
+    {
+      "method_id": "oss120b__ordinary_domain_bpe__lora_r1024",
+      "model_size": "oss120b",
+      "tokenizer_method": "ordinary_domain_bpe",
+      "fine_tune_configuration": "lora_r1024"
+    },
+    {
+      "method_id": "oss120b__ordinary_domain_bpe__full_finetune",
+      "model_size": "oss120b",
+      "tokenizer_method": "ordinary_domain_bpe",
+      "fine_tune_configuration": "full_finetune"
+    },
+    {
+      "method_id": "oss120b__atomic_plus_domain_bpe__lora_r32",
+      "model_size": "oss120b",
+      "tokenizer_method": "atomic_plus_domain_bpe",
+      "fine_tune_configuration": "lora_r32"
+    },
+    {
+      "method_id": "oss120b__atomic_plus_domain_bpe__lora_r128",
+      "model_size": "oss120b",
+      "tokenizer_method": "atomic_plus_domain_bpe",
+      "fine_tune_configuration": "lora_r128"
+    },
+    {
+      "method_id": "oss120b__atomic_plus_domain_bpe__lora_r1024",
+      "model_size": "oss120b",
+      "tokenizer_method": "atomic_plus_domain_bpe",
+      "fine_tune_configuration": "lora_r1024"
+    },
+    {
+      "method_id": "oss120b__atomic_plus_domain_bpe__full_finetune",
+      "model_size": "oss120b",
+      "tokenizer_method": "atomic_plus_domain_bpe",
+      "fine_tune_configuration": "full_finetune"
+    }
+  ],
+  "search_contract": {
+    "trial_budget_per_configuration": 1,
+    "selection_metric": "validation_macro_mapping_accuracy",
+    "test_method_count": 1
+  }
+}
