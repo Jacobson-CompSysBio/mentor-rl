@@ -161,6 +161,50 @@ def load_identifier_registry(
 
     return registry_path, registry, mappings
 
+
+def load_train_exclusions(
+    config: Mapping[str, Any],
+) -> tuple[str, dict[str, dict[str, Any]]]:
+    """Load the exact train records that the corpus must exclude."""
+
+    contract = config.get("train_exclusions")
+    if not isinstance(contract, Mapping):
+        raise TypeError("train_exclusions must be an object")
+
+    reason = contract.get("reason")
+    records = contract.get("records")
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError("The train exclusion reason is absent")
+    if not isinstance(records, list) or not records:
+        raise ValueError("The train exclusion records are absent")
+
+    exclusions: dict[str, dict[str, Any]] = {}
+    for record in records:
+        if not isinstance(record, Mapping):
+            raise TypeError("A train exclusion must be an object")
+        if set(record) != {"record_id", "family", "input"}:
+            raise ValueError("A train exclusion has incorrect fields")
+
+        record_id = record.get("record_id")
+        family = record.get("family")
+        inputs = record.get("input")
+        if not isinstance(record_id, str) or not record_id:
+            raise ValueError("A train exclusion record ID is absent")
+        if family not in FAMILIES:
+            raise ValueError("A train exclusion family is invalid")
+        if not isinstance(inputs, Mapping) or not inputs:
+            raise ValueError("A train exclusion input is invalid")
+        if record_id in exclusions:
+            raise ValueError("A train exclusion record ID is repeated")
+
+        exclusions[record_id] = {
+            "record_id": record_id,
+            "family": family,
+            "input": dict(inputs),
+        }
+
+    return reason, exclusions
+
 ### CONSTRUCT A SINGLE ROW OF THE DATASET
 def make_fact(
     family: str,
@@ -587,6 +631,7 @@ def build_corpus(config_path: Path) -> dict[str, Any]:
         components,
         config["split"],
     )
+    exclusion_reason, train_exclusions = load_train_exclusions(config)
 
     registry_hash = config["identifier_registry"][
         "expected_sha256"
@@ -594,26 +639,44 @@ def build_corpus(config_path: Path) -> dict[str, Any]:
     identifier_registry_id = f"sha256:{registry_hash}"
 
     train_records: list[dict[str, Any]] = []
+    excluded_train_records: list[dict[str, Any]] = []
     validation_records: list[dict[str, Any]] = []
     test_records: list[dict[str, Any]] = []
 
-    # Create one train record for every fact.
+    # Create one train record for each fact unless the config excludes it.
     for component in components:
         evaluation_split = assignments.get(
             component["fact_group_id"]
         )
 
         for fact in component["facts"]:
-            train_records.append(
-                make_record(
-                    fact,
-                    config=config,
-                    identifier_registry_id=(
-                        identifier_registry_id
-                    ),
-                    prompt_form_id="train",
-                )
+            train_record = make_record(
+                fact,
+                config=config,
+                identifier_registry_id=(
+                    identifier_registry_id
+                ),
+                prompt_form_id="train",
             )
+
+            # Exclude only a row that matches its complete pinned identity.
+            exclusion = train_exclusions.get(train_record["record_id"])
+            if exclusion is None:
+                train_records.append(train_record)
+            else:
+                observed_identity = {
+                    "record_id": train_record["record_id"],
+                    "family": train_record["metadata"][
+                        "question_family"
+                    ],
+                    "input": train_record["input"],
+                }
+                if observed_identity != exclusion:
+                    raise ValueError(
+                        "A train exclusion identity changed: "
+                        f"{train_record['record_id']}"
+                    )
+                excluded_train_records.append(train_record)
 
             # Create one evaluation record for each selected fact.
             if evaluation_split is not None:
@@ -632,6 +695,14 @@ def build_corpus(config_path: Path) -> dict[str, Any]:
                     )
                 else:
                     test_records.append(evaluation_record)
+
+    # Fail if the source data did not produce each pinned exclusion.
+    excluded_ids = {
+        record["record_id"]
+        for record in excluded_train_records
+    }
+    if excluded_ids != set(train_exclusions):
+        raise ValueError("The generated train exclusions are incomplete")
 
     # Give each output file a stable row order.
     train_records.sort(key=lambda row: row["record_id"])
@@ -706,6 +777,32 @@ def build_corpus(config_path: Path) -> dict[str, Any]:
         "validation": family_counts(validation_records),
         "test": family_counts(test_records),
     }
+    exclusion_manifest = {
+        "reason": exclusion_reason,
+        "row_count": len(excluded_train_records),
+        "records": [
+            {
+                "record_id": record["record_id"],
+                "fact_id": record["provenance"]["fact_id"],
+                "family": record["metadata"]["question_family"],
+                "input": record["input"],
+            }
+            for record in sorted(
+                excluded_train_records,
+                key=lambda row: row["record_id"],
+            )
+        ],
+    }
+    train_population = {
+        "source_candidate_rows": (
+            len(train_records) + len(excluded_train_records)
+        ),
+        "excluded_rows": len(excluded_train_records),
+        "eligible_train_rows": len(train_records),
+        "full_run_exposure_requirement": (
+            "all_eligible_train_rows"
+        ),
+    }
 
     validation_group_ids = sorted(
         group_id
@@ -733,6 +830,8 @@ def build_corpus(config_path: Path) -> dict[str, Any]:
         "test_fact_group_ids": test_group_ids,
         "row_counts": row_counts,
         "family_counts": counts_by_family,
+        "train_exclusions": exclusion_manifest,
+        "train_population": train_population,
         "train_sha256": train_hash,
         "validation_questions_sha256": (
             validation_question_hash
@@ -800,6 +899,8 @@ def build_corpus(config_path: Path) -> dict[str, Any]:
         "config_sha256": sha256_file(config_path),
         "row_counts": row_counts,
         "family_counts": counts_by_family,
+        "train_exclusions": exclusion_manifest,
+        "train_population": train_population,
         "file_hashes": {
             "train.jsonl": train_hash,
             "val.jsonl": validation_question_hash,

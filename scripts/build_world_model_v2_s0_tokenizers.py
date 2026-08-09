@@ -207,6 +207,51 @@ def _import_tokenizer_types():
     return AddedToken, Tokenizer, BPE, BpeTrainer
 
 
+def _compile_chat_template(path: Path):
+    """Compile the pinned chat template without a PyTorch import."""
+
+    try:
+        from datetime import datetime
+        import jinja2
+        from jinja2.ext import LoopControlExtension
+        from jinja2.sandbox import ImmutableSandboxedEnvironment
+    except ImportError as error:
+        raise RuntimeError(
+            "The S0 tokenizer audit requires the jinja2 package"
+        ) from error
+
+    def raise_exception(message: str) -> None:
+        raise jinja2.exceptions.TemplateError(message)
+
+    def tojson(
+        value: Any,
+        ensure_ascii: bool = False,
+        indent: int | None = None,
+        separators: tuple[str, str] | None = None,
+        sort_keys: bool = False,
+    ) -> str:
+        return json.dumps(
+            value,
+            ensure_ascii=ensure_ascii,
+            indent=indent,
+            separators=separators,
+            sort_keys=sort_keys,
+        )
+
+    def strftime_now(format_string: str) -> str:
+        return datetime.now().strftime(format_string)
+
+    environment = ImmutableSandboxedEnvironment(
+        trim_blocks=True,
+        lstrip_blocks=True,
+        extensions=[LoopControlExtension],
+    )
+    environment.filters["tojson"] = tojson
+    environment.globals["raise_exception"] = raise_exception
+    environment.globals["strftime_now"] = strftime_now
+    return environment.from_string(path.read_text(encoding="utf-8"))
+
+
 def _tokenizer_artifact_hashes(root: Path) -> dict[str, str]:
     """Return all tokenizer file hashes below one arm root."""
 
@@ -802,18 +847,10 @@ def write_coded_tokenizer(
 def _model_messages(row: Mapping[str, Any]) -> list[dict[str, str]]:
     """Build the exact model-visible content for one train row."""
 
-    metadata = row["metadata"]
-
-    # The user message contains only the approved metadata and question.
-    user_text = (
-        "Metadata:\n"
-        + canonical_json(metadata)
-        + "\nQuestion:\n"
-        + str(row["question"])
-    )
+    # Metadata selects the loss target. It does not enter a model message.
     return [
         {"role": "system", "content": str(row["system"])},
-        {"role": "user", "content": user_text},
+        {"role": "user", "content": str(row["question"])},
         {"role": "assistant", "content": canonical_json(row["answer"])},
     ]
 
@@ -830,6 +867,9 @@ def audit_arm(
 
     _, Tokenizer, _, _ = _import_tokenizer_types()
     tokenizer = Tokenizer.from_file(str(root / "tokenizer/tokenizer.json"))
+    chat_template = _compile_chat_template(
+        root / "tokenizer/chat_template.jinja"
+    )
     token_manifest = read_json(root / "tokenizer_manifest.json")
     codec = load_s0_tokenizer_codec_for_token_manifest(
         root / "tokenizer_manifest.json"
@@ -883,7 +923,10 @@ def audit_arm(
     row_failures = 0
     representation_failures = 0
     maximum_message_tokens = 0
+    maximum_sequence_tokens = 0
+    maximum_sequence_record_id = ""
     total_message_tokens = 0
+    total_sequence_tokens = 0
 
     # Test every model-visible message from every train row.
     for row_index, row in enumerate(rows):
@@ -905,6 +948,24 @@ def audit_arm(
                     raise ValueError("empty token sequence")
                 maximum_message_tokens = max(maximum_message_tokens, len(token_ids))
                 total_message_tokens += len(token_ids)
+
+            # Apply the same chat template and codec that the trainer uses.
+            rendered = chat_template.render(
+                messages=messages,
+                tools=None,
+                documents=None,
+                add_generation_prompt=False,
+            )
+            sequence_ids = tokenizer.encode(
+                rendered,
+                add_special_tokens=False,
+            ).ids
+            if not sequence_ids:
+                raise ValueError("empty full sequence")
+            total_sequence_tokens += len(sequence_ids)
+            if len(sequence_ids) > maximum_sequence_tokens:
+                maximum_sequence_tokens = len(sequence_ids)
+                maximum_sequence_record_id = row["record_id"]
             if codec is not None:
                 # The assistant target must decode to its exact canonical JSON.
                 decoded, report = codec.decode_generated_answer(
@@ -945,7 +1006,10 @@ def audit_arm(
         "full_corpus_row_failures": row_failures,
         "representation_failures": representation_failures,
         "maximum_message_tokens": maximum_message_tokens,
+        "maximum_sequence_tokens": maximum_sequence_tokens,
+        "maximum_sequence_record_id": maximum_sequence_record_id,
         "total_message_tokens": total_message_tokens,
+        "total_sequence_tokens": total_sequence_tokens,
         "failure_sample": failures,
         "unused_model_rows_consumed": token_manifest[
             "unused_model_rows_consumed"

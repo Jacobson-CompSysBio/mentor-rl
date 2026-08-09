@@ -135,14 +135,12 @@ Return one JSON object with exactly these keys: action, candidate_gene_ids, gene
 The train runtime sends one user message with this form:
 
 ```text
-Metadata:
-{"answer_format":"json","book_mode":"closed_book","ensembl_release":"Ensembl_116","identifier_registry_id":"sha256:<hash>","question_family":"<family>","schema_version":"identifier_sft_v2","species_taxon_id":"NCBITaxon:9606","step":"S0","system_prompt_sha256":"<hash>"}
-Question:
 <rendered question>
 ```
 
-Do not put provenance, validators, or the answer in the user message. Use
-separate prompt forms for validation and test rows.
+Do not put metadata, provenance, validators, the standalone input field, or the
+answer in the user message. The rendered question contains the input once. Use
+separate prompt forms for train, validation, and test rows.
 
 For `S0.2`, return `gene_symbols` as a sorted list. Use a one-item list when the
 gene ID has one symbol.
@@ -297,6 +295,12 @@ gives one declared trial to each configuration.
 Derive update counts from the audited v4 train row count and global batch size.
 Record logical and physical row exposures. Do not copy v3 update counts.
 
+For a full run, expose every eligible train row. Do not count a pinned corpus
+exclusion as an eligible train row.
+
+For a debug qualification, expose only its bounded row subset. Record that the
+debug run did not expose the complete eligible train set.
+
 ### Shared loss contract
 
 Use this loss for the 20B qualification and the 120B matrix:
@@ -364,7 +368,8 @@ Use `JOB_MODE=train`, `JOB_MODE=validation`, or `JOB_MODE=test`. The run
 contract must declare the method ID and all mode-specific inputs.
 
 For train mode, select the model size, tokenizer method, fine-tune method,
-topology, trainer, and output path from the run contract.
+topology, trainer, and output root from the run contract. Build the run ID and
+output path from the method ID and Slurm job ID.
 
 For evaluation modes, select the checkpoint, panel, generation settings,
 scorer, and output path from the run contract.
@@ -410,7 +415,7 @@ The shared Slurm file must use these startup controls:
    Promote only if each test family reaches 90 percent mapping accuracy.
 
 If a 20B method fails, do not start the 120B matrix. Change only the declared
-run contract, assign a new run identity, and repeat the failed qualification.
+run contract. Let the next Slurm job assign a new run identity.
 
 If no 120B checkpoint passes the validation floor, do not open the test panel.
 Use only train and validation results to define a new run contract.
@@ -523,6 +528,8 @@ Tokenizer files:
 
 Training and launch files:
 
+- `config/ds_zero3_full_finetune_cpu_offload.json`
+- `config/world_model_v2_s0_20b_debug_v4.json`
 - `config/world_model_v2_s0_20b_qualification_v4.json`
 - `config/world_model_v2_s0_120b_matrix_v4.json`
 - `scripts/train_sft_dp_tp_ep.py`
@@ -532,15 +539,28 @@ Training and launch files:
 The Slurm file supports `JOB_MODE=train` in this PR. The next PR adds the two
 evaluation modes to the same file.
 
-Focused test files:
+Each train job measures target-aware validation loss before the first update.
+It measures the same loss after each epoch.
+The job writes these metrics to W&B and `validation_metrics.jsonl`.
+Use this loss only as a training diagnostic.
+
+The debug contract uses one GPT-OSS-20B node and one update.
+It checks both validation passes, the first update, and the final receipts.
+It sends metrics to W&B online.
+It can use the standard W&B credential store.
+It is not a promotion result.
+
+Defer these focused test files to a later test change. They do not block PR 2.
 
 - `tests/test_world_model_v2_s0_tokenizers.py`
 - `tests/test_s0_target_aware_loss.py`
+- `tests/test_world_model_training_validation.py`
 - `tests/test_world_model_v2_s0_training_contract.py`
 
 ### PR 3: Model Eval
 
-Add validation, checkpoint selection, test inference, and metric publication.
+Add exact-generation validation, checkpoint selection, test inference, and
+metric publication.
 
 Evaluation files:
 

@@ -5,6 +5,25 @@
     "path": "data/world_model_v2/sources/ensembl_116_human_gene_ids_and_symbols.json",
     "expected_sha256": "e67a4a1d8839c7f8ea568c3040c18941a189f65afeed66dfeedb03c6e305c4ab"
   },
+  "train_exclusions": {
+    "reason": "The complete candidate set exceeds the 1024-token train limit.",
+    "records": [
+      {
+        "record_id": "wm2_s0_073295b18b9aed514564a1e5",
+        "family": "human_ambiguous_symbol",
+        "input": {
+          "gene_symbol": "Metazoa_SRP"
+        }
+      },
+      {
+        "record_id": "wm2_s0_6be80a1af22a6905fde1cffb",
+        "family": "human_ambiguous_symbol",
+        "input": {
+          "gene_symbol": "Y_RNA"
+        }
+      }
+    ]
+  },
   "split": {
     "assignment_seed": 1729,
     "validation": {
