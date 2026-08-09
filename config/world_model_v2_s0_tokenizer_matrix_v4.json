@@ -4,9 +4,9 @@
   "corpus": {
     "dataset_id": "world_model_v2_s0_human_identifiers_v4",
     "root": "data/world_model_v2/sft/s0_human_identifiers_v4",
-    "manifest_sha256": "051cf266ebc9005504f248f0b1cc494eb8744721c7c9219d9a793f82ca391265",
-    "train_sha256": "9b9c1d8b2c932d4a78240fffca5d0dddcd79d970e749f1d363fcd64dfaabe24c",
-    "train_rows": 85286,
+    "manifest_sha256": "8faeef0a97fa8375f7f62a6baa0736b48655e0dd78509b5e939ce7651bab482d",
+    "train_sha256": "55a77ede53d6f18d5f7699b23c5293857c3d8002e53d26ad827afcef92ba530b",
+    "train_rows": 85284,
     "identifier_registry_id": "sha256:e67a4a1d8839c7f8ea568c3040c18941a189f65afeed66dfeedb03c6e305c4ab",
     "training_contract": "closed_book_only_v1",
     "evaluation_contract": "seen_fact_closed_book_recall_v1"

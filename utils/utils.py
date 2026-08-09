@@ -1,19 +1,183 @@
-import argparse
+import itertools
 import os
-import string
 
 import torch.distributed as dist
-from transformers import HfArgumentParser
 
-SYSTEM_PROMPT = (
-    "You are a helpful biological chatbot. You will be given a biological question; "
-    "return the correct answer."
+from runtime.world_model_training import (
+    build_world_model_prompt_messages,
+    serialize_sft_answer,
 )
+
+### FORMAT RECORDS FOR TRL
+def build_prompt_completion_example(example):
+    """Convert one S0 record to the TRL prompt and completion format."""
+
+    system_prompt = example.get("system")
+    question = example.get("question")
+    answer = serialize_sft_answer(example.get("answer"))
+
+    return {
+        "answer": answer,
+        "prompt": build_world_model_prompt_messages(
+            system=system_prompt,
+            question=question,
+            metadata=example.get("metadata"),
+            context=example.get("context"),
+            in_context_examples=example.get("in_context_examples"),
+        ),
+        "completion": [{"role": "assistant", "content": answer}],
+    }
+
+
+def _plain_list(value):
+    """Convert a tensor, array, or list to a Python list."""
+
+    if hasattr(value, "detach"):
+        value = value.detach()
+    if hasattr(value, "cpu"):
+        value = value.cpu()
+    if hasattr(value, "tolist"):
+        value = value.tolist()
+    return value
+
+
+def _first_batch_row(value, field_name):
+    """Return the only row from one test batch."""
+
+    value = _plain_list(value)
+    if not isinstance(value, list) or not value:
+        raise RuntimeError(f"Completion-only check received an empty {field_name}")
+    if isinstance(value[0], list):
+        if len(value) != 1:
+            raise RuntimeError(
+                "Completion-only check expected one row in "
+                f"{field_name}, but it received {len(value)} rows"
+            )
+        value = value[0]
+    return value
+
+
+def assert_completion_only_supervision(trainer, max_examples=8):
+    """Confirm that the data collator masks all prompt tokens."""
+
+    if getattr(trainer, "completion_only_loss", None) is not True:
+        raise RuntimeError(
+            "Completion-only check failed: trainer.completion_only_loss is not True"
+        )
+
+    dataset = trainer.train_dataset
+    try:
+        dataset_size = len(dataset)
+    except TypeError:
+        dataset_size = None
+
+    if dataset_size == 0:
+        raise RuntimeError("Completion-only check failed: the train dataset is empty")
+
+    if dataset_size is None:
+        examples = list(itertools.islice(iter(dataset), max_examples))
+    else:
+        examples = [
+            dataset[index]
+            for index in range(min(max_examples, dataset_size))
+        ]
+    if not examples:
+        raise RuntimeError("Completion-only check failed: no examples are available")
+
+    checked_prompt_tokens = 0
+    checked_completion_tokens = 0
+    for example_index, example in enumerate(examples):
+        if "completion_mask" not in example:
+            raise RuntimeError(
+                "Completion-only check failed: tokenized example "
+                f"{example_index} has no completion_mask"
+            )
+
+        completion_mask = _plain_list(example["completion_mask"])
+        if not isinstance(completion_mask, list) or not completion_mask:
+            raise RuntimeError(
+                "Completion-only check failed: example "
+                f"{example_index} has an empty completion_mask"
+            )
+        if any(value not in (0, 1, False, True) for value in completion_mask):
+            raise RuntimeError(
+                "Completion-only check failed: example "
+                f"{example_index} has a nonbinary completion_mask"
+            )
+
+        batch = trainer.data_collator([example])
+        if "labels" not in batch or "input_ids" not in batch:
+            raise RuntimeError(
+                "Completion-only check failed: the data collator omitted labels or input_ids"
+            )
+        labels = _first_batch_row(batch["labels"], "labels")
+        input_ids = _first_batch_row(batch["input_ids"], "input_ids")
+        token_count = len(completion_mask)
+        if len(labels) < token_count or len(input_ids) < token_count:
+            raise RuntimeError(
+                "Completion-only check failed: the collated sequence is too short"
+            )
+
+        prompt_positions = [
+            index for index, flag in enumerate(completion_mask) if not flag
+        ]
+        completion_positions = [
+            index for index, flag in enumerate(completion_mask) if flag
+        ]
+        if not prompt_positions:
+            raise RuntimeError(
+                "Completion-only check failed: example "
+                f"{example_index} has no prompt tokens"
+            )
+        if not completion_positions:
+            raise RuntimeError(
+                "Completion-only check failed: example "
+                f"{example_index} has no completion tokens"
+            )
+
+        leaked_positions = [
+            index for index in prompt_positions if labels[index] != -100
+        ]
+        if leaked_positions:
+            raise RuntimeError(
+                "Completion-only check failed: prompt tokens have labels in example "
+                f"{example_index} at positions {leaked_positions[:8]}"
+            )
+
+        masked_completion_positions = [
+            index for index in completion_positions if labels[index] == -100
+        ]
+        if masked_completion_positions:
+            raise RuntimeError(
+                "Completion-only check failed: completion tokens have masks in example "
+                f"{example_index} at positions {masked_completion_positions[:8]}"
+            )
+
+        wrong_completion_labels = [
+            index
+            for index in completion_positions
+            if labels[index] != input_ids[index]
+        ]
+        if wrong_completion_labels:
+            raise RuntimeError(
+                "Completion-only check failed: completion labels differ from input tokens "
+                f"in example {example_index} at positions {wrong_completion_labels[:8]}"
+            )
+
+        checked_prompt_tokens += len(prompt_positions)
+        checked_completion_tokens += len(completion_positions)
+
+    return {
+        "examples_checked": len(examples),
+        "prompt_tokens_masked": checked_prompt_tokens,
+        "completion_tokens_trainable": checked_completion_tokens,
+    }
+
 
 def build_formatting_func(tokenizer, train=True):
     def _fmt(example):
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": example["system"]},
             {"role": "user", "content": example["question"]},
         ]
         if train:
@@ -86,74 +250,3 @@ def get_rank_world_size():
         rank = dist.get_rank()
         world = dist.get_world_size()
     return rank, world
-
-### INFERENCE
-def check_accuracy(
-    preds: list[str],
-    targets: list[str]
-) -> list[float]:
-    # split into unique non-trivial words
-    pred_w = [set(_clean_and_split(p)) - _TRIVIAL for p in preds]
-    target_w = [set(_clean_and_split(t)) - _TRIVIAL for t in targets]
-
-    # extract words present in both preds and targets
-    overlap = [p & t for p, t in zip(pred_w, target_w)]
-
-    # compute ratio of present to total words
-    accuracy = [len(o) / len(t) for o, t in zip(overlap, target_w)]
-
-    return accuracy
-
-def check_numeric_accuracy(
-    preds: list[str],
-    targets: list[float]
-) -> list[float]:
-    # extract numbers from preds as floats
-    pred_n = [_extract_num(p) for p in preds]
-
-    # check similarity with targets
-    similiarty = [
-        [_inv_sq_sim(q, t) for q in p]
-        for p, t in zip(pred_n, targets)
-    ]
-
-    # take most accurate prediction
-    accuracy = [max(s) for s in similiarty]
-
-    return accuracy
-
-_TRIVIAL = {
-    "it", "its", "they", "their",
-    "that", "this", "which", "is",
-    "are", "were", "be", "to",
-    "a", "an", "the", "some",
-    "as", "and", "also",
-}
-
-_NOPUNC = str.maketrans("", "", string.punctuation)
-
-def _clean_and_split(
-    s: str
-) -> list[str]:
-    return (
-        s.lower() # all lowercase
-         .translate(_NOPUNC) # remove punctuation
-         .split() # split words by whitespace
-    )
-
-def _extract_num(
-    s: str
-) -> list[float]:
-    nums = []
-    for w in s.split():
-        try:
-            nums.append(float(w))
-        except:
-            pass
-    return nums
-
-def _inv_sq_sim(
-    a: float,
-    b: float
-) -> float:
-    return 1 / ((a-b)**2 + 1)

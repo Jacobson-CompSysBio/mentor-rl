@@ -16,6 +16,7 @@ if str(REPO_ROOT) not in sys.path:
 from scripts.build_world_model_v2_s0 import (
     FAMILIES,
     load_config,
+    load_train_exclusions,
     read_json,
     resolve_repo_path,
     sha256_file,
@@ -166,6 +167,57 @@ def audit(config_path: Path) -> dict[str, int]:
 
     train_by_fact = {row["provenance"]["fact_id"]: row for row in train}
     require(len(train_by_fact) == len(train), "duplicate train fact ID")
+
+    exclusion_reason, train_exclusions = load_train_exclusions(config)
+    exclusion_manifest = manifest.get("train_exclusions")
+    require(
+        isinstance(exclusion_manifest, dict),
+        "train exclusion manifest is absent",
+    )
+    require(
+        exclusion_manifest.get("reason") == exclusion_reason,
+        "train exclusion reason changed",
+    )
+    require(
+        split_manifest.get("train_exclusions") == exclusion_manifest,
+        "split train exclusions changed",
+    )
+    excluded_manifest_ids = {
+        record["record_id"]
+        for record in exclusion_manifest.get("records", [])
+    }
+    require(
+        exclusion_manifest.get("row_count") == len(excluded_manifest_ids),
+        "train exclusion row count changed",
+    )
+    require(
+        excluded_manifest_ids == set(train_exclusions),
+        "train exclusion record IDs changed",
+    )
+    train_record_ids = {row["record_id"] for row in train}
+    require(
+        train_record_ids.isdisjoint(train_exclusions),
+        "an excluded train record is present",
+    )
+    expected_train_population = {
+        "source_candidate_rows": (
+            len(train) + len(train_exclusions)
+        ),
+        "excluded_rows": len(train_exclusions),
+        "eligible_train_rows": len(train),
+        "full_run_exposure_requirement": (
+            "all_eligible_train_rows"
+        ),
+    }
+    require(
+        manifest.get("train_population") == expected_train_population,
+        "train population contract changed",
+    )
+    require(
+        split_manifest.get("train_population")
+        == expected_train_population,
+        "split train population contract changed",
+    )
 
     for row in train:
         check_record(row, "train")
