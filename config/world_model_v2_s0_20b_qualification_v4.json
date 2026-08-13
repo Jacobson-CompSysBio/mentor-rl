@@ -69,7 +69,7 @@
       "method_id": "oss20b-plain-base-tokenizer-lora-r32",
       "tokenizer_method": "plain_base_tokenizer",
       "arm_root": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer",
-      "arm_manifest_sha256": "5d7df36df271021631ba74c2f93ccd2818466a1db43627ea20f4671cf183374f",
+      "arm_manifest_sha256": "b1379f9a1a751ce7bdc2a99389717ba3095c64e3fbfa608ef77eee181bb8cb6e",
       "tokenizer_path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
       "token_adapter_manifest": null,
       "tokenizer_manifest_sha256": "245163b5189a64afb8e5b061585f90d4c15bcf94599b68307e9ff008880fe3c0",
@@ -79,7 +79,7 @@
       "method_id": "oss20b-ordinary-domain-bpe-lora-r32",
       "tokenizer_method": "ordinary_domain_bpe",
       "arm_root": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/ordinary_domain_bpe",
-      "arm_manifest_sha256": "23dca87ac5cf419a2ab035a4721681fb3d72daef93d471d889ed8f9fa6e2832e",
+      "arm_manifest_sha256": "30522e4e0bafc11430106e4cc0772d87369ea3cb3981170a31c5303f75245ec4",
       "tokenizer_path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/ordinary_domain_bpe/tokenizer",
       "token_adapter_manifest": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/ordinary_domain_bpe/tokenizer_manifest.json",
       "tokenizer_manifest_sha256": "41f91bb2f12f9ffcf396e4ff11cfd42b9e2bc04645e6f5e840ff6ee11f9f7ddd",
@@ -89,18 +89,28 @@
       "method_id": "oss20b-atomic-plus-domain-bpe-lora-r32",
       "tokenizer_method": "atomic_plus_domain_bpe",
       "arm_root": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/atomic_plus_domain_bpe",
-      "arm_manifest_sha256": "f7bda29284ee69e40b428eae1a34226d66093ed364a9c041ce2ea9c0fc08536a",
+      "arm_manifest_sha256": "fcdf6b45593d77624299e2c8523b4ae47243564b4e7730d9f30d81a6072b068b",
       "tokenizer_path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/atomic_plus_domain_bpe/tokenizer",
       "token_adapter_manifest": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/atomic_plus_domain_bpe/tokenizer_manifest.json",
       "tokenizer_manifest_sha256": "538d38b34191c6454487572984b2c439b7fb14e3dc2d31772ed98439e155a523",
       "output_root": "data/world_model_v2/checkpoints/s0_20b_qualification_v4/oss20b-atomic-plus-domain-bpe-lora-r32"
+    },
+    {
+      "method_id": "oss20b-fully-atomic-identifiers-lora-r32",
+      "tokenizer_method": "fully_atomic_identifiers",
+      "arm_root": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/fully_atomic_identifiers",
+      "arm_manifest_sha256": "22245972c9cb7a5a9c484b5457f614a6187b711352916aa46a4313f73768a7ae",
+      "tokenizer_path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/fully_atomic_identifiers/tokenizer",
+      "token_adapter_manifest": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/fully_atomic_identifiers/tokenizer_manifest.json",
+      "tokenizer_manifest_sha256": "f0ccc01b640788a726fc3df9a528e619b3eb80fb9a6d156693b14220bc41e6ba",
+      "output_root": "data/world_model_v2/checkpoints/s0_20b_qualification_v4/oss20b-fully-atomic-identifiers-lora-r32"
     }
   ],
   "validation_gate": {
     "checkpoint_set": "each_saved_checkpoint_and_final",
     "selection_metric": "validation_macro_mapping_accuracy",
     "minimum_macro_mapping_accuracy": 0.2,
-    "required_method_count": 3,
+    "required_method_count": 4,
     "test_panel_access": false
   }
 }

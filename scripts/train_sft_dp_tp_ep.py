@@ -477,7 +477,9 @@ def validate_cli(args: argparse.Namespace) -> None:
         raise ValueError("--validation_answer_key_path does not exist")
 
 
-def configure_topology(args: argparse.Namespace) -> tuple[WorldModelTopology, int, int]:
+def configure_topology(
+    args: argparse.Namespace,
+) -> tuple[WorldModelTopology, int, int, int]:
     # One node holds one complete TP/EP replica.
     rank = _env_int("RANK", _env_int("SLURM_PROCID", 0))
     world_size = _env_int("WORLD_SIZE", _env_int("SLURM_NTASKS", 1))
@@ -495,15 +497,25 @@ def configure_topology(args: argparse.Namespace) -> tuple[WorldModelTopology, in
     ).validate()
     if not torch.cuda.is_available():
         raise RuntimeError("S0 LoRA requires ROCm GPUs; torch.cuda.is_available() is false")
-    if local_rank >= torch.cuda.device_count():
+    visible_device_count = torch.cuda.device_count()
+    if visible_device_count == 1:
+        device_index = 0
+    elif visible_device_count == local_world_size:
+        device_index = local_rank
+    else:
         raise RuntimeError(
-            f"LOCAL_RANK={local_rank}, but only {torch.cuda.device_count()} devices are visible"
+            "Each S0 LoRA rank must see one GPU or all local GPUs; "
+            f"visible={visible_device_count}, local_world_size={local_world_size}"
         )
-    torch.cuda.set_device(local_rank)
-    return topology, rank, local_rank
+    torch.cuda.set_device(device_index)
+    return topology, rank, local_rank, device_index
 
 
-def initialize_distributed(rank: int, world_size: int, local_rank: int) -> None:
+def initialize_distributed(
+    rank: int,
+    world_size: int,
+    device_index: int,
+) -> None:
     # NCCL connects all model replicas and tensor shards.
     if not dist.is_initialized():
         timeout_seconds = _env_int("MENTOR_DIST_INIT_TIMEOUT_SECONDS", 600)
@@ -512,7 +524,7 @@ def initialize_distributed(rank: int, world_size: int, local_rank: int) -> None:
             rank=rank,
             world_size=world_size,
             timeout=timedelta(seconds=timeout_seconds),
-            device_id=torch.device("cuda", local_rank),
+            device_id=torch.device("cuda", device_index),
         )
     if dist.get_rank() != rank or dist.get_world_size() != world_size:
         raise RuntimeError("Initialized process group does not match the validated topology")
@@ -2267,7 +2279,7 @@ def main() -> None:
         )
     )
     # Validate the process layout before the model loads.
-    topology, rank, local_rank = configure_topology(args)
+    topology, rank, local_rank, device_index = configure_topology(args)
     if args.strict_tested_stack:
         validate_tested_stack(
             {
@@ -2279,8 +2291,8 @@ def main() -> None:
             }
         )
     # Start the process group only after all local checks pass.
-    initialize_distributed(rank, topology.world_size, local_rank)
-    dist.barrier(device_ids=[local_rank])
+    initialize_distributed(rank, topology.world_size, device_index)
+    dist.barrier(device_ids=[device_index])
     if rank == 0:
         distributed_ready_marker = os.environ.get("MENTOR_DISTRIBUTED_READY_MARKER")
         if distributed_ready_marker:
@@ -2301,6 +2313,8 @@ def main() -> None:
                     "data_parallel_size": topology.data_parallel_size,
                     "global_batch_size": topology.global_batch_size,
                     "local_rank": local_rank,
+                    "device_index": device_index,
+                    "visible_device_count": torch.cuda.device_count(),
                 },
                 sort_keys=True,
             ),

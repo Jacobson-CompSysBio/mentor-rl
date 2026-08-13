@@ -760,7 +760,7 @@ export TRITON_CACHE_DIR="/mnt/bb/${USER}/mentor_triton/${SLURM_JOB_ID}"
 # Import torch once on each node after the cleanup.
 echo "Check the Python and ROCm stack on each node."
 srun --nodes="${NUM_NODES}" --ntasks="${NUM_NODES}" --ntasks-per-node=1 \
-  --gpus-per-task=1 --cpu-bind=none --accel-bind=g \
+  --gpus-per-task=1 --cpu-bind=none --gpu-bind=closest \
   python -c 'import socket, torch, transformers, peft, accelerate, datasets, trl; assert torch.cuda.is_available(); print("python_rocm_ready host={} torch={} gpu_count={}".format(socket.gethostname(), torch.__version__, torch.cuda.device_count()), flush=True)'
 
 # Write and check one receipt for every allocated rank.
@@ -770,10 +770,14 @@ export rank_receipt_dir
 echo "Check all allocated ranks."
 srun --nodes="${NUM_NODES}" --ntasks="${WORLD_SIZE_EXPECTED}" \
   --ntasks-per-node="${RANKS_PER_NODE}" --gpus-per-task=1 \
-  --cpu-bind=none --accel-bind=g --kill-on-bad-exit=1 bash -c '
+  --cpu-bind=none --gpu-bind=closest --kill-on-bad-exit=1 bash -c '
   set -euo pipefail
-  printf "%s\t%s\t%s\n" \
-    "${SLURM_PROCID}" "${SLURM_LOCALID}" "$(hostname)" \
+  gpu_count="$(python -c "import torch; assert torch.cuda.is_available(); print(torch.cuda.device_count())")"
+  printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
+    "${SLURM_PROCID}" "${SLURM_LOCALID}" "$(hostname)" "${gpu_count}" \
+    "${ROCR_VISIBLE_DEVICES:-<unset>}" \
+    "${HIP_VISIBLE_DEVICES:-<unset>}" \
+    "${CUDA_VISIBLE_DEVICES:-<unset>}" \
     > "${rank_receipt_dir}/rank-${SLURM_PROCID}.tsv"
 '
 python - "${rank_receipt_dir}" "${WORLD_SIZE_EXPECTED}" \
@@ -788,18 +792,41 @@ local_world_size = int(sys.argv[3])
 node_count = int(sys.argv[4])
 receipts = []
 for path in root.glob("rank-*.tsv"):
-    rank, local_rank, host = path.read_text(encoding="utf-8").strip().split("\t")
-    receipts.append((int(rank), int(local_rank), host))
-if sorted(rank for rank, _, _ in receipts) != list(range(world_size)):
+    fields = path.read_text(encoding="utf-8").strip().split("\t")
+    if len(fields) != 7:
+        raise SystemExit("A rank GPU receipt is invalid")
+    rank, local_rank, host, gpu_count, rocr, hip, cuda = fields
+    receipts.append(
+        (int(rank), int(local_rank), host, int(gpu_count), rocr, hip, cuda)
+    )
+if sorted(rank for rank, *_ in receipts) != list(range(world_size)):
     raise SystemExit("The rank receipt set is incomplete or duplicated")
 by_host = defaultdict(set)
-for _, local_rank, host in receipts:
+by_host_gpu = defaultdict(set)
+by_host_device_counts = defaultdict(set)
+for _, local_rank, host, gpu_count, rocr, _, _ in receipts:
+    if gpu_count not in {1, local_world_size}:
+        raise SystemExit(
+            "Each train rank must see one GPU or all local GPUs"
+        )
     by_host[host].add(local_rank)
+    by_host_gpu[host].add(rocr)
+    by_host_device_counts[host].add(gpu_count)
 if len(by_host) != node_count:
     raise SystemExit("The rank receipts have the wrong node count")
 expected_local = set(range(local_world_size))
 if any(local_ranks != expected_local for local_ranks in by_host.values()):
     raise SystemExit("The local rank receipt set is incomplete or duplicated")
+if any(len(counts) != 1 for counts in by_host_device_counts.values()):
+    raise SystemExit("The visible GPU count differs across local ranks")
+for host, counts in by_host_device_counts.items():
+    if next(iter(counts)) == 1 and (
+        "<unset>" in by_host_gpu[host]
+        or len(by_host_gpu[host]) != local_world_size
+    ):
+        raise SystemExit(
+            "The one-GPU rank bindings are incomplete or duplicated"
+        )
 PY
 
 # Build the arguments that both trainers share.
@@ -890,7 +917,7 @@ launch_training() {
   srun --nodes="${NUM_NODES}" --ntasks="${WORLD_SIZE_EXPECTED}" \
     --ntasks-per-node="${RANKS_PER_NODE}" --gpus-per-task=1 \
     --cpus-per-task="${SLURM_CPUS_PER_TASK:-7}" --cpu-bind=none \
-    --accel-bind=g --kill-on-bad-exit=1 bash -c '
+    --gpu-bind=closest --kill-on-bad-exit=1 bash -c '
     set -euo pipefail
     trainer="$1"
     shift
@@ -918,9 +945,6 @@ launch_training() {
     mkdir -p "${HF_HOME}" "${HF_DATASETS_CACHE}" "${TRITON_CACHE_DIR}"
     if [[ "${RANK}" != "0" ]]; then
       export WANDB_MODE=disabled
-    fi
-    if [[ -n "${ROCR_VISIBLE_DEVICES:-}" && -z "${HIP_VISIBLE_DEVICES:-}" ]]; then
-      export HIP_VISIBLE_DEVICES="${ROCR_VISIBLE_DEVICES}"
     fi
     echo "rank_start rank=${RANK} local_rank=${LOCAL_RANK} host=$(hostname) attempt=${MENTOR_LAUNCH_ATTEMPT}" >&2
     python "${trainer}" "$@"
