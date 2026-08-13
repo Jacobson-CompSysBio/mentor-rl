@@ -326,20 +326,23 @@ if train_mode == "full_finetune" and not method_id.startswith("oss120b-"):
     raise SystemExit("Only an OSS-120B method can use full fine-tune")
 
 tokenizer_method = require_string(
-    method.get("tokenizer_method"), "tokenizer_method"
+    method.get("tokenizer_method"),
+    "tokenizer_method",
 )
-if tokenizer_method not in {
-    "plain_base_tokenizer",
-    "ordinary_domain_bpe",
-    "atomic_plus_domain_bpe",
-}:
-    raise SystemExit(f"The tokenizer method is not supported: {tokenizer_method!r}")
-
-tokenizer_id = {
+tokenizer_ids = {
     "plain_base_tokenizer": "plain-base-tokenizer",
     "ordinary_domain_bpe": "ordinary-domain-bpe",
     "atomic_plus_domain_bpe": "atomic-plus-domain-bpe",
-}[tokenizer_method]
+    "fully_atomic_identifiers": "fully-atomic-identifiers",
+}
+
+if tokenizer_method not in tokenizer_ids:
+    raise SystemExit(
+        "The tokenizer method is not supported: "
+        f"{tokenizer_method!r}"
+    )
+tokenizer_id = tokenizer_ids[tokenizer_method]
+
 expected_suffix = (
     f"{tokenizer_id}-lora-r{fine_tune.get('lora_rank')}"
     if train_mode == "lora"

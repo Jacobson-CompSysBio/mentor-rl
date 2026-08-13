@@ -212,16 +212,25 @@ S0_TOKENIZER_METHODS = (
     "plain_base_tokenizer",
     "ordinary_domain_bpe",
     "atomic_plus_domain_bpe",
+    "fully_atomic_identifiers",
 )
 S0_QUESTION_FAMILIES = (
     "human_symbol_to_ensembl",
     "human_ensembl_to_symbol",
     "human_ambiguous_symbol",
 )
-S0_TOKEN_ROWS = {
+S0_TOKEN_ROW_COUNTS = {
     "plain_base_tokenizer": 0,
     "ordinary_domain_bpe": 482,
     "atomic_plus_domain_bpe": 481,
+    "fully_atomic_identifiers": 85286,
+}
+
+S0_UNUSED_MODEL_ROWS_CONSUMED = {
+    "plain_base_tokenizer": 0,
+    "ordinary_domain_bpe": 482,
+    "atomic_plus_domain_bpe": 481,
+    "fully_atomic_identifiers": 1069,
 }
 
 
@@ -529,9 +538,15 @@ def validate_s0_tokenizer_arm_identity(
     _require_equal(manifest.get("method"), method, "S0 tokenizer method")
     _require_equal(
         manifest.get("unused_model_rows_consumed"),
-        S0_TOKEN_ROWS[method],
+        S0_UNUSED_MODEL_ROWS_CONSUMED[method],
         "S0 used model row count",
     )
+    _require_equal(
+        manifest.get("token_rows"),
+        S0_TOKEN_ROW_COUNTS[method],
+        "S0 tokenizer row count",
+    )
+
     _require_equal(
         manifest.get("audit_passed"),
         True,
@@ -602,7 +617,9 @@ def validate_s0_tokenizer_arm_identity(
         "method": method,
         "parent_manifest_sha256": corpus_manifest_hash,
         "parent_train_sha256": train_hash,
-        "unused_model_rows_consumed": S0_TOKEN_ROWS[method],
+        "unused_model_rows_consumed": (
+            S0_UNUSED_MODEL_ROWS_CONSUMED[method]
+        ),
     }
     for key, expected in token_manifest_contract.items():
         _require_equal(
@@ -610,6 +627,14 @@ def validate_s0_tokenizer_arm_identity(
             expected,
             f"S0 token manifest {key}",
         )
+    token_rows = token_manifest.get("tokens")
+    if not isinstance(token_rows, list):
+        raise ValueError("The S0 token manifest has no token list")
+    _require_equal(
+        len(token_rows),
+        S0_TOKEN_ROW_COUNTS[method],
+        "S0 token manifest row count",
+    )
     _require_equal(
         token_manifest.get("manifest_sha256"),
         manifest.get("tokenizer_manifest_sha256"),

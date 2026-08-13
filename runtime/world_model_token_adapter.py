@@ -29,6 +29,7 @@ S0_TOKEN_ADAPTER_METHODS = frozenset(
     {
         "ordinary_domain_bpe",
         "atomic_plus_domain_bpe",
+        "fully_atomic_identifiers",
     }
 )
 
@@ -62,7 +63,7 @@ def _require_local_activation(value: torch.Tensor, label: str) -> None:
 
 
 class TokenRowDeltaEmbedding(nn.Module):
-    """Add trainable deltas to a contiguous block of frozen input rows."""
+    """Add trainable rows to the frozen input embedding table."""
 
     def __init__(
         self,
@@ -77,7 +78,12 @@ class TokenRowDeltaEmbedding(nn.Module):
             raise ValueError("The input token delta must be a nonempty matrix")
         self.base_layer = base_layer
         self.token_start = int(token_start)
+        self.base_vocab_size = int(base_layer.weight.shape[0])
         self.token_input_delta = delta
+        self.final_vocab_size = max(
+            self.base_vocab_size,
+            self.token_start + int(delta.shape[0]),
+        )
 
     @property
     def token_count(self) -> int:
@@ -88,12 +94,26 @@ class TokenRowDeltaEmbedding(nn.Module):
         return self.base_layer.weight
 
     def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
+        # Return one local embedding activation with trainable token rows.
         _require_local_activation(input_ids, "Token adapter input IDs")
-        result = self.base_layer(input_ids)
-        _require_local_activation(result, "Base embedding output")
+
+        invalid = (input_ids < 0) | (input_ids >= self.final_vocab_size)
+        if bool(invalid.any()):
+            raise RuntimeError(
+                "A token ID is outside the extended vocabulary"
+            )
+
+        # Get the frozen embeddings for base token IDs.
+        safe_ids = input_ids.clamp(max=self.base_vocab_size - 1)
+        base_result = self.base_layer(safe_ids)
+        _require_local_activation(base_result, "Base embedding output")
+
+        # Map each trainable token ID to its adapter row.
         offsets = input_ids - self.token_start
-        mask = (offsets >= 0) & (offsets < self.token_count)
+        token_mask = (offsets >= 0) & (offsets < self.token_count)
         safe_offsets = offsets.clamp(0, self.token_count - 1)
+
+        # Get one trainable row for each input token position.
         delta = F.embedding(
             safe_offsets,
             _local_replicated_weight(
@@ -101,11 +121,26 @@ class TokenRowDeltaEmbedding(nn.Module):
                 "Trainable token input rows",
             ),
         )
-        return result + delta * mask.unsqueeze(-1).to(delta.dtype)
+
+        # Add deltas only where a frozen model row exists.
+        reserved_result = (
+            base_result
+            + delta * token_mask.unsqueeze(-1).to(delta.dtype)
+        )
+        appended_mask = token_mask & (
+            input_ids >= self.base_vocab_size
+        )
+
+        # Use complete trainable rows for appended token IDs.
+        return torch.where(
+            appended_mask.unsqueeze(-1),
+            delta,
+            reserved_result,
+        )
 
 
 class TokenRowDeltaOutput(nn.Module):
-    """Add trainable deltas to reserved output rows."""
+    """Add trainable rows to the frozen output head."""
 
     def __init__(
         self,
@@ -119,41 +154,84 @@ class TokenRowDeltaOutput(nn.Module):
             raise ValueError("token_start must be nonnegative")
         if vocab_size < 1:
             raise ValueError("vocab_size must be positive")
+        if token_start > vocab_size:
+            raise ValueError("token_start exceeds the base vocabulary size")
         if delta.ndim != 2 or delta.shape[0] < 1:
             raise ValueError("The output token delta must be a nonempty matrix")
-        if token_start + int(delta.shape[0]) > vocab_size:
-            raise ValueError("The output token delta exceeds the model vocabulary")
+
         self.base_layer = base_layer
         self.token_start = int(token_start)
-        self.vocab_size = int(vocab_size)
+        self.base_vocab_size = int(vocab_size)
         self.token_output_delta = delta
+        self.final_vocab_size = max(
+            self.base_vocab_size,
+            self.token_start + int(delta.shape[0]),
+        )
 
     @property
     def weight(self):
         return self.base_layer.weight
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        _require_local_activation(hidden_states, "Token adapter hidden states")
-        logits = self.base_layer(hidden_states)
-        _require_local_activation(logits, "Base output logits")
+        _require_local_activation(
+            hidden_states,
+            "Token adapter hidden states",
+        )
+        # Calculate the frozen base logits.
+        base_logits = self.base_layer(hidden_states)
+        _require_local_activation(base_logits, "Base output logits")
+        if base_logits.shape[-1] != self.base_vocab_size:
+            raise RuntimeError(
+                "The output head does not match the base vocabulary"
+            )
+
         delta_weight = _local_replicated_weight(
             self.token_output_delta,
             "Trainable token output rows",
         )
         if hidden_states.shape[-1] != delta_weight.shape[-1]:
-            raise RuntimeError("The output token delta has the wrong hidden width")
+            raise RuntimeError(
+                "The output token rows have the wrong hidden width"
+            )
+
+        # Calculate logits for all trainable token rows.
         delta_logits = F.linear(hidden_states, delta_weight)
-        token_end = self.token_start + int(delta_logits.shape[-1])
-        if logits.shape[-1] != self.vocab_size or token_end > self.vocab_size:
-            raise RuntimeError("The output token adapter does not match the base logits")
-        return torch.cat(
-            (
-                logits[..., : self.token_start],
-                logits[..., self.token_start : token_end] + delta_logits,
-                logits[..., token_end:],
-            ),
-            dim=-1,
+
+        # Count trainable rows that overlap the base vocabulary.
+        token_count = int(delta_logits.shape[-1])
+        reserved_count = min(
+            token_count,
+            self.base_vocab_size - self.token_start,
         )
+
+        # Add deltas to reserved rows and append complete new rows.
+        parts = [base_logits[..., : self.token_start]]
+
+        if reserved_count:
+            parts.append(
+                base_logits[
+                    ...,
+                    self.token_start : self.token_start + reserved_count,
+                ]
+                + delta_logits[..., :reserved_count]
+            )
+
+        base_tail = base_logits[
+            ...,
+            self.token_start + reserved_count :,
+        ]
+        if base_tail.shape[-1]:
+            parts.append(base_tail)
+
+        if reserved_count < token_count:
+            parts.append(delta_logits[..., reserved_count:])
+
+        result = torch.cat(parts, dim=-1)
+        if result.shape[-1] != self.final_vocab_size:
+            raise RuntimeError(
+                "The extended output vocabulary is incorrect"
+            )
+        return result
 
 
 # Block 2: Validate the complete S0 token manifest contract.
@@ -176,8 +254,7 @@ def load_token_manifest(path: Path) -> dict[str, Any]:
     method = payload.get("method")
     if method not in S0_TOKEN_ADAPTER_METHODS:
         raise ValueError(
-            "The token adapter requires ordinary_domain_bpe or "
-            "atomic_plus_domain_bpe"
+            "The token adapter requires a supported custom tokenizer"
         )
 
     base_length = _required_int(
@@ -202,14 +279,36 @@ def load_token_manifest(path: Path) -> dict[str, Any]:
         raise ValueError(
             "The final tokenizer length does not match the added token rows"
         )
-    if final_length > model_vocab_size:
-        raise ValueError("The tokenizer exceeds the model vocabulary")
-    if payload.get("unused_model_rows_consumed") != len(tokens):
-        raise ValueError("The consumed model row count does not match the token rows")
-    if payload.get("unused_model_rows_remaining") != (
-        model_vocab_size - final_length
-    ):
-        raise ValueError("The remaining model row count is incorrect")
+
+    reserved_capacity = max(
+        model_vocab_size - base_length,
+        0,
+    )
+    reserved_rows_used = min(
+        len(tokens),
+        reserved_capacity,
+    )
+    appended_rows = max(
+        final_length - model_vocab_size,
+        0,
+    )
+
+    if payload.get(
+        "unused_model_rows_consumed"
+    ) != reserved_rows_used:
+        raise ValueError(
+            "The consumed model row count is incorrect"
+        )
+    if payload.get(
+        "unused_model_rows_remaining"
+    ) != max(model_vocab_size - final_length, 0):
+        raise ValueError(
+            "The remaining model row count is incorrect"
+        )
+    if payload.get("appended_model_rows", 0) != appended_rows:
+        raise ValueError(
+            "The appended model row count is incorrect"
+        )
 
     ordered_tokens = sorted(tokens, key=lambda item: int(item["token_id"]))
     expected_ids = list(range(base_length, final_length))
@@ -257,21 +356,43 @@ def load_token_manifest(path: Path) -> dict[str, Any]:
     codec = load_s0_tokenizer_codec_for_token_manifest(path)
     if codec is None:
         raise ValueError("The S0 token adapter requires an S0 tokenizer codec")
+
     expected_surfaces: set[str] = set()
-    for spec in codec.domain_bpe.manifest["namespaces"].values():
-        namespace_marker = spec.get("namespace_marker")
-        if namespace_marker is not None:
-            expected_surfaces.add(str(namespace_marker))
-        expected_surfaces.update(str(item["marker"]) for item in spec["pieces"])
-    atomic = codec.manifest.get("atomic")
-    if atomic is not None:
-        if atomic.get("strategy") != "literal_ensembl_prefix_v1":
-            raise ValueError("The S0 atomic token strategy changed")
-        expected_surfaces.add(str(atomic["token"]))
+
+    if codec.atomic_registry is not None:
+        expected_surfaces.update(
+            codec.atomic_registry.marker_to_value
+        )
+    else:
+        if codec.domain_bpe is None:
+            raise RuntimeError(
+                "The S0 codec has no representation backend"
+            )
+        for spec in codec.domain_bpe.manifest[
+            "namespaces"
+        ].values():
+            namespace_marker = spec.get("namespace_marker")
+            if namespace_marker is not None:
+                expected_surfaces.add(str(namespace_marker))
+
+            expected_surfaces.update(
+                str(item["marker"])
+                for item in spec["pieces"]
+            )
+        atomic = codec.manifest.get("atomic")
+        if atomic is not None:
+            if (
+                atomic.get("strategy") != "literal_ensembl_prefix_v1"
+            ):
+                raise ValueError(
+                    "The S0 atomic token strategy changed"
+                )
+            expected_surfaces.add(str(atomic["token"]))
     if surfaces != expected_surfaces:
         raise ValueError(
             "The token rows do not exactly cover the S0 codec vocabulary"
         )
+
     return payload
 
 
@@ -305,6 +426,58 @@ def _mean_source_rows(
         )
         total.add_(weight.index_select(0, indices).float().sum(dim=0))
     return (total / len(source_ids)).to(dtype=weight.dtype)
+
+
+def _mean_source_row_batch(
+    weight: torch.Tensor,
+    tokens: list[Mapping[str, Any]],
+    *,
+    chunk_size: int = 2048,
+) -> torch.Tensor:
+    """Create mean source rows in bounded batches."""
+
+    # Allocate the final row matrix once.
+    result = torch.empty(
+        (len(tokens), int(weight.shape[1])),
+        device=weight.device,
+        dtype=weight.dtype,
+    )
+
+    # Fill the final matrix in bounded batches.
+    for start in range(0, len(tokens), chunk_size):
+        chunk = tokens[start : start + chunk_size]
+        source_groups = [
+            [int(value) for value in item["base_token_ids"]]
+            for item in chunk
+        ]
+
+        flat_ids: list[int] = []
+        offsets: list[int] = []
+
+        for source_ids in source_groups:
+            if not source_ids:
+                raise ValueError("A token row has no source IDs")
+            offsets.append(len(flat_ids))
+            flat_ids.extend(source_ids)
+
+        means = F.embedding_bag(
+            torch.tensor(
+                flat_ids,
+                device=weight.device,
+                dtype=torch.long,
+            ),
+            weight,
+            torch.tensor(
+                offsets,
+                device=weight.device,
+                dtype=torch.long,
+            ),
+            mode="mean",
+            include_last_offset=False,
+        )
+        result[start : start + len(chunk)].copy_(means)
+
+    return result
 
 
 def _require_base_weight_shape(
@@ -358,25 +531,33 @@ def install_trainable_token_rows(
         if input_weight.shape[1] != output_weight.shape[1]:
             raise RuntimeError("The input and output hidden widths differ")
 
-        input_rows = []
-        output_rows = []
-        for item in tokens:
-            token_id = int(item["token_id"])
-            source_ids = [int(value) for value in item["base_token_ids"]]
-            input_rows.append(
-                _mean_source_rows(input_weight, source_ids)
-                - input_weight[token_id]
+        # Calculate one mean source row for each token.
+        input_delta = _mean_source_row_batch(
+            input_weight, tokens
+        )
+        output_delta = _mean_source_row_batch(
+            output_weight, tokens
+        )
+
+        # Count trainable rows that overlap the base vocabulary.
+        reserved_count = min(
+            len(tokens), max(vocab_size - token_start, 0),
+        )
+
+        # Convert reserved initial rows into trainable deltas.
+        if reserved_count:
+            token_end = token_start + reserved_count
+            input_delta[:reserved_count].sub_(
+                input_weight[token_start:token_end]
             )
-            output_rows.append(
-                _mean_source_rows(output_weight, source_ids)
-                - output_weight[token_id]
+            output_delta[:reserved_count].sub_(
+                output_weight[token_start:token_end]
             )
-        input_delta = torch.stack(input_rows).contiguous()
-        output_delta = torch.stack(output_rows).contiguous()
-        if not torch.isfinite(input_delta).all() or not torch.isfinite(
-            output_delta
-        ).all():
-            raise RuntimeError("Token row setup produced a nonfinite delta")
+        if not torch.isfinite(input_delta).all():
+            raise RuntimeError("Token input setup produced a nonfinite value")
+        if not torch.isfinite(output_delta).all():
+            raise RuntimeError("Token output setup produced a nonfinite value")
+
     finally:
         del input_weight, output_weight
 
@@ -409,10 +590,28 @@ def install_trainable_token_rows(
             output_parameter,
         )
     )
+    effective_vocab_size = max(
+        vocab_size,
+        token_start + len(tokens),
+    )
+    if effective_vocab_size != int(
+        manifest["final_tokenizer_length"]
+    ):
+        raise RuntimeError(
+            "The model vocabulary differs from the tokenizer manifest"
+        )
+    model.config.vocab_size = effective_vocab_size
+
     codec = load_s0_tokenizer_codec_for_token_manifest(manifest_path)
     return {
         "token_start": token_start,
         "token_count": len(tokens),
+        "base_vocab_size": vocab_size,
+        "effective_vocab_size": effective_vocab_size,
+        "appended_token_count": max(
+            effective_vocab_size - vocab_size,
+            0,
+        ),
         "trainable_parameters": input_delta.numel() + output_delta.numel(),
         "manifest_sha256": manifest["manifest_sha256"],
         "s0_tokenizer_codec_manifest_sha256": codec.manifest_sha256,
@@ -591,46 +790,89 @@ def copy_token_adapter_codec_artifacts(
     )
     copied.append(_copy_exact_artifact(source_codec, source_root, output_dir))
 
-    domain_reference = codec.manifest.get("domain_bpe")
-    if not isinstance(domain_reference, Mapping):
-        raise ValueError("The S0 codec has no Domain-BPE reference")
-    source_domain = _local_codec_artifact(
-        source_codec.parent,
-        domain_reference.get("manifest_file"),
-        "domain_bpe.manifest_file",
-    )
-    copied.append(_copy_exact_artifact(source_domain, source_root, output_dir))
+    if codec.atomic_registry is not None:
+        registry_reference = codec.manifest.get("fully_atomic_registry")
+        if not isinstance(registry_reference, Mapping):
+            raise ValueError("The fully atomic codec has no registry reference")
 
-    namespaces = codec.domain_bpe.manifest.get("namespaces")
-    if not isinstance(namespaces, Mapping) or not namespaces:
-        raise ValueError("The Domain-BPE manifest has no namespaces")
-    try:
-        from tokenizers import Tokenizer
-    except ImportError as error:
-        raise RuntimeError(
-            "The S0 codec artifact check requires the tokenizers package"
-        ) from error
-    for namespace, spec in sorted(namespaces.items()):
-        if not isinstance(spec, Mapping):
-            raise ValueError(
-                f"The Domain-BPE namespace is not an object: {namespace}"
-            )
-        source_tokenizer = _local_codec_artifact(
-            source_domain.parent,
-            spec.get("tokenizer_file"),
-            f"namespaces.{namespace}.tokenizer_file",
+        source_registry = _local_codec_artifact(
+            source_codec.parent,
+            registry_reference.get("manifest_file"),
+            "fully_atomic_registry.manifest_file",
         )
-        if source_tokenizer.suffix != ".json":
-            raise ValueError(
-                f"The Domain-BPE tokenizer is not JSON: {source_tokenizer}"
-            )
-        Tokenizer.from_file(str(source_tokenizer))
         copied.append(
-            _copy_exact_artifact(source_tokenizer, source_root, output_dir)
+            _copy_exact_artifact(
+                source_registry,
+                source_root,
+                output_dir,
+            )
         )
+    else:
+        domain_reference = codec.manifest.get("domain_bpe")
+        if not isinstance(domain_reference, Mapping):
+            raise ValueError("The S0 codec has no Domain-BPE reference")
+        if codec.domain_bpe is None:
+            raise RuntimeError("The S0 codec has no Domain-BPE backend")
+
+        source_domain = _local_codec_artifact(
+            source_codec.parent,
+            domain_reference.get("manifest_file"),
+            "domain_bpe.manifest_file",
+        )
+        copied.append(
+            _copy_exact_artifact(
+                source_domain,
+                source_root,
+                output_dir,
+            )
+        )
+
+        namespaces = codec.domain_bpe.manifest.get("namespaces")
+        if not isinstance(namespaces, Mapping) or not namespaces:
+            raise ValueError(
+                "The Domain-BPE manifest has no namespaces"
+            )
+
+        try:
+            from tokenizers import Tokenizer
+        except ImportError as error:
+            raise RuntimeError(
+                "The S0 codec artifact check requires "
+                "the tokenizers package"
+            ) from error
+
+        for namespace, spec in sorted(namespaces.items()):
+            if not isinstance(spec, Mapping):
+                raise ValueError(
+                    "The Domain-BPE namespace is not an object: "
+                    f"{namespace}"
+                )
+
+            source_tokenizer = _local_codec_artifact(
+                source_domain.parent,
+                spec.get("tokenizer_file"),
+                f"namespaces.{namespace}.tokenizer_file",
+            )
+            if source_tokenizer.suffix != ".json":
+                raise ValueError(
+                    "The Domain-BPE tokenizer is not JSON: "
+                    f"{source_tokenizer}"
+                )
+
+            Tokenizer.from_file(str(source_tokenizer))
+            copied.append(
+                _copy_exact_artifact(
+                    source_tokenizer,
+                    source_root,
+                    output_dir,
+                )
+            )
 
     copied_codec = load_s0_tokenizer_codec_for_token_manifest(target_manifest)
-    if copied_codec is None or copied_codec.manifest_sha256 != codec.manifest_sha256:
+    if (
+        copied_codec is None
+        or copied_codec.manifest_sha256 != codec.manifest_sha256
+    ):
         raise RuntimeError("The copied S0 codec identity changed")
     return {
         "copied_files": sorted(set(copied)),

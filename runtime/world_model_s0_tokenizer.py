@@ -22,9 +22,12 @@ S0_CODEC_SCHEMA_VERSION = "mentor-rl-world-model-s0-tokenizer-codec-v3"
 S0_CODEC_REFERENCE_KEY = "s0_tokenizer_codec"
 ORDINARY_DOMAIN_BPE_METHOD = "ordinary_domain_bpe"
 ATOMIC_PLUS_DOMAIN_BPE_METHOD = "atomic_plus_domain_bpe"
+FULLY_ATOMIC_METHOD = "fully_atomic_identifiers"
+
 S0_CODEC_METHODS = (
     ORDINARY_DOMAIN_BPE_METHOD,
     ATOMIC_PLUS_DOMAIN_BPE_METHOD,
+    FULLY_ATOMIC_METHOD,
 )
 S0_QUESTION_FAMILIES = frozenset(
     {
@@ -49,7 +52,9 @@ SYMBOL_JSON_PATTERN = re.compile(
 )
 
 # A residual marker after decode proves an incomplete or corrupt result.
-S0_MARKER_PATTERN = re.compile(r"<\|dbpe_(?:ns|p)_[a-z0-9_]+\|>")
+S0_MARKER_PATTERN = re.compile(
+    r"<\|(?:dbpe_(?:ns|p)_[a-z0-9_]+|s0atom_[a-z0-9_]+)\|>"
+)
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 
@@ -64,7 +69,16 @@ ATOMIC_PREFIX_CONTRACT = {
     "applies_to_fact_roles": ["seen"],
     "object_registry": False,
 }
-
+ATOMIC_REGISTRY_SCHEMA = "mentor-rl-world-model-s0-atomic-registry-v1"
+ATOMIC_REGISTRY_MANIFEST = "fully_atomic_registry.json"
+ATOMIC_MARKER_INDEX_WIDTH = 5
+ATOMIC_NAMESPACES = (
+    ("ensembl_human_gene", "s0ens"),
+    ("human_gene_symbol", "s0sym"),
+)
+ATOMIC_MARKER_PATTERN = re.compile(
+    r"<\|s0atom_(?:s0ens|s0sym)_[0-9]{5}\|>"
+)
 
 def _stable_sha256(value: Any) -> str:
     """Return the SHA-256 digest for one canonical JSON value."""
@@ -136,9 +150,168 @@ def _local_manifest_path(root: Path, value: Any, label: str) -> Path:
         raise ValueError(f"{label} does not name a file: {path}")
     return path
 
+class FullyAtomicRegistry:
+    """Map each biological entity to one unique atomic marker."""
+
+    def __init__(self, manifest_path: Path):
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, Mapping):
+            raise ValueError("The full atomic registry must be one object")
+
+        self.manifest_sha256 = _manifest_identity(
+            payload,
+            "fully atomic registry manifest_sha256",
+        )
+
+        # Validate the schema and method.
+        if payload.get("schema_version") != ATOMIC_REGISTRY_SCHEMA:
+            raise ValueError("The full atomic registry schema changed")
+        if payload.get("method") != FULLY_ATOMIC_METHOD:
+            raise ValueError("The full atomic registry method changed")
+
+        # Get the namespaces for encode and decode operations.
+        namespaces = payload.get("namespaces")
+        if not isinstance(namespaces, Mapping):
+            raise ValueError("The full atomic registry has no namespaces")
+        expected_namespaces = {
+            namespace for namespace, _ in ATOMIC_NAMESPACES
+        }
+        if set(namespaces) != expected_namespaces:
+            raise ValueError("The full atomic registry namespaces changed")
+
+        # build mappings for encoding and decoding
+        self.value_to_marker: dict[str, dict[str, str]] = {}
+        self.marker_to_value: dict[str, str] = {}
+        self.marker_to_namespace: dict[str, str] = {}
+
+        # populate mappings for each namespace
+        for namespace, slug in ATOMIC_NAMESPACES:
+            # get the namespace specification from the manifest
+            spec = namespaces[namespace]
+            if not isinstance(spec, Mapping):
+                raise ValueError(f"The full atomic namespace {namespace} must be one object")
+
+            # get the entries for the namespace
+            entries = spec.get("entries")
+            if not isinstance(entries, list) or not entries:
+                raise ValueError(f"the full atomic namespace {namespace} has no entries")
+
+            namespace_map: dict[str, str] = {}
+            # loop through each entry and validate
+            for entry in entries:
+                if not isinstance(entry, Mapping):
+                    raise ValueError(f"the full atomic namespace {namespace} has an invalid entry")
+
+                # get the value and marker for the entry
+                value = _required_string(
+                    entry.get("value"),
+                    f"{namespace} value",
+                )
+                marker = _required_string(
+                    entry.get("marker"),
+                    f"{namespace} marker",
+                )
+
+                # validate the marker format
+                if namespace == "ensembl_human_gene":
+                    if ENSEMBL_TEXT_PATTERN.fullmatch(value) is None:
+                        raise ValueError(f"The Ensembl value is not canonical: {value!r}")
+                # check symbol format
+                elif value != value.strip():
+                    raise ValueError(
+                        f"The gene symbol is not canonical: {value!r}"
+                    )
+
+                if (
+                    ATOMIC_MARKER_PATTERN.fullmatch(marker) is None
+                    or not marker.startswith(f"<|s0atom_{slug}_")
+                ):
+                    raise ValueError(
+                        f"The marker has the wrong namespace: {marker!r}"
+                    )
+
+                # check for duplicate values and markers
+                if value in namespace_map:
+                    raise ValueError(
+                        f"The registry repeats this value: {value!r}"
+                    )
+                if marker in self.marker_to_value:
+                    raise ValueError(
+                        f"The registry repeats this marker: {marker!r}"
+                    )
+
+                # add the value to the namespace map if all checks pass
+                namespace_map[value] = marker
+                self.marker_to_value[marker] = value
+                self.marker_to_namespace[marker] = namespace
+
+            # add the reverse mapping
+            self.value_to_marker[namespace] = namespace_map
+
+        self.manifest = dict(payload)
+        self.manifest_path = manifest_path.resolve()
+
+    # Block 2: encode values according to the registry
+    def encode_value(self, namespace: str, value: str) -> str:
+        """given a namespace and a value, return the atomic marker for that value"""
+
+        # retrieve the namespace map
+        namespace_map = self.value_to_marker.get(namespace)
+        if namespace_map is None:
+            raise KeyError(f"Unknown atomic namespace: {namespace}")
+
+        # retrieve the marker for the value
+        marker = namespace_map.get(value)
+        if marker is None:
+            raise ValueError(f"The full atomic registry has no {namespace} value: {value!r}")
+
+        # return the marker given a value
+        return marker
+
+    # Block 3: decode markers according to registry
+    def decode_value(self, namespace: str, marker: str) -> str:
+        """decode a marker to its original value given a namespace"""
+
+        # check that namespace, value exist and are valid
+        if namespace not in self.value_to_marker:
+            raise KeyError(f"Unknown full atomic namespace: {namespace}")
+        value = self.marker_to_value.get(marker)
+        if value is None:
+            raise ValueError(
+                f"The full atomic registry has no marker: {marker!r}"
+            )
+
+        marker_namespace = self.marker_to_namespace[marker]
+        if marker_namespace != namespace:
+            raise ValueError(
+                f"The marker {marker!r} does not match the namespace {namespace!r}"
+            )
+        return value
+
+    # text decoding: convert all markers in a string to their original values
+    def decode_text(self, text: str) -> str:
+        """decode all atomic markers in text."""
+        if not isinstance(text, str):
+            raise TypeError("text must be a string")
+
+        # define a function to restore markers to values
+        def restore(match: re.Match[str]) -> str:
+            marker = match.group(0)
+            return self.marker_to_value.get(marker, marker)
+
+        # use regex to find all markers and replace them with their corresponding values
+        return ATOMIC_MARKER_PATTERN.sub(restore, text)
+
+
+    # round-trip test: encode a value and then decode it to check for consistency
+    def round_trip(self, namespace: str, value: str) -> bool:
+        """Return true when one value has an exact encode-decode cycle."""
+        marker = self.encode_value(namespace, value)
+        return self.decode_value(namespace, marker) == value
+
 
 class S0TokenizerCodec:
-    """Apply ordinary or atomic plus Domain-BPE to typed S0 values."""
+    """Apply one S0 tokenizer representation to typed biological values."""
 
     def __init__(self, manifest_path: Path):
         # Validate the codec manifest before it can select another artifact.
@@ -160,10 +333,59 @@ class S0TokenizerCodec:
         self.manifest = dict(payload)
         self.manifest_path = manifest_path.resolve()
 
-        # The codec pins both the Domain-BPE file and its internal identity.
+        # Load the representation backend for this tokenizer method.
+        self.domain_bpe: DomainBPE | None = None
+        self.atomic_registry: FullyAtomicRegistry | None = None
+
+        if self.method == FULLY_ATOMIC_METHOD:
+            if payload.get("domain_bpe") is not None:
+                raise ValueError(
+                    "The fully atomic codec cannot use Domain-BPE"
+                )
+            if payload.get("atomic") is not None:
+                raise ValueError(
+                    "The fully atomic codec cannot use the atomic-prefix contract"
+                )
+
+            # Resolve the registry below the codec directory.
+            registry_reference = payload.get("fully_atomic_registry")
+            if not isinstance(registry_reference, Mapping):
+                raise ValueError(
+                    "The fully atomic codec requires a registry reference"
+                )
+
+            registry_path = _local_manifest_path(
+                self.manifest_path.parent,
+                registry_reference.get("manifest_file"),
+                "fully_atomic_registry.manifest_file",
+            )
+            if _sha256_file(registry_path) != _required_sha256(
+                registry_reference.get("manifest_sha256"),
+                "fully_atomic_registry.manifest_sha256",
+            ):
+                raise ValueError(
+                    "The fully atomic registry file identity changed"
+                )
+            self.atomic_registry = FullyAtomicRegistry(registry_path)
+            if self.atomic_registry.manifest_sha256 != _required_sha256(
+                registry_reference.get("internal_manifest_sha256"),
+                "fully_atomic_registry.internal_manifest_sha256",
+            ):
+                raise ValueError(
+                    "The fully atomic registry internal identity changed"
+                )
+            return
+
+        # Domain-BPE methods cannot declare a full atomic registry.
+        if payload.get("fully_atomic_registry") is not None:
+            raise ValueError(
+                "A Domain-BPE codec cannot use a full atomic registry"
+            )
+
         domain_reference = payload.get("domain_bpe")
         if not isinstance(domain_reference, Mapping):
             raise ValueError("The S0 codec requires a Domain-BPE reference")
+
         domain_path = _local_manifest_path(
             self.manifest_path.parent,
             domain_reference.get("manifest_file"),
@@ -174,7 +396,8 @@ class S0TokenizerCodec:
             "domain_bpe.manifest_sha256",
         ):
             raise ValueError("The Domain-BPE manifest file identity changed")
-        self.domain_bpe: DomainBPE = load_domain_bpe(domain_path)
+
+        self.domain_bpe = load_domain_bpe(domain_path)
         if self.domain_bpe.manifest_sha256 != _required_sha256(
             domain_reference.get("internal_manifest_sha256"),
             "domain_bpe.internal_manifest_sha256",
@@ -188,8 +411,6 @@ class S0TokenizerCodec:
         ):
             raise ValueError("The S0 Domain-BPE namespace order changed")
 
-        # Ordinary Domain-BPE forbids atomic data. The atomic method requires
-        # one exact literal-prefix contract and no object registry.
         atomic = payload.get("atomic")
         if self.method == ORDINARY_DOMAIN_BPE_METHOD:
             if atomic is not None:
@@ -211,22 +432,26 @@ class S0TokenizerCodec:
         return None
 
     def encode_value(self, namespace: str, value: str) -> str:
-        """Validate and encode one complete typed S0 value.
+        """Validate and encode one complete typed S0 value."""
 
-        This boundary rejects malformed Ensembl IDs before Domain-BPE removes
-        the literal prefix. Symbols can contain any nonempty Unicode text.
-        """
+        if not isinstance(value, str):
+            raise TypeError("The S0 biological value must be a string")
 
         if namespace == "ensembl_human_gene":
             if ENSEMBL_TEXT_PATTERN.fullmatch(value) is None:
-                raise ValueError(
-                    f"The S0 Ensembl gene ID is not canonical: {value!r}"
-                )
+                raise ValueError(f"The Ensembl value is not canonical: {value!r}")
         elif namespace == "human_gene_symbol":
-            if not isinstance(value, str) or not value.strip():
-                raise ValueError("The S0 gene symbol must be nonempty")
+            if not value.strip():
+                raise ValueError("The gene symbol must be non-empty")
         else:
-            raise KeyError(f"Unknown S0 tokenizer namespace: {namespace}")
+            raise KeyError(f"Unknown S0 tokenizer namespace: {namespace!r}")
+
+        if self.atomic_registry is not None:
+            return self.atomic_registry.encode_value(namespace, value)
+
+        if self.domain_bpe is None:
+            raise RuntimeError("The S0 codec has no representation backend")
+
         return self.domain_bpe.encode_value(namespace, value)
 
     def _encode_typed_value(
@@ -343,20 +568,31 @@ class S0TokenizerCodec:
         return encoded
 
     # Block 3: Check and decode generated S0 answers.
-    def _domain_match(self, namespace: str, value: str) -> str | None:
-        """Return the decoded value for one exact namespace marker sequence.
+    def _decode_exact_value(
+        self,
+        namespace: str,
+        value: str,
+    ) -> str | None:
+        """Decode one exact value from the required namespace."""
 
-        Decode alone is not sufficient because a marker run can use the wrong
-        namespace. The encode-back check proves the complete representation.
-        """
+        if self.atomic_registry is not None:
+            try:
+                return self.atomic_registry.decode_value(namespace, value)
+            except (KeyError, TypeError, ValueError):
+                return None
+
+        if self.domain_bpe is None:
+            raise RuntimeError("The S0 codec has no representation backend")
 
         decoded = self.domain_bpe.decode_text(value)
         if decoded == value:
             return None
+
         try:
             encoded = self.encode_value(namespace, decoded)
         except (KeyError, RuntimeError, TypeError, ValueError):
             return None
+
         return decoded if encoded == value else None
 
     def _inspect_code(
@@ -371,7 +607,7 @@ class S0TokenizerCodec:
         if not isinstance(value, str):
             violations.append(f"{path}:expected_string")
             return
-        if self._domain_match(namespace, value) is None:
+        if self._decode_exact_value(namespace, value) is None:
             violations.append(f"{path}:expected_exact_s0_code")
 
     def _inspect_answer(
@@ -439,12 +675,22 @@ class S0TokenizerCodec:
             ]
         if not isinstance(value, str) or field_name is None:
             return value
-        if self._namespace(field_name) is None:
+
+        namespace = self._namespace(field_name)
+        if namespace is None:
             return value
-        return self.domain_bpe.decode_text(value)
+
+        decoded = self._decode_exact_value(namespace, value)
+        return value if decoded is None else decoded
 
     def decode_text(self, text: str) -> str:
         """Restore valid Domain-BPE marker runs in arbitrary text."""
+
+        if self.atomic_registry is not None:
+            return self.atomic_registry.decode_text(text)
+
+        if self.domain_bpe is None:
+            raise RuntimeError("The S0 codec has no representation backend")
 
         return self.domain_bpe.decode_text(text)
 
@@ -465,11 +711,11 @@ class S0TokenizerCodec:
             encoded_answer = json.loads(text)
         except (TypeError, json.JSONDecodeError):
             violations.append("$:generation_is_not_json")
-            decoded_text = self.domain_bpe.decode_text(text)
+            decoded_text = self.decode_text(text)
         else:
             if not isinstance(encoded_answer, Mapping):
                 violations.append("$:generation_is_not_object")
-                decoded_text = self.domain_bpe.decode_text(text)
+                decoded_text = self.decode_text(text)
             else:
                 checked = self._inspect_answer(
                     encoded_answer,
@@ -492,8 +738,15 @@ class S0TokenizerCodec:
             "valid": not violations,
             "method": self.method,
             "codec_manifest_sha256": self.manifest_sha256,
+            "representation_backend": (
+                "fully_atomic_registry"
+                if self.atomic_registry is not None
+                else "domain_bpe"
+            ),
             "domain_bpe_manifest_sha256": (
-                self.domain_bpe.manifest_sha256
+                None
+                if self.domain_bpe is None
+                else self.domain_bpe.manifest_sha256
             ),
             "checked_biological_values": checked,
             "violations": violations,
