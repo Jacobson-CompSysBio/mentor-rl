@@ -2218,7 +2218,8 @@ def main() -> None:
     run_identity = required_run_identity()
     method_match = re.fullmatch(
         r"(oss20b|oss120b)-"
-        r"(plain-base-tokenizer|ordinary-domain-bpe|atomic-plus-domain-bpe)-"
+        r"(plain-base-tokenizer|ordinary-domain-bpe|"
+        r"atomic-plus-domain-bpe|fully-atomic-identifiers)-"
         r"lora-r(32|128|1024)",
         run_identity["method_id"],
     )
@@ -2230,23 +2231,29 @@ def main() -> None:
         "plain-base-tokenizer": "plain_base_tokenizer",
         "ordinary-domain-bpe": "ordinary_domain_bpe",
         "atomic-plus-domain-bpe": "atomic_plus_domain_bpe",
+        "fully-atomic-identifiers": "fully_atomic_identifiers",
     }[method_match.group(2)]
     if int(method_match.group(3)) != args.lora_r:
         raise RuntimeError(
             "The S0 method ID differs from the selected LoRA rank"
         )
-    custom_tokenizer = tokenizer_method in {
+    custom_tokenizer_methods = {
         "ordinary_domain_bpe",
         "atomic_plus_domain_bpe",
+        "fully_atomic_identifiers",
     }
-    if tokenizer_method not in {
+    custom_tokenizer = tokenizer_method in custom_tokenizer_methods
+
+    supported_tokenizer_methods = {
         "plain_base_tokenizer",
-        "ordinary_domain_bpe",
-        "atomic_plus_domain_bpe",
-    }:
+        *custom_tokenizer_methods,
+    }
+
+    if tokenizer_method not in supported_tokenizer_methods:
         raise RuntimeError(
-            f"The S0 method has an unknown tokenizer: {tokenizer_method!r}"
+            f"The S0 method ID has an unknown tokenizer: {tokenizer_method!r}"
         )
+
     if bool(args.token_adapter_manifest) != custom_tokenizer:
         raise RuntimeError(
             "Only a custom S0 tokenizer requires --token_adapter_manifest"

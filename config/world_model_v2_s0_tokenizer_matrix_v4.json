@@ -90,6 +90,13 @@
           ],
           "object_registry": false
         }
+      },
+      "fully_atomic_identifiers": {
+        "strategy": "one_token_per_complete_identifier_v1",
+        "atomic_identifier_rows": 85286,
+        "used_model_rows": 1069,
+        "appended_model_rows": 84217,
+        "spare_model_rows": 0
       }
     }
   },

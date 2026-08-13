@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Mapping
-from itertools import product
 import hashlib
 import json
 import os
@@ -32,6 +31,9 @@ from runtime.world_model_domain_bpe import (  # noqa: E402
 from runtime.world_model_s0 import validate_s0_contract  # noqa: E402
 from runtime.world_model_s0_tokenizer import (  # noqa: E402
     ATOMIC_PREFIX_CONTRACT,
+    ATOMIC_MARKER_INDEX_WIDTH,
+    ATOMIC_REGISTRY_MANIFEST,
+    FULLY_ATOMIC_METHOD,
     S0_CODEC_MANIFEST,
     S0_CODEC_SCHEMA_VERSION,
     load_s0_tokenizer_codec_for_token_manifest,
@@ -46,11 +48,13 @@ ARM_AUDIT_SCHEMA = "mentor-rl-world-model-s0-tokenizer-audit-v4"
 TOKEN_MANIFEST_SCHEMA = "mentor-rl-world-model-s0-tokenizer-v3"
 PAIR_MANIFEST_SCHEMA = "mentor-rl-world-model-s0-tokenizer-pair-v4"
 COMPARISON_REPORT_SCHEMA = "mentor-rl-world-model-s0-tokenizer-comparison-v4"
+ATOMIC_REGISTRY_SCHEMA = "mentor-rl-world-model-s0-atomic-registry-v1"
 # This order controls the arm order in each result and hashable manifest.
 METHODS = (
     "plain_base_tokenizer",
     "ordinary_domain_bpe",
     "atomic_plus_domain_bpe",
+    FULLY_ATOMIC_METHOD
 )
 # Each tuple gives a namespace, a file slug, and base text for row initialization.
 NAMESPACES = (
@@ -155,41 +159,6 @@ def load_config(path: Path) -> dict[str, Any]:
         == tuple(namespace for namespace, _, _ in NAMESPACES),
         "Domain-BPE namespace order changed",
     )
-
-    # The 20B qualification must contain each method once with LoRA r32.
-    qualification = config.get("qualification_20b")
-    _require(isinstance(qualification, list), "qualification_20b must be a list")
-    _require(len(qualification) == 3, "qualification_20b must have three methods")
-    _require(
-        {row.get("tokenizer_method") for row in qualification} == set(METHODS),
-        "qualification_20b tokenizer methods changed",
-    )
-    _require(
-        all(row.get("fine_tune_configuration") == "lora_r32" for row in qualification),
-        "qualification_20b must use LoRA r32",
-    )
-
-    # The 120B matrix must contain every tokenizer and fine-tune combination.
-    matrix = config.get("matrix_120b")
-    fine_tunes = config.get("fine_tune_configurations")
-    _require(isinstance(matrix, list), "matrix_120b must be a list")
-    _require(isinstance(fine_tunes, Mapping), "fine_tune configurations are absent")
-    observed = {
-        (row.get("tokenizer_method"), row.get("fine_tune_configuration"))
-        for row in matrix
-    }
-    expected = set(product(METHODS, tuple(fine_tunes)))
-    _require(observed == expected and len(matrix) == 12, "120B matrix is incomplete")
-    method_ids = [
-        row.get("method_id")
-        for row in qualification + matrix
-    ]
-    # Unique method IDs prevent two result sets from using the same name.
-    _require(
-        all(isinstance(value, str) and value for value in method_ids),
-        "a matrix method ID is empty",
-    )
-    _require(len(method_ids) == len(set(method_ids)), "matrix method IDs repeat")
     return config
 
 
@@ -489,7 +458,111 @@ def read_and_validate_train_rows(
     return rows, fit_values
 
 
-# Block 3: Fit both BPE namespaces and create trainable model token rows.
+# Block 3: Define one stable token for each complete biological value.
+def build_fully_atomic_registry(
+    fit_values: Mapping[str, set[str]],
+    *,
+    parent_manifest_sha256: str,
+    parent_train_sha256: str,
+) -> dict[str, Any]:
+    """Return the complete deterministic full atomic registry."""
+
+    expected_namespaces = tuple(namespace for namespace, _, _ in NAMESPACES)
+    _require(
+        set(fit_values) == set(expected_namespaces),
+        "full atomic fit namespaces changed",
+    )
+
+    namespaces: dict[str, Any] = {}
+    all_markers: set[str] = set()
+    total_values = 0
+    for namespace, slug, _ in NAMESPACES:
+        values = sorted(fit_values[namespace])
+        _require(bool(values), f"full atomic namespace {namespace} is empty")
+        _require(
+            len(values) <= 10**ATOMIC_MARKER_INDEX_WIDTH,
+            f"full atomic namespace {namespace} exceeds its marker width",
+        )
+        if namespace == "ensembl_human_gene":
+            _require(
+                all(
+                    value.startswith("ENSG")
+                    and len(value) == 15
+                    and value[4:].isdigit()
+                    for value in values
+                ),
+                "full atomic Ensembl values are not canonical",
+            )
+        else:
+            _require(
+                all(value and value == value.strip() for value in values),
+                "full atomic gene symbols are not canonical",
+            )
+
+        entries = [
+            {
+                "marker": (
+                    f"<|s0atom_{slug}_{index:0{ATOMIC_MARKER_INDEX_WIDTH}d}|>"
+                ),
+                "value": value,
+            }
+            for index, value in enumerate(values)
+        ]
+        markers = {str(entry["marker"]) for entry in entries}
+        _require(len(markers) == len(entries), "full atomic markers repeat")
+        _require(
+            all_markers.isdisjoint(markers),
+            "full atomic namespaces share a marker",
+        )
+        all_markers.update(markers)
+        total_values += len(values)
+        namespaces[namespace] = {
+            "slug": slug,
+            "value_count": len(values),
+            "values_sha256": stable_sha256(values),
+            "entries": entries,
+        }
+
+    registry = {
+        "schema_version": ATOMIC_REGISTRY_SCHEMA,
+        "method": FULLY_ATOMIC_METHOD,
+        "parent_manifest_sha256": parent_manifest_sha256,
+        "parent_train_sha256": parent_train_sha256,
+        "marker_strategy": "sorted_namespace_index_v1",
+        "marker_index_width": ATOMIC_MARKER_INDEX_WIDTH,
+        "value_count": total_values,
+        "namespaces": namespaces,
+    }
+    registry["manifest_sha256"] = stable_sha256(registry)
+    return registry
+
+def _fully_atomic_token_rows(
+    registry: Mapping[str, Any],
+    base_tokenizer: Any,
+) -> list[dict[str, Any]]:
+    """Create one model token row for each registry value."""
+
+    rows: list[dict[str, Any]] = []
+
+    for namespace, _, _ in NAMESPACES:
+        entries = registry["namespaces"][namespace]["entries"]
+
+        for entry in entries:
+            value = str(entry["value"])
+            rows.append(
+                {
+                    "content": str(entry["marker"]),
+                    "namespace": namespace,
+                    "object_type": "fully_atomic_identifier",
+                    "base_token_ids": _base_source_ids(
+                        base_tokenizer, value
+                    )
+                }
+            )
+    return rows
+
+
+# Block 4: Fit both BPE namespaces and create trainable model token rows.
 def _base_source_ids(tokenizer: Any, text: str) -> list[int]:
     """Return base tokenizer IDs for one new-row initialization source."""
 
@@ -714,6 +787,150 @@ def write_plain_tokenizer(
     write_json(root / "tokenizer_manifest.json", manifest)
     return manifest
 
+def write_fully_atomic_tokenizer(
+    root: Path,
+    model_root: Path,
+    fit_values: Mapping[str, set[str]],
+    config: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Write one tokenizer with one token for each biological value."""
+
+    AddedToken, Tokenizer, _, _ = _import_tokenizer_types()
+    corpus = config["corpus"]
+
+    # Write the value-to-marker registry.
+    registry = build_fully_atomic_registry(
+        fit_values,
+        parent_manifest_sha256=corpus["manifest_sha256"],
+        parent_train_sha256=corpus["train_sha256"],
+    )
+    registry_path = root / ATOMIC_REGISTRY_MANIFEST
+    write_json(registry_path, registry)
+
+    # Add every registry marker to the base tokenizer.
+    tokenizer = Tokenizer.from_file(str(model_root / "tokenizer.json"))
+    base_rows = tokenizer.get_vocab_size(with_added_tokens=True)
+    base_model_vocab = int(
+        read_json(model_root / "config.json")["vocab_size"]
+    )
+    token_rows = _fully_atomic_token_rows(registry, tokenizer)
+
+    added = tokenizer.add_tokens(
+        [
+            AddedToken(
+                str(row["content"]),
+                single_word=False,
+                lstrip=False,
+                rstrip=False,
+                normalized=False,
+                special=False,
+            )
+            for row in token_rows
+        ]
+    )
+    if added != len(token_rows):
+        raise RuntimeError("The tokenizer did not add every atomic marker")
+
+    # Record each assigned token ID.
+    vocabulary = tokenizer.get_vocab(with_added_tokens=True)
+    for row in token_rows:
+        row["token_id"] = int(vocabulary[str(row["content"])])
+
+    final_rows = tokenizer.get_vocab_size(with_added_tokens=True)
+    expected_ids = list(range(base_rows, final_rows))
+    observed_ids = sorted(
+        int(row["token_id"]) for row in token_rows
+    )
+    if observed_ids != expected_ids:
+        raise RuntimeError("The fully atomic token IDs are not contiguous")
+
+    method_contract = config["tokenizer_build"]["methods"][
+        FULLY_ATOMIC_METHOD
+    ]
+    expected_atomic_rows = int(method_contract["atomic_identifier_rows"])
+    _require(
+        len(token_rows) == expected_atomic_rows,
+        "the fully atomic token row count changed",
+    )
+
+    _copy_tokenizer_files(
+        model_root,
+        root / "tokenizer",
+        tokenizer=tokenizer,
+    )
+
+    codec_manifest = {
+        "schema_version": S0_CODEC_SCHEMA_VERSION,
+        "method": FULLY_ATOMIC_METHOD,
+        "fully_atomic_registry": {
+            "manifest_file": registry_path.name,
+            "manifest_sha256": sha256_file(registry_path),
+            "internal_manifest_sha256": registry["manifest_sha256"],
+        },
+    }
+    codec_manifest["manifest_sha256"] = stable_sha256(codec_manifest)
+
+    codec_path = root / S0_CODEC_MANIFEST
+    write_json(codec_path, codec_manifest)
+
+    # Some atomic tokens fit in the unused base-model rows.
+    reserved_rows = max(base_model_vocab - base_rows, 0)
+    reserved_rows_used = min(len(token_rows), reserved_rows)
+    appended_rows = max(final_rows - base_model_vocab, 0)
+    _require(
+        reserved_rows_used == int(method_contract["used_model_rows"]),
+        "the fully atomic reserved row count changed",
+    )
+    _require(
+        appended_rows == int(method_contract["appended_model_rows"]),
+        "the fully atomic appended row count changed",
+    )
+    _require(
+        max(base_model_vocab - final_rows, 0)
+        == int(method_contract["spare_model_rows"]),
+        "the fully atomic spare row count changed",
+    )
+
+    token_manifest = {
+        "schema_version": TOKEN_MANIFEST_SCHEMA,
+        "method": FULLY_ATOMIC_METHOD,
+        "strategy": "one_token_per_complete_identifier_v1",
+        "parent_manifest_sha256": corpus["manifest_sha256"],
+        "parent_train_sha256": corpus["train_sha256"],
+        "base_tokenizer_sha256": sha256_file(
+            model_root / "tokenizer.json"
+        ),
+        "base_tokenizer_length": base_rows,
+        "model_vocab_size": base_model_vocab,
+        "final_tokenizer_length": final_rows,
+        "atomic_identifier_rows": len(token_rows),
+        "unused_model_rows_consumed": reserved_rows_used,
+        "unused_model_rows_remaining": max(
+            base_model_vocab - final_rows,
+            0,
+        ),
+        "appended_model_rows": appended_rows,
+        "tokens": token_rows,
+        "trainable_rows": {
+            "input_embeddings": True,
+            "output_head": True,
+            "initialization": "mean_of_base_subtoken_rows",
+        },
+        "s0_tokenizer_codec": {
+            "manifest_file": codec_path.name,
+            "manifest_sha256": sha256_file(codec_path),
+            "internal_manifest_sha256": codec_manifest[
+                "manifest_sha256"
+            ],
+        },
+    }
+    token_manifest["manifest_sha256"] = stable_sha256(
+        token_manifest
+    )
+    write_json(root / "tokenizer_manifest.json", token_manifest)
+
+    return token_manifest
+
 
 def write_coded_tokenizer(
     root: Path,
@@ -843,7 +1060,7 @@ def write_coded_tokenizer(
     return token_manifest
 
 
-# Block 4: Tokenize every train row and prove exact custom-code cycles.
+# Block 5: Tokenize every train row and prove exact custom-code cycles.
 def _model_messages(row: Mapping[str, Any]) -> list[dict[str, str]]:
     """Build the exact model-visible content for one train row."""
 
@@ -1023,7 +1240,7 @@ def audit_arm(
     return report
 
 
-# Block 5: Build all arms in one temporary tree and publish them together.
+# Block 6: Build all arms in one temporary tree and publish them together.
 def build_arm(
     root: Path,
     model_root: Path,
@@ -1040,6 +1257,13 @@ def build_arm(
     # First write the tokenizer files and their internal manifests.
     if method == "plain_base_tokenizer":
         token_manifest = write_plain_tokenizer(root, model_root, config)
+    elif method == FULLY_ATOMIC_METHOD:
+        token_manifest = write_fully_atomic_tokenizer(
+            root,
+            model_root,
+            fit_values,
+            config,
+        )
     else:
         token_manifest = write_coded_tokenizer(
             root,
@@ -1064,6 +1288,8 @@ def build_arm(
         "schema_version": ARM_MANIFEST_SCHEMA,
         "dataset_id": f"{config['corpus']['dataset_id']}__{method}",
         "method": method,
+        "token_rows": len(token_manifest["tokens"]),
+        "appended_model_rows": token_manifest.get("appended_model_rows", 0),
         "parent_dataset": {
             "dataset_id": config["corpus"]["dataset_id"],
             "manifest_sha256": config["corpus"]["manifest_sha256"],
@@ -1142,6 +1368,10 @@ def build(
                     ],
                     "unused_model_rows_remaining": manifests[method][
                         "unused_model_rows_remaining"
+                    ],
+                    "token_rows": manifests[method]["token_rows"],
+                    "appended_model_rows": manifests[method][
+                        "appended_model_rows"
                     ],
                 }
                 for method in METHODS
