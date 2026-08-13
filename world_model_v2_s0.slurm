@@ -10,7 +10,7 @@
 #SBATCH --job-name=wm2_s0
 #SBATCH -A SYB114
 #SBATCH -N 16
-#SBATCH -t 24:00:00
+#SBATCH -t 8:00:00
 #SBATCH -p extended
 #SBATCH -C nvme
 #SBATCH --ntasks-per-node=8
@@ -47,10 +47,12 @@ RUN_CONFIG="${RUN_CONFIG:?RUN_CONFIG is required}"
 S0_METHOD_ID="${S0_METHOD_ID:?S0_METHOD_ID is required}"
 CONTRACT_ONLY="${CONTRACT_ONLY:-0}"
 
+# Train mode includes teacher-forced validation loss.
+# Test mode generates answers and then measures exact mapping accuracy.
 case "${JOB_MODE}" in
-  train) ;;
-  validation|test)
-    die "The Model Eval PR must add JOB_MODE=${JOB_MODE}."
+  train|test) ;;
+  validation)
+    die "Validation loss runs during train. Use JOB_MODE=test for exact evaluation."
     ;;
   *) die "JOB_MODE must be train, validation, or test." ;;
 esac
@@ -58,7 +60,320 @@ esac
   die "CONTRACT_ONLY must be zero or one."
 
 contract_env="$(mktemp "${TMPDIR:-/tmp}/wm2-s0-contract.XXXXXX")"
-trap 'rm -f -- "${contract_env}"' EXIT
+TEST_MODEL_STAGING_DIR=""
+
+# Remove the temporary contract file after either mode exits.
+# Remove an incomplete test model copy only from the default cache root.
+cleanup_launcher() {
+  rm -f -- "${contract_env}"
+  if [[ -n "${TEST_MODEL_STAGING_DIR}" && \
+        "${TEST_MODEL_STAGING_DIR}" == "/mnt/bb/${USER}/mentor_model_cache/"* ]]; then
+    rm -rf -- "${TEST_MODEL_STAGING_DIR}"
+  fi
+}
+trap cleanup_launcher EXIT
+
+# Test flow:
+# 1. Validate the config, data, tokenizer, model, and checkpoint identities.
+# 2. Copy the verified base model to the node-local cache.
+# 3. Build an answer-free bundle and generate one answer for each test row.
+# 4. Score the answers and append metrics to the original W&B train run.
+# Test mode exits before the distributed train path.
+if [[ "${JOB_MODE}" == "test" ]]; then
+  CHECKPOINT_PATH="${CHECKPOINT_PATH:?CHECKPOINT_PATH is required}"
+  CONTRACT_CHECKER="${REPO_ROOT}/scripts/validate_world_model_v2_s0_eval_contract.py"
+  BASE_MODEL_VALIDATOR="${REPO_ROOT}/scripts/validate_world_model_v2_s0_train_contract.py"
+  [[ -f "${CONTRACT_CHECKER}" ]] || die "The test contract checker is absent."
+  [[ -f "${BASE_MODEL_VALIDATOR}" ]] || \
+    die "The base-model checker is absent."
+  python "${CONTRACT_CHECKER}" "${REPO_ROOT}" "${RUN_CONFIG}" \
+    "${S0_METHOD_ID}" "${CHECKPOINT_PATH}" > "${contract_env}"
+
+  # Load only shell-safe values that the validated test contract owns.
+  # shellcheck disable=SC1090
+  source "${contract_env}"
+  export S0_EVAL_CONFIG S0_EVAL_CONFIG_SHA256 S0_EVALUATION_ID
+  export S0_METHOD_ID S0_TOKENIZER_METHOD TOKENIZER_PATH TOKENIZER_MANIFEST
+  export S0_TOKENIZER_MANIFEST_SHA256 MODEL_ID MODEL_PATH
+  export MODEL_IDENTITY_SHA256 BASE_MODEL_ARTIFACT_SHA256
+  export BASE_MODEL_WEIGHT_SHARD_COUNT S0_CORPUS_MANIFEST_SHA256
+  export S0_EVALUATOR_MANIFEST S0_EVALUATOR_MANIFEST_SHA256
+  export S0_TEST_QUESTIONS S0_TEST_QUESTIONS_SHA256
+  export S0_TEST_ANSWER_KEY S0_TEST_ANSWER_KEY_SHA256 S0_TEST_PANEL_ID
+  export S0_TEST_ROWS CHECKPOINT_PATH S0_TRAIN_RUN_ID
+  export S0_EVAL_OUTPUT_ROOT S0_EVAL_NUM_NODES S0_EVAL_TASKS_PER_NODE
+  export S0_EVAL_GPUS_PER_NODE S0_MAX_NEW_TOKENS S0_MAX_TOTAL_TOKENS
+  export S0_REASONING_EFFORT S0_EVAL_SEED
+  export S0_MINIMUM_FAMILY_ACCURACY S0_TARGET_FAMILY_ACCURACY
+  export S0_WANDB_ENTITY S0_WANDB_PROJECT
+
+  # Use the Slurm job ID for one unique and immutable result path.
+  if [[ "${CONTRACT_ONLY}" == "1" ]]; then
+    execution_id="${SLURM_JOB_ID:-JOB-ID}"
+  else
+    [[ -n "${SLURM_JOB_ID:-}" ]] || die "Run test mode as a Slurm job."
+    require_positive_integer SLURM_JOB_ID "${SLURM_JOB_ID}"
+    execution_id="${SLURM_JOB_ID}"
+  fi
+  S0_EVAL_RUN_ID="${S0_METHOD_ID}-test-slurm-${execution_id}"
+  OUTPUT_DIR="${S0_EVAL_OUTPUT_ROOT}/slurm-${execution_id}"
+  export S0_EVAL_RUN_ID OUTPUT_DIR
+
+  # Print the selected identities before any costly work starts.
+  echo "Test: ${S0_EVAL_RUN_ID}"
+  echo "Method: ${S0_METHOD_ID}"
+  echo "Checkpoint: ${CHECKPOINT_PATH}"
+  echo "Resources: nodes=${S0_EVAL_NUM_NODES} tasks_per_node=${S0_EVAL_TASKS_PER_NODE} gpus_per_node=${S0_EVAL_GPUS_PER_NODE}"
+  echo "W&B entity: ${S0_WANDB_ENTITY}"
+  echo "W&B project: ${S0_WANDB_PROJECT}"
+
+  # One process can use all eight GPUs through the Transformers device map.
+  # Reject a job if its allocation differs from this topology.
+  if [[ "${CONTRACT_ONLY}" == "0" ]]; then
+    [[ "${SLURM_NNODES:-}" == "${S0_EVAL_NUM_NODES}" ]] || \
+      die "The allocated node count differs from the test contract."
+    [[ "${SLURM_NTASKS:-}" == "${S0_EVAL_TASKS_PER_NODE}" ]] || \
+      die "The allocated task count differs from the test contract."
+    allocated_tasks_per_node="${SLURM_NTASKS_PER_NODE:-${SLURM_TASKS_PER_NODE:-}}"
+    allocated_tasks_per_node="${allocated_tasks_per_node%%(*}"
+    [[ "${allocated_tasks_per_node}" == "${S0_EVAL_TASKS_PER_NODE}" ]] || \
+      die "The allocated local task count differs from the test contract."
+  fi
+
+  # This hash identifies all code that can affect prompts, output, or scores.
+  evaluation_code_files=(
+    runtime/world_model_training.py
+    runtime/world_model_s0.py
+    runtime/world_model_s0_tokenizer.py
+    runtime/world_model_domain_bpe.py
+    runtime/world_model_token_adapter.py
+    scripts/build_world_model_v2_s0_generation_bundle.py
+    scripts/evaluate_world_model_v2_s0.py
+    scripts/run_world_model_v2_s0_exact_generation.py
+    scripts/validate_world_model_v2_s0_eval_contract.py
+    scripts/validate_world_model_v2_s0_train_contract.py
+    world_model_v2_s0.slurm
+  )
+  S0_EVALUATION_CODE_SHA256="$({
+    for path in "${evaluation_code_files[@]}"; do
+      [[ -f "${path}" ]] || die "A test code file is absent: ${path}"
+      printf '%s  %s\n' "$(sha256sum "${path}" | awk '{print $1}')" "${path}"
+    done
+  } | sha256sum | awk '{print $1}')"
+  export S0_EVALUATION_CODE_SHA256
+
+  # Contract-only mode stops before it creates output or loads the model.
+  if [[ "${CONTRACT_ONLY}" == "1" ]]; then
+    echo "The selected test inputs and config are valid. No Slurm job ran."
+    exit 0
+  fi
+
+  # Do not reuse an output path because that can mix two test results.
+  # Copy the immutable inputs so that each result has a local audit trail.
+  [[ ! -e "${OUTPUT_DIR}" ]] || die "The test output already exists: ${OUTPUT_DIR}"
+  umask 077
+  mkdir -p "${OUTPUT_DIR}/run_contract" "${OUTPUT_DIR}/wandb"
+  RUN_CONTRACT_DIR="${OUTPUT_DIR}/run_contract"
+  GENERATION_BUNDLE_DIR="${OUTPUT_DIR}/generation_bundle"
+  GENERATION_OUTPUT_DIR="${OUTPUT_DIR}/generation"
+  REPORT_OUTPUT_DIR="${OUTPUT_DIR}/report"
+  export RUN_CONTRACT_DIR GENERATION_BUNDLE_DIR
+  export GENERATION_OUTPUT_DIR REPORT_OUTPUT_DIR
+  cp "${S0_EVAL_CONFIG}" "${RUN_CONTRACT_DIR}/test_config.json"
+  cp "${S0_EVALUATOR_MANIFEST}" \
+    "${RUN_CONTRACT_DIR}/evaluator_manifest.json"
+  cp "${TOKENIZER_MANIFEST}" \
+    "${RUN_CONTRACT_DIR}/tokenizer_manifest.json"
+  cp "${CHECKPOINT_PATH}/run_contract/training_exposure.json" \
+    "${RUN_CONTRACT_DIR}/training_exposure.json"
+  printf '%s\n' \
+    "job_id=${SLURM_JOB_ID}" \
+    "evaluation_id=${S0_EVALUATION_ID}" \
+    "evaluation_run_id=${S0_EVAL_RUN_ID}" \
+    "method_id=${S0_METHOD_ID}" \
+    "train_run_id=${S0_TRAIN_RUN_ID}" \
+    "checkpoint_path=${CHECKPOINT_PATH}" \
+    "test_config_sha256=${S0_EVAL_CONFIG_SHA256}" \
+    "test_panel_id=${S0_TEST_PANEL_ID}" \
+    "test_questions_sha256=${S0_TEST_QUESTIONS_SHA256}" \
+    "test_answer_key_sha256=${S0_TEST_ANSWER_KEY_SHA256}" \
+    "tokenizer_manifest_sha256=${S0_TOKENIZER_MANIFEST_SHA256}" \
+    "model_identity_sha256=${MODEL_IDENTITY_SHA256}" \
+    "base_model_artifact_sha256=${BASE_MODEL_ARTIFACT_SHA256}" \
+    "evaluation_code_sha256=${S0_EVALUATION_CODE_SHA256}" \
+    "wandb_entity=${S0_WANDB_ENTITY}" \
+    "wandb_project=${S0_WANDB_PROJECT}" \
+    "output_dir=${OUTPUT_DIR}" \
+    > "${RUN_CONTRACT_DIR}/launch.env"
+
+  # Use the same pinned Frontier stack as the train job.
+  module load PrgEnv-gnu/8.6.0
+  module load rocm/6.3.1
+  module load craype-accel-amd-gfx90a
+  module load gcc/12.2.0
+  source /lustre/orion/syb111/proj-shared/Environments/source_miniconda_frontier.sh
+  source activate /lustre/orion/syb111/world-shared/environments/pytorch-rocm
+
+  export ROCM_SMI_DISABLE=1 AMD_SMI_DISABLE=1 RSMI_LOGGING=0
+  export AMDSMI_GPU_METRICS_CACHE_MS=0
+  ulimit -c 0
+
+  # Remove only ROCm-SMI state that the current user owns.
+  # This step prevents a stale state error at the first torch import.
+  echo "Clear user-owned ROCm-SMI state before the first torch import."
+  srun --nodes=1 --ntasks=1 --ntasks-per-node=1 --cpu-bind=none bash -c '
+    set -euo pipefail
+    shopt -s nullglob
+    for path in /dev/shm/rocm_smi* /dev/shm/amd_smi*; do
+      [[ ! -O "${path}" ]] || rm -f -- "${path}"
+    done
+  '
+
+  # Load optional project credentials before the costly model copy.
+  # W&B can also use the saved login from the user account.
+  if [[ -f "${REPO_ROOT}/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "${REPO_ROOT}/.env"
+    set +a
+  fi
+
+  # The test contract owns the W&B destination.
+  # The scorer uses S0_TRAIN_RUN_ID to resume the original train run.
+  # Remove inherited run values so that they cannot select another run.
+  unset WANDB_RUN_ID WANDB_NAME WANDB_RUN_GROUP WANDB_RESUME
+  export WANDB_MODE=online
+  export WANDB_ENTITY="${S0_WANDB_ENTITY}"
+  export WANDB_PROJECT="${S0_WANDB_PROJECT}"
+  export WANDB_DIR="${OUTPUT_DIR}/wandb"
+  export WANDB_HTTP_TIMEOUT="${WANDB_HTTP_TIMEOUT:-180}"
+  export http_proxy="${http_proxy:-http://proxy.ccs.ornl.gov:3128}"
+  export https_proxy="${https_proxy:-${http_proxy}}"
+
+  # Keep all model libraries offline and use node-local caches.
+  export CC=cc CXX=CC CMAKE_C_COMPILER=cc CMAKE_CXX_COMPILER=CC
+  export ROCM_HOME=/opt/rocm-6.3.1 PYTORCH_ROCM_ARCH=gfx90a HSA_XNACK=0
+  export PYTORCH_ALLOC_CONF="expandable_segments:False"
+  export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+  export TOKENIZERS_PARALLELISM=false
+  export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-56}"
+  export HF_HOME="/mnt/bb/${USER}/mentor_hf/${SLURM_JOB_ID}/test"
+  export HF_DATASETS_CACHE="${HF_HOME}/datasets"
+  export TORCH_EXTENSIONS_DIR="/mnt/bb/${USER}/mentor_torch_extensions/torch280_rocm631"
+  export TRITON_CACHE_DIR="/mnt/bb/${USER}/mentor_triton/${SLURM_JOB_ID}/test"
+  mkdir -p "${HF_HOME}" "${HF_DATASETS_CACHE}" "${TRITON_CACHE_DIR}"
+
+  # The base-model hash covers its metadata and all weight shards.
+  # Reuse only a node-local cache that passes this complete check.
+  LOCAL_MODEL_CACHE_ROOT="${LOCAL_MODEL_CACHE_ROOT:-/mnt/bb/${USER}/mentor_model_cache}"
+  LOCAL_MODEL_DIR="${LOCAL_MODEL_CACHE_ROOT}/${MODEL_ID}-${BASE_MODEL_ARTIFACT_SHA256:0:16}"
+  [[ "${LOCAL_MODEL_CACHE_ROOT}" == "/mnt/bb/${USER}/"* ]] || \
+    die "The local model root must stay below the user burst buffer."
+  [[ "${LOCAL_MODEL_DIR}" == "${LOCAL_MODEL_CACHE_ROOT}/"* ]] || \
+    die "The local model path must stay below its root."
+  mkdir -p "${LOCAL_MODEL_CACHE_ROOT}"
+  exec 9>"${LOCAL_MODEL_CACHE_ROOT}/.${MODEL_ID}.stage.lock"
+  # The lock prevents two jobs from writing the same node-local cache.
+  flock 9
+  if [[ -e "${LOCAL_MODEL_DIR}" ]]; then
+    # Check every cached file before the model process uses the cache.
+    [[ -s "${LOCAL_MODEL_DIR}/.mentor_model_identity_sha256" ]] || \
+      die "The model cache has no identity marker."
+    [[ "$(<"${LOCAL_MODEL_DIR}/.mentor_model_identity_sha256")" == \
+      "${BASE_MODEL_ARTIFACT_SHA256}" ]] || \
+      die "The model cache marker changed."
+    python "${BASE_MODEL_VALIDATOR}" --validate-base-model \
+      "${LOCAL_MODEL_DIR}" "${BASE_MODEL_ARTIFACT_SHA256}" \
+      "${BASE_MODEL_WEIGHT_SHARD_COUNT}" \
+      "${LOCAL_MODEL_DIR}/.mentor_base_model_artifact.json"
+  else
+    # Copy to a temporary path and publish the cache only after validation.
+    TEST_MODEL_STAGING_DIR="$(
+      mktemp -d \
+        "${LOCAL_MODEL_CACHE_ROOT}/.${MODEL_ID}.test.${SLURM_JOB_ID}.XXXXXX"
+    )"
+    rsync -a "${MODEL_PATH}/" "${TEST_MODEL_STAGING_DIR}/"
+    python "${BASE_MODEL_VALIDATOR}" --validate-base-model \
+      "${TEST_MODEL_STAGING_DIR}" "${BASE_MODEL_ARTIFACT_SHA256}" \
+      "${BASE_MODEL_WEIGHT_SHARD_COUNT}" \
+      "${TEST_MODEL_STAGING_DIR}/.mentor_base_model_artifact.json"
+    printf '%s\n' "${BASE_MODEL_ARTIFACT_SHA256}" \
+      > "${TEST_MODEL_STAGING_DIR}/.mentor_model_identity_sha256"
+    mv "${TEST_MODEL_STAGING_DIR}" "${LOCAL_MODEL_DIR}"
+    TEST_MODEL_STAGING_DIR=""
+  fi
+  flock -u 9
+
+  # Confirm that the one task can use all eight GPUs and each required package.
+  # This check runs before the script loads model weights into GPU memory.
+  srun --nodes=1 --ntasks=1 --ntasks-per-node=1 \
+    --gpus-per-task="${S0_EVAL_GPUS_PER_NODE}" --cpu-bind=none \
+    --accel-bind=none python -c \
+    'import torch, transformers, peft, accelerate, wandb; assert torch.cuda.is_available(); assert torch.cuda.device_count() == 8; print("test_python_rocm_ready", flush=True)'
+
+  # The bundle builder reads public questions and writes only safe prompt fields.
+  # It does not copy the private answer key into the bundle.
+  python scripts/build_world_model_v2_s0_generation_bundle.py \
+    --evaluator-manifest "${S0_EVALUATOR_MANIFEST}" \
+    --evaluator-manifest-sha256 "${S0_EVALUATOR_MANIFEST_SHA256}" \
+    --output-dir "${GENERATION_BUNDLE_DIR}"
+
+  # Give the model process only the public bundle and verified model inputs.
+  # Remove the answer-key path and W&B key from its environment.
+  srun --nodes=1 --ntasks=1 --ntasks-per-node=1 \
+    --gpus-per-task="${S0_EVAL_GPUS_PER_NODE}" --cpu-bind=none \
+    --accel-bind=none env \
+    -u WANDB_API_KEY \
+    -u S0_TEST_ANSWER_KEY \
+    -u S0_TEST_ANSWER_KEY_SHA256 \
+    -u S0_EVALUATOR_MANIFEST \
+    WANDB_MODE=disabled \
+    python scripts/run_world_model_v2_s0_exact_generation.py \
+      --generation-bundle "${GENERATION_BUNDLE_DIR}" \
+      --base-model-path "${LOCAL_MODEL_DIR}" \
+      --checkpoint-path "${CHECKPOINT_PATH}" \
+      --tokenizer-path "${TOKENIZER_PATH}" \
+      --tokenizer-manifest "${TOKENIZER_MANIFEST}" \
+      --output-dir "${GENERATION_OUTPUT_DIR}" \
+      --method-id "${S0_METHOD_ID}" \
+      --corpus-manifest-sha256 "${S0_CORPUS_MANIFEST_SHA256}" \
+      --tokenizer-manifest-sha256 "${S0_TOKENIZER_MANIFEST_SHA256}" \
+      --model-identity-sha256 "${MODEL_IDENTITY_SHA256}" \
+      --max-new-tokens "${S0_MAX_NEW_TOKENS}" \
+      --max-total-tokens "${S0_MAX_TOTAL_TOKENS}" \
+      --reasoning-effort "${S0_REASONING_EFFORT}" \
+      --seed "${S0_EVAL_SEED}"
+
+  # The model process exits before the scorer reads the private answer key.
+  # Append exact metrics to the W&B run from the checkpoint receipt.
+  python scripts/evaluate_world_model_v2_s0.py \
+    --evaluator-manifest "${S0_EVALUATOR_MANIFEST}" \
+    --evaluator-manifest-sha256 "${S0_EVALUATOR_MANIFEST_SHA256}" \
+    --predictions "${GENERATION_OUTPUT_DIR}/predictions.jsonl" \
+    --generation-manifest "${GENERATION_OUTPUT_DIR}/generation_manifest.json" \
+    --tokenizer-manifest "${TOKENIZER_MANIFEST}" \
+    --output-dir "${REPORT_OUTPUT_DIR}" \
+    --minimum-family-accuracy "${S0_MINIMUM_FAMILY_ACCURACY}" \
+    --target-family-accuracy "${S0_TARGET_FAMILY_ACCURACY}" \
+    --publish-wandb
+
+  # Require the answer-free bundle, raw outputs, exact report, and W&B receipt.
+  completed_files=(
+    "${GENERATION_BUNDLE_DIR}/manifest.json"
+    "${GENERATION_BUNDLE_DIR}/questions.jsonl"
+    "${GENERATION_OUTPUT_DIR}/generation_plan.json"
+    "${GENERATION_OUTPUT_DIR}/predictions.jsonl"
+    "${GENERATION_OUTPUT_DIR}/generation_manifest.json"
+    "${REPORT_OUTPUT_DIR}/exact_mapping_report.json"
+    "${REPORT_OUTPUT_DIR}/test_metrics.json"
+    "${REPORT_OUTPUT_DIR}/wandb_test_run.json"
+  )
+  for completed in "${completed_files[@]}"; do
+    [[ -s "${completed}" ]] || die "The completed test lacks ${completed}."
+  done
+  echo "The exact S0 test is complete: ${OUTPUT_DIR}"
+  exit 0
+fi
 
 # Resolve one method. The run contract owns all train values.
 CONTRACT_CHECKER="${REPO_ROOT}/scripts/validate_world_model_v2_s0_train_contract.py"
