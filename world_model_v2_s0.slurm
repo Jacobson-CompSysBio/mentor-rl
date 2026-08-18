@@ -10,7 +10,7 @@
 #SBATCH --job-name=wm2_s0
 #SBATCH -A SYB114
 #SBATCH -N 16
-#SBATCH -t 8:00:00
+#SBATCH -t 16:00:00
 #SBATCH -p extended
 #SBATCH -C nvme
 #SBATCH --ntasks-per-node=8
