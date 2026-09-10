@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import os
 from pathlib import Path
 import re
@@ -382,7 +381,11 @@ else:
         raise SystemExit("The full data parallel size differs from the rank count")
 
 epochs = require_int(settings.get("num_train_epochs"), "num_train_epochs")
-max_steps = require_int(settings.get("max_steps"), "max_steps")
+# The trainer validates the step cap against the loaded dataset.
+# Do not use the source row count to set this cap.
+max_steps = settings.get("max_steps")
+if type(max_steps) is not int or max_steps == 0 or max_steps < -1:
+    raise SystemExit("max_steps must be -1 or a positive integer")
 batch_size = require_int(
     settings.get("per_device_train_batch_size"),
     "per_device_train_batch_size",
@@ -399,17 +402,12 @@ validation_rows = require_int(
     corpus.get("validation_rows"),
     "corpus validation_rows",
 )
-full_exposure_steps = epochs * math.ceil(train_rows / global_batch)
-if run_scope == "debug_qualification":
-    if schema != "mentor-rl-world-model-s0-20b-qualification-v4":
-        raise SystemExit("Only the 20B config can use debug_qualification")
-    if max_steps >= full_exposure_steps:
-        raise SystemExit(
-            "A debug qualification must stop before full exposure"
-        )
-elif max_steps != full_exposure_steps:
+if (
+    run_scope == "debug_qualification"
+    and schema != "mentor-rl-world-model-s0-20b-qualification-v4"
+):
     raise SystemExit(
-        f"max_steps must equal {full_exposure_steps} for this exact exposure"
+        "Only the 20B config can use debug_qualification"
     )
 
 learning_rate = require_number(settings.get("learning_rate"), "learning_rate")

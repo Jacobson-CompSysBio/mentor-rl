@@ -1145,6 +1145,7 @@ def build_training_exposure_manifest(
     fact_ids: list[str],
     question_families: list[str],
     prompt_form_ids: list[str],
+    source_train_rows: int,
     consumed_indices: list[int],
     distributed_padding_indices: list[int],
     seed: int,
@@ -1177,6 +1178,14 @@ def build_training_exposure_manifest(
     row_count = len(record_ids)
     if row_count < 1:
         raise ValueError("The S0 exposure receipt requires train rows")
+    if (
+        not isinstance(source_train_rows, int)
+        or isinstance(source_train_rows, bool)
+        or source_train_rows < row_count
+    ):
+        raise ValueError(
+            "source_train_rows must include all selected train rows"
+        )
     parallel_values = (
         fact_ids,
         question_families,
@@ -1256,8 +1265,11 @@ def build_training_exposure_manifest(
             raise ValueError(f"{label} must reference S0 train rows")
     if not consumed_indices:
         raise ValueError("consumed_indices must reference S0 train rows")
-    all_eligible_rows_exposed = (
+    all_selected_rows_exposed = (
         set(consumed_indices) == set(range(row_count))
+    )
+    all_eligible_rows_exposed = (
+        row_count == source_train_rows and all_selected_rows_exposed
     )
     if (
         exposure_scope == "all_eligible_train_rows"
@@ -1299,7 +1311,8 @@ def build_training_exposure_manifest(
         "identity": identities,
         "corpus": {
             "dataset_id": S0_DATASET_ID,
-            "eligible_train_rows": row_count,
+            "eligible_train_rows": source_train_rows,
+            "selected_train_rows": row_count,
             "record_sequence_sha256": _sequence_sha256(record_ids),
             "fact_sequence_sha256": _sequence_sha256(fact_ids),
             "question_family_counts": dict(
@@ -1341,6 +1354,9 @@ def build_training_exposure_manifest(
             "unique_fact_count": len(set(consumed_fact_ids)),
             "all_eligible_train_rows_exposed": (
                 all_eligible_rows_exposed
+            ),
+            "all_selected_train_rows_exposed": (
+                all_selected_rows_exposed
             ),
             "record_sequence_sha256": _sequence_sha256(
                 consumed_record_ids

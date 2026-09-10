@@ -2473,6 +2473,7 @@ def main() -> None:
         "fact_ids": train_identities["fact_ids"],
         "question_families": train_identities["question_families"],
         "prompt_form_ids": train_identities["prompt_form_ids"],
+        "source_train_rows": int(os.environ["S0_TRAIN_ROWS"]),
         "consumed_indices": consumed_indices,
         "distributed_padding_indices": list(
             padding_plan["distributed_padding_indices"]

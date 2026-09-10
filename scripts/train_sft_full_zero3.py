@@ -1841,6 +1841,7 @@ def main() -> int:
         "fact_ids": train_identity["fact_ids"],
         "question_families": train_identity["question_families"],
         "prompt_form_ids": train_identity["prompt_form_ids"],
+        "source_train_rows": int(os.environ["S0_TRAIN_ROWS"]),
         "consumed_indices": list(padding_plan["logical_indices"]),
         "distributed_padding_indices": list(
             padding_plan["distributed_padding_indices"]

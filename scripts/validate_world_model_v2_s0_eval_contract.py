@@ -99,6 +99,35 @@ def require_number(value: Any, label: str) -> float:
     return result
 
 
+def require_full_exposure_checkpoint(
+    exposure: dict[str, Any],
+    *,
+    method_id: str,
+    eligible_train_rows: int,
+) -> None:
+    """Require one complete exposure receipt for the full train corpus."""
+
+    exposure_corpus = exposure.get("corpus")
+    logical = exposure.get("logical_exposure")
+    exposure_contract = exposure.get("exposure_contract")
+    if (
+        exposure.get("schema_version") != EXPOSURE_SCHEMA_VERSION
+        or exposure.get("status") != "complete"
+        or exposure.get("method_id") != method_id
+        or not isinstance(exposure_corpus, dict)
+        or exposure_corpus.get("eligible_train_rows")
+        != eligible_train_rows
+        or not isinstance(logical, dict)
+        or logical.get("all_eligible_train_rows_exposed") is not True
+        or not isinstance(exposure_contract, dict)
+        or exposure_contract.get("scope") != "all_eligible_train_rows"
+        or exposure_contract.get("satisfied") is not True
+    ):
+        raise SystemExit(
+            "The test requires one complete full-exposure checkpoint"
+        )
+
+
 def resolve_repo_path(root: Path, value: Any, label: str) -> Path:
     """Resolve one path below the repository."""
 
@@ -234,6 +263,10 @@ def main() -> int:
     corpus_manifest_path = corpus_root / "manifest.json"
     verify_file(corpus_manifest_path, corpus_manifest_hash, "corpus manifest")
     corpus_manifest = read_json(corpus_manifest_path, "the corpus manifest")
+    eligible_train_rows = require_int(
+        corpus.get("eligible_train_rows"),
+        "eligible train rows",
+    )
     if (
         corpus_manifest.get("dataset_id") != DATASET_ID
         or corpus_manifest.get("evaluation_contract") != EVALUATION_CONTRACT
@@ -242,7 +275,7 @@ def main() -> int:
         or corpus_manifest.get("train_population", {}).get(
             "eligible_train_rows"
         )
-        != require_int(corpus.get("eligible_train_rows"), "eligible train rows")
+        != eligible_train_rows
     ):
         raise SystemExit("The corpus test contract changed")
     train_sha256 = require_sha256(corpus.get("train_sha256"), "train file")
@@ -335,21 +368,11 @@ def main() -> int:
     exposure_path = checkpoint_path / "run_contract" / "training_exposure.json"
     exposure = read_json(exposure_path, "the training exposure receipt")
     validate_internal_manifest(exposure, "training exposure receipt")
-    logical = exposure.get("logical_exposure")
-    exposure_contract = exposure.get("exposure_contract")
-    if (
-        exposure.get("schema_version") != EXPOSURE_SCHEMA_VERSION
-        or exposure.get("status") != "complete"
-        or exposure.get("method_id") != method_id
-        or not isinstance(logical, dict)
-        or logical.get("all_eligible_train_rows_exposed") is not True
-        or not isinstance(exposure_contract, dict)
-        or exposure_contract.get("scope") != "all_eligible_train_rows"
-        or exposure_contract.get("satisfied") is not True
-    ):
-        raise SystemExit(
-            "The test requires one complete full-exposure checkpoint"
-        )
+    require_full_exposure_checkpoint(
+        exposure,
+        method_id=method_id,
+        eligible_train_rows=eligible_train_rows,
+    )
     required_checkpoint_files = (
         "adapter_config.json",
         "adapter_model.safetensors",
