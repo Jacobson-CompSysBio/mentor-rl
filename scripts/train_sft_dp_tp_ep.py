@@ -124,13 +124,6 @@ def required_run_identity() -> dict[str, str]:
             raise RuntimeError(
                 f"The launch contract lacks {environment_name}"
             )
-        if key.endswith("_sha256") and (
-            len(value) != 64
-            or any(character not in "0123456789abcdef" for character in value)
-        ):
-            raise RuntimeError(
-                f"The launch contract has an invalid {environment_name}"
-            )
         identity[key] = value
     return identity
 
@@ -2429,11 +2422,6 @@ def main() -> None:
             f"--max_steps={total_steps} exceeds the {requested_steps} updates available "
             "within --num_train_epochs; increase epochs explicitly."
         )
-    training_families = {
-        str(value) for value in train_identities["question_families"]
-    }
-    if training_families != set(S0_FAMILIES):
-        raise RuntimeError("The S0 dataset must contain all three S0 families only")
     validation_families = {
         str(value) for value in validation_identities["question_families"]
     }

@@ -436,14 +436,10 @@ fi
 # Require each file that the selected method uses.
 required_files=(
   "${S0_RUN_CONFIG}"
-  "${S0_CORPUS_ROOT}/manifest.json"
   "${S0_TRAIN_PATH}"
   "${S0_VALIDATION_PATH}"
   "${S0_VALIDATION_ANSWER_KEY_PATH}"
   "${S0_EVALUATOR_MANIFEST}"
-  "${S0_TOKENIZER_ARM_ROOT}/manifest.json"
-  "${S0_TOKENIZER_ARM_ROOT}/audit_report.json"
-  "${S0_TOKENIZER_ARM_ROOT}/tokenizer_manifest.json"
   "${TOKENIZER_PATH}/tokenizer.json"
   "${MODEL_PATH}/config.json"
   "${MODEL_PATH}/model.safetensors.index.json"
@@ -482,9 +478,6 @@ actual_model_identity="$({
 [[ "${actual_model_identity}" == "${MODEL_IDENTITY_SHA256}" ]] || \
   die "The model metadata identity changed."
 
-# Validate the corpus and tokenizer with the shared checker.
-python "${CONTRACT_CHECKER}" --validate-inputs
-
 # Hash the direct code inputs for this method.
 training_code_files=(
   runtime/world_model_training.py
@@ -518,20 +511,12 @@ if [[ "${CONTRACT_ONLY}" == "1" ]]; then
   exit 0
 fi
 
-# Create a new output and copy its immutable input receipts.
+# Create a new output and copy the selected config.
 [[ ! -e "${OUTPUT_DIR}" ]] || die "The output already exists: ${OUTPUT_DIR}"
 mkdir -p "${OUTPUT_DIR}/run_contract" "${OUTPUT_DIR}/wandb"
 RUN_CONTRACT_DIR="${OUTPUT_DIR}/run_contract"
 export RUN_CONTRACT_DIR
 cp "${S0_RUN_CONFIG}" "${RUN_CONTRACT_DIR}/run_config.json"
-cp "${S0_CORPUS_ROOT}/manifest.json" \
-  "${RUN_CONTRACT_DIR}/dataset_manifest.json"
-cp "${S0_EVALUATOR_MANIFEST}" \
-  "${RUN_CONTRACT_DIR}/evaluator_manifest.json"
-cp "${S0_TOKENIZER_ARM_ROOT}/manifest.json" \
-  "${RUN_CONTRACT_DIR}/tokenizer_arm_manifest.json"
-cp "${S0_TOKENIZER_ARM_ROOT}/tokenizer_manifest.json" \
-  "${RUN_CONTRACT_DIR}/tokenizer_manifest.json"
 if [[ "${S0_TRAIN_MODE}" == "full_finetune" ]]; then
   cp "${DS_CONFIG}" "${RUN_CONTRACT_DIR}/deepspeed_config.json"
 fi

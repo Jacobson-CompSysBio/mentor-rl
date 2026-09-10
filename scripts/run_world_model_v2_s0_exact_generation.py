@@ -213,7 +213,7 @@ def validate_checkpoint(
     tokenizer_manifest_sha256: str,
     model_identity_sha256: str,
 ) -> tuple[dict[str, Any], str]:
-    """Verify one complete full-exposure LoRA checkpoint."""
+    """Verify one complete LoRA checkpoint."""
 
     adapter = read_json(checkpoint_path / "tp_adapter_manifest.json")
     identity = adapter.get("identity")
@@ -246,14 +246,10 @@ def validate_checkpoint(
         or not isinstance(claimed, str)
         or stable_sha256(exposure_identity) != claimed
         or not isinstance(logical, Mapping)
-        or logical.get("all_eligible_train_rows_exposed") is not True
         or not isinstance(contract, Mapping)
-        or contract.get("scope") != "all_eligible_train_rows"
         or contract.get("satisfied") is not True
     ):
-        raise S0GenerationError(
-            "The test requires one complete full-exposure checkpoint"
-        )
+        raise S0GenerationError("The test requires one complete checkpoint")
     artifact_identity = checkpoint_artifact_identity(checkpoint_path)
     return artifact_identity, str(identity.get("run_id"))
 

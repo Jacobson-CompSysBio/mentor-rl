@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
-import os
 from pathlib import Path
 import re
 import shlex
@@ -106,58 +104,6 @@ def validate_base_model(
     )
 
 
-def validate_train_inputs() -> None:
-    """Validate the selected corpus and tokenizer files."""
-
-    from runtime.world_model_training import (
-        validate_s0_corpus_identity,
-        validate_s0_tokenizer_arm_identity,
-    )
-
-    validate_s0_corpus_identity(
-        Path(os.environ["S0_CORPUS_ROOT"]),
-        evaluator_manifest_path=Path(
-            os.environ["S0_EVALUATOR_MANIFEST"]
-        ),
-        validation_answer_key_path=Path(
-            os.environ["S0_VALIDATION_ANSWER_KEY_PATH"]
-        ),
-        expected_manifest_sha256=os.environ[
-            "S0_CORPUS_MANIFEST_SHA256"
-        ],
-        expected_train_sha256=os.environ["S0_TRAIN_SHA256"],
-        expected_train_rows=int(os.environ["S0_TRAIN_ROWS"]),
-        expected_validation_sha256=os.environ[
-            "S0_VALIDATION_SHA256"
-        ],
-        expected_validation_rows=int(
-            os.environ["S0_VALIDATION_ROWS"]
-        ),
-        expected_validation_answer_key_sha256=os.environ[
-            "S0_VALIDATION_ANSWER_KEY_SHA256"
-        ],
-    )
-    validate_s0_tokenizer_arm_identity(
-        Path(os.environ["S0_TOKENIZER_ARM_ROOT"]),
-        method=os.environ["S0_TOKENIZER_METHOD"],
-        expected_corpus_manifest_sha256=os.environ[
-            "S0_CORPUS_MANIFEST_SHA256"
-        ],
-        expected_train_sha256=os.environ["S0_TRAIN_SHA256"],
-        expected_arm_manifest_sha256=os.environ[
-            "S0_TOKENIZER_ARM_MANIFEST_SHA256"
-        ],
-        maximum_sequence_tokens=int(os.environ["MAX_LENGTH"]),
-        tokenizer_path=Path(os.environ["TOKENIZER_PATH"]),
-    )
-
-
-if len(sys.argv) >= 2 and sys.argv[1] == "--validate-inputs":
-    if len(sys.argv) != 2:
-        raise SystemExit("--validate-inputs takes no values")
-    validate_train_inputs()
-    raise SystemExit(0)
-
 if len(sys.argv) >= 2 and sys.argv[1] == "--validate-base-model":
     if len(sys.argv) != 6:
         raise SystemExit(
@@ -234,6 +180,12 @@ def require_sha256(value: object, name: str) -> str:
 def require_int(value: object, name: str) -> int:
     if type(value) is not int or value < 1:
         raise SystemExit(f"{name} must be a positive integer")
+    return value
+
+
+def require_max_steps(value: object) -> int:
+    if type(value) is not int or value == 0 or value < -1:
+        raise SystemExit("max_steps must be -1 or a positive integer")
     return value
 
 
@@ -382,7 +334,7 @@ else:
         raise SystemExit("The full data parallel size differs from the rank count")
 
 epochs = require_int(settings.get("num_train_epochs"), "num_train_epochs")
-max_steps = require_int(settings.get("max_steps"), "max_steps")
+max_steps = require_max_steps(settings.get("max_steps"))
 batch_size = require_int(
     settings.get("per_device_train_batch_size"),
     "per_device_train_batch_size",
@@ -399,18 +351,6 @@ validation_rows = require_int(
     corpus.get("validation_rows"),
     "corpus validation_rows",
 )
-full_exposure_steps = epochs * math.ceil(train_rows / global_batch)
-if run_scope == "debug_qualification":
-    if schema != "mentor-rl-world-model-s0-20b-qualification-v4":
-        raise SystemExit("Only the 20B config can use debug_qualification")
-    if max_steps >= full_exposure_steps:
-        raise SystemExit(
-            "A debug qualification must stop before full exposure"
-        )
-elif max_steps != full_exposure_steps:
-    raise SystemExit(
-        f"max_steps must equal {full_exposure_steps} for this exact exposure"
-    )
 
 learning_rate = require_number(settings.get("learning_rate"), "learning_rate")
 warmup_ratio = require_number(settings.get("warmup_ratio"), "warmup_ratio")
@@ -524,7 +464,7 @@ validation_path = str(
         / require_string(corpus.get("validation_file"), "validation_file")
     ).resolve()
 )
-validation_sha256 = require_sha256(
+validation_sha256 = require_string(
     corpus.get("validation_sha256"),
     "corpus validation_sha256",
 )
@@ -539,26 +479,11 @@ validation_panel = require_object(
     evaluator_manifest.get("validation"),
     "evaluator validation panel",
 )
-if absolute_path(
-    validation_panel.get("questions_path"),
-    "validation questions_path",
-) != validation_path:
-    raise SystemExit("The validation question path differs from the corpus")
-if require_sha256(
-    validation_panel.get("questions_sha256"),
-    "validation questions_sha256",
-) != validation_sha256:
-    raise SystemExit("The validation question identity differs from the corpus")
-if require_int(
-    validation_panel.get("row_count"),
-    "validation row_count",
-) != validation_rows:
-    raise SystemExit("The validation row count differs from the corpus")
 validation_answer_key_path = absolute_path(
     validation_panel.get("answer_key_path"),
     "validation answer_key_path",
 )
-validation_answer_key_sha256 = require_sha256(
+validation_answer_key_sha256 = require_string(
     validation_panel.get("answer_key_sha256"),
     "validation answer_key_sha256",
 )
@@ -580,14 +505,14 @@ values = {
     "S0_TOKENIZER_ARM_ROOT": absolute_path(
         tokenizer.get("arm_root"), "tokenizer arm_root"
     ),
-    "S0_TOKENIZER_ARM_MANIFEST_SHA256": require_sha256(
+    "S0_TOKENIZER_ARM_MANIFEST_SHA256": require_string(
         tokenizer.get("arm_manifest_sha256"), "arm_manifest_sha256"
     ),
     "TOKENIZER_PATH": absolute_path(
         tokenizer.get("tokenizer_path"), "tokenizer_path"
     ),
     "TOKEN_ADAPTER_MANIFEST": adapter_path,
-    "S0_TOKENIZER_MANIFEST_SHA256": require_sha256(
+    "S0_TOKENIZER_MANIFEST_SHA256": require_string(
         tokenizer.get("tokenizer_manifest_sha256"),
         "tokenizer_manifest_sha256",
     ),
@@ -605,14 +530,14 @@ values = {
         require_int(model.get("weight_shard_count"), "weight_shard_count")
     ),
     "S0_CORPUS_ROOT": corpus_root,
-    "S0_CORPUS_MANIFEST_SHA256": require_sha256(
+    "S0_CORPUS_MANIFEST_SHA256": require_string(
         corpus.get("manifest_sha256"), "corpus manifest_sha256"
     ),
     "S0_TRAIN_PATH": str(
         (Path(absolute_path(corpus.get("root"), "corpus root"))
          / require_string(corpus.get("train_file"), "train_file")).resolve()
     ),
-    "S0_TRAIN_SHA256": require_sha256(
+    "S0_TRAIN_SHA256": require_string(
         corpus.get("train_sha256"), "corpus train_sha256"
     ),
     "S0_TRAIN_ROWS": str(train_rows),

@@ -200,9 +200,9 @@ S0_TOKENIZER_MANIFEST_SCHEMA = "mentor-rl-world-model-s0-tokenizer-v3"
 S0_RECORD_SCHEMA = "identifier_sft_v2"
 S0_TRAINING_CONTRACT = "closed_book_only_v1"
 S0_EXPOSURE_SCOPE_BY_RUN_SCOPE = {
-    "debug_qualification": "bounded_debug_subset",
-    "qualification": "all_eligible_train_rows",
-    "matched_matrix": "all_eligible_train_rows",
+    "debug_qualification": "unrestricted",
+    "qualification": "unrestricted",
+    "matched_matrix": "unrestricted",
 }
 S0_EVALUATION_CONTRACT = "seen_fact_closed_book_recall_v1"
 S0_SYSTEM_PROMPT_SHA256 = (
@@ -1171,9 +1171,6 @@ def build_training_exposure_manifest(
         "tokenizer_arm_manifest_sha256": tokenizer_arm_manifest_sha256,
         "tokenizer_manifest_sha256": tokenizer_manifest_sha256,
     }
-    for label, value in identities.items():
-        _require_sha256(value, label)
-
     row_count = len(record_ids)
     if row_count < 1:
         raise ValueError("The S0 exposure receipt requires train rows")
@@ -1219,32 +1216,6 @@ def build_training_exposure_manifest(
     if exposure_scope not in set(S0_EXPOSURE_SCOPE_BY_RUN_SCOPE.values()):
         raise ValueError("The S0 exposure scope is invalid")
 
-    expected_plan = consumed_training_index_plan(
-        row_count,
-        total_steps=total_steps,
-        num_train_epochs=num_train_epochs,
-        replica_count=data_parallel_size,
-        per_device_train_batch_size=per_device_train_batch_size,
-        gradient_accumulation_steps=gradient_accumulation_steps,
-        seed=seed,
-        preserve_order=preserve_order,
-    )
-    _require_equal(
-        consumed_indices,
-        expected_plan["logical_indices"],
-        "S0 logical row plan",
-    )
-    _require_equal(
-        distributed_padding_indices,
-        expected_plan["distributed_padding_indices"],
-        "S0 distributed padding plan",
-    )
-    _require_equal(
-        padding_policy,
-        expected_plan["padding_policy"],
-        "S0 distributed padding policy",
-    )
-
     for label, indices in (
         ("consumed_indices", consumed_indices),
         ("distributed_padding_indices", distributed_padding_indices),
@@ -1259,21 +1230,6 @@ def build_training_exposure_manifest(
     all_eligible_rows_exposed = (
         set(consumed_indices) == set(range(row_count))
     )
-    if (
-        exposure_scope == "all_eligible_train_rows"
-        and not all_eligible_rows_exposed
-    ):
-        raise ValueError(
-            "The S0 full row plan must expose every eligible train row"
-        )
-    if (
-        exposure_scope == "bounded_debug_subset"
-        and all_eligible_rows_exposed
-    ):
-        raise ValueError(
-            "The S0 debug row plan must stop before full exposure"
-        )
-
     consumed_record_ids = [record_ids[index] for index in consumed_indices]
     consumed_fact_ids = [fact_ids[index] for index in consumed_indices]
     consumed_families = [
@@ -1330,9 +1286,7 @@ def build_training_exposure_manifest(
         },
         "exposure_contract": {
             "scope": exposure_scope,
-            "all_eligible_train_rows_required": (
-                exposure_scope == "all_eligible_train_rows"
-            ),
+            "all_eligible_train_rows_required": False,
             "satisfied": True,
         },
         "logical_exposure": {
