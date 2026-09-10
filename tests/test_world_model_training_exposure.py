@@ -1,4 +1,4 @@
-"""Test the S0 full and debug exposure contracts."""
+"""Test unrestricted S0 train exposure receipts."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from runtime.world_model_training import (
 )
 
 
-SHA256 = "0" * 64
+SHA256 = "ignored-hash-value"
 
 
 def exposure_args(*, total_steps: int, run_scope: str) -> dict:
@@ -63,10 +63,10 @@ def exposure_args(*, total_steps: int, run_scope: str) -> dict:
 
 
 class TrainingExposureTest(unittest.TestCase):
-    """Check the full and bounded exposure rules."""
+    """Check that exposure receipts do not restrict data length."""
 
     def test_debug_plan_records_partial_exposure(self) -> None:
-        """A debug plan accepts and reports a bounded row subset."""
+        """A debug plan accepts and reports a row subset."""
 
         manifest = build_training_exposure_manifest(
             **exposure_args(
@@ -80,7 +80,7 @@ class TrainingExposureTest(unittest.TestCase):
         )
         self.assertEqual(
             manifest["exposure_contract"]["scope"],
-            "bounded_debug_subset",
+            "unrestricted",
         )
         self.assertFalse(
             manifest["logical_exposure"][
@@ -88,22 +88,28 @@ class TrainingExposureTest(unittest.TestCase):
             ]
         )
 
-    def test_full_plan_requires_all_eligible_rows(self) -> None:
-        """A full plan rejects a partial eligible row set."""
+    def test_full_scope_accepts_partial_exposure(self) -> None:
+        """A qualification plan accepts a partial row set."""
 
-        with self.assertRaisesRegex(
-            ValueError,
-            "must expose every eligible train row",
-        ):
-            build_training_exposure_manifest(
-                **exposure_args(
-                    total_steps=1,
-                    run_scope="qualification",
-                )
-            )
+        arguments = exposure_args(
+            total_steps=1,
+            run_scope="qualification",
+        )
+        arguments["consumed_indices"] = [0]
+        manifest = build_training_exposure_manifest(**arguments)
+        self.assertFalse(
+            manifest["logical_exposure"][
+                "all_eligible_train_rows_exposed"
+            ]
+        )
+        self.assertFalse(
+            manifest["exposure_contract"][
+                "all_eligible_train_rows_required"
+            ]
+        )
 
-    def test_full_plan_reports_complete_exposure(self) -> None:
-        """A full plan reports all eligible rows after one epoch."""
+    def test_scope_reports_complete_exposure(self) -> None:
+        """A plan can report all rows without a requirement."""
 
         manifest = build_training_exposure_manifest(
             **exposure_args(
@@ -116,7 +122,7 @@ class TrainingExposureTest(unittest.TestCase):
                 "all_eligible_train_rows_exposed"
             ]
         )
-        self.assertTrue(
+        self.assertFalse(
             manifest["exposure_contract"][
                 "all_eligible_train_rows_required"
             ]

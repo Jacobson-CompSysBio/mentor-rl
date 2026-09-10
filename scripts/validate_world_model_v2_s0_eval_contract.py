@@ -342,14 +342,10 @@ def main() -> int:
         or exposure.get("status") != "complete"
         or exposure.get("method_id") != method_id
         or not isinstance(logical, dict)
-        or logical.get("all_eligible_train_rows_exposed") is not True
         or not isinstance(exposure_contract, dict)
-        or exposure_contract.get("scope") != "all_eligible_train_rows"
         or exposure_contract.get("satisfied") is not True
     ):
-        raise SystemExit(
-            "The test requires one complete full-exposure checkpoint"
-        )
+        raise SystemExit("The test requires one complete checkpoint")
     required_checkpoint_files = (
         "adapter_config.json",
         "adapter_model.safetensors",

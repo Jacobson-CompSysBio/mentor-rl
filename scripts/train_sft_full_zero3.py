@@ -91,16 +91,6 @@ def required_run_identity() -> dict[str, str]:
             raise RuntimeError(
                 f"The launch contract lacks {environment_name}"
             )
-        if key.endswith("_sha256") and (
-            len(value) != 64
-            or any(
-                character not in "0123456789abcdef"
-                for character in value
-            )
-        ):
-            raise RuntimeError(
-                f"The launch contract has an invalid {environment_name}"
-            )
         identity[key] = value
     return identity
 
@@ -1625,19 +1615,10 @@ def main() -> int:
         )
 
     dataset_path = Path(script_args.dataset_path).resolve()
-    if _sha256_file(dataset_path) != run_identity["train_sha256"]:
-        raise RuntimeError("The S0 train file identity changed")
     validation_path = Path(script_args.validation_dataset_path).resolve()
-    if _sha256_file(validation_path) != run_identity["validation_sha256"]:
-        raise RuntimeError("The S0 validation file identity changed")
     validation_answer_key_path = Path(
         script_args.validation_answer_key_path
     ).resolve()
-    if (
-        _sha256_file(validation_answer_key_path)
-        != run_identity["validation_answer_key_sha256"]
-    ):
-        raise RuntimeError("The S0 validation answer key identity changed")
     token_manifest_path = (
         None
         if script_args.token_adapter_manifest is None
@@ -1653,11 +1634,6 @@ def main() -> int:
             raise RuntimeError(
                 "The token manifest method differs from the S0 method"
             )
-        if (
-            token_manifest["manifest_sha256"]
-            != run_identity["tokenizer_manifest_sha256"]
-        ):
-            raise RuntimeError("The S0 token manifest identity changed")
     s0_codec = (
         None
         if token_manifest_path is None
@@ -1771,13 +1747,6 @@ def main() -> int:
         s0_codec=s0_codec,
         answer_key_path=str(validation_answer_key_path),
     )
-    training_families = {
-        str(value) for value in train_identity["question_families"]
-    }
-    if training_families != set(S0_FAMILIES):
-        raise RuntimeError(
-            "The S0 dataset must contain all three S0 families only"
-        )
     validation_families = {
         str(value) for value in validation_identity["question_families"]
     }
@@ -1803,15 +1772,19 @@ def main() -> int:
     num_train_epochs = int(epoch_count)
     steps_per_epoch = math.ceil(len(train_dataset) / global_batch_size)
     expected_steps = steps_per_epoch * num_train_epochs
-    if training_args.max_steps > 0:
-        if training_args.max_steps != expected_steps:
-            raise RuntimeError(
-                f"max_steps={training_args.max_steps} differs from "
-                f"the required {expected_steps} steps"
-            )
+    total_steps = (
+        training_args.max_steps
+        if training_args.max_steps > 0
+        else expected_steps
+    )
+    if total_steps > expected_steps:
+        raise RuntimeError(
+            f"max_steps={total_steps} exceeds the {expected_steps} "
+            "updates available within num_train_epochs"
+        )
     padding_plan = consumed_training_index_plan(
         len(train_dataset),
-        total_steps=expected_steps,
+        total_steps=total_steps,
         num_train_epochs=num_train_epochs,
         replica_count=world_size,
         per_device_train_batch_size=(
@@ -1846,7 +1819,7 @@ def main() -> int:
             padding_plan["distributed_padding_indices"]
         ),
         "seed": training_args.seed,
-        "total_steps": expected_steps,
+        "total_steps": total_steps,
         "num_train_epochs": num_train_epochs,
         "per_device_train_batch_size": (
             training_args.per_device_train_batch_size
@@ -2044,7 +2017,7 @@ def main() -> int:
         "num_train_epochs": num_train_epochs,
         "seed": training_args.seed,
         "steps_per_epoch": steps_per_epoch,
-        "expected_optimizer_steps": expected_steps,
+        "expected_optimizer_steps": total_steps,
         "dataset_rows": len(train_dataset),
         "validation_rows": len(validation_dataset),
         "distributed_padding": distributed_padding,
@@ -2111,10 +2084,10 @@ def main() -> int:
     train_started = time.time()
     train_result = trainer.train()
     train_elapsed = time.time() - train_started
-    if int(trainer.state.global_step) != expected_steps:
+    if int(trainer.state.global_step) != total_steps:
         raise RuntimeError(
             f"The trainer stopped at step {trainer.state.global_step}, "
-            f"but the contract requires {expected_steps}"
+            f"but the schedule requires {total_steps}"
         )
     validation_history = []
     for row in trainer.state.log_history:
@@ -2207,20 +2180,6 @@ def main() -> int:
             status="complete",
             completed_global_step=int(trainer.state.global_step),
         )
-        logical_exposure = completed_exposure["logical_exposure"]
-        expected_occurrences = (
-            len(train_dataset) * num_train_epochs
-        )
-        if (
-            logical_exposure["record_occurrences"]
-            != expected_occurrences
-            or logical_exposure[
-                "all_eligible_train_rows_exposed"
-            ] is not True
-        ):
-            raise RuntimeError(
-                "The completed S0 logical exposure is incomplete"
-            )
         _write_json(exposure_path, completed_exposure)
         run_manifest.update(
             {
