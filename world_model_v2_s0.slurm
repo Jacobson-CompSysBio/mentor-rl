@@ -396,6 +396,7 @@ export S0_VALIDATION_ANSWER_KEY_SHA256 S0_EVALUATOR_MANIFEST
 export TRAINER_PATH OUTPUT_ROOT
 export NUM_NODES GPUS_PER_NODE RANKS_PER_NODE WORLD_SIZE_EXPECTED
 export TP_SIZE EP_SIZE DATA_PARALLEL_SIZE MAX_LENGTH
+export TRAIN_NUM_EPOCHS TRAIN_UPDATES_PER_EPOCH TRAIN_TOTAL_STEPS
 export S0_TRAINING_CODE_SHA256=""
 S0_TRACKING_MODE=online
 S0_WANDB_ENTITY=jail-ai
@@ -417,7 +418,9 @@ echo "Run: ${S0_RUN_ID}"
 echo "Method: ${S0_METHOD_ID}"
 echo "Trainer: ${S0_TRAIN_MODE}"
 echo "Resources: nodes=${NUM_NODES} ranks_per_node=${RANKS_PER_NODE}"
-echo "Train values: epochs=${TRAIN_NUM_EPOCHS} steps=${TRAIN_MAX_STEPS} global_batch=${GLOBAL_BATCH_SIZE} learning_rate=${LEARNING_RATE}"
+echo "Train values: epochs=${TRAIN_NUM_EPOCHS}" \
+  "calculated_steps=${TRAIN_TOTAL_STEPS}" \
+  "global_batch=${GLOBAL_BATCH_SIZE} learning_rate=${LEARNING_RATE}"
 echo "W&B mode: ${S0_TRACKING_MODE}"
 echo "W&B entity: ${S0_WANDB_ENTITY}"
 
@@ -546,7 +549,8 @@ printf '%s\n' \
   "ranks_per_node=${RANKS_PER_NODE}" \
   "world_size=${WORLD_SIZE_EXPECTED}" \
   "epochs=${TRAIN_NUM_EPOCHS}" \
-  "max_steps=${TRAIN_MAX_STEPS}" \
+  "updates_per_epoch=${TRAIN_UPDATES_PER_EPOCH}" \
+  "total_steps=${TRAIN_TOTAL_STEPS}" \
   "global_batch_size=${GLOBAL_BATCH_SIZE}" \
   "learning_rate=${LEARNING_RATE}" \
   "eval_strategy=${EVAL_STRATEGY}" \
@@ -823,7 +827,6 @@ train_args=(
   --validation_answer_key_path "${S0_VALIDATION_ANSWER_KEY_PATH}"
   --output_dir "${OUTPUT_DIR}"
   --num_train_epochs "${TRAIN_NUM_EPOCHS}"
-  --max_steps "${TRAIN_MAX_STEPS}"
   --per_device_train_batch_size "${TRAIN_BATCH_SIZE}"
   --gradient_accumulation_steps "${GRAD_ACCUM_STEPS}"
   --learning_rate "${LEARNING_RATE}"

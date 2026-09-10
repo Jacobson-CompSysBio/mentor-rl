@@ -19,7 +19,7 @@ METHOD_ID = "oss20b-fully-atomic-identifiers-lora-r32"
 def run_validator(
     tmp_path: Path,
     *,
-    max_steps: int,
+    max_steps: int | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run the validator with a 1,000-row contract."""
 
@@ -41,7 +41,8 @@ def run_validator(
         method["arm_manifest_sha256"] = "ignored-arm-value"
         method["tokenizer_manifest_sha256"] = "ignored-tokenizer-value"
     config["run_settings"]["num_train_epochs"] = 3
-    config["run_settings"]["max_steps"] = max_steps
+    if max_steps is not None:
+        config["run_settings"]["max_steps"] = max_steps
     config_path.write_text(
         json.dumps(config, indent=2) + "\n",
         encoding="utf-8",
@@ -75,37 +76,29 @@ def run_validator(
     )
 
 
-def test_validator_accepts_1000_rows_and_positive_steps(
+def test_validator_calculates_steps_from_epochs(
     tmp_path: Path,
 ) -> None:
-    """The validator accepts a smaller dataset in qualification scope."""
+    """The validator calculates steps for a smaller dataset."""
 
-    result = run_validator(tmp_path, max_steps=96)
+    result = run_validator(tmp_path)
 
     assert result.returncode == 0, result.stderr
     assert "S0_RUN_SCOPE=qualification" in result.stdout
     assert "S0_TRAIN_ROWS=1000" in result.stdout
-    assert "TRAIN_MAX_STEPS=96" in result.stdout
+    assert "TRAIN_UPDATES_PER_EPOCH=32" in result.stdout
+    assert "TRAIN_TOTAL_STEPS=96" in result.stdout
+    assert "TRAIN_MAX_STEPS" not in result.stdout
 
 
-def test_validator_accepts_automatic_steps(tmp_path: Path) -> None:
-    """The validator accepts the trainer step calculation."""
-
-    result = run_validator(tmp_path, max_steps=-1)
-
-    assert result.returncode == 0, result.stderr
-    assert "S0_TRAIN_ROWS=1000" in result.stdout
-    assert "TRAIN_MAX_STEPS=-1" in result.stdout
-
-
-@pytest.mark.parametrize("max_steps", [0, -2])
-def test_validator_rejects_invalid_steps(
+@pytest.mark.parametrize("max_steps", [-1, 96])
+def test_validator_rejects_max_steps(
     tmp_path: Path,
     max_steps: int,
 ) -> None:
-    """The validator rejects an unusable step limit."""
+    """The validator rejects the removed step parameter."""
 
     result = run_validator(tmp_path, max_steps=max_steps)
 
     assert result.returncode != 0
-    assert "max_steps must be -1 or a positive integer" in result.stderr
+    assert "max_steps is not supported" in result.stderr

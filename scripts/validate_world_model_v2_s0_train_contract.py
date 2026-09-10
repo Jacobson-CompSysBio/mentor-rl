@@ -14,6 +14,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from runtime.world_model_training import (  # noqa: E402
+    derive_optimizer_step_schedule,
+)
+
 
 def sha256_file(path: Path) -> str:
     """Return the SHA-256 value for one file."""
@@ -183,12 +187,6 @@ def require_int(value: object, name: str) -> int:
     return value
 
 
-def require_max_steps(value: object) -> int:
-    if type(value) is not int or value == 0 or value < -1:
-        raise SystemExit("max_steps must be -1 or a positive integer")
-    return value
-
-
 def require_number(value: object, name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise SystemExit(f"{name} must be a number")
@@ -212,9 +210,17 @@ def absolute_path(value: object, name: str) -> str:
 model = require_object(config.get("model"), "model")
 corpus = require_object(config.get("corpus"), "corpus")
 settings = require_object(config.get("run_settings"), "run_settings")
+if "max_steps" in settings:
+    raise SystemExit(
+        "run_settings max_steps is not supported; set num_train_epochs"
+    )
 run_scope = require_string(config.get("run_scope"), "run_scope")
 overrides = method.get("run_settings", {})
 overrides = require_object(overrides, "method run_settings")
+if "max_steps" in overrides:
+    raise SystemExit(
+        "method run_settings max_steps is not supported; set num_train_epochs"
+    )
 unknown_overrides = sorted(set(overrides) - set(settings))
 if unknown_overrides:
     raise SystemExit(
@@ -334,7 +340,6 @@ else:
         raise SystemExit("The full data parallel size differs from the rank count")
 
 epochs = require_int(settings.get("num_train_epochs"), "num_train_epochs")
-max_steps = require_max_steps(settings.get("max_steps"))
 batch_size = require_int(
     settings.get("per_device_train_batch_size"),
     "per_device_train_batch_size",
@@ -351,6 +356,16 @@ validation_rows = require_int(
     corpus.get("validation_rows"),
     "corpus validation_rows",
 )
+try:
+    schedule = derive_optimizer_step_schedule(
+        train_rows,
+        num_train_epochs=epochs,
+        replica_count=data_parallel_size,
+        per_device_train_batch_size=batch_size,
+        gradient_accumulation_steps=grad_accum,
+    )
+except ValueError as error:
+    raise SystemExit(f"The optimizer step schedule is invalid: {error}") from error
 
 learning_rate = require_number(settings.get("learning_rate"), "learning_rate")
 warmup_ratio = require_number(settings.get("warmup_ratio"), "warmup_ratio")
@@ -557,7 +572,8 @@ values = {
     "EP_SIZE": str(ep_size),
     "DATA_PARALLEL_SIZE": str(data_parallel_size),
     "TRAIN_NUM_EPOCHS": str(epochs),
-    "TRAIN_MAX_STEPS": str(max_steps),
+    "TRAIN_UPDATES_PER_EPOCH": str(schedule["updates_per_epoch"]),
+    "TRAIN_TOTAL_STEPS": str(schedule["total_steps"]),
     "TRAIN_BATCH_SIZE": str(batch_size),
     "GRAD_ACCUM_STEPS": str(grad_accum),
     "GLOBAL_BATCH_SIZE": str(global_batch),

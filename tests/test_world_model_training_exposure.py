@@ -7,11 +7,64 @@ import unittest
 from runtime.world_model_training import (
     build_training_exposure_manifest,
     consumed_training_index_plan,
+    derive_optimizer_step_schedule,
     s0_exposure_scope,
 )
 
 
 SHA256 = "ignored-hash-value"
+
+
+class OptimizerStepScheduleTest(unittest.TestCase):
+    """Check the step calculation for complete epochs."""
+
+    def test_single_replica_schedule(self) -> None:
+        """One-row batches give one update for each row."""
+
+        schedule = derive_optimizer_step_schedule(
+            100,
+            num_train_epochs=500,
+            replica_count=1,
+            per_device_train_batch_size=1,
+            gradient_accumulation_steps=1,
+        )
+
+        self.assertEqual(schedule["updates_per_epoch"], 100)
+        self.assertEqual(schedule["total_steps"], 50_000)
+
+    def test_distributed_accumulation_schedule(self) -> None:
+        """Replicas and accumulation reduce the update count."""
+
+        schedule = derive_optimizer_step_schedule(
+            100,
+            num_train_epochs=500,
+            replica_count=16,
+            per_device_train_batch_size=1,
+            gradient_accumulation_steps=2,
+        )
+
+        self.assertEqual(schedule["global_batch_size"], 32)
+        self.assertEqual(schedule["updates_per_epoch"], 4)
+        self.assertEqual(schedule["total_steps"], 2_000)
+
+    def test_checked_in_complete_epoch_schedules(self) -> None:
+        """Derived steps match each complete-epoch schedule."""
+
+        cases = (
+            (1, 1, 2, 42_642),
+            (5, 16, 1, 26_655),
+            (10, 16, 2, 26_660),
+        )
+        for epochs, replicas, accumulation, expected_steps in cases:
+            with self.subTest(epochs=epochs, accumulation=accumulation):
+                schedule = derive_optimizer_step_schedule(
+                    85_284,
+                    num_train_epochs=epochs,
+                    replica_count=replicas,
+                    per_device_train_batch_size=1,
+                    gradient_accumulation_steps=accumulation,
+                )
+                self.assertEqual(schedule["total_steps"], expected_steps)
 
 
 def exposure_args(*, total_steps: int, run_scope: str) -> dict:

@@ -1032,6 +1032,53 @@ def epoch_training_indices_with_replica_padding(
     return order + padding, padding
 
 
+def derive_optimizer_step_schedule(
+    dataset_size: int,
+    *,
+    num_train_epochs: int,
+    replica_count: int,
+    per_device_train_batch_size: int,
+    gradient_accumulation_steps: int,
+) -> dict[str, int]:
+    """Calculate the optimizer step schedule for complete epochs."""
+
+    for name, value in (
+        ("dataset_size", dataset_size),
+        ("num_train_epochs", num_train_epochs),
+        ("replica_count", replica_count),
+        ("per_device_train_batch_size", per_device_train_batch_size),
+        ("gradient_accumulation_steps", gradient_accumulation_steps),
+    ):
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise ValueError(f"{name} must be positive")
+    if dataset_size < replica_count:
+        raise ValueError("dataset_size must be at least replica_count")
+
+    per_replica_rows = math.ceil(dataset_size / replica_count)
+    batches_per_epoch = math.ceil(
+        per_replica_rows / per_device_train_batch_size
+    )
+    updates_per_epoch = math.ceil(
+        batches_per_epoch / gradient_accumulation_steps
+    )
+    return {
+        "dataset_size": dataset_size,
+        "num_train_epochs": num_train_epochs,
+        "replica_count": replica_count,
+        "per_device_train_batch_size": per_device_train_batch_size,
+        "gradient_accumulation_steps": gradient_accumulation_steps,
+        "global_batch_size": (
+            replica_count
+            * per_device_train_batch_size
+            * gradient_accumulation_steps
+        ),
+        "per_replica_rows": per_replica_rows,
+        "batches_per_epoch": batches_per_epoch,
+        "updates_per_epoch": updates_per_epoch,
+        "total_steps": updates_per_epoch * num_train_epochs,
+    }
+
+
 def consumed_training_index_plan(
     dataset_size: int,
     *,
@@ -1045,16 +1092,25 @@ def consumed_training_index_plan(
 ) -> dict[str, Any]:
     """Separate logical exposure from distributed padding."""
 
-    for name, value in (
-        ("dataset_size", dataset_size),
-        ("total_steps", total_steps),
-        ("num_train_epochs", num_train_epochs),
-        ("replica_count", replica_count),
-        ("per_device_train_batch_size", per_device_train_batch_size),
-        ("gradient_accumulation_steps", gradient_accumulation_steps),
+    schedule = derive_optimizer_step_schedule(
+        dataset_size,
+        num_train_epochs=num_train_epochs,
+        replica_count=replica_count,
+        per_device_train_batch_size=per_device_train_batch_size,
+        gradient_accumulation_steps=gradient_accumulation_steps,
+    )
+    if (
+        not isinstance(total_steps, int)
+        or isinstance(total_steps, bool)
+        or total_steps < 1
     ):
-        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
-            raise ValueError(f"{name} must be positive")
+        raise ValueError("total_steps must be positive")
+    if total_steps > schedule["total_steps"]:
+        raise ValueError(
+            f"total_steps={total_steps} exceeds the "
+            f"{schedule['total_steps']} updates available within "
+            f"num_train_epochs={num_train_epochs}"
+        )
     if not isinstance(seed, int) or isinstance(seed, bool):
         raise ValueError("seed must be an integer")
     if not isinstance(preserve_order, bool):
@@ -1076,7 +1132,7 @@ def consumed_training_index_plan(
         rows_per_update = (
             per_device_train_batch_size * gradient_accumulation_steps
         )
-        steps_per_epoch = math.ceil(per_replica_rows / rows_per_update)
+        steps_per_epoch = schedule["updates_per_epoch"]
         padded_rows_per_epoch = len(padded_order)
         steps_in_epoch = min(
             steps_per_epoch,

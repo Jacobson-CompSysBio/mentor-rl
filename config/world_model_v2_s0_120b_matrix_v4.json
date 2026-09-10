@@ -102,7 +102,6 @@
   },
   "run_settings": {
     "num_train_epochs": 5,
-    "max_steps": 26655,
     "per_device_train_batch_size": 1,
     "gradient_accumulation_steps": 1,
     "global_batch_size": 16,

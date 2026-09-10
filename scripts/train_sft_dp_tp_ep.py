@@ -61,6 +61,7 @@ from utils.utils import build_prompt_completion_example  # noqa: E402
 from runtime.world_model_training import (  # noqa: E402
     build_training_exposure_manifest,
     consumed_training_index_plan,
+    derive_optimizer_step_schedule,
     epoch_training_indices_with_replica_padding,
     flatten_sft_record_for_arrow,
     iter_s0_validation_records,
@@ -189,7 +190,7 @@ def initialize_wandb(
             "lr_scheduler_type": args.lr_scheduler_type,
             "warmup_ratio": args.warmup_ratio,
             **loss_contract_config(args.loss_contract),
-            "max_steps": args.max_steps,
+            "num_train_epochs": args.num_train_epochs,
             "max_length": args.max_length,
             "eval_strategy": args.eval_strategy,
             "eval_on_start": args.eval_on_start,
@@ -390,7 +391,6 @@ def parse_args() -> argparse.Namespace:
         help="Consume the deterministic family-cycling subset order instead of reshuffling it.",
     )
     parser.add_argument("--num_train_epochs", type=int, default=1)
-    parser.add_argument("--max_steps", type=int, default=-1)
     parser.add_argument("--per_device_train_batch_size", type=int, default=1)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1)
     # These values define the optimizer and loss contract.
@@ -453,8 +453,6 @@ def validate_cli(args: argparse.Namespace) -> None:
     for name in positive:
         if getattr(args, name) < 1:
             raise ValueError(f"--{name} must be positive")
-    if args.max_steps == 0 or args.max_steps < -1:
-        raise ValueError("--max_steps must be -1 or positive")
     if args.lora_dropout != 0.0:
         raise ValueError(
             "TP-aware LoRA dropout is deliberately fixed at zero until identical-mask "
@@ -2412,16 +2410,16 @@ def main() -> None:
         s0_codec=s0_codec,
         answer_key_path=args.validation_answer_key_path,
     )
-    per_replica_rows = math.ceil(len(dataset) / topology.data_parallel_size)
-    batches_per_epoch = math.ceil(per_replica_rows / args.per_device_train_batch_size)
-    updates_per_epoch = math.ceil(batches_per_epoch / args.gradient_accumulation_steps)
-    requested_steps = updates_per_epoch * args.num_train_epochs
-    total_steps = args.max_steps if args.max_steps > 0 else requested_steps
-    if total_steps > requested_steps:
-        raise ValueError(
-            f"--max_steps={total_steps} exceeds the {requested_steps} updates available "
-            "within --num_train_epochs; increase epochs explicitly."
-        )
+    schedule = derive_optimizer_step_schedule(
+        len(dataset),
+        num_train_epochs=args.num_train_epochs,
+        replica_count=topology.data_parallel_size,
+        per_device_train_batch_size=args.per_device_train_batch_size,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
+    )
+    batches_per_epoch = schedule["batches_per_epoch"]
+    updates_per_epoch = schedule["updates_per_epoch"]
+    total_steps = schedule["total_steps"]
     validation_families = {
         str(value) for value in validation_identities["question_families"]
     }
@@ -2530,6 +2528,8 @@ def main() -> None:
         _WANDB_RUN.config.update(
             {
                 "training_examples": len(dataset),
+                "updates_per_epoch": updates_per_epoch,
+                "total_steps": total_steps,
                 "tokenizer_artifacts_sha256": tokenizer_identity_sha256,
                 "completion_preflight_examples": supervision["examples_checked"],
                 "mapping_target_preflight_tokens": supervision[
@@ -2626,7 +2626,7 @@ def main() -> None:
     )
     if rank == 0:
         _WANDB_RUN.config.update(
-            {"effective_total_steps": total_steps, "warmup_steps": warmup_steps},
+            {"warmup_steps": warmup_steps},
             allow_val_change=True,
         )
     # Restore all adapter, optimizer, scheduler, RNG, and loop state together.

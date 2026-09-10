@@ -35,6 +35,7 @@ if str(REPO_ROOT) not in sys.path:
 from runtime.world_model_training import (  # noqa: E402
     build_training_exposure_manifest,
     consumed_training_index_plan,
+    derive_optimizer_step_schedule,
     epoch_training_indices_with_replica_padding,
     flatten_sft_record_for_arrow,
     iter_s0_validation_records,
@@ -135,6 +136,13 @@ class ScriptArguments:
             )
         },
     )
+
+
+@dataclass
+class S0TrainingConfig(SFTConfig):
+    """Remove the external step limit from the S0 train arguments."""
+
+    max_steps: int = field(default=-1, init=False, repr=False)
 
 
 class EpochSeededSampler(Sampler[int]):
@@ -1574,7 +1582,7 @@ def _run_model_init_qualification(
 
 def main() -> int:
     load_dotenv(REPO_ROOT / ".env", override=False)
-    parser = HfArgumentParser((ScriptArguments, SFTConfig))
+    parser = HfArgumentParser((ScriptArguments, S0TrainingConfig))
     script_args, training_args = parser.parse_args_into_dataclasses()
     run_identity = required_run_identity()
     if script_args.loss_contract != S0_TARGET_AWARE_LOSS_CONTRACT:
@@ -1759,29 +1767,28 @@ def main() -> int:
             "The S0 validation set must use the validation prompt form"
         )
 
-    global_batch_size = (
-        world_size
-        * training_args.per_device_train_batch_size
-        * training_args.gradient_accumulation_steps
-    )
     epoch_count = float(training_args.num_train_epochs)
     if epoch_count <= 0 or not epoch_count.is_integer():
         raise RuntimeError(
             "The S0 exposure contract requires a positive whole epoch count"
         )
     num_train_epochs = int(epoch_count)
-    steps_per_epoch = math.ceil(len(train_dataset) / global_batch_size)
-    expected_steps = steps_per_epoch * num_train_epochs
-    total_steps = (
-        training_args.max_steps
-        if training_args.max_steps > 0
-        else expected_steps
+    schedule = derive_optimizer_step_schedule(
+        len(train_dataset),
+        num_train_epochs=num_train_epochs,
+        replica_count=world_size,
+        per_device_train_batch_size=(
+            training_args.per_device_train_batch_size
+        ),
+        gradient_accumulation_steps=(
+            training_args.gradient_accumulation_steps
+        ),
     )
-    if total_steps > expected_steps:
-        raise RuntimeError(
-            f"max_steps={total_steps} exceeds the {expected_steps} "
-            "updates available within num_train_epochs"
-        )
+    global_batch_size = schedule["global_batch_size"]
+    steps_per_epoch = schedule["updates_per_epoch"]
+    total_steps = schedule["total_steps"]
+    # Give Trainer the derived count. The CLI cannot set this value.
+    training_args.max_steps = total_steps
     padding_plan = consumed_training_index_plan(
         len(train_dataset),
         total_steps=total_steps,
