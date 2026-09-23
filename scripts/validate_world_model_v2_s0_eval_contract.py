@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate one S0 test contract and print its shell values."""
+"""Validate one canonical S0 trajectory test contract."""
 
 from __future__ import annotations
 
@@ -11,17 +11,25 @@ import sys
 from typing import Any
 
 
-TEST_SCHEMA_VERSION = "mentor-rl-world-model-s0-test-v4"
-EVALUATOR_SCHEMA_VERSION = "mentor-rl-world-model-s0-evaluator-manifest-v4"
+TEST_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-full-tool-trajectory-test-v6"
+)
+EVALUATOR_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-full-tool-trajectory-evaluator-manifest-v6"
+)
 EXPOSURE_SCHEMA_VERSION = "mentor-rl-s0-training-exposure-v2"
-EVALUATION_CONTRACT = "seen_fact_closed_book_recall_v1"
-DATASET_ID = "world_model_v2_s0_human_identifiers_v4"
+EVALUATION_CONTRACT = "full_registry_tool_trajectory_v1"
+CORPUS_DATASET_ID = (
+    "world_model_v2_s0_human_identifier_trajectories_v6"
+)
+EVALUATOR_DATASET_ID = (
+    "world_model_v2_s0_human_identifier_trajectories_full_registry_v6"
+)
+CORPUS_EVALUATION_CONTRACT = (
+    "unseen_component_tool_trajectory_v1"
+)
 CHECKPOINT_FORMAT = "mentor-rl-s0-tp-lora-v1"
-TOKENIZER_METHODS = {
-    "plain_base_tokenizer",
-    "ordinary_domain_bpe",
-    "atomic_plus_domain_bpe",
-}
+LOSS_CONTRACT = "s0_tool_trajectory_v1"
 
 
 def canonical_json(value: Any) -> str:
@@ -153,7 +161,7 @@ def validate_internal_manifest(
 
 
 def main() -> int:
-    """Validate and export one S0 test contract."""
+    """Validate and export one S0 trajectory test contract."""
 
     if len(sys.argv) != 5:
         raise SystemExit(
@@ -176,41 +184,53 @@ def main() -> int:
     methods = config.get("methods")
     if not isinstance(methods, list):
         raise SystemExit("The S0 test config has no methods")
-    selected = [item for item in methods if item.get("method_id") == method_id]
+    selected = [
+        item
+        for item in methods
+        if isinstance(item, dict) and item.get("method_id") == method_id
+    ]
     if len(selected) != 1:
         raise SystemExit("METHOD_ID must select one S0 test method")
     method = selected[0]
     tokenizer_method = require_string(
         method.get("tokenizer_method"), "tokenizer_method"
     )
-    if tokenizer_method not in TOKENIZER_METHODS:
-        raise SystemExit("The tokenizer method is invalid")
+    if tokenizer_method != "plain_base_tokenizer":
+        raise SystemExit(
+            "The trajectory test requires the base tokenizer"
+        )
     if (
         method.get("checkpoint_kind") != "lora"
         or method.get("fine_tune_configuration") != "lora_r32"
     ):
-        raise SystemExit("The 20B test requires one LoRA-r32 checkpoint")
+        raise SystemExit(
+            "The trajectory test requires one LoRA-r32 checkpoint"
+        )
 
-    model = config.get("model")
-    corpus = config.get("corpus")
-    panel = config.get("test_panel")
-    generation = config.get("generation")
-    gate = config.get("gate")
-    tracking = config.get("tracking")
-    if not all(
-        isinstance(value, dict)
-        for value in (model, corpus, panel, generation, gate, tracking)
-    ):
+    sections = (
+        config.get("model"),
+        config.get("corpus"),
+        config.get("test_panel"),
+        config.get("generation"),
+        config.get("gate"),
+        config.get("tracking"),
+    )
+    if not all(isinstance(value, dict) for value in sections):
         raise SystemExit("The S0 test config has an invalid section")
+    model, corpus, panel, generation, gate, tracking = sections
 
     model_path = resolve_model_path(root, model.get("path"))
     model_identity = require_sha256(
         model.get("model_identity_sha256"), "model identity"
     )
-    if model.get("base_model_artifact_schema") != "mentor-rl-base-model-artifact-v2":
+    if (
+        model.get("base_model_artifact_schema")
+        != "mentor-rl-base-model-artifact-v2"
+    ):
         raise SystemExit("The base-model artifact schema changed")
     base_artifact = require_sha256(
-        model.get("base_model_artifact_sha256"), "base-model artifact"
+        model.get("base_model_artifact_sha256"),
+        "base-model artifact",
     )
     weight_shards = require_int(
         model.get("weight_shard_count"), "model weight shard count"
@@ -227,28 +247,43 @@ def main() -> int:
     if model_metadata_identity != model_identity:
         raise SystemExit("The base-model metadata identity changed")
 
-    corpus_root = resolve_repo_path(root, corpus.get("root"), "corpus root")
+    corpus_root = resolve_repo_path(
+        root, corpus.get("root"), "corpus root"
+    )
     corpus_manifest_hash = require_sha256(
         corpus.get("manifest_sha256"), "corpus manifest"
     )
     corpus_manifest_path = corpus_root / "manifest.json"
-    verify_file(corpus_manifest_path, corpus_manifest_hash, "corpus manifest")
-    corpus_manifest = read_json(corpus_manifest_path, "the corpus manifest")
+    verify_file(
+        corpus_manifest_path, corpus_manifest_hash, "corpus manifest"
+    )
+    corpus_manifest = read_json(
+        corpus_manifest_path, "the corpus manifest"
+    )
+    eligible_train_rows = require_int(
+        corpus.get("eligible_train_rows"), "eligible train rows"
+    )
+    train_sha256 = require_sha256(
+        corpus.get("train_sha256"), "train file"
+    )
     if (
-        corpus_manifest.get("dataset_id") != DATASET_ID
-        or corpus_manifest.get("evaluation_contract") != EVALUATION_CONTRACT
-        or corpus_manifest.get("row_counts", {}).get("test")
-        != require_int(panel.get("row_count"), "test row count")
+        corpus_manifest.get("dataset_id") != CORPUS_DATASET_ID
+        or corpus_manifest.get("evaluation_contract")
+        != CORPUS_EVALUATION_CONTRACT
+        or corpus_manifest.get("training_contract")
+        != "tool_trajectory_v1"
         or corpus_manifest.get("train_population", {}).get(
             "eligible_train_rows"
         )
-        != require_int(corpus.get("eligible_train_rows"), "eligible train rows")
+        != eligible_train_rows
+        or corpus_manifest.get("file_hashes", {}).get("train.jsonl")
+        != train_sha256
     ):
         raise SystemExit("The corpus test contract changed")
-    train_sha256 = require_sha256(corpus.get("train_sha256"), "train file")
-    if corpus_manifest.get("file_hashes", {}).get("train.jsonl") != train_sha256:
-        raise SystemExit("The train identity differs from the corpus manifest")
 
+    panel_row_count = require_int(
+        panel.get("row_count"), "test row count"
+    )
     evaluator_root = resolve_repo_path(
         root, panel.get("evaluator_root"), "evaluator root"
     )
@@ -256,22 +291,27 @@ def main() -> int:
         panel.get("evaluator_manifest"), "evaluator manifest name"
     )
     evaluator_manifest_hash = require_sha256(
-        panel.get("evaluator_manifest_sha256"), "evaluator manifest"
+        panel.get("evaluator_manifest_sha256"),
+        "evaluator manifest",
     )
     verify_file(
         evaluator_manifest_path,
         evaluator_manifest_hash,
         "evaluator manifest",
     )
-    evaluator = read_json(evaluator_manifest_path, "the evaluator manifest")
+    evaluator = read_json(
+        evaluator_manifest_path, "the evaluator manifest"
+    )
     test = evaluator.get("test")
     if (
         evaluator.get("schema_version") != EVALUATOR_SCHEMA_VERSION
-        or evaluator.get("dataset_id") != DATASET_ID
+        or evaluator.get("dataset_id") != EVALUATOR_DATASET_ID
+        or evaluator.get("source_dataset_id") != CORPUS_DATASET_ID
         or evaluator.get("evaluation_contract") != EVALUATION_CONTRACT
         or not isinstance(test, dict)
     ):
         raise SystemExit("The evaluator manifest contract changed")
+
     questions_path = evaluator_root / require_string(
         panel.get("questions_file"), "questions file"
     )
@@ -286,12 +326,14 @@ def main() -> int:
     )
     verify_file(questions_path, questions_sha256, "test questions")
     verify_file(answer_key_path, answer_key_sha256, "test answer key")
-    test_panel_id = require_sha256(panel.get("test_panel_id"), "test panel ID")
+    test_panel_id = require_sha256(
+        panel.get("test_panel_id"), "test panel ID"
+    )
     if (
         test.get("questions_sha256") != questions_sha256
         or test.get("answer_key_sha256") != answer_key_sha256
         or test.get("test_panel_id") != test_panel_id
-        or test.get("row_count") != panel.get("row_count")
+        or test.get("row_count") != panel_row_count
     ):
         raise SystemExit("The fixed test panel identity changed")
 
@@ -305,10 +347,13 @@ def main() -> int:
         tokenizer_manifest_path, "the tokenizer manifest"
     )
     tokenizer_manifest_sha256 = require_sha256(
-        method.get("tokenizer_manifest_sha256"), "tokenizer manifest identity"
+        method.get("tokenizer_manifest_sha256"),
+        "tokenizer manifest identity",
     )
     if (
-        validate_internal_manifest(tokenizer_manifest, "tokenizer manifest")
+        validate_internal_manifest(
+            tokenizer_manifest, "tokenizer manifest"
+        )
         != tokenizer_manifest_sha256
         or tokenizer_manifest.get("method") != tokenizer_method
         or not (tokenizer_path / "tokenizer.json").is_file()
@@ -316,14 +361,16 @@ def main() -> int:
         raise SystemExit("The tokenizer contract changed")
 
     adapter_manifest = read_json(
-        checkpoint_path / "tp_adapter_manifest.json", "the adapter manifest"
+        checkpoint_path / "tp_adapter_manifest.json",
+        "the adapter manifest",
     )
     adapter_identity = adapter_manifest.get("identity")
     if (
         adapter_manifest.get("format") != CHECKPOINT_FORMAT
         or not isinstance(adapter_identity, dict)
         or adapter_identity.get("method_id") != method_id
-        or adapter_identity.get("model_identity_sha256") != model_identity
+        or adapter_identity.get("model_identity_sha256")
+        != model_identity
         or adapter_identity.get("corpus_manifest_sha256")
         != corpus_manifest_hash
         or adapter_identity.get("train_sha256") != train_sha256
@@ -331,9 +378,20 @@ def main() -> int:
         != tokenizer_manifest_sha256
     ):
         raise SystemExit("The selected checkpoint contract changed")
-    train_run_id = require_string(adapter_identity.get("run_id"), "train run ID")
-    exposure_path = checkpoint_path / "run_contract" / "training_exposure.json"
-    exposure = read_json(exposure_path, "the training exposure receipt")
+    if (
+        adapter_manifest.get("objective", {}).get("loss_contract")
+        != LOSS_CONTRACT
+    ):
+        raise SystemExit("The checkpoint loss contract changed")
+    train_run_id = require_string(
+        adapter_identity.get("run_id"), "train run ID"
+    )
+    exposure_path = (
+        checkpoint_path / "run_contract" / "training_exposure.json"
+    )
+    exposure = read_json(
+        exposure_path, "the training exposure receipt"
+    )
     validate_internal_manifest(exposure, "training exposure receipt")
     logical = exposure.get("logical_exposure")
     exposure_contract = exposure.get("exposure_contract")
@@ -351,41 +409,218 @@ def main() -> int:
         "adapter_model.safetensors",
         "tp_adapter_manifest.json",
     )
-    if any(not (checkpoint_path / name).is_file() for name in required_checkpoint_files):
+    if any(
+        not (checkpoint_path / name).is_file()
+        for name in required_checkpoint_files
+    ):
         raise SystemExit("The consolidated LoRA checkpoint is incomplete")
-    custom = tokenizer_method != "plain_base_tokenizer"
-    token_files = (
-        checkpoint_path / "biological_token_adapter.safetensors",
-        checkpoint_path / "tokenizer_manifest.json",
-    )
-    if custom != all(path.is_file() for path in token_files):
-        raise SystemExit("The checkpoint token adapter contract changed")
 
+    num_nodes = require_int(
+        generation.get("num_nodes"), "evaluation node count"
+    )
+    tasks_per_node = require_int(
+        generation.get("tasks_per_node"), "tasks per node"
+    )
+    gpus_per_node = require_int(
+        generation.get("gpus_per_node"), "GPUs per node"
+    )
     if (
-        require_int(generation.get("num_nodes"), "evaluation node count") != 1
-        or require_int(generation.get("tasks_per_node"), "tasks per node") != 1
-        or require_int(generation.get("gpus_per_node"), "GPUs per node") != 8
+        tasks_per_node != 1
+        or gpus_per_node != 8
         or generation.get("do_sample") is not False
-        or generation.get("enable_thinking") is not False
+        or generation.get("enable_thinking") is not True
         or generation.get("local_files_only") is not True
     ):
-        raise SystemExit("The deterministic generation contract changed")
+        raise SystemExit(
+            "The deterministic generation contract changed"
+        )
+    batch_size = require_int(
+        generation.get("batch_size"), "generation batch size"
+    )
     max_new_tokens = require_int(
         generation.get("max_new_tokens"), "maximum new tokens"
     )
     max_total_tokens = require_int(
         generation.get("max_total_tokens"), "maximum total tokens"
     )
-    if max_total_tokens <= max_new_tokens:
-        raise SystemExit("The total token limit must exceed the new token limit")
-    minimum_accuracy = require_number(
-        gate.get("minimum_family_mapping_accuracy"), "family accuracy floor"
+    if max_total_tokens <= max_new_tokens or max_new_tokens < 256:
+        raise SystemExit(
+            "The trajectory token limits are invalid"
+        )
+    reasoning_effort = require_string(
+        generation.get("reasoning_effort"), "reasoning effort"
     )
-    target_accuracy = require_number(
-        gate.get("target_family_mapping_accuracy"), "family accuracy target"
+    if reasoning_effort != "low":
+        raise SystemExit(
+            "The trajectory test requires low reasoning effort"
+        )
+
+    minimum_valid_trajectory = require_number(
+        gate.get("minimum_valid_tool_trajectory"),
+        "valid tool trajectory floor",
     )
-    if target_accuracy < minimum_accuracy:
-        raise SystemExit("The family accuracy target is below its floor")
+    minimum_reasoning_present = require_number(
+        gate.get("minimum_reasoning_present"),
+        "reasoning presence floor",
+    )
+    minimum_exact_reasoning = require_number(
+        gate.get("minimum_exact_reasoning"),
+        "exact reasoning floor",
+    )
+    minimum_valid_call = require_number(
+        gate.get("minimum_valid_single_tool_call"),
+        "valid tool-call floor",
+    )
+    minimum_exact_argument = require_number(
+        gate.get("minimum_exact_tool_argument"),
+        "exact tool argument floor",
+    )
+    minimum_payload_accuracy = require_number(
+        gate.get("minimum_family_payload_accuracy"),
+        "family payload floor",
+    )
+    minimum_final_answer_accuracy = require_number(
+        gate.get("minimum_family_final_answer_accuracy"),
+        "family final-answer floor",
+    )
+    minimum_defer_accuracy = require_number(
+        gate.get("minimum_ambiguous_defer_accuracy"),
+        "ambiguous defer floor",
+    )
+    maximum_direct_answer = require_number(
+        gate.get("maximum_direct_answer_rate"),
+        "direct answer limit",
+    )
+    if gate.get("require_network_used_false") is not True:
+        raise SystemExit(
+            "The trajectory test must disable network access"
+        )
+
+    registry = config.get("identifier_registry")
+    evaluator_registry = evaluator.get("identifier_registry")
+    if not isinstance(registry, dict) or not isinstance(
+        evaluator_registry, dict
+    ):
+        raise SystemExit(
+            "The trajectory test lacks the registry contract"
+        )
+    registry_path = resolve_repo_path(
+        root, registry.get("path"), "identifier registry"
+    )
+    registry_sha256 = require_sha256(
+        registry.get("sha256"), "identifier registry"
+    )
+    verify_file(
+        registry_path, registry_sha256, "identifier registry"
+    )
+    if (
+        evaluator_registry.get("path") != registry.get("path")
+        or evaluator_registry.get("sha256") != registry_sha256
+    ):
+        raise SystemExit("The evaluator registry identity changed")
+
+    registry_payload = read_json(
+        registry_path, "the identifier registry"
+    )
+    registry_counts = registry_payload.get("counts")
+    population = evaluator.get("population")
+    if not isinstance(registry_counts, dict) or not isinstance(
+        population, dict
+    ):
+        raise SystemExit("The full registry counts are absent")
+    named_gene_ids = require_int(
+        registry_counts.get("named_gene_ids"),
+        "named gene ID count",
+    )
+    unique_gene_names = require_int(
+        registry_counts.get("unique_gene_names"),
+        "unique gene symbol count",
+    )
+    ambiguous_gene_names = require_int(
+        registry_counts.get("ambiguous_gene_names"),
+        "ambiguous gene symbol count",
+    )
+    panel_filter = panel.get("population_filter")
+    if not isinstance(panel_filter, dict):
+        raise SystemExit(
+            "The panel population filter must be one object"
+        )
+    maximum_candidates = require_int(
+        panel_filter.get("maximum_ambiguous_candidate_gene_ids"),
+        "maximum ambiguous candidate count",
+    )
+    excluded_records = panel_filter.get("excluded_records")
+    if (
+        not isinstance(excluded_records, list)
+        or not excluded_records
+        or any(not isinstance(item, dict) for item in excluded_records)
+    ):
+        raise SystemExit(
+            "The panel exclusions must contain record objects"
+        )
+    excluded_ids = [
+        item.get("record_id") for item in excluded_records
+    ]
+    required_exclusion_fields = {
+        "record_id",
+        "fact_id",
+        "family",
+        "gene_symbol",
+        "candidate_gene_id_count",
+    }
+    if (
+        any(
+            not isinstance(record_id, str) or not record_id
+            for record_id in excluded_ids
+        )
+        or len(set(excluded_ids)) != len(excluded_ids)
+        or any(
+            set(item) != required_exclusion_fields
+            or item.get("family") != "human_ambiguous_symbol"
+            or not isinstance(item.get("fact_id"), str)
+            or not item["fact_id"]
+            or not isinstance(item.get("gene_symbol"), str)
+            or not item["gene_symbol"]
+            or type(item.get("candidate_gene_id_count")) is not int
+            or item["candidate_gene_id_count"] <= maximum_candidates
+            for item in excluded_records
+        )
+    ):
+        raise SystemExit("The panel exclusion contract is invalid")
+    expected_population_filter = {
+        "maximum_ambiguous_candidate_gene_ids": maximum_candidates
+    }
+    if (
+        population.get("population_filter")
+        != expected_population_filter
+        or population.get("excluded_records") != excluded_records
+    ):
+        raise SystemExit(
+            "The evaluator population filter changed"
+        )
+    excluded_ambiguous = len(excluded_records)
+    expected_family_counts = {
+        "human_ambiguous_symbol": (
+            ambiguous_gene_names - excluded_ambiguous
+        ),
+        "human_ensembl_to_symbol": named_gene_ids,
+        "human_symbol_to_ensembl": (
+            unique_gene_names - ambiguous_gene_names
+        ),
+    }
+    if (
+        population.get("scope")
+        != (
+            "all_named_gene_ids_and_all_gene_symbols_"
+            "except_declared_long_ambiguities"
+        )
+        or population.get("row_count")
+        != named_gene_ids + unique_gene_names - excluded_ambiguous
+        or population.get("row_count") != panel_row_count
+        or population.get("family_counts") != expected_family_counts
+    ):
+        raise SystemExit("The full registry population changed")
+
     if (
         tracking.get("entity") != "jail-ai"
         or tracking.get("project") != "mentor-sft"
@@ -399,11 +634,14 @@ def main() -> int:
         "S0_EVALUATION_ID": require_string(
             config.get("evaluation_id"), "evaluation ID"
         ),
+        "S0_EVALUATION_CONTRACT": EVALUATION_CONTRACT,
         "S0_METHOD_ID": method_id,
         "S0_TOKENIZER_METHOD": tokenizer_method,
         "TOKENIZER_PATH": str(tokenizer_path),
         "TOKENIZER_MANIFEST": str(tokenizer_manifest_path),
-        "S0_TOKENIZER_MANIFEST_SHA256": tokenizer_manifest_sha256,
+        "S0_TOKENIZER_MANIFEST_SHA256": (
+            tokenizer_manifest_sha256
+        ),
         "MODEL_ID": require_string(model.get("model_id"), "model ID"),
         "MODEL_PATH": str(model_path),
         "MODEL_IDENTITY_SHA256": model_identity,
@@ -417,23 +655,55 @@ def main() -> int:
         "S0_TEST_ANSWER_KEY": str(answer_key_path),
         "S0_TEST_ANSWER_KEY_SHA256": answer_key_sha256,
         "S0_TEST_PANEL_ID": test_panel_id,
-        "S0_TEST_ROWS": str(panel["row_count"]),
+        "S0_TEST_ROWS": str(panel_row_count),
         "CHECKPOINT_PATH": str(checkpoint_path),
         "S0_TRAIN_RUN_ID": train_run_id,
         "S0_EVAL_OUTPUT_ROOT": str(
-            resolve_repo_path(root, method.get("output_root"), "output root")
+            resolve_repo_path(
+                root, method.get("output_root"), "output root"
+            )
         ),
-        "S0_EVAL_NUM_NODES": str(generation["num_nodes"]),
-        "S0_EVAL_TASKS_PER_NODE": str(generation["tasks_per_node"]),
-        "S0_EVAL_GPUS_PER_NODE": str(generation["gpus_per_node"]),
+        "S0_EVAL_NUM_NODES": str(num_nodes),
+        "S0_EVAL_TASKS_PER_NODE": str(tasks_per_node),
+        "S0_EVAL_WORLD_SIZE": str(num_nodes * tasks_per_node),
+        "S0_EVAL_GPUS_PER_NODE": str(gpus_per_node),
         "S0_MAX_NEW_TOKENS": str(max_new_tokens),
         "S0_MAX_TOTAL_TOKENS": str(max_total_tokens),
-        "S0_REASONING_EFFORT": require_string(
-            generation.get("reasoning_effort"), "reasoning effort"
+        "S0_REASONING_EFFORT": reasoning_effort,
+        "S0_ENABLE_THINKING": "1",
+        "S0_EVAL_SEED": str(
+            require_int(generation.get("seed"), "seed")
         ),
-        "S0_EVAL_SEED": str(require_int(generation.get("seed"), "seed")),
-        "S0_MINIMUM_FAMILY_ACCURACY": str(minimum_accuracy),
-        "S0_TARGET_FAMILY_ACCURACY": str(target_accuracy),
+        "S0_EVAL_BATCH_SIZE": str(batch_size),
+        "S0_MINIMUM_VALID_TOOL_TRAJECTORY": str(
+            minimum_valid_trajectory
+        ),
+        "S0_MINIMUM_REASONING_PRESENT": str(
+            minimum_reasoning_present
+        ),
+        "S0_MINIMUM_EXACT_REASONING": str(
+            minimum_exact_reasoning
+        ),
+        "S0_MINIMUM_VALID_SINGLE_TOOL_CALL": str(
+            minimum_valid_call
+        ),
+        "S0_MINIMUM_EXACT_TOOL_ARGUMENT": str(
+            minimum_exact_argument
+        ),
+        "S0_MINIMUM_FAMILY_PAYLOAD_ACCURACY": str(
+            minimum_payload_accuracy
+        ),
+        "S0_MINIMUM_FAMILY_FINAL_ANSWER_ACCURACY": str(
+            minimum_final_answer_accuracy
+        ),
+        "S0_MINIMUM_AMBIGUOUS_DEFER_ACCURACY": str(
+            minimum_defer_accuracy
+        ),
+        "S0_MAXIMUM_DIRECT_ANSWER_RATE": str(
+            maximum_direct_answer
+        ),
+        "S0_IDENTIFIER_REGISTRY": str(registry_path),
+        "S0_IDENTIFIER_REGISTRY_SHA256": registry_sha256,
         "S0_WANDB_ENTITY": "jail-ai",
         "S0_WANDB_PROJECT": "mentor-sft",
     }

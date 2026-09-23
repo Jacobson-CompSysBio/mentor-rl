@@ -1,36 +1,33 @@
+"""Test the canonical S0 trajectory evaluator."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
 from scripts.build_world_model_v2_s0_generation_bundle import (
+    TOOL_TRAJECTORY_EVALUATION_CONTRACT,
     build_generation_bundle,
 )
 from scripts.evaluate_world_model_v2_s0 import (
-    PREDICTION_SCHEMA_VERSION,
-    evaluate_test,
-    score_record,
-    sha256_file,
-    stable_sha256,
+    build_tool_trajectory_report,
 )
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EVALUATOR_MANIFEST = (
-    REPO_ROOT / "data/world_model_v2/eval/s0_human_identifiers_v4/manifest.json"
+    REPO_ROOT
+    / "data/world_model_v2/eval/"
+    "s0_human_identifier_trajectories_v6/manifest.json"
 )
 EVALUATOR_MANIFEST_SHA256 = (
-    "af7e2cfe87dabd1ebc9b7059c892f94946bd73c10521a08b5ff8d6b533889590"
-)
-PLAIN_TOKENIZER_MANIFEST = (
-    REPO_ROOT
-    / "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4"
-    / "plain_base_tokenizer/tokenizer_manifest.json"
+    "9d8e24dbdf6b7bc8564255a6b8c5c52"
+    "c15a27464b4ca8110f348c6edbf56ce9d"
 )
 
 
-def read_jsonl(path: Path) -> list[dict]:
-    """Read one test JSONL file."""
+def read_jsonl(path: Path) -> list[dict[str, object]]:
+    """Read one JSON Lines file."""
 
     return [
         json.loads(line)
@@ -39,122 +36,155 @@ def read_jsonl(path: Path) -> list[dict]:
     ]
 
 
-def write_jsonl(path: Path, rows: list[dict]) -> None:
-    """Write one stable test JSONL file."""
+def test_generation_bundle_has_no_private_targets(
+    tmp_path: Path,
+) -> None:
+    """Keep each supervised target out of the public bundle."""
 
-    path.write_text(
-        "".join(
-            json.dumps(row, separators=(",", ":"), sort_keys=True) + "\n"
-            for row in rows
-        ),
-        encoding="utf-8",
-    )
-
-## ensure that the generation bundle does not include any private answer keys (avoids accidental leakage)
-def test_generation_bundle_has_no_private_answers(tmp_path: Path) -> None:
     bundle = build_generation_bundle(
         evaluator_manifest_path=EVALUATOR_MANIFEST,
         evaluator_manifest_sha256=EVALUATOR_MANIFEST_SHA256,
         output_dir=tmp_path,
     )
-    assert bundle["record_count"] == 659
-    assert bundle["reads_private_answer_keys"] is False
-    assert "answer_key_path" not in bundle
-    assert "answer_key_sha256" not in bundle
     questions = read_jsonl(tmp_path / "questions.jsonl")
-    assert len(questions) == 659
-    assert all("answer" not in row for row in questions)
 
-# ensure that mapping accuracy is computed separately from whole record match, so that a model can get mapping accuracy even if it produces extra fields in the record
-def test_mapping_accuracy_is_separate_from_whole_record() -> None:
-    evaluator = json.loads(EVALUATOR_MANIFEST.read_text(encoding="utf-8"))
-    questions = read_jsonl(REPO_ROOT / evaluator["test"]["questions_path"])
-    answers = read_jsonl(REPO_ROOT / evaluator["test"]["answer_key_path"])
-    question = questions[0]
-    answer = answers[0]
-    predicted = dict(answer["answer"])
-    predicted["unexpected"] = "field"
-    scored = score_record(
-        question,
-        answer,
-        {
-            "record_id": question["record_id"],
-            "encoded_prediction": json.dumps(
-                predicted, separators=(",", ":"), sort_keys=True
-            ),
-        },
-        codec=None,
+    assert bundle["record_count"] == 659
+    assert bundle["evaluation_contract"] == (
+        TOOL_TRAJECTORY_EVALUATION_CONTRACT
     )
-    assert scored["mapping_exact"] is True
-    assert scored["exact_record_match"] is False
-    assert scored["schema_valid"] is False
+    assert bundle["reads_private_answer_keys"] is False
+    assert "identifier_registry" in bundle
+    for row in questions:
+        for field in (
+            "assistant_tool_call",
+            "assistant_thinking",
+            "tool_result",
+            "assistant_final",
+            "expected_tool_payload",
+        ):
+            assert field not in row
 
-# test model predictions across all rows and families
-def test_exact_gold_predictions_pass_all_family_gates(tmp_path: Path) -> None:
-    evaluator = json.loads(EVALUATOR_MANIFEST.read_text(encoding="utf-8"))
-    questions = read_jsonl(REPO_ROOT / evaluator["test"]["questions_path"])
-    answers = {
-        row["record_id"]: row
-        for row in read_jsonl(REPO_ROOT / evaluator["test"]["answer_key_path"])
+
+def _score_row(family: str) -> dict[str, object]:
+    """Return one exact trajectory score row."""
+
+    return {
+        "record_id": f"record-{family}",
+        "fact_id": f"fact-{family}",
+        "family": family,
+        "encoded_prediction": "encoded",
+        "assistant_thinking": "reason",
+        "expected_assistant_thinking": "reason",
+        "parsed_tool_call": {"name": "tool", "arguments": {}},
+        "expected_tool_call": {"name": "tool", "arguments": {}},
+        "tool_payload": {"status": "resolved"},
+        "generated_tool_payload": {"status": "resolved"},
+        "expected_tool_payload": {"status": "resolved"},
+        "encoded_final_answer": "answer",
+        "assistant_final": "answer",
+        "expected_final_answer": "answer",
+        "parse_error": None,
+        "final_parse_error": None,
+        "tool_error": None,
+        "generated_tool_error": None,
+        "reasoning_present": True,
+        "reasoning_exact": True,
+        "valid_single_tool_call": True,
+        "exact_tool_argument": True,
+        "payload_exact": True,
+        "valid_final_answer": True,
+        "final_answer_exact": True,
+        "valid_tool_trajectory": True,
+        "ambiguous_defer_correct": True,
+        "direct_answer": False,
+        "network_used_false": True,
+        "disallowed_special_tokens": [],
+        "final_disallowed_special_tokens": [],
     }
-    predictions = [
-        {
-            "record_id": row["record_id"],
-            "encoded_prediction": json.dumps(
-                answers[row["record_id"]]["answer"],
-                separators=(",", ":"),
-                sort_keys=True,
-            ),
-            "raw_generation": "",
-            "prompt_tokens": 1,
-            "generated_tokens": 1,
-            "disallowed_special_tokens": [],
-        }
-        for row in questions
+
+
+def test_exact_trajectory_scores_pass_all_gates() -> None:
+    """Pass each gate for exact rows from all families."""
+
+    rows = [
+        _score_row("human_symbol_to_ensembl"),
+        _score_row("human_ensembl_to_symbol"),
+        _score_row("human_ambiguous_symbol"),
     ]
-    predictions_path = tmp_path / "predictions.jsonl"
-    write_jsonl(predictions_path, predictions)
-    tokenizer = json.loads(PLAIN_TOKENIZER_MANIFEST.read_text(encoding="utf-8"))
     generation = {
-        "schema_version": PREDICTION_SCHEMA_VERSION,
-        "test_panel_id": evaluator["test"]["test_panel_id"],
-        "record_count": len(predictions),
-        "method_id": "oss20b-plain-base-tokenizer-lora-r32",
-        "train_run_id": "test-train-run",
-        "base_model_identity_sha256": "a" * 64,
+        "test_panel_id": "a" * 64,
+        "train_run_id": "train-run",
+        "method_id": "test-method",
         "checkpoint_identity_sha256": "b" * 64,
-        "tokenizer_manifest_sha256": tokenizer["manifest_sha256"],
-        "generation_bundle_sha256": "c" * 64,
-        "generation_config": {"do_sample": False},
-        "generation_config_sha256": "d" * 64,
-        "predictions_sha256": sha256_file(predictions_path),
-        "elapsed_seconds": 1.0,
-        "reads_private_answer_keys": False,
+        "manifest_sha256": "c" * 64,
     }
-    generation["manifest_sha256"] = stable_sha256(generation)
-    generation_path = tmp_path / "generation_manifest.json"
-    generation_path.write_text(
-        json.dumps(generation, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+    report, metrics = build_tool_trajectory_report(
+        rows,
+        evaluation_contract=TOOL_TRAJECTORY_EVALUATION_CONTRACT,
+        generation=generation,
+        evaluator_manifest_sha256="d" * 64,
+        tokenizer_manifest_sha256="e" * 64,
+        registry_sha256="f" * 64,
+        minimum_valid_tool_trajectory=0.99,
+        minimum_reasoning_present=0.99,
+        minimum_exact_reasoning=0.99,
+        minimum_valid_single_tool_call=0.99,
+        minimum_exact_tool_argument=0.99,
+        minimum_family_payload_accuracy=0.99,
+        minimum_family_final_answer_accuracy=0.99,
+        minimum_ambiguous_defer_accuracy=1.0,
+        maximum_direct_answer_rate=0.01,
     )
-    metrics = evaluate_test(
-        evaluator_manifest_path=EVALUATOR_MANIFEST,
-        evaluator_manifest_sha256=EVALUATOR_MANIFEST_SHA256,
-        predictions_path=predictions_path,
-        generation_manifest_path=generation_path,
-        tokenizer_manifest_path=PLAIN_TOKENIZER_MANIFEST,
-        output_dir=tmp_path / "report",
-        minimum_family_accuracy=0.9,
-        target_family_accuracy=0.95,
-        publish=False,
-    )
-    assert metrics["overall"]["mapping_accuracy"] == 1.0
-    assert metrics["macro_family_mapping_accuracy"] == 1.0
-    assert metrics["minimum_family_mapping_accuracy"] == 1.0
+
     assert metrics["gate"]["passed"] is True
-    assert metrics["gate"]["target_reached"] is True
+    assert metrics["overall"]["valid_tool_trajectory_rate"] == 1.0
+    assert metrics["overall"]["final_answer_accuracy"] == 1.0
     assert set(metrics["families"]) == {
         "human_symbol_to_ensembl",
         "human_ensembl_to_symbol",
         "human_ambiguous_symbol",
     }
+    assert report["metrics"]["metrics_sha256"] == (
+        metrics["metrics_sha256"]
+    )
+
+
+def test_wrong_final_answer_fails_the_family_gate() -> None:
+    """Fail the final-answer gate for one incorrect family row."""
+
+    rows = [
+        _score_row("human_symbol_to_ensembl"),
+        _score_row("human_ensembl_to_symbol"),
+        _score_row("human_ambiguous_symbol"),
+    ]
+    rows[0]["final_answer_exact"] = False
+    generation = {
+        "test_panel_id": "a" * 64,
+        "train_run_id": "train-run",
+        "method_id": "test-method",
+        "checkpoint_identity_sha256": "b" * 64,
+        "manifest_sha256": "c" * 64,
+    }
+    _, metrics = build_tool_trajectory_report(
+        rows,
+        evaluation_contract=TOOL_TRAJECTORY_EVALUATION_CONTRACT,
+        generation=generation,
+        evaluator_manifest_sha256="d" * 64,
+        tokenizer_manifest_sha256="e" * 64,
+        registry_sha256="f" * 64,
+        minimum_valid_tool_trajectory=0.0,
+        minimum_reasoning_present=0.0,
+        minimum_exact_reasoning=0.0,
+        minimum_valid_single_tool_call=0.0,
+        minimum_exact_tool_argument=0.0,
+        minimum_family_payload_accuracy=0.0,
+        minimum_family_final_answer_accuracy=1.0,
+        minimum_ambiguous_defer_accuracy=0.0,
+        maximum_direct_answer_rate=1.0,
+    )
+
+    assert metrics["gate"]["passed"] is False
+    assert (
+        metrics["gate"]["checks"]["family_final_answer_accuracy"]
+        is False
+    )

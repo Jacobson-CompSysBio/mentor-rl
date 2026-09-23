@@ -3,31 +3,6 @@ import os
 
 import torch.distributed as dist
 
-from runtime.world_model_training import (
-    build_world_model_prompt_messages,
-    serialize_sft_answer,
-)
-
-### FORMAT RECORDS FOR TRL
-def build_prompt_completion_example(example):
-    """Convert one S0 record to the TRL prompt and completion format."""
-
-    system_prompt = example.get("system")
-    question = example.get("question")
-    answer = serialize_sft_answer(example.get("answer"))
-
-    return {
-        "answer": answer,
-        "prompt": build_world_model_prompt_messages(
-            system=system_prompt,
-            question=question,
-            metadata=example.get("metadata"),
-            context=example.get("context"),
-            in_context_examples=example.get("in_context_examples"),
-        ),
-        "completion": [{"role": "assistant", "content": answer}],
-    }
-
 
 def _plain_list(value):
     """Convert a tensor, array, or list to a Python list."""

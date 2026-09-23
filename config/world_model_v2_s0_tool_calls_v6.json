@@ -1,0 +1,84 @@
+{
+  "schema_version": "mentor-rl-world-model-s0-tool-build-v6",
+  "dataset_id": "world_model_v2_s0_human_identifier_trajectories_v6",
+  "identifier_registry": {
+    "path": "data/world_model_v2/sources/ensembl_116_human_gene_ids_and_symbols.json",
+    "expected_sha256": "e67a4a1d8839c7f8ea568c3040c18941a189f65afeed66dfeedb03c6e305c4ab"
+  },
+  "train": {
+    "assignment_seed": 1729,
+    "symbol_rows": 2048,
+    "gene_id_rows": 2048,
+    "excluded_fact_ids": [
+      "fact_1544b1236c875b2ad88138d0",
+      "fact_39c1052bc4d239a961544728",
+      "fact_fd3fc526542e105e08c060b9"
+    ]
+  },
+  "split": {
+    "assignment_seed": 1729,
+    "validation": {
+      "unambiguous_component_count": 256,
+      "ambiguous_component_count": 48
+    },
+    "test": {
+      "unambiguous_component_count": 256,
+      "ambiguous_component_count": 48
+    }
+  },
+  "prompt_assignment_seed": 1729,
+  "prompt_forms": {
+    "train": {
+      "human_symbol_to_ensembl": [
+        "Prepare the human Ensembl gene identifier for the next analysis step. The current gene symbol is {gene_symbol}.",
+        "The next analysis step requires a human Ensembl gene identifier. Use the current gene symbol: {gene_symbol}.",
+        "Standardize the current gene reference as a human Ensembl gene identifier. The gene symbol is {gene_symbol}.",
+        "Add the human Ensembl gene identifier to the analysis state. The current gene symbol is {gene_symbol}."
+      ],
+      "human_ensembl_to_symbol": [
+        "Prepare the human gene symbol for the next analysis step. The current Ensembl gene ID is {gene_id}.",
+        "The next analysis step requires a human gene symbol. Use the current Ensembl gene ID: {gene_id}.",
+        "Standardize the current Ensembl gene reference as a human gene symbol. The gene ID is {gene_id}.",
+        "Add the human gene symbol to the analysis state. The current Ensembl gene ID is {gene_id}."
+      ],
+      "human_ambiguous_symbol": [
+        "Prepare the human Ensembl gene identifier for the next analysis step. The current gene symbol is {gene_symbol}.",
+        "The next analysis step requires a human Ensembl gene identifier. Use the current gene symbol: {gene_symbol}.",
+        "Standardize the current gene reference as a human Ensembl gene identifier. The gene symbol is {gene_symbol}.",
+        "Add the human Ensembl gene identifier to the analysis state. The current gene symbol is {gene_symbol}."
+      ]
+    },
+    "validation": {
+      "human_symbol_to_ensembl": [
+        "Supply the human Ensembl gene identifier required by the next step. The current gene symbol is {gene_symbol}.",
+        "Before the analysis continues, resolve {gene_symbol} as a human Ensembl gene identifier."
+      ],
+      "human_ensembl_to_symbol": [
+        "Supply the human gene symbol required by the next step. The current Ensembl gene ID is {gene_id}.",
+        "Before the analysis continues, resolve Ensembl gene ID {gene_id} as a human gene symbol."
+      ],
+      "human_ambiguous_symbol": [
+        "Supply the human Ensembl gene identifier required by the next step. The current gene symbol is {gene_symbol}.",
+        "Before the analysis continues, resolve {gene_symbol} as a human Ensembl gene identifier."
+      ]
+    },
+    "test": {
+      "human_symbol_to_ensembl": [
+        "The next analysis operation needs a human Ensembl gene identifier. The current gene symbol is {gene_symbol}.",
+        "Convert the current human gene symbol to the required Ensembl gene identifier: {gene_symbol}."
+      ],
+      "human_ensembl_to_symbol": [
+        "The next analysis operation needs a human gene symbol. The current Ensembl gene ID is {gene_id}.",
+        "Convert the current Ensembl gene ID to the required human gene symbol: {gene_id}."
+      ],
+      "human_ambiguous_symbol": [
+        "The next analysis operation needs a human Ensembl gene identifier. The current gene symbol is {gene_symbol}.",
+        "Convert the current human gene symbol to the required Ensembl gene identifier: {gene_symbol}."
+      ]
+    }
+  },
+  "outputs": {
+    "corpus_dir": "data/world_model_v2/sft/s0_human_identifier_trajectories_v6",
+    "evaluator_dir": "data/world_model_v2/eval/s0_human_identifier_trajectories_v6"
+  }
+}

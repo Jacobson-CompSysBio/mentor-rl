@@ -57,25 +57,20 @@ from world_model_dp_tp_ep import (  # noqa: E402
     validate_native_tp_plan,
     validate_tested_stack,
 )
-from utils.utils import build_prompt_completion_example  # noqa: E402
 from runtime.world_model_training import (  # noqa: E402
     build_training_exposure_manifest,
     consumed_training_index_plan,
     derive_optimizer_step_schedule,
     epoch_training_indices_with_replica_padding,
-    flatten_sft_record_for_arrow,
-    iter_s0_validation_records,
-    load_model_text_codec_for_token_manifest,
-    normalize_token_ids,
+    flatten_tool_sft_record_for_arrow,
+    s0_exposure_corpus_identity,
     s0_exposure_scope,
+    tokenize_tool_trajectory_for_sft,
     tokenizer_artifact_hashes,
 )
-from runtime.world_model_s0 import S0_FAMILIES  # noqa: E402
-from runtime.world_model_token_adapter import (  # noqa: E402
-    assert_token_adapter_forward_contract,
-    install_trainable_token_rows,
-    save_token_adapter,
-    token_adapter_parameters,
+from runtime.world_model_schemas import (  # noqa: E402
+    S0_FAMILIES,
+    IdentifierToolSFTRecord,
 )
 from tp_ep_autograd import (  # noqa: E402
     copy_to_expert_parallel_region,
@@ -104,15 +99,7 @@ S0_IDENTITY_ENV = {
     "training_code_sha256": "S0_TRAINING_CODE_SHA256",
 }
 
-S0_TARGET_AWARE_LOSS_CONTRACT = "s0_target_aware_v2"
-LOSS_CONTRACTS = (S0_TARGET_AWARE_LOSS_CONTRACT,)
-S0_TARGET_FIELDS = {
-    "human_symbol_to_ensembl": "gene_id",
-    "human_ensembl_to_symbol": "gene_symbols",
-    "human_ambiguous_symbol": "candidate_gene_ids",
-}
-S0_TARGET_AWARE_COMPLETION_WEIGHT = 0.5
-S0_TARGET_AWARE_MAPPING_WEIGHT = 0.5
+S0_TOOL_TRAJECTORY_LOSS_CONTRACT = "s0_tool_trajectory_v1"
 
 
 def required_run_identity() -> dict[str, str]:
@@ -130,16 +117,23 @@ def required_run_identity() -> dict[str, str]:
 
 
 def loss_contract_config(loss_contract: str) -> dict[str, Any]:
-    """Return the fixed weights for the S0 loss contract."""
+    """Return the fixed S0 trajectory loss contract."""
 
-    if loss_contract == S0_TARGET_AWARE_LOSS_CONTRACT:
-        return {
-            "loss_contract": loss_contract,
-            "completion_loss_weight": S0_TARGET_AWARE_COMPLETION_WEIGHT,
-            "mapping_target_loss_weight": S0_TARGET_AWARE_MAPPING_WEIGHT,
-            "mapping_target_fields": dict(S0_TARGET_FIELDS),
-        }
-    raise ValueError(f"Unknown loss contract: {loss_contract!r}")
+    if loss_contract != S0_TOOL_TRAJECTORY_LOSS_CONTRACT:
+        raise ValueError(f"Unknown loss contract: {loss_contract!r}")
+    return {
+        "loss_contract": loss_contract,
+        "completion_loss_weight": 1.0,
+        "target_format": "tool_trajectory",
+        "supervised_messages": [
+            "assistant_thinking",
+            "assistant_tool_call",
+            "assistant_final",
+        ],
+        "masked_messages": ["user", "tool"],
+        "enable_thinking": True,
+        "reasoning_effort": "low",
+    }
 
 
 def initialize_wandb(
@@ -147,7 +141,6 @@ def initialize_wandb(
     topology: WorldModelTopology,
     *,
     output_dir: Path,
-    s0_codec: Any | None,
 ):
     """Initialize the one authoritative rank-0 W&B run or fail closed."""
 
@@ -199,10 +192,6 @@ def initialize_wandb(
             "lora_alpha": args.lora_alpha,
             "lora_dropout": args.lora_dropout,
             "tokenizer_path": args.tokenizer_path,
-            "token_adapter_manifest": args.token_adapter_manifest,
-            "s0_tokenizer_codec_manifest_sha256": (
-                None if s0_codec is None else s0_codec.manifest_sha256
-            ),
             "seed": args.seed,
             "preserve_dataset_order": args.preserve_dataset_order,
             "autograd_multithreading": args.autograd_multithreading,
@@ -376,7 +365,6 @@ def parse_args() -> argparse.Namespace:
     # These paths select the exact model, tokenizer, corpus, and output.
     parser.add_argument("--model_path", required=True)
     parser.add_argument("--tokenizer_path", required=True)
-    parser.add_argument("--token_adapter_manifest")
     parser.add_argument("--dataset_path", required=True)
     parser.add_argument("--validation_dataset_path", required=True)
     parser.add_argument("--validation_answer_key_path", required=True)
@@ -399,8 +387,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup_ratio", type=float, default=0.03)
     parser.add_argument(
         "--loss_contract",
-        choices=LOSS_CONTRACTS,
-        default=S0_TARGET_AWARE_LOSS_CONTRACT,
+        choices=(S0_TOOL_TRAJECTORY_LOSS_CONTRACT,),
+        default=S0_TOOL_TRAJECTORY_LOSS_CONTRACT,
     )
     parser.add_argument("--weight_decay", type=float, default=0.0)
     parser.add_argument("--max_grad_norm", type=float, default=1.0)
@@ -460,8 +448,6 @@ def validate_cli(args: argparse.Namespace) -> None:
         )
     if not args.bf16:
         raise ValueError("S0 GPT-OSS LoRA requires --bf16")
-    if args.token_adapter_manifest and not Path(args.token_adapter_manifest).is_file():
-        raise ValueError("--token_adapter_manifest does not exist")
     if not Path(args.validation_dataset_path).is_file():
         raise ValueError("--validation_dataset_path does not exist")
     if not Path(args.validation_answer_key_path).is_file():
@@ -529,278 +515,101 @@ def seed_everything(seed: int) -> None:
 
 
 # Block 3 creates the exact S0 token sequence and loss masks.
-def _canonical_json_field_value_spans(
-    answer_text: str,
-    question_family: str,
-) -> list[tuple[int, int]]:
-    """Return each string span for the required S0 mapping value."""
-
-    target_field = S0_TARGET_FIELDS.get(question_family)
-    if target_field is None:
-        raise ValueError(
-            "The target-aware loss supports only the three S0 question families"
-        )
-    try:
-        answer = json.loads(answer_text)
-    except json.JSONDecodeError as error:
-        raise ValueError("The target-aware S0 answer must be JSON") from error
-    if not isinstance(answer, dict):
-        raise ValueError("The target-aware S0 answer must be one JSON object")
-    if target_field not in answer:
-        raise ValueError(
-            f"The S0 answer lacks its mapping target field: {target_field}"
-        )
-
-    # Recreate the exact JSON bytes so each character offset stays stable.
-    ensure_ascii = None
-    for candidate in (False, True):
-        rendered = json.dumps(
-            answer,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=candidate,
-        )
-        if rendered == answer_text:
-            ensure_ascii = candidate
-            break
-    if ensure_ascii is None:
-        raise ValueError("The target-aware S0 answer is not canonical compact JSON")
-
-    # Walk the sorted object and exclude keys, quotes, and list syntax.
-    cursor = 1
-    for index, key in enumerate(sorted(answer)):
-        if index:
-            cursor += 1
-        key_text = json.dumps(key, ensure_ascii=ensure_ascii)
-        value_text = json.dumps(
-            answer[key],
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=ensure_ascii,
-        )
-        cursor += len(key_text) + 1
-        value_start = cursor
-        value_end = value_start + len(value_text)
-        if key == target_field:
-            if isinstance(answer[key], str) and answer[key]:
-                return [(value_start + 1, value_end - 1)]
-            if isinstance(answer[key], list) and answer[key]:
-                spans = []
-                item_cursor = value_start + 1
-                for item_index, item in enumerate(answer[key]):
-                    if not isinstance(item, str) or not item:
-                        raise ValueError(
-                            "Each S0 mapping target list item must be text"
-                        )
-                    if item_index:
-                        item_cursor += 1
-                    item_text = json.dumps(item, ensure_ascii=ensure_ascii)
-                    spans.append(
-                        (item_cursor + 1, item_cursor + len(item_text) - 1)
-                    )
-                    item_cursor += len(item_text)
-                return spans
-            raise ValueError("The S0 mapping target must be text or a text list")
-        cursor = value_end
-    raise RuntimeError("The S0 mapping target span was not found")
-
-
-def _character_spans_token_mask(
-    offsets: list[tuple[int, int]],
-    spans: list[tuple[int, int]],
-) -> list[int]:
-    """Mark each token whose character span overlaps a target string."""
-
-    if not spans or any(start < 0 or end <= start for start, end in spans):
-        raise ValueError("One target character span is invalid")
-    mask = [
-        int(
-            any(
-                token_end > span_start and token_start < span_end
-                for span_start, span_end in spans
-            )
-        )
-        for token_start, token_end in offsets
-    ]
-    if not any(mask):
-        raise ValueError("The tokenizer produced no token for the S0 mapping target")
-    return mask
-
-
-def _tokenize_prompt_completion(
+def _tokenize_tool_trajectory(
     record: dict[str, Any],
     tokenizer,
     max_length: int,
-    s0_codec: Any | None = None,
 ) -> dict[str, list[int]]:
-    """Render once and derive all loss masks from exact character offsets."""
+    """Render one tool trajectory with role-aware supervision."""
 
-    # Metadata selects the target field. It never enters a model message.
-    metadata = record.get("metadata")
-    if metadata is None and isinstance(record.get("metadata_json"), str):
-        metadata = json.loads(record["metadata_json"])
-    converted = build_prompt_completion_example(
-        {
-            "system": record.get("system"),
-            "question": record.get("question"),
-            "answer": record.get("answer"),
-            "metadata": metadata,
-            "context": None,
-            "in_context_examples": None,
-        }
-    )
-    answer = converted["answer"]
-    messages = converted["prompt"] + converted["completion"]
-    # Apply the S0 codec before token offsets. The mask must match model text.
-    if s0_codec is not None:
-        answer = s0_codec.encode_answer_text(answer)
-        messages = s0_codec.encode_messages(
-            messages,
-            question_family=(
-                None if not isinstance(metadata, dict) else metadata.get("question_family")
+    payload = {
+        "record_id": record["record_id"],
+        "metadata": json.loads(record["metadata_json"]),
+        "system": record["system"],
+        "question": record["question"],
+        "input": json.loads(record["input_json"]),
+        "tools": json.loads(record["tools_json"]),
+        "assistant_tool_call": json.loads(
+            record["assistant_tool_call_json"]
+        ),
+        "assistant_thinking": record["assistant_thinking"],
+        "tool_result": json.loads(record["tool_result_json"]),
+        "assistant_final": record["assistant_final"],
+        "split": record["split"],
+        "provenance": {
+            "fact_id": record["fact_id"],
+            "fact_role": (
+                "train" if record["split"] == "train" else "unseen"
             ),
-        )
-    # Locate the exact answer after the chat template adds control tokens.
-    rendered = tokenizer.apply_chat_template(
-        messages, tokenize=False
-    )
-    answer_start = rendered.rfind(answer)
-    if answer_start < 0:
-        raise RuntimeError("Rendered chat does not contain the exact assistant answer")
-    answer_end = answer_start + len(answer)
-    encoded = tokenizer(rendered, add_special_tokens=False, return_offsets_mapping=True)
-    full_ids = normalize_token_ids(encoded)
-    offsets = encoded["offset_mapping"]
-    if offsets and isinstance(offsets[0], list) and offsets[0] and isinstance(offsets[0][0], list):
-        offsets = offsets[0]
-    offsets = [tuple(pair) for pair in offsets]
-    if len(full_ids) != len(offsets):
-        raise RuntimeError("Tokenizer returned mismatched input IDs and character offsets")
-    if len(full_ids) > max_length:
-        raise RuntimeError(
-            f"Tokenized SFT row has {len(full_ids)} tokens, exceeding "
-            f"--max_length={max_length}; rebuild/audit the corpus instead of truncating the answer."
-        )
-    # The completion mask includes the answer and assistant suffix tokens.
-    completion_mask = [
-        int((end > answer_start and start < answer_end) or start >= answer_end)
-        for start, end in offsets
-    ]
-    if not full_ids or 0 not in completion_mask or 1 not in completion_mask:
-        raise RuntimeError("Tokenized row lacks distinct prompt and assistant completion tokens")
-    first_completion = completion_mask.index(1)
-    if any(not flag for flag in completion_mask[first_completion:]):
-        raise RuntimeError("Assistant completion mask is not one contiguous suffix")
-    if not isinstance(metadata, dict):
-        raise ValueError("The target-aware S0 row lacks metadata")
-    question_family = metadata.get("question_family")
-    if not isinstance(question_family, str):
-        raise ValueError("The target-aware S0 row lacks a question family")
-    relative_spans = _canonical_json_field_value_spans(
-        answer,
-        question_family,
-    )
-    # Convert answer-relative spans to offsets in the complete chat text.
-    mapping_target_mask = _character_spans_token_mask(
-        offsets,
-        [
-            (answer_start + relative_start, answer_start + relative_end)
-            for relative_start, relative_end in relative_spans
-        ],
-    )
-    if any(
-        target and not completion
-        for target, completion in zip(
-            mapping_target_mask,
-            completion_mask,
-            strict=True,
-        )
-    ):
-        raise RuntimeError("The S0 mapping target mask overlaps the prompt")
-    return {
-        "input_ids": full_ids,
-        "completion_mask": completion_mask,
-        "mapping_target_mask": mapping_target_mask,
+            "prompt_form_id": record["prompt_form_id"],
+        },
     }
+    parsed = IdentifierToolSFTRecord.from_dict(payload)
+    return tokenize_tool_trajectory_for_sft(
+        parsed,
+        tokenizer,
+        max_length,
+    )
 
 
 def _iter_flattened_sft_records(
     path: str,
     source_size: int,
     source_mtime_ns: int,
-    answer_key_path: str,
-    answer_key_size: int,
-    answer_key_mtime_ns: int,
+    expected_split: str,
 ):
     """Yield a stable scalar schema and reset stale Arrow caches."""
 
-    del source_size, source_mtime_ns, answer_key_size, answer_key_mtime_ns
-    if answer_key_path:
-        try:
-            for record in iter_s0_validation_records(
-                Path(path),
-                Path(answer_key_path),
-            ):
-                yield flatten_sft_record_for_arrow(
-                    record,
-                    expected_split="val",
-                )
-        except (TypeError, ValueError) as exc:
-            raise RuntimeError(
-                f"Invalid S0 validation panel: {exc}"
-            ) from exc
-        return
+    del source_size, source_mtime_ns
     with Path(path).open(encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, start=1):
             if not line.strip():
                 continue
             try:
                 record = json.loads(line)
-                yield flatten_sft_record_for_arrow(record)
+                yield flatten_tool_sft_record_for_arrow(
+                    record,
+                    expected_split=expected_split,
+                )
             except (TypeError, ValueError, json.JSONDecodeError) as exc:
-                raise RuntimeError(f"Invalid SFT JSONL record at {path}:{line_number}: {exc}") from exc
+                raise RuntimeError(
+                    f"Invalid trajectory JSONL record at {path}:"
+                    f"{line_number}: {exc}"
+                ) from exc
 
 
 def _load_flattened_sft_dataset(
     path: str,
     rank: int,
     *,
-    answer_key_path: str | None = None,
+    expected_split: str,
 ):
     """Build one homogeneous Arrow cache, then share it across local TP ranks."""
 
     source = Path(path).resolve()
     stat = source.stat()
-    answer_key = (
-        None if answer_key_path is None else Path(answer_key_path).resolve()
-    )
-    answer_key_stat = None if answer_key is None else answer_key.stat()
-    # Arrow uses one scalar schema for all three S0 answer shapes.
-    features = Features(
-        {
-            "system": Value("string"),
-            "question": Value("string"),
-            "answer": Value("string"),
-            "metadata_json": Value("string"),
-            "question_family": Value("string"),
-            "record_id": Value("string"),
-            "fact_id": Value("string"),
-            "prompt_form_id": Value("string"),
-            "split": Value("string"),
-        }
-    )
+    features = Features({
+        "system": Value("string"),
+        "question": Value("string"),
+        "input_json": Value("string"),
+        "tools_json": Value("string"),
+        "assistant_tool_call_json": Value("string"),
+        "assistant_thinking": Value("string"),
+        "tool_result_json": Value("string"),
+        "assistant_final": Value("string"),
+        "metadata_json": Value("string"),
+        "question_family": Value("string"),
+        "record_id": Value("string"),
+        "fact_id": Value("string"),
+        "prompt_form_id": Value("string"),
+        "split": Value("string"),
+    })
     # These source attributes force a new cache after a local file change.
     generator_kwargs = {
         "path": str(source),
         "source_size": stat.st_size,
         "source_mtime_ns": stat.st_mtime_ns,
-        "answer_key_path": "" if answer_key is None else str(answer_key),
-        "answer_key_size": (
-            0 if answer_key_stat is None else answer_key_stat.st_size
-        ),
-        "answer_key_mtime_ns": (
-            0 if answer_key_stat is None else answer_key_stat.st_mtime_ns
-        ),
+        "expected_split": expected_split,
     }
 
     # All ranks must use one shared Hugging Face cache directory.
@@ -821,9 +630,7 @@ def _tokenization_cache_fingerprint(
     *,
     source_fingerprint: str,
     max_length: int,
-    codec_manifest_sha256: str,
     tokenizer_identity_sha256: str,
-    loss_contract: str,
 ) -> str:
     """Return the cache identity for one tokenization contract."""
 
@@ -832,9 +639,8 @@ def _tokenization_cache_fingerprint(
             {
                 "source_fingerprint": source_fingerprint,
                 "max_length": max_length,
-                "codec_manifest_sha256": codec_manifest_sha256,
                 "tokenizer_identity_sha256": tokenizer_identity_sha256,
-                "loss_contract": loss_contract,
+                "loss_contract": S0_TOOL_TRAJECTORY_LOSS_CONTRACT,
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -850,14 +656,16 @@ def load_tokenized_dataset(
     max_length: int,
     label: str,
     tokenizer_identity_sha256: str,
-    loss_contract: str = S0_TARGET_AWARE_LOSS_CONTRACT,
-    s0_codec: Any | None = None,
+    loss_contract: str = S0_TOOL_TRAJECTORY_LOSS_CONTRACT,
     answer_key_path: str | None = None,
 ):
+    if loss_contract != S0_TOOL_TRAJECTORY_LOSS_CONTRACT:
+        raise ValueError(f"Unknown loss contract: {loss_contract!r}")
+    expected_split = "val" if answer_key_path else "train"
     dataset = _load_flattened_sft_dataset(
         path,
         rank,
-        answer_key_path=answer_key_path,
+        expected_split=expected_split,
     )
     if len(dataset) == 0:
         raise RuntimeError(f"{label} dataset is empty")
@@ -871,36 +679,28 @@ def load_tokenized_dataset(
 
     def tokenize_record(
         record: dict[str, Any],
-        codec_manifest_sha256: str,
         tokenizer_identity_sha256: str,
     ) -> dict[str, list[int]]:
-        del codec_manifest_sha256, tokenizer_identity_sha256
-        return _tokenize_prompt_completion(
+        del tokenizer_identity_sha256
+        return _tokenize_tool_trajectory(
             record,
             tokenizer,
             max_length,
-            s0_codec=s0_codec,
         )
 
     # Rank 0 builds the token cache once. The other TP ranks use that cache.
     if rank != 0:
         dist.barrier()
-    codec_manifest_sha256 = (
-        "none" if s0_codec is None else s0_codec.manifest_sha256
-    )
     # The fingerprint covers each value that can change token IDs or masks.
     tokenization_fingerprint = _tokenization_cache_fingerprint(
         source_fingerprint=dataset._fingerprint,
         max_length=max_length,
-        codec_manifest_sha256=codec_manifest_sha256,
         tokenizer_identity_sha256=tokenizer_identity_sha256,
-        loss_contract=loss_contract,
     )
     # Remove source columns after token conversion. Keep only IDs and masks.
     tokenized = dataset.map(
         tokenize_record,
         fn_kwargs={
-            "codec_manifest_sha256": codec_manifest_sha256,
             "tokenizer_identity_sha256": tokenizer_identity_sha256,
         },
         new_fingerprint=tokenization_fingerprint,
@@ -913,40 +713,20 @@ def load_tokenized_dataset(
 
 
 class S0DataCollator(DataCollatorForLanguageModeling):
-    """Add the padded mapping mask to the standard language-model batch."""
-
-    def torch_call(self, examples: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
-        # The base collator pads IDs, attention masks, and completion labels.
-        batch = super().torch_call(examples)
-        if any("mapping_target_mask" not in example for example in examples):
-            raise ValueError("Each S0 row must have a mapping target mask")
-        padded_length = int(batch["input_ids"].shape[1])
-        # Pad the mapping mask to the same sequence length.
-        mapping_target_mask = torch.zeros(
-            (len(examples), padded_length),
-            dtype=torch.bool,
-        )
-        for index, example in enumerate(examples):
-            row_mask = example["mapping_target_mask"]
-            if len(row_mask) > padded_length:
-                raise ValueError("A mapping target mask is longer than its padded batch")
-            mapping_target_mask[index, : len(row_mask)] = torch.tensor(
-                row_mask,
-                dtype=torch.bool,
-            )
-        batch["mapping_target_mask"] = mapping_target_mask
-        return batch
+    """Collate S0 trajectories with completion-only labels."""
 
 
 def assert_s0_supervision(
     dataset,
     collator,
+    loss_contract: str,
     max_examples: int = 8,
 ) -> dict[str, int]:
     # Inspect a small sample before the model allocates its weights.
     checked_prompt = 0
     checked_completion = 0
-    checked_mapping_target = 0
+    if loss_contract != S0_TOOL_TRAJECTORY_LOSS_CONTRACT:
+        raise ValueError(f"Unknown loss contract: {loss_contract!r}")
     for index in range(min(max_examples, len(dataset))):
         example = dataset[index]
         mask = example.get("completion_mask")
@@ -968,34 +748,14 @@ def assert_s0_supervision(
                         f"Prompt token receives loss at row {index}, position {position}"
                     )
                 checked_prompt += 1
-        mapping_mask = example.get("mapping_target_mask")
-        if not mapping_mask or len(mapping_mask) != len(mask):
-            raise RuntimeError(
-                f"S0 preflight found an invalid mapping mask in row {index}"
-            )
-        if any(
-            target and not completion
-            for target, completion in zip(mapping_mask, mask, strict=True)
-        ):
-            raise RuntimeError(
-                f"S0 preflight found a prompt target in row {index}"
-            )
-        collated_mapping_mask = batch.get("mapping_target_mask")
-        if collated_mapping_mask is None:
-            raise RuntimeError("The collator removed the mapping target mask")
-        observed = collated_mapping_mask[0, : len(mapping_mask)].tolist()
-        if observed != [bool(value) for value in mapping_mask]:
-            raise RuntimeError("The collator changed the mapping target mask")
-        checked_mapping_target += sum(bool(value) for value in mapping_mask)
+        if "mapping_target_mask" in example or "mapping_target_mask" in batch:
+            raise RuntimeError("A trajectory row has a mapping target mask")
     if checked_prompt == 0 or checked_completion == 0:
         raise RuntimeError("S0 preflight did not inspect prompt and completion tokens")
-    if checked_mapping_target == 0:
-        raise RuntimeError("S0 preflight found no mapping target token")
     return {
         "examples_checked": min(max_examples, len(dataset)),
         "prompt_tokens_masked": checked_prompt,
         "completion_tokens_trainable": checked_completion,
-        "mapping_target_tokens": checked_mapping_target,
     }
 
 
@@ -1173,29 +933,18 @@ def _lora_parameters(model) -> list[tuple[str, DTensor]]:
 
 
 def _adapter_parameters(model) -> list[tuple[str, nn.Parameter]]:
-    return [*_lora_parameters(model), *token_adapter_parameters(model)]
+    return list(_lora_parameters(model))
 
 
 def _peft_key(name: str) -> str:
     return "base_model.model." + name
 
 
-# Block 5 saves and restores the LoRA and token adapter state.
+# Block 5 saves and restores the LoRA state.
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     temporary = path.with_suffix(path.suffix + f".tmp-{os.getpid()}")
     temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     temporary.replace(path)
-
-
-def _s0_tokenizer_codec_manifest_sha256(
-    token_manifest_path: str | None,
-) -> str | None:
-    if not token_manifest_path:
-        return None
-    codec = load_model_text_codec_for_token_manifest(
-        Path(token_manifest_path)
-    )
-    return None if codec is None else codec.manifest_sha256
 
 
 def save_adapter(model, output_dir: Path, args: argparse.Namespace, topology: WorldModelTopology, rank: int) -> None:
@@ -1258,11 +1007,6 @@ def save_adapter(model, output_dir: Path, args: argparse.Namespace, topology: Wo
             **required_run_identity(),
             "tokenizer_artifacts_sha256": args.tokenizer_artifacts_sha256,
         }
-        s0_codec_hash = _s0_tokenizer_codec_manifest_sha256(
-            args.token_adapter_manifest
-        )
-        if s0_codec_hash is not None:
-            adapter_identity["s0_tokenizer_codec_manifest_sha256"] = s0_codec_hash
         _write_json(
             output_dir / TP_MANIFEST_NAME,
             {
@@ -1274,7 +1018,6 @@ def save_adapter(model, output_dir: Path, args: argparse.Namespace, topology: Wo
                 "logical_trainable_parameters": logical_trainable_parameters,
                 "rank_shards": topology.world_size,
                 "consolidated_peft_adapter": ADAPTER_WEIGHTS_NAME,
-                "token_adapter": bool(args.token_adapter_manifest),
                 "identity": adapter_identity,
             },
         )
@@ -1289,11 +1032,6 @@ def save_adapter(model, output_dir: Path, args: argparse.Namespace, topology: Wo
         parsed = LoraConfig.from_pretrained(output_dir)
         if set(parsed.target_modules or ()) != set(ATTENTION_LORA_TARGETS):
             raise RuntimeError("Consolidated adapter_config.json is not PEFT-compatible")
-    # Custom tokenizers also save their two trainable token-row deltas.
-    if args.token_adapter_manifest:
-        save_token_adapter(
-            model, output_dir, Path(args.token_adapter_manifest), rank
-        )
     dist.barrier()
 
 
@@ -1303,7 +1041,6 @@ def load_adapter_shard(
     topology: WorldModelTopology,
     rank: int,
     loss_contract: str,
-    token_adapter_manifest: str | None,
     tokenizer_artifacts_sha256: str,
 ) -> None:
     manifest = json.loads((checkpoint / TP_MANIFEST_NAME).read_text(encoding="utf-8"))
@@ -1324,15 +1061,9 @@ def load_adapter_shard(
         **required_run_identity(),
         "tokenizer_artifacts_sha256": tokenizer_artifacts_sha256,
     }
-    s0_codec_hash = _s0_tokenizer_codec_manifest_sha256(
-        token_adapter_manifest
-    )
-    if s0_codec_hash is not None:
-        expected_identity["s0_tokenizer_codec_manifest_sha256"] = s0_codec_hash
     if manifest.get("identity") != expected_identity:
         raise RuntimeError(
-            "Checkpoint model/tokenizer/token-adapter/codec identity does not match "
-            "the current launch contract"
+            "Checkpoint model and tokenizer identity differs from the launch contract"
         )
     shard_path = checkpoint / "tp_adapter_shards" / f"rank-{rank:05d}.safetensors"
     state = load_file(shard_path, device="cpu")
@@ -1508,7 +1239,6 @@ def load_checkpoint(
     topology: WorldModelTopology,
     rank: int,
     loss_contract: str,
-    token_adapter_manifest: str | None,
     tokenizer_artifacts_sha256: str,
 ) -> LoopState:
     load_adapter_shard(
@@ -1517,7 +1247,6 @@ def load_checkpoint(
         topology,
         rank,
         loss_contract,
-        token_adapter_manifest,
         tokenizer_artifacts_sha256,
     )
     load_optimizer_shard(optimizer, checkpoint, rank)
@@ -1568,8 +1297,6 @@ def assert_first_step_gradient_contract(model, optimizer, group) -> None:
         is_adapter = (
             ".lora_A." in name
             or ".lora_B." in name
-            or name.endswith("token_input_delta")
-            or name.endswith("token_output_delta")
         )
         if is_adapter:
             if not parameter.requires_grad or id(parameter) not in optimizer_parameters:
@@ -1592,38 +1319,6 @@ def assert_first_step_gradient_contract(model, optimizer, group) -> None:
     errors = [f"rank{index}: {error}" for index, items in enumerate(gathered) for error in (items or [])]
     if errors:
         raise RuntimeError("First-step frozen-base/gradient gate failed: " + "; ".join(errors[:20]))
-
-
-def assert_tp_token_row_replica_parity(model, group, *, gradients: bool) -> int:
-    """Require identical token-row replicas. Do not reduce their gradients."""
-
-    checked = 0
-    for name, parameter in token_adapter_parameters(model):
-        value = parameter.grad if gradients else parameter
-        kind = "gradient" if gradients else "parameter"
-        if value is None:
-            raise RuntimeError(f"Token-row {kind} is missing for {name}")
-        if not isinstance(value, DTensor):
-            raise RuntimeError(f"Token-row {kind} is not a DTensor for {name}")
-        if value.placements != (Replicate(),):
-            raise RuntimeError(
-                f"Token-row {kind} is not replicated for {name}: {value.placements}"
-            )
-        local = value.to_local().detach()
-        if not torch.isfinite(local).all():
-            raise RuntimeError(f"Token-row {kind} is non-finite for {name}")
-        minimum = local.clone()
-        maximum = local.clone()
-        dist.all_reduce(minimum, op=dist.ReduceOp.MIN, group=group)
-        dist.all_reduce(maximum, op=dist.ReduceOp.MAX, group=group)
-        if not torch.equal(minimum, maximum):
-            max_abs_diff = float((maximum - minimum).abs().max().item())
-            raise RuntimeError(
-                f"TP token-row {kind} replicas diverged for {name}; "
-                f"max_abs_diff={max_abs_diff}"
-            )
-        checked += 1
-    return checked
 
 
 def assert_tp_replicated_lora_parity(model, group, *, gradients: bool) -> int:
@@ -1708,15 +1403,12 @@ def compute_loss_objective(
 ) -> dict[str, Any]:
     """Compute one forward pass and the fixed S0 loss contract."""
 
-    if loss_contract != S0_TARGET_AWARE_LOSS_CONTRACT:
+    if loss_contract != S0_TOOL_TRAJECTORY_LOSS_CONTRACT:
         raise ValueError(f"Unknown loss contract: {loss_contract!r}")
 
-    mapping_target_mask = batch.get("mapping_target_mask")
-    model_batch = {
-        key: value
-        for key, value in batch.items()
-        if key not in {"labels", "mapping_target_mask"}
-    }
+    if "mapping_target_mask" in batch:
+        raise RuntimeError("The trajectory batch has a mapping target mask")
+    model_batch = {key: value for key, value in batch.items() if key != "labels"}
     labels = batch["labels"]
     outputs = model(**model_batch)
     logits = outputs.logits.float()
@@ -1736,30 +1428,10 @@ def compute_loss_objective(
         raise RuntimeError("The batch has no completion target token")
     completion_loss = token_loss[completion_positions].mean()
 
-    if mapping_target_mask is None or mapping_target_mask.shape != labels.shape:
-        raise RuntimeError("The target-aware batch has no valid mapping target mask")
-    # Mapping loss covers only the answer values named by the S0 family.
-    target_labels = labels.masked_fill(~mapping_target_mask.to(torch.bool), -100)
-    shift_target_labels = nn.functional.pad(
-        target_labels,
-        (0, 1),
-        value=-100,
-    )[..., 1:].contiguous()
-    mapping_positions = shift_target_labels != -100
-    mapping_target_tokens = int(mapping_positions.sum().item())
-    if mapping_target_tokens == 0:
-        raise RuntimeError("The batch has no mapping target token")
-    mapping_target_loss = token_loss[mapping_positions].mean()
-    loss = (
-        S0_TARGET_AWARE_COMPLETION_WEIGHT * completion_loss
-        + S0_TARGET_AWARE_MAPPING_WEIGHT * mapping_target_loss
-    )
     return {
-        "loss": loss,
+        "loss": completion_loss,
         "completion_loss": completion_loss,
-        "mapping_target_loss": mapping_target_loss,
         "completion_tokens": completion_tokens,
-        "mapping_target_tokens": mapping_target_tokens,
     }
 
 
@@ -1767,9 +1439,7 @@ def reduce_training_loss_window(
     *,
     loss_sum: float,
     completion_loss_sum: float,
-    mapping_target_loss_sum: float,
     sample_count: int,
-    mapping_sample_count: int,
     input_tokens: int,
     dp_group,
 ) -> dict[str, float]:
@@ -1780,9 +1450,7 @@ def reduce_training_loss_window(
         [
             loss_sum,
             completion_loss_sum,
-            mapping_target_loss_sum,
             sample_count,
-            mapping_sample_count,
             input_tokens,
         ],
         dtype=torch.float64,
@@ -1790,14 +1458,12 @@ def reduce_training_loss_window(
     )
     dist.all_reduce(values, op=dist.ReduceOp.SUM, group=dp_group)
     reduced = values.tolist()
-    total_samples = max(1.0, reduced[3])
-    mapping_samples = max(1.0, reduced[4])
+    total_samples = max(1.0, reduced[2])
     return {
         "loss": reduced[0] / total_samples,
         "completion_loss": reduced[1] / total_samples,
-        "mapping_target_loss": reduced[2] / mapping_samples,
-        "mapping_sample_count": reduced[4],
-        "input_tokens": reduced[5],
+        "sample_count": reduced[2],
+        "input_tokens": reduced[3],
     }
 
 
@@ -1818,7 +1484,7 @@ def evaluate_validation(
     output_dir: Path,
     wandb_run=None,
 ) -> dict[str, Any]:
-    """Measure the target-aware loss on the validation panel."""
+    """Measure the trajectory loss on the validation panel."""
 
     was_training = model.training
     model.eval()
@@ -1836,7 +1502,6 @@ def evaluate_validation(
     started = time.monotonic()
     loss_sum = 0.0
     completion_loss_sum = 0.0
-    mapping_loss_sum = 0.0
     sample_count = 0
     input_tokens = 0
     for batch_index, batch in enumerate(dataloader):
@@ -1858,17 +1523,12 @@ def evaluate_validation(
         completion_loss_sum += (
             objective["completion_loss"].item() * batch_size
         )
-        mapping_loss_sum += (
-            objective["mapping_target_loss"].item() * batch_size
-        )
         sample_count += batch_size
         input_tokens += int(batch["attention_mask"].sum().item())
     reduced = reduce_training_loss_window(
         loss_sum=loss_sum,
         completion_loss_sum=completion_loss_sum,
-        mapping_target_loss_sum=mapping_loss_sum,
         sample_count=sample_count,
-        mapping_sample_count=sample_count,
         input_tokens=input_tokens,
         dp_group=dp_group,
     )
@@ -1883,8 +1543,7 @@ def evaluate_validation(
         "loss_contract": args.loss_contract,
         "loss": reduced["loss"],
         "completion_loss": reduced["completion_loss"],
-        "mapping_target_loss": reduced["mapping_target_loss"],
-        "examples": int(reduced["mapping_sample_count"]),
+        "examples": int(reduced["sample_count"]),
         "input_tokens": int(reduced["input_tokens"]),
         "elapsed_seconds": elapsed,
     }
@@ -1897,9 +1556,6 @@ def evaluate_validation(
                     "global_step": global_step,
                     "eval/loss": payload["loss"],
                     "eval/completion_loss": payload["completion_loss"],
-                    "eval/mapping_target_loss": payload[
-                        "mapping_target_loss"
-                    ],
                     "eval/examples": payload["examples"],
                     "eval/runtime": payload["elapsed_seconds"],
                 }
@@ -1930,9 +1586,7 @@ def train_loop(
     tp_group = model._device_mesh.get_group()
     running_loss = 0.0
     running_completion_loss = 0.0
-    running_mapping_target_loss = 0.0
     running_loss_samples = 0
-    running_mapping_samples = 0
     segment_start_step = state.global_step
     segment_start_time = time.monotonic()
     interval_start_time = segment_start_time
@@ -1999,11 +1653,6 @@ def train_loop(
             running_completion_loss += float(
                 objective["completion_loss"].detach().item()
             )
-            if objective["mapping_target_loss"] is not None:
-                running_mapping_target_loss += float(
-                    objective["mapping_target_loss"].detach().item()
-                )
-                running_mapping_samples += 1
             running_loss_samples += 1
             state.batches_consumed_in_epoch = batch_index + 1
             is_last_batch = batch_index + 1 == len(dataloader)
@@ -2022,9 +1671,6 @@ def train_loop(
                         model, tp_group, gradients=True
                     )
                 )
-                token_row_gradient_replicas = assert_tp_token_row_replica_parity(
-                    model, tp_group, gradients=True
-                )
             with implicit_replication():
                 if args.max_grad_norm > 0:
                     torch.nn.utils.clip_grad_norm_(_optimizer_parameters(optimizer), args.max_grad_norm)
@@ -2038,9 +1684,6 @@ def train_loop(
                         model, tp_group, gradients=False
                     )
                 )
-                token_row_parameter_replicas = assert_tp_token_row_replica_parity(
-                    model, tp_group, gradients=False
-                )
                 if rank == 0:
                     print(
                         json.dumps(
@@ -2048,17 +1691,11 @@ def train_loop(
                                 "event": "first_step_gate",
                                 "status": "passed",
                                 "batch_checksum": checksum,
-                                "tp_token_row_gradient_replicas_checked": (
-                                    token_row_gradient_replicas
-                                ),
                                 "tp_replicated_lora_gradient_replicas_checked": (
                                     replicated_lora_gradient_replicas
                                 ),
                                 "tp_replicated_lora_parameter_replicas_checked": (
                                     replicated_lora_parameter_replicas
-                                ),
-                                "tp_token_row_parameter_replicas_checked": (
-                                    token_row_parameter_replicas
                                 ),
                             },
                             sort_keys=True,
@@ -2078,9 +1715,7 @@ def train_loop(
                 reduced_loss = reduce_training_loss_window(
                     loss_sum=running_loss,
                     completion_loss_sum=running_completion_loss,
-                    mapping_target_loss_sum=running_mapping_target_loss,
                     sample_count=running_loss_samples,
-                    mapping_sample_count=running_mapping_samples,
                     input_tokens=interval_tokens,
                     dp_group=dp_group,
                 )
@@ -2096,11 +1731,6 @@ def train_loop(
                         "loss_contract": args.loss_contract,
                         "loss": reduced_loss["loss"],
                         "completion_loss": reduced_loss["completion_loss"],
-                        "mapping_target_loss": (
-                            reduced_loss["mapping_target_loss"]
-                            if reduced_loss["mapping_sample_count"] > 0
-                            else None
-                        ),
                         "learning_rate": scheduler.get_last_lr()[0],
                         "global_batch_size": topology.global_batch_size,
                         "elapsed_seconds": elapsed,
@@ -2120,16 +1750,10 @@ def train_loop(
                             "train/input_tokens_per_second": payload["input_tokens_per_second"],
                             "train/input_tokens_interval": payload["input_tokens"],
                         }
-                        if payload["mapping_target_loss"] is not None:
-                            wandb_payload["train/mapping_target_loss"] = payload[
-                                "mapping_target_loss"
-                            ]
                         wandb_run.log(wandb_payload)
                 running_loss = 0.0
                 running_completion_loss = 0.0
-                running_mapping_target_loss = 0.0
                 running_loss_samples = 0
-                running_mapping_samples = 0
                 interval_tokens = 0
                 interval_start_step = state.global_step
                 if rank == 0:
@@ -2221,54 +1845,17 @@ def main() -> None:
     run_identity = required_run_identity()
     method_match = re.fullmatch(
         r"(oss20b|oss120b)-"
-        r"(plain-base-tokenizer|ordinary-domain-bpe|"
-        r"atomic-plus-domain-bpe|fully-atomic-identifiers)-"
-        r"lora-r(32|128|1024)",
+        r"plain-base-tokenizer-lora-r(32|128|1024)",
         run_identity["method_id"],
     )
     if method_match is None:
         raise RuntimeError(
             "The S0 method ID must select one supported LoRA configuration"
         )
-    tokenizer_method = {
-        "plain-base-tokenizer": "plain_base_tokenizer",
-        "ordinary-domain-bpe": "ordinary_domain_bpe",
-        "atomic-plus-domain-bpe": "atomic_plus_domain_bpe",
-        "fully-atomic-identifiers": "fully_atomic_identifiers",
-    }[method_match.group(2)]
-    if int(method_match.group(3)) != args.lora_r:
+    if int(method_match.group(2)) != args.lora_r:
         raise RuntimeError(
             "The S0 method ID differs from the selected LoRA rank"
         )
-    custom_tokenizer_methods = {
-        "ordinary_domain_bpe",
-        "atomic_plus_domain_bpe",
-        "fully_atomic_identifiers",
-    }
-    custom_tokenizer = tokenizer_method in custom_tokenizer_methods
-
-    supported_tokenizer_methods = {
-        "plain_base_tokenizer",
-        *custom_tokenizer_methods,
-    }
-
-    if tokenizer_method not in supported_tokenizer_methods:
-        raise RuntimeError(
-            f"The S0 method ID has an unknown tokenizer: {tokenizer_method!r}"
-        )
-
-    if bool(args.token_adapter_manifest) != custom_tokenizer:
-        raise RuntimeError(
-            "Only a custom S0 tokenizer requires --token_adapter_manifest"
-        )
-    # Plain tokenization has no codec or trainable token-row adapter.
-    s0_codec = (
-        None
-        if not args.token_adapter_manifest
-        else load_model_text_codec_for_token_manifest(
-            Path(args.token_adapter_manifest)
-        )
-    )
     # Validate the process layout before the model loads.
     topology, rank, local_rank, device_index = configure_topology(args)
     if args.strict_tested_stack:
@@ -2319,7 +1906,6 @@ def main() -> None:
             args,
             topology,
             output_dir=output_dir,
-            s0_codec=s0_codec,
         )
         _write_json(
             output_dir / "wandb_run.json",
@@ -2397,7 +1983,6 @@ def main() -> None:
         label="training",
         tokenizer_identity_sha256=tokenizer_identity_sha256,
         loss_contract=args.loss_contract,
-        s0_codec=s0_codec,
     )
     validation_dataset, _, validation_identities = load_tokenized_dataset(
         args.validation_dataset_path,
@@ -2407,7 +1992,6 @@ def main() -> None:
         label="validation",
         tokenizer_identity_sha256=tokenizer_identity_sha256,
         loss_contract=args.loss_contract,
-        s0_codec=s0_codec,
         answer_key_path=args.validation_answer_key_path,
     )
     schedule = derive_optimizer_step_schedule(
@@ -2443,6 +2027,9 @@ def main() -> None:
         preserve_order=args.preserve_dataset_order,
     )
     consumed_indices = list(padding_plan["logical_indices"])
+    exposure_corpus_identity = s0_exposure_corpus_identity(
+        args.loss_contract
+    )
     exposure_manifest_args = {
         "run_id": run_identity["run_id"],
         "method_id": run_identity["method_id"],
@@ -2474,6 +2061,7 @@ def main() -> None:
         "exposure_scope": s0_exposure_scope(
             os.environ.get("S0_RUN_SCOPE", "").strip()
         ),
+        **exposure_corpus_identity,
     }
     # Write the planned receipt before the first optimizer step.
     exposure_path = output_dir / "run_contract" / "training_exposure.json"
@@ -2512,10 +2100,15 @@ def main() -> None:
         completion_only_loss=True,
         pad_to_multiple_of=8,
     )
-    supervision = assert_s0_supervision(dataset, collator)
+    supervision = assert_s0_supervision(
+        dataset,
+        collator,
+        args.loss_contract,
+    )
     validation_supervision = assert_s0_supervision(
         validation_dataset,
         collator,
+        args.loss_contract,
     )
     if rank == 0:
         print(
@@ -2532,9 +2125,6 @@ def main() -> None:
                 "total_steps": total_steps,
                 "tokenizer_artifacts_sha256": tokenizer_identity_sha256,
                 "completion_preflight_examples": supervision["examples_checked"],
-                "mapping_target_preflight_tokens": supervision[
-                    "mapping_target_tokens"
-                ],
                 "validation_examples": len(validation_dataset),
                 "validation_completion_preflight_examples": (
                     validation_supervision["examples_checked"]
@@ -2581,14 +2171,6 @@ def main() -> None:
     injected = inject_tp_lora(
         model, LoraSpec(args.lora_r, args.lora_alpha, args.lora_dropout), args.seed
     )
-    token_adapter = None
-    token_adapter_forward_preflight = None
-    # Add token-row deltas only for a custom S0 tokenizer.
-    if args.token_adapter_manifest:
-        token_adapter = install_trainable_token_rows(
-            model, Path(args.token_adapter_manifest)
-        )
-        token_adapter_forward_preflight = assert_token_adapter_forward_contract(model)
     trainable = _adapter_parameters(model)
     if rank == 0:
         print(
@@ -2599,10 +2181,6 @@ def main() -> None:
                     "trainable_tensors": len(trainable),
                     "trainable_global_parameters": sum(parameter.numel() for _, parameter in trainable),
                     "targets": list(ATTENTION_LORA_TARGETS),
-                    "token_adapter": token_adapter,
-                    "token_adapter_forward_preflight": (
-                        token_adapter_forward_preflight
-                    ),
                 },
                 sort_keys=True,
             ),
@@ -2640,7 +2218,6 @@ def main() -> None:
             topology,
             rank,
             args.loss_contract,
-            args.token_adapter_manifest,
             args.tokenizer_artifacts_sha256,
         )
         if rank == 0:
