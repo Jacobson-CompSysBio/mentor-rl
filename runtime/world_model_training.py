@@ -1,9 +1,4 @@
-"""Prepare exact S0 train inputs and content-addressed receipts.
-
-This module contains pure helpers for S0 train and inference programs. It
-validates local artifacts, builds model-visible prompts, defines row order,
-and records logical and physical exposure. It does not load model weights.
-"""
+"""Prepare the canonical S0 tool trajectory data and exposure receipts."""
 
 from __future__ import annotations
 
@@ -17,8 +12,10 @@ import random
 import re
 from typing import Any
 
+from runtime.world_model_prompts import s0_tool_trajectory_prompt_contract
+from runtime.world_model_schemas import S0_FAMILIES, IdentifierToolSFTRecord
 
-# These files can change the token IDs that the model receives.
+
 TOKENIZER_ARTIFACT_NAMES = frozenset(
     {
         "added_tokens.json",
@@ -29,32 +26,29 @@ TOKENIZER_ARTIFACT_NAMES = frozenset(
         "vocab.json",
     }
 )
-
-# Hugging Face can use several tokenizer and chat-template file names.
 TOKENIZER_ARTIFACT_PREFIXES = ("chat_template", "tokenizer")
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
-SHA256_ID_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
 
-S0_RECORD_METADATA_KEYS = (
-    "schema_version",
-    "book_mode",
-    "step",
-    "question_family",
-    "species_taxon_id",
-    "ensembl_release",
-    "identifier_registry_id",
-    "system_prompt_sha256",
-    "answer_format",
+S0_TOOL_TRAJECTORY_LOSS_CONTRACT = "s0_tool_trajectory_v1"
+S0_TOOL_TRAJECTORY_DATASET_ID = (
+    "world_model_v2_s0_human_identifier_trajectories_v6"
 )
-S0_TOKENIZER_CODEC_KEY = "s0_tokenizer_codec"
+S0_EXPOSURE_SCOPE_BY_RUN_SCOPE = {
+    "qualification": "unrestricted",
+    "production": "all_eligible_train_rows",
+}
+S0_EXPOSURE_CORPUS_BY_LOSS_CONTRACT = {
+    S0_TOOL_TRAJECTORY_LOSS_CONTRACT: {
+        "dataset_id": S0_TOOL_TRAJECTORY_DATASET_ID,
+        "system_prompt_sha256": (
+            s0_tool_trajectory_prompt_contract().system_prompt_sha256
+        ),
+    }
+}
 
 
 def canonical_json(value: Any) -> str:
-    """Return stable compact JSON for one value.
-
-    All content hashes use this exact byte representation. Sorted object keys
-    prevent dictionary insertion order from changing an identity.
-    """
+    """Return stable compact JSON for one value."""
 
     return json.dumps(
         value,
@@ -65,17 +59,13 @@ def canonical_json(value: Any) -> str:
 
 
 def stable_sha256(value: Any) -> str:
-    """Return the SHA-256 digest for one canonical JSON value."""
+    """Return the SHA-256 value for canonical JSON."""
 
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
 def sha256_file(path: Path) -> str:
-    """Return the SHA-256 digest for one file.
-
-    The function reads fixed-size blocks, so a large model artifact does not
-    enter memory as one object.
-    """
+    """Return the SHA-256 value for one file."""
 
     digest = hashlib.sha256()
     with path.open("rb") as source_file:
@@ -85,7 +75,7 @@ def sha256_file(path: Path) -> str:
 
 
 def read_json_object(path: Path) -> dict[str, Any]:
-    """Read one JSON object and reject another top-level JSON type."""
+    """Read one JSON object and reject another top-level type."""
 
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
@@ -94,59 +84,15 @@ def read_json_object(path: Path) -> dict[str, Any]:
 
 
 def _require_sha256(value: Any, label: str) -> str:
-    """Return one valid lowercase SHA-256 digest."""
+    """Return one valid lowercase SHA-256 value."""
 
     if not isinstance(value, str) or SHA256_PATTERN.fullmatch(value) is None:
-        raise ValueError(f"{label} must be a lowercase SHA-256 digest")
+        raise ValueError(f"{label} must be a lowercase SHA-256 value")
     return value
 
 
-def _safe_relative_path(value: Any, label: str) -> Path:
-    """Return one safe relative artifact path.
-
-    This check blocks absolute paths and parent traversal. It permits nested
-    artifact paths and intentional symlinks inside a generated artifact tree.
-    """
-
-    relative = Path(str(value))
-    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
-        raise ValueError(f"{label} has an unsafe file path: {value}")
-    return relative
-
-
-def validate_file_hashes(
-    root: Path,
-    expected: Any,
-    *,
-    label: str,
-) -> None:
-    """Check every declared file under one artifact root.
-
-    The caller selects the correct root for each manifest section. This avoids
-    a false assumption that corpus and evaluator files share one directory.
-    """
-
-    if not isinstance(expected, Mapping) or not expected:
-        raise ValueError(f"{label} has no file hashes")
-    for name, expected_hash in expected.items():
-        relative = _safe_relative_path(name, label)
-        required_hash = _require_sha256(
-            expected_hash,
-            f"{label} hash for {name}",
-        )
-        path = root / relative
-        if not path.is_file():
-            raise ValueError(f"{label} file is absent: {name}")
-        if sha256_file(path) != required_hash:
-            raise ValueError(f"{label} file identity changed: {name}")
-
-
 def tokenizer_artifact_hashes(path: Path) -> dict[str, str]:
-    """Return hashes for all tokenizer files in one local directory.
-
-    The filter excludes model weights and unrelated configuration files. The
-    result detects a tokenizer change before a train or evaluation job starts.
-    """
+    """Return hashes for all tokenizer files in one local directory."""
 
     root = path.resolve()
     if not root.is_dir():
@@ -166,11 +112,7 @@ def tokenizer_artifact_hashes(path: Path) -> dict[str, str]:
 
 
 def validated_tokenizer_manifest(path: Path) -> dict[str, Any]:
-    """Return one tokenizer manifest after its internal identity check.
-
-    The internal digest covers every field except `manifest_sha256`. This check
-    detects a changed method, codec reference, token list, or row count.
-    """
+    """Check one tokenizer manifest, and then return it."""
 
     payload = read_json_object(path)
     claimed = _require_sha256(
@@ -183,770 +125,53 @@ def validated_tokenizer_manifest(path: Path) -> dict[str, Any]:
         if key != "manifest_sha256"
     }
     if stable_sha256(identity) != claimed:
-        raise ValueError("The tokenizer manifest failed its internal identity")
+        raise ValueError("The tokenizer manifest failed its identity check")
     return payload
 
 
-# Block 2: Validate the complete v4 corpus and tokenizer identities.
-S0_DATASET_ID = "world_model_v2_s0_human_identifiers_v4"
-S0_MANIFEST_SCHEMA = "mentor-rl-world-model-s0-manifest-v4"
-S0_SPLIT_MANIFEST_SCHEMA = "mentor-rl-world-model-s0-split-manifest-v4"
-S0_EVALUATOR_MANIFEST_SCHEMA = (
-    "mentor-rl-world-model-s0-evaluator-manifest-v4"
-)
-S0_TOKENIZER_ARM_SCHEMA = "mentor-rl-world-model-s0-tokenizer-arm-v4"
-S0_TOKENIZER_AUDIT_SCHEMA = "mentor-rl-world-model-s0-tokenizer-audit-v4"
-S0_TOKENIZER_MANIFEST_SCHEMA = "mentor-rl-world-model-s0-tokenizer-v3"
-S0_RECORD_SCHEMA = "identifier_sft_v2"
-S0_TRAINING_CONTRACT = "closed_book_only_v1"
-S0_EXPOSURE_SCOPE_BY_RUN_SCOPE = {
-    "debug_qualification": "unrestricted",
-    "qualification": "unrestricted",
-    "matched_matrix": "unrestricted",
-}
-S0_EVALUATION_CONTRACT = "seen_fact_closed_book_recall_v1"
-S0_SYSTEM_PROMPT_SHA256 = (
-    "06646540ea70f94d8cb8ca5fc9764980e0a8b251953d53ff2259c55962d5005b"
-)
-S0_TOKENIZER_METHODS = (
-    "plain_base_tokenizer",
-    "ordinary_domain_bpe",
-    "atomic_plus_domain_bpe",
-    "fully_atomic_identifiers",
-)
-S0_QUESTION_FAMILIES = (
-    "human_symbol_to_ensembl",
-    "human_ensembl_to_symbol",
-    "human_ambiguous_symbol",
-)
-S0_TOKEN_ROW_COUNTS = {
-    "plain_base_tokenizer": 0,
-    "ordinary_domain_bpe": 482,
-    "atomic_plus_domain_bpe": 481,
-    "fully_atomic_identifiers": 85286,
-}
-
-S0_UNUSED_MODEL_ROWS_CONSUMED = {
-    "plain_base_tokenizer": 0,
-    "ordinary_domain_bpe": 482,
-    "atomic_plus_domain_bpe": 481,
-    "fully_atomic_identifiers": 1069,
-}
-
-
-def _count_jsonl_rows(path: Path) -> int:
-    """Count nonempty JSON Lines rows without loading the file."""
-
-    with path.open(encoding="utf-8") as source_file:
-        return sum(1 for line in source_file if line.strip())
-
-
-def _require_equal(actual: Any, expected: Any, label: str) -> None:
-    """Reject one changed contract value."""
-
-    if actual != expected:
-        raise ValueError(
-            f"{label} changed: expected={expected!r}, actual={actual!r}"
-        )
-
-
-def validate_s0_corpus_identity(
-    corpus_root: Path,
-    *,
-    evaluator_manifest_path: Path,
-    validation_answer_key_path: Path,
-    expected_manifest_sha256: str,
-    expected_train_sha256: str,
-    expected_train_rows: int,
-    expected_validation_sha256: str,
-    expected_validation_rows: int,
-    expected_validation_answer_key_sha256: str,
-) -> dict[str, Any]:
-    """Validate the complete v4 corpus identity at job start.
-
-    The run contract pins the corpus manifest, train file, and row count. The
-    corpus manifest then pins the split and evaluator manifests.
-
-    The train process uses the private validation key for validation loss.
-    This function verifies that key before the train process starts.
-    """
-
-    if expected_train_rows < 1:
-        raise ValueError("expected_train_rows must be positive")
-    required_manifest_hash = _require_sha256(
-        expected_manifest_sha256,
-        "expected corpus manifest SHA-256",
-    )
-    required_train_hash = _require_sha256(
-        expected_train_sha256,
-        "expected train SHA-256",
-    )
-    required_validation_hash = _require_sha256(
-        expected_validation_sha256,
-        "expected validation SHA-256",
-    )
-    required_validation_answer_hash = _require_sha256(
-        expected_validation_answer_key_sha256,
-        "expected validation answer key SHA-256",
-    )
-    if expected_validation_rows < 1:
-        raise ValueError("expected_validation_rows must be positive")
-
-    root = corpus_root.resolve()
-    manifest_path = root / "manifest.json"
-    if sha256_file(manifest_path) != required_manifest_hash:
-        raise ValueError("The S0 corpus manifest identity changed")
-    manifest = read_json_object(manifest_path)
-
-    # These fixed values prevent an old S0 corpus from entering a v4 job.
-    fixed_contract = {
-        "schema_version": S0_MANIFEST_SCHEMA,
-        "dataset_id": S0_DATASET_ID,
-        "record_schema_version": S0_RECORD_SCHEMA,
-        "training_contract": S0_TRAINING_CONTRACT,
-        "evaluation_contract": S0_EVALUATION_CONTRACT,
-    }
-    for key, expected in fixed_contract.items():
-        _require_equal(manifest.get(key), expected, f"S0 manifest {key}")
-
-    prompt_contract = manifest.get("system_prompt_contract")
-    if not isinstance(prompt_contract, Mapping):
-        raise ValueError("The S0 manifest has no system prompt contract")
-    _require_equal(
-        prompt_contract.get("system_prompt_sha256"),
-        S0_SYSTEM_PROMPT_SHA256,
-        "S0 system prompt SHA-256",
-    )
-    _require_equal(
-        prompt_contract.get("allowed_book_modes"),
-        ["closed_book"],
-        "S0 allowed book modes",
-    )
-
-    file_hashes = manifest.get("file_hashes")
-    if not isinstance(file_hashes, Mapping):
-        raise ValueError("The S0 manifest has no file hashes")
-    local_hashes = {
-        name: file_hashes.get(name)
-        for name in ("train.jsonl", "val.jsonl", "split_manifest.json")
-    }
-    validate_file_hashes(root, local_hashes, label="The S0 corpus")
-    _require_equal(
-        file_hashes.get("train.jsonl"),
-        required_train_hash,
-        "S0 train SHA-256",
-    )
-    _require_equal(
-        file_hashes.get("val.jsonl"),
-        required_validation_hash,
-        "S0 validation SHA-256",
-    )
-
-    row_counts = manifest.get("row_counts")
-    if not isinstance(row_counts, Mapping):
-        raise ValueError("The S0 manifest has no row counts")
-    _require_equal(
-        row_counts.get("train"),
-        expected_train_rows,
-        "S0 train row count",
-    )
-    _require_equal(
-        _count_jsonl_rows(root / "train.jsonl"),
-        expected_train_rows,
-        "S0 train file row count",
-    )
-    _require_equal(
-        _count_jsonl_rows(root / "val.jsonl"),
-        expected_validation_rows,
-        "S0 validation file row count",
-    )
-    _require_equal(
-        row_counts.get("validation"),
-        expected_validation_rows,
-        "S0 validation row count",
-    )
-
-    # Distinguish source candidates from rows that full runs can expose.
-    train_exclusions = manifest.get("train_exclusions")
-    if not isinstance(train_exclusions, Mapping):
-        raise ValueError("The S0 manifest has no train exclusions")
-    exclusion_records = train_exclusions.get("records")
-    if not isinstance(exclusion_records, list):
-        raise ValueError("The S0 train exclusion records are invalid")
-    excluded_rows = train_exclusions.get("row_count")
-    if (
-        not isinstance(excluded_rows, int)
-        or isinstance(excluded_rows, bool)
-        or excluded_rows != len(exclusion_records)
-    ):
-        raise ValueError("The S0 train exclusion row count is invalid")
-    exclusion_ids = [
-        record.get("record_id")
-        for record in exclusion_records
-        if isinstance(record, Mapping)
-    ]
-    if (
-        len(exclusion_ids) != excluded_rows
-        or any(
-            not isinstance(value, str) or not value
-            for value in exclusion_ids
-        )
-        or len(set(exclusion_ids)) != excluded_rows
-    ):
-        raise ValueError("The S0 train exclusion identities are invalid")
-
-    train_population = manifest.get("train_population")
-    expected_train_population = {
-        "source_candidate_rows": expected_train_rows + excluded_rows,
-        "excluded_rows": excluded_rows,
-        "eligible_train_rows": expected_train_rows,
-        "full_run_exposure_requirement": "all_eligible_train_rows",
-    }
-    _require_equal(
-        train_population,
-        expected_train_population,
-        "S0 train population contract",
-    )
-
-    # The split manifest proves that all methods use the same fixed panels.
-    split_manifest = read_json_object(root / "split_manifest.json")
-    split_contract = {
-        "schema_version": S0_SPLIT_MANIFEST_SCHEMA,
-        "dataset_id": S0_DATASET_ID,
-        "training_contract": S0_TRAINING_CONTRACT,
-        "evaluation_contract": S0_EVALUATION_CONTRACT,
-        "fact_role": "seen",
-        "row_counts": dict(row_counts),
-        "family_counts": manifest.get("family_counts"),
-        "train_exclusions": dict(train_exclusions),
-        "train_population": expected_train_population,
-        "train_sha256": required_train_hash,
-        "validation_questions_sha256": file_hashes.get("val.jsonl"),
-    }
-    for key, expected in split_contract.items():
-        _require_equal(
-            split_manifest.get(key),
-            expected,
-            f"S0 split manifest {key}",
-        )
-
-    # The corpus manifest stores this cross-directory file hash by file name.
-    evaluator_path = evaluator_manifest_path.resolve()
-    _require_equal(
-        sha256_file(evaluator_path),
-        file_hashes.get("evaluator_manifest.json"),
-        "S0 evaluator manifest SHA-256",
-    )
-    evaluator_manifest = read_json_object(evaluator_path)
-    evaluator_contract = {
-        "schema_version": S0_EVALUATOR_MANIFEST_SCHEMA,
-        "dataset_id": S0_DATASET_ID,
-        "evaluation_contract": S0_EVALUATION_CONTRACT,
-    }
-    for key, expected in evaluator_contract.items():
-        _require_equal(
-            evaluator_manifest.get(key),
-            expected,
-            f"S0 evaluator manifest {key}",
-        )
-    validation = evaluator_manifest.get("validation")
-    test = evaluator_manifest.get("test")
-    if not isinstance(validation, Mapping) or not isinstance(test, Mapping):
-        raise ValueError("The S0 evaluator manifest has incomplete panels")
-    _require_equal(
-        validation.get("questions_sha256"),
-        file_hashes.get("val.jsonl"),
-        "S0 validation panel SHA-256",
-    )
-    _require_equal(
-        validation.get("row_count"),
-        expected_validation_rows,
-        "S0 validation panel row count",
-    )
-    _require_equal(
-        validation.get("answer_key_sha256"),
-        required_validation_answer_hash,
-        "S0 validation answer key SHA-256",
-    )
-    answer_key_path = validation_answer_key_path.resolve()
-    if not answer_key_path.is_file():
-        raise ValueError("The S0 validation answer key is absent")
-    _require_equal(
-        sha256_file(answer_key_path),
-        required_validation_answer_hash,
-        "S0 validation answer key file SHA-256",
-    )
-    _require_equal(
-        _count_jsonl_rows(answer_key_path),
-        expected_validation_rows,
-        "S0 validation answer key row count",
-    )
-    _require_equal(
-        test.get("questions_sha256"),
-        split_manifest.get("test_questions_sha256"),
-        "S0 test panel SHA-256",
-    )
-    _require_equal(
-        test.get("row_count"),
-        row_counts.get("test"),
-        "S0 test panel row count",
-    )
-    return manifest
-
-
-def validate_s0_tokenizer_arm_identity(
-    root: Path,
-    *,
-    method: str,
-    expected_corpus_manifest_sha256: str,
-    expected_train_sha256: str,
-    expected_arm_manifest_sha256: str,
-    maximum_sequence_tokens: int,
-    tokenizer_path: Path | None = None,
-) -> dict[str, Any]:
-    """Validate one complete v4 tokenizer method at job start.
-
-    The check joins the tokenizer arm to the exact corpus. It also checks the
-    audit receipt, token manifest, tokenizer bytes, and used model row count.
-    """
-
-    if method not in S0_TOKENIZER_METHODS:
-        raise ValueError(f"Unsupported S0 tokenizer method: {method!r}")
-    corpus_manifest_hash = _require_sha256(
-        expected_corpus_manifest_sha256,
-        "expected corpus manifest SHA-256",
-    )
-    train_hash = _require_sha256(
-        expected_train_sha256,
-        "expected train SHA-256",
-    )
-    arm_manifest_hash = _require_sha256(
-        expected_arm_manifest_sha256,
-        "expected tokenizer arm manifest SHA-256",
-    )
-
-    arm_root = root.resolve()
-    manifest_path = arm_root / "manifest.json"
-    if sha256_file(manifest_path) != arm_manifest_hash:
-        raise ValueError("The S0 tokenizer arm manifest identity changed")
-    manifest = read_json_object(manifest_path)
-    _require_equal(
-        manifest.get("schema_version"),
-        S0_TOKENIZER_ARM_SCHEMA,
-        "S0 tokenizer arm schema",
-    )
-    _require_equal(manifest.get("method"), method, "S0 tokenizer method")
-    _require_equal(
-        manifest.get("unused_model_rows_consumed"),
-        S0_UNUSED_MODEL_ROWS_CONSUMED[method],
-        "S0 used model row count",
-    )
-    _require_equal(
-        manifest.get("token_rows"),
-        S0_TOKEN_ROW_COUNTS[method],
-        "S0 tokenizer row count",
-    )
-
-    _require_equal(
-        manifest.get("audit_passed"),
-        True,
-        "S0 tokenizer audit status",
-    )
-
-    parent = manifest.get("parent_dataset")
-    if not isinstance(parent, Mapping):
-        raise ValueError("The S0 tokenizer arm has no parent dataset")
-    parent_contract = {
-        "dataset_id": S0_DATASET_ID,
-        "manifest_sha256": corpus_manifest_hash,
-        "train_sha256": train_hash,
-    }
-    for key, expected in parent_contract.items():
-        _require_equal(
-            parent.get(key),
-            expected,
-            f"S0 tokenizer parent {key}",
-        )
-
-    # Check every generated file before a loader opens any codec reference.
-    validate_file_hashes(
-        arm_root,
-        manifest.get("file_hashes"),
-        label="The S0 tokenizer arm",
-    )
-    audit = read_json_object(arm_root / "audit_report.json")
-    audit_contract = {
-        "schema_version": S0_TOKENIZER_AUDIT_SCHEMA,
-        "passed": True,
-        "method": method,
-        "parent_manifest_sha256": corpus_manifest_hash,
-        "parent_train_sha256": train_hash,
-    }
-    for key, expected in audit_contract.items():
-        _require_equal(
-            audit.get(key),
-            expected,
-            f"S0 tokenizer audit {key}",
-        )
-
-    # Reject a sequence limit below the exact audited train maximum.
-    audited_sequence_tokens = audit.get("maximum_sequence_tokens")
-    if (
-        not isinstance(audited_sequence_tokens, int)
-        or isinstance(audited_sequence_tokens, bool)
-        or audited_sequence_tokens < 1
-    ):
-        raise ValueError(
-            "The S0 tokenizer audit has no valid maximum sequence length"
-        )
-    if (
-        not isinstance(maximum_sequence_tokens, int)
-        or isinstance(maximum_sequence_tokens, bool)
-        or maximum_sequence_tokens < audited_sequence_tokens
-    ):
-        raise ValueError(
-            "The run maximum sequence length is below the tokenizer audit "
-            f"maximum: {maximum_sequence_tokens} < "
-            f"{audited_sequence_tokens}"
-        )
-
-    token_manifest_path = arm_root / "tokenizer_manifest.json"
-    token_manifest = validated_tokenizer_manifest(token_manifest_path)
-    token_manifest_contract = {
-        "schema_version": S0_TOKENIZER_MANIFEST_SCHEMA,
-        "method": method,
-        "parent_manifest_sha256": corpus_manifest_hash,
-        "parent_train_sha256": train_hash,
-        "unused_model_rows_consumed": (
-            S0_UNUSED_MODEL_ROWS_CONSUMED[method]
-        ),
-    }
-    for key, expected in token_manifest_contract.items():
-        _require_equal(
-            token_manifest.get(key),
-            expected,
-            f"S0 token manifest {key}",
-        )
-    token_rows = token_manifest.get("tokens")
-    if not isinstance(token_rows, list):
-        raise ValueError("The S0 token manifest has no token list")
-    _require_equal(
-        len(token_rows),
-        S0_TOKEN_ROW_COUNTS[method],
-        "S0 token manifest row count",
-    )
-    _require_equal(
-        token_manifest.get("manifest_sha256"),
-        manifest.get("tokenizer_manifest_sha256"),
-        "S0 token manifest identity",
-    )
-
-    # Compare the exact tokenizer bytes that the job will load.
-    selected_tokenizer = (
-        arm_root / "tokenizer"
-        if tokenizer_path is None
-        else tokenizer_path.resolve()
-    )
-    observed_artifacts = tokenizer_artifact_hashes(selected_tokenizer)
-    declared_artifacts = manifest.get("tokenizer_artifact_hashes")
-    if not isinstance(declared_artifacts, Mapping):
-        raise ValueError("The S0 tokenizer arm has no tokenizer hashes")
-    expected_artifacts = {
-        Path(str(name)).name: _require_sha256(
-            value,
-            f"S0 tokenizer hash for {name}",
-        )
-        for name, value in declared_artifacts.items()
-    }
-    if len(expected_artifacts) != len(declared_artifacts):
-        raise ValueError("The S0 tokenizer artifact names are not unique")
-    _require_equal(
-        observed_artifacts,
-        expected_artifacts,
-        "S0 selected tokenizer identity",
-    )
-    return manifest
-
-
-def model_text_codec_key(token_manifest_path: Path) -> str | None:
-    """Return the optional S0 codec key for one tokenizer manifest."""
-
-    token_manifest = validated_tokenizer_manifest(token_manifest_path)
-    _require_equal(
-        token_manifest.get("schema_version"),
-        S0_TOKENIZER_MANIFEST_SCHEMA,
-        "S0 token manifest schema_version",
-    )
-    method = token_manifest.get("method")
-    if method not in S0_TOKENIZER_METHODS:
-        raise ValueError(f"Unsupported S0 tokenizer method: {method!r}")
-
-    codec_reference = token_manifest.get(S0_TOKENIZER_CODEC_KEY)
-    if method == "plain_base_tokenizer":
-        if codec_reference is not None:
-            raise ValueError("The plain tokenizer cannot declare an S0 codec")
-        return None
-    if not isinstance(codec_reference, Mapping):
-        raise ValueError("A Domain-BPE tokenizer must declare an S0 codec")
-    return S0_TOKENIZER_CODEC_KEY
-
-
-def load_model_text_codec_for_token_manifest(token_manifest_path: Path):
-    """Load the optional S0 text codec for one tokenizer manifest.
-
-    The plain tokenizer returns no codec. Both Domain-BPE methods require the
-    codec that their content-addressed token manifest references.
-    """
-
-    codec_key = model_text_codec_key(token_manifest_path)
-
-    from runtime.world_model_s0_tokenizer import (
-        load_s0_tokenizer_codec_for_token_manifest,
-    )
-
-    codec = load_s0_tokenizer_codec_for_token_manifest(token_manifest_path)
-    if codec_key is None and codec is not None:
-        raise ValueError("The plain tokenizer cannot declare an S0 codec")
-    if codec_key is not None and codec is None:
-        raise ValueError("A Domain-BPE tokenizer must declare an S0 codec")
-    return codec
-
-
-# Block 3: Build the exact v4 model prompt and flat train record.
-def validate_s0_record_metadata(metadata: Any) -> dict[str, Any]:
-    """Return validated S0 metadata for internal runtime use."""
-
-    if not isinstance(metadata, Mapping):
-        raise ValueError("S0 metadata must be one object")
-    missing = [
-        key for key in S0_RECORD_METADATA_KEYS if key not in metadata
-    ]
-    if missing:
-        raise ValueError(f"S0 metadata has missing model fields: {missing}")
-
-    fixed_contract = {
-        "schema_version": S0_RECORD_SCHEMA,
-        "book_mode": "closed_book",
-        "step": "S0",
-        "species_taxon_id": "NCBITaxon:9606",
-        "ensembl_release": "Ensembl_116",
-        "system_prompt_sha256": S0_SYSTEM_PROMPT_SHA256,
-        "answer_format": "json",
-    }
-    for key, expected in fixed_contract.items():
-        _require_equal(metadata.get(key), expected, f"S0 metadata {key}")
-
-    family = metadata.get("question_family")
-    if family not in S0_QUESTION_FAMILIES:
-        raise ValueError(f"Unsupported S0 question family: {family!r}")
-    registry_id = metadata.get("identifier_registry_id")
-    if (
-        not isinstance(registry_id, str)
-        or SHA256_ID_PATTERN.fullmatch(registry_id) is None
-    ):
-        raise ValueError("S0 identifier_registry_id must be a SHA-256 ID")
-    return {key: metadata[key] for key in S0_RECORD_METADATA_KEYS}
-
-
-def serialize_sft_answer(answer: Any) -> str:
-    """Return one compact S0 answer or one existing answer string."""
-
-    if isinstance(answer, Mapping):
-        return canonical_json(dict(answer))
-    if isinstance(answer, str) and answer.strip():
-        try:
-            payload = json.loads(answer)
-        except json.JSONDecodeError as exc:
-            raise ValueError("The S0 answer string must contain JSON") from exc
-        if not isinstance(payload, Mapping):
-            raise ValueError("The S0 answer string must contain one object")
-        canonical_answer = canonical_json(dict(payload))
-        if answer != canonical_answer:
-            raise ValueError("The S0 answer string must use compact canonical JSON")
-        return canonical_answer
-    raise ValueError("The S0 answer must be one JSON object or a nonempty string")
-
-
-def iter_s0_validation_records(
-    question_path: Path,
-    answer_key_path: Path,
-):
-    """Yield each validation question with its private answer."""
-
-    answers: dict[str, dict[str, Any]] = {}
-    with answer_key_path.open(encoding="utf-8") as source_file:
-        for line_number, line in enumerate(source_file, start=1):
-            if not line.strip():
-                continue
-            try:
-                key_row = json.loads(line)
-            except json.JSONDecodeError as error:
-                raise ValueError(
-                    f"Invalid validation answer row at {answer_key_path}:{line_number}"
-                ) from error
-            if not isinstance(key_row, Mapping):
-                raise ValueError("A validation answer row must be one object")
-            record_id = key_row.get("record_id")
-            if not isinstance(record_id, str) or not record_id:
-                raise ValueError("A validation answer row lacks its record ID")
-            if record_id in answers:
-                raise ValueError(
-                    f"The validation answer key repeats record ID {record_id}"
-                )
-            answers[record_id] = dict(key_row)
-
-    seen: set[str] = set()
-    with question_path.open(encoding="utf-8") as source_file:
-        for line_number, line in enumerate(source_file, start=1):
-            if not line.strip():
-                continue
-            try:
-                question_row = json.loads(line)
-            except json.JSONDecodeError as error:
-                raise ValueError(
-                    f"Invalid validation question at {question_path}:{line_number}"
-                ) from error
-            if not isinstance(question_row, Mapping):
-                raise ValueError("A validation question must be one object")
-            if "answer" in question_row:
-                raise ValueError("A public validation question contains an answer")
-            record_id = question_row.get("record_id")
-            if not isinstance(record_id, str) or not record_id:
-                raise ValueError("A validation question lacks its record ID")
-            if record_id in seen:
-                raise ValueError(
-                    f"The validation questions repeat record ID {record_id}"
-                )
-            key_row = answers.get(record_id)
-            if key_row is None:
-                raise ValueError(
-                    f"The validation answer key lacks record ID {record_id}"
-                )
-            metadata = question_row.get("metadata")
-            provenance = question_row.get("provenance")
-            if not isinstance(metadata, Mapping) or not isinstance(
-                provenance, Mapping
-            ):
-                raise ValueError("A validation question lacks its identity fields")
-            identity_pairs = (
-                ("family", key_row.get("family"), metadata.get("question_family")),
-                ("fact_id", key_row.get("fact_id"), provenance.get("fact_id")),
-                (
-                    "fact_group_id",
-                    key_row.get("fact_group_id"),
-                    provenance.get("fact_group_id"),
-                ),
-            )
-            for name, answer_value, question_value in identity_pairs:
-                if answer_value != question_value:
-                    raise ValueError(
-                        f"The validation {name} differs for record ID {record_id}"
-                    )
-            merged = dict(question_row)
-            merged["answer"] = key_row.get("answer")
-            seen.add(record_id)
-            yield merged
-
-    unused = sorted(set(answers) - seen)
-    if unused:
-        raise ValueError(
-            f"The validation answer key has {len(unused)} unmatched rows"
-        )
-
-
-def build_world_model_prompt_messages(
-    *,
-    system: str,
-    question: str,
-    metadata: Any,
-    context: Any = None,
-    in_context_examples: Any = None,
-) -> list[dict[str, str]]:
-    """Build the exact S0 system and user messages."""
-
-    if not isinstance(system, str) or not system.strip():
-        raise ValueError("The S0 system prompt must be a nonempty string")
-    prompt_hash = hashlib.sha256(system.encode("utf-8")).hexdigest()
-    _require_equal(
-        prompt_hash,
-        S0_SYSTEM_PROMPT_SHA256,
-        "S0 system prompt SHA-256",
-    )
-    if not isinstance(question, str) or not question.strip():
-        raise ValueError("The S0 question must be a nonempty string")
-    if context is not None:
-        raise ValueError("S0 requires null context")
-    validate_s0_record_metadata(metadata)
-    if in_context_examples not in (None, "", []):
-        raise ValueError("S0 does not permit in-context examples")
-    return [
-        {"role": "system", "content": system},
-        {"role": "user", "content": question},
-    ]
-
-
-def flatten_sft_record_for_arrow(
+def flatten_tool_sft_record_for_arrow(
     record: Mapping[str, Any],
     *,
     expected_split: str = "train",
 ) -> dict[str, str]:
-    """Convert one v4 SFT record to a stable scalar schema."""
+    """Convert one S0 trajectory record to a stable scalar schema."""
 
-    if not isinstance(record, Mapping):
-        raise ValueError("The S0 train record must be one object")
-    metadata = record.get("metadata")
-    validated_metadata = validate_s0_record_metadata(metadata)
-    system = record.get("system")
-    question = record.get("question")
-    build_world_model_prompt_messages(
-        system=system,
-        question=question,
-        metadata=metadata,
-        context=record.get("context"),
-    )
+    parsed = IdentifierToolSFTRecord.from_dict(record)
+    if parsed.split != expected_split:
+        raise ValueError(
+            f"The S0 trajectory adapter requires split {expected_split!r}"
+        )
+    provenance = parsed.provenance
+    fact_id = provenance.get("fact_id")
+    if not isinstance(fact_id, str) or not fact_id:
+        raise ValueError("The S0 trajectory record requires one fact_id")
     prompt_form_id = {
         "train": "train",
         "val": "validation",
     }.get(expected_split)
     if prompt_form_id is None:
-        raise ValueError(f"The S0 split is not supported: {expected_split!r}")
-    if record.get("split") != expected_split:
         raise ValueError(
-            f"The S0 adapter requires split {expected_split!r}"
+            f"The S0 trajectory split is not supported: {expected_split!r}"
         )
-    if not isinstance(record.get("input"), Mapping):
-        raise ValueError("The S0 train record requires one input object")
-
-    record_id = record.get("record_id")
-    if not isinstance(record_id, str) or not record_id.strip():
-        raise ValueError("The S0 train record requires one record_id")
-    provenance = record.get("provenance")
-    if not isinstance(provenance, Mapping):
-        raise ValueError("The S0 train record requires provenance")
-    fact_id = provenance.get("fact_id")
-    if not isinstance(fact_id, str) or not fact_id.strip():
-        raise ValueError("The S0 train record requires one fact_id")
-    _require_equal(
-        provenance.get("fact_role"),
-        "seen",
-        "S0 train fact_role",
-    )
-    _require_equal(
-        provenance.get("prompt_form_id"),
-        prompt_form_id,
-        "S0 prompt_form_id",
-    )
-    rendering_index = provenance.get("rendering_index")
-    if not isinstance(rendering_index, int) or rendering_index < 0:
-        raise ValueError("S0 rendering_index must be a nonnegative integer")
-
+    if provenance.get("prompt_form_id") != prompt_form_id:
+        raise ValueError("The S0 prompt form differs from its split")
+    expected_role = "train" if expected_split == "train" else "unseen"
+    if provenance.get("fact_role") != expected_role:
+        raise ValueError("The S0 fact role differs from its split")
     return {
-        "system": system,
-        "question": question,
-        "answer": serialize_sft_answer(record.get("answer")),
-        "metadata_json": canonical_json(validated_metadata),
-        "question_family": str(validated_metadata["question_family"]),
-        "record_id": record_id,
+        "system": parsed.system,
+        "question": parsed.question,
+        "input_json": canonical_json(dict(parsed.input)),
+        "tools_json": canonical_json(list(parsed.tools)),
+        "assistant_tool_call_json": canonical_json(
+            dict(parsed.assistant_tool_call)
+        ),
+        "assistant_thinking": parsed.assistant_thinking or "",
+        "tool_result_json": canonical_json(dict(parsed.tool_result or {})),
+        "assistant_final": parsed.assistant_final or "",
+        "metadata_json": canonical_json(parsed.metadata.to_dict()),
+        "question_family": parsed.metadata.question_family,
+        "record_id": parsed.record_id,
         "fact_id": fact_id,
         "prompt_form_id": prompt_form_id,
         "split": expected_split,
@@ -976,7 +201,76 @@ def normalize_token_ids(value: Any) -> list[int]:
     return token_ids
 
 
-# Block 4: Define the exact logical and physical row order.
+def tokenize_tool_trajectory_for_sft(
+    record: IdentifierToolSFTRecord,
+    tokenizer: Any,
+    max_length: int,
+) -> dict[str, list[int]]:
+    """Render one trajectory and mask non-assistant message tokens."""
+
+    messages = record.to_messages()
+    if len(messages) != 5:
+        raise ValueError("A tool trajectory must contain five messages")
+    template_args = {
+        "tools": list(record.tools),
+        "enable_thinking": True,
+        "reasoning_effort": "low",
+    }
+
+    def render(selected: list[dict[str, Any]]) -> list[int]:
+        return normalize_token_ids(
+            tokenizer.apply_chat_template(
+                selected,
+                tokenize=True,
+                add_generation_prompt=False,
+                **template_args,
+            )
+        )
+
+    prompt_ids = render(messages[:2])
+    assistant_call_ids = render(messages[:3])
+    through_tool_ids = render(messages[:4])
+    if assistant_call_ids[: len(prompt_ids)] != prompt_ids:
+        raise RuntimeError(
+            "The trajectory prompt is not a prefix of the tool call"
+        )
+    if through_tool_ids[: len(assistant_call_ids)] != assistant_call_ids:
+        raise RuntimeError(
+            "The assistant tool call is not a prefix of the tool result"
+        )
+
+    messages_without_thinking = [dict(message) for message in messages]
+    messages_without_thinking[2].pop("thinking", None)
+    plain_tool_ids = render(messages_without_thinking[:4])
+    plain_full_ids = render(messages_without_thinking)
+    if plain_full_ids[: len(plain_tool_ids)] != plain_tool_ids:
+        raise RuntimeError(
+            "The tool result is not a prefix of the final answer"
+        )
+    final_ids = plain_full_ids[len(plain_tool_ids) :]
+    if not final_ids:
+        raise RuntimeError("The trajectory has no final answer tokens")
+
+    full_ids = through_tool_ids + final_ids
+    if len(full_ids) > max_length:
+        raise RuntimeError(
+            f"Tokenized trajectory has {len(full_ids)} tokens, exceeding "
+            f"--max_length={max_length}"
+        )
+    completion_mask = (
+        [0] * len(prompt_ids)
+        + [1] * (len(assistant_call_ids) - len(prompt_ids))
+        + [0] * (len(through_tool_ids) - len(assistant_call_ids))
+        + [1] * len(final_ids)
+    )
+    if len(completion_mask) != len(full_ids):
+        raise RuntimeError("The trajectory loss mask has an invalid length")
+    return {
+        "input_ids": full_ids,
+        "completion_mask": completion_mask,
+    }
+
+
 def epoch_training_indices(
     dataset_size: int,
     seed: int,
@@ -1128,7 +422,6 @@ def consumed_training_index_plan(
             preserve_order,
             replica_count,
         )
-        per_replica_rows = len(padded_order) // replica_count
         rows_per_update = (
             per_device_train_batch_size * gradient_accumulation_steps
         )
@@ -1155,9 +448,7 @@ def consumed_training_index_plan(
                 "steps_per_epoch": steps_per_epoch,
                 "logical_rows_per_epoch": dataset_size,
                 "padded_rows_per_epoch": padded_rows_per_epoch,
-                "padding_rows_per_epoch": (
-                    padded_rows_per_epoch - dataset_size
-                ),
+                "padding_rows_per_epoch": padded_rows_per_epoch - dataset_size,
                 "physical_record_occurrences": (
                     len(logical_indices) + len(padding_indices)
                 ),
@@ -1178,13 +469,24 @@ def _sequence_sha256(values: list[str]) -> str:
 
 
 def s0_exposure_scope(run_scope: str) -> str:
-    """Return the exposure scope for one validated S0 run scope."""
+    """Return the exposure scope for one valid S0 run scope."""
 
     try:
         return S0_EXPOSURE_SCOPE_BY_RUN_SCOPE[run_scope]
     except KeyError as error:
         raise ValueError(
             f"The S0 run scope is invalid: {run_scope!r}"
+        ) from error
+
+
+def s0_exposure_corpus_identity(loss_contract: str) -> dict[str, str]:
+    """Return the corpus identity for the S0 trajectory loss."""
+
+    try:
+        return dict(S0_EXPOSURE_CORPUS_BY_LOSS_CONTRACT[loss_contract])
+    except KeyError as error:
+        raise ValueError(
+            f"The S0 loss contract is invalid: {loss_contract!r}"
         ) from error
 
 
@@ -1214,6 +516,10 @@ def build_training_exposure_manifest(
     exposure_scope: str,
     status: str,
     completed_global_step: int | None = None,
+    dataset_id: str = S0_TOOL_TRAJECTORY_DATASET_ID,
+    system_prompt_sha256: str = (
+        s0_tool_trajectory_prompt_contract().system_prompt_sha256
+    ),
 ) -> dict[str, Any]:
     """Build one compact content-addressed S0 exposure receipt."""
 
@@ -1230,11 +536,7 @@ def build_training_exposure_manifest(
     row_count = len(record_ids)
     if row_count < 1:
         raise ValueError("The S0 exposure receipt requires train rows")
-    parallel_values = (
-        fact_ids,
-        question_families,
-        prompt_form_ids,
-    )
+    parallel_values = fact_ids, question_families, prompt_form_ids
     if any(len(values) != row_count for values in parallel_values):
         raise ValueError("The S0 train identity lists have different lengths")
     if len(set(record_ids)) != row_count:
@@ -1243,7 +545,7 @@ def build_training_exposure_manifest(
         raise ValueError("Each S0 record_id must be a nonempty string")
     if any(not isinstance(value, str) or not value for value in fact_ids):
         raise ValueError("Each S0 fact_id must be a nonempty string")
-    if any(family not in S0_QUESTION_FAMILIES for family in question_families):
+    if any(family not in S0_FAMILIES for family in question_families):
         raise ValueError("The S0 exposure receipt has an unknown family")
     if set(prompt_form_ids) != {"train"}:
         raise ValueError("The S0 exposure receipt requires train prompt forms")
@@ -1271,6 +573,16 @@ def build_training_exposure_manifest(
         raise ValueError("padding_policy must be a nonempty string")
     if exposure_scope not in set(S0_EXPOSURE_SCOPE_BY_RUN_SCOPE.values()):
         raise ValueError("The S0 exposure scope is invalid")
+    if dataset_id != S0_TOOL_TRAJECTORY_DATASET_ID:
+        raise ValueError("The S0 dataset ID must identify the v6 corpus")
+    prompt_sha256 = _require_sha256(
+        system_prompt_sha256,
+        "S0 system prompt SHA-256",
+    )
+    if prompt_sha256 != (
+        s0_tool_trajectory_prompt_contract().system_prompt_sha256
+    ):
+        raise ValueError("The S0 trajectory prompt identity changed")
 
     for label, indices in (
         ("consumed_indices", consumed_indices),
@@ -1283,9 +595,13 @@ def build_training_exposure_manifest(
             raise ValueError(f"{label} must reference S0 train rows")
     if not consumed_indices:
         raise ValueError("consumed_indices must reference S0 train rows")
-    all_eligible_rows_exposed = (
-        set(consumed_indices) == set(range(row_count))
-    )
+    all_eligible_rows_exposed = set(consumed_indices) == set(range(row_count))
+    full_exposure_required = exposure_scope == "all_eligible_train_rows"
+    if full_exposure_required and not all_eligible_rows_exposed:
+        raise ValueError(
+            "The S0 production row plan must expose every eligible train row"
+        )
+
     consumed_record_ids = [record_ids[index] for index in consumed_indices]
     consumed_fact_ids = [fact_ids[index] for index in consumed_indices]
     consumed_families = [
@@ -1310,7 +626,7 @@ def build_training_exposure_manifest(
         "method_id": method_id,
         "identity": identities,
         "corpus": {
-            "dataset_id": S0_DATASET_ID,
+            "dataset_id": dataset_id,
             "eligible_train_rows": row_count,
             "record_sequence_sha256": _sequence_sha256(record_ids),
             "fact_sequence_sha256": _sequence_sha256(fact_ids),
@@ -1318,7 +634,7 @@ def build_training_exposure_manifest(
                 sorted(Counter(question_families).items())
             ),
             "prompt_form_id": "train",
-            "system_prompt_sha256": S0_SYSTEM_PROMPT_SHA256,
+            "system_prompt_sha256": prompt_sha256,
         },
         "schedule": {
             "seed": seed,
@@ -1342,19 +658,15 @@ def build_training_exposure_manifest(
         },
         "exposure_contract": {
             "scope": exposure_scope,
-            "all_eligible_train_rows_required": False,
+            "all_eligible_train_rows_required": full_exposure_required,
             "satisfied": True,
         },
         "logical_exposure": {
             "record_occurrences": len(consumed_record_ids),
             "unique_record_count": len(set(consumed_record_ids)),
             "unique_fact_count": len(set(consumed_fact_ids)),
-            "all_eligible_train_rows_exposed": (
-                all_eligible_rows_exposed
-            ),
-            "record_sequence_sha256": _sequence_sha256(
-                consumed_record_ids
-            ),
+            "all_eligible_train_rows_exposed": all_eligible_rows_exposed,
+            "record_sequence_sha256": _sequence_sha256(consumed_record_ids),
             "fact_sequence_sha256": _sequence_sha256(consumed_fact_ids),
             "question_family_counts": dict(
                 sorted(Counter(consumed_families).items())
@@ -1362,9 +674,7 @@ def build_training_exposure_manifest(
         },
         "physical_exposure": {
             "record_occurrences": len(physical_record_ids),
-            "record_sequence_sha256": _sequence_sha256(
-                physical_record_ids
-            ),
+            "record_sequence_sha256": _sequence_sha256(physical_record_ids),
             "fact_sequence_sha256": _sequence_sha256(physical_fact_ids),
             "question_family_counts": dict(
                 sorted(Counter(physical_families).items())
@@ -1378,9 +688,7 @@ def build_training_exposure_manifest(
                 "record_sequence_sha256": _sequence_sha256(
                     padding_record_ids
                 ),
-                "fact_sequence_sha256": _sequence_sha256(
-                    padding_fact_ids
-                ),
+                "fact_sequence_sha256": _sequence_sha256(padding_fact_ids),
                 "question_family_counts": dict(
                     sorted(Counter(padding_families).items())
                 ),

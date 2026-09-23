@@ -1,76 +1,82 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from scripts.build_world_model_v2_s0_tokenizers import (
-    ATOMIC_REGISTRY_SCHEMA,
-    FULLY_ATOMIC_METHOD,
-    build_fully_atomic_registry,
+    ARM_MANIFEST_FILE_SHA256,
+    AUDIT_REPORT_FILE_SHA256,
+    DEFAULT_MODEL_ROOT,
+    TOKENIZER_MANIFEST_FILE_SHA256,
+    TOKENIZER_MANIFEST_SHA256,
+    TOKENIZER_METHOD,
+    build,
+    frozen_arm_manifest,
+    frozen_audit_report,
+    frozen_tokenizer_manifest,
+    sha256_file,
     stable_sha256,
+    validate_frozen_artifact,
+    validate_model_root,
+    write_json,
 )
 
 
-def _registry(fit_values: dict[str, set[str]]) -> dict:
-    """Build one small full atomic registry for a unit test."""
-
-    return build_fully_atomic_registry(
-        fit_values,
-        parent_manifest_sha256="a" * 64,
-        parent_train_sha256="b" * 64,
-    )
-
-
-def test_full_atomic_registry_has_stable_namespace_tokens() -> None:
-    registry = _registry(
-        {
-            "ensembl_human_gene": {
-                "ENSG00000000002",
-                "ENSG00000000001",
-            },
-            "human_gene_symbol": {"TP53", "A1BG"},
-        }
-    )
-
-    assert registry["schema_version"] == ATOMIC_REGISTRY_SCHEMA
-    assert registry["method"] == FULLY_ATOMIC_METHOD
-    assert registry["value_count"] == 4
-    assert registry["namespaces"]["ensembl_human_gene"]["entries"] == [
-        {
-            "marker": "<|s0atom_s0ens_00000|>",
-            "value": "ENSG00000000001",
-        },
-        {
-            "marker": "<|s0atom_s0ens_00001|>",
-            "value": "ENSG00000000002",
-        },
-    ]
-    assert registry["namespaces"]["human_gene_symbol"]["entries"] == [
-        {"marker": "<|s0atom_s0sym_00000|>", "value": "A1BG"},
-        {"marker": "<|s0atom_s0sym_00001|>", "value": "TP53"},
-    ]
+def test_frozen_tokenizer_manifest_has_gate_identity() -> None:
+    manifest = frozen_tokenizer_manifest()
     identity = {
         key: value
-        for key, value in registry.items()
+        for key, value in manifest.items()
         if key != "manifest_sha256"
     }
-    assert registry["manifest_sha256"] == stable_sha256(identity)
+
+    assert manifest["method"] == TOKENIZER_METHOD
+    assert manifest["tokens"] == []
+    assert manifest["manifest_sha256"] == TOKENIZER_MANIFEST_SHA256
+    assert stable_sha256(identity) == TOKENIZER_MANIFEST_SHA256
 
 
-@pytest.mark.parametrize(
-    "fit_values",
-    [
-        {
-            "ensembl_human_gene": {"ENSG1"},
-            "human_gene_symbol": {"TP53"},
-        },
-        {
-            "ensembl_human_gene": {"ENSG00000000001"},
-            "human_gene_symbol": {" TP53"},
-        },
-    ],
-)
-def test_full_atomic_registry_rejects_noncanonical_values(
-    fit_values: dict[str, set[str]],
-) -> None:
-    with pytest.raises(ValueError):
-        _registry(fit_values)
+def test_frozen_json_files_have_gate_identities(tmp_path: Path) -> None:
+    audit_path = tmp_path / "audit_report.json"
+    token_manifest_path = tmp_path / "tokenizer_manifest.json"
+    arm_manifest_path = tmp_path / "manifest.json"
+
+    write_json(audit_path, frozen_audit_report())
+    write_json(token_manifest_path, frozen_tokenizer_manifest())
+    write_json(arm_manifest_path, frozen_arm_manifest())
+
+    assert sha256_file(audit_path) == AUDIT_REPORT_FILE_SHA256
+    assert sha256_file(token_manifest_path) == TOKENIZER_MANIFEST_FILE_SHA256
+    assert sha256_file(arm_manifest_path) == ARM_MANIFEST_FILE_SHA256
+
+
+def test_build_copies_only_the_frozen_plain_tokenizer(tmp_path: Path) -> None:
+    if not DEFAULT_MODEL_ROOT.is_dir():
+        pytest.skip("The pinned GPT-OSS model is not available")
+
+    output_root = tmp_path / "plain_base_tokenizer"
+    manifest = build(DEFAULT_MODEL_ROOT, output_root)
+
+    assert manifest == frozen_arm_manifest()
+    assert validate_frozen_artifact(output_root) == manifest
+    assert {
+        str(path.relative_to(output_root))
+        for path in output_root.rglob("*")
+        if path.is_file()
+    } == {
+        "audit_report.json",
+        "manifest.json",
+        "tokenizer/chat_template.jinja",
+        "tokenizer/special_tokens_map.json",
+        "tokenizer/tokenizer.json",
+        "tokenizer/tokenizer_config.json",
+        "tokenizer_manifest.json",
+    }
+
+
+def test_model_check_rejects_an_unknown_config(tmp_path: Path) -> None:
+    (tmp_path / "config.json").write_text("{}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="model config identity"):
+        validate_model_root(tmp_path)

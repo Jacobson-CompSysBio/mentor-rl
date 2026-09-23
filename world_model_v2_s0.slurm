@@ -5,7 +5,7 @@
 # Use a method-level run_settings object for a run-specific value.
 # Slurm adds its job ID to the run ID and output path.
 # Create logs/ before submission.
-# Slurm uses these defaults for LoRA. Override tasks and GPUs for full fine-tune.
+# Slurm uses these defaults for the canonical LoRA trajectory run.
 
 #SBATCH --job-name=wm2_s0
 #SBATCH -A SYB114
@@ -76,7 +76,7 @@ trap cleanup_launcher EXIT
 # Test flow:
 # 1. Validate the config, data, tokenizer, model, and checkpoint identities.
 # 2. Copy the verified base model to the node-local cache.
-# 3. Build an answer-free bundle and generate one answer for each test row.
+# 3. Build an answer-free bundle and generate the required test turns.
 # 4. Score the answers and append metrics to the original W&B train run.
 # Test mode exits before the distributed train path.
 if [[ "${JOB_MODE}" == "test" ]]; then
@@ -93,6 +93,7 @@ if [[ "${JOB_MODE}" == "test" ]]; then
   # shellcheck disable=SC1090
   source "${contract_env}"
   export S0_EVAL_CONFIG S0_EVAL_CONFIG_SHA256 S0_EVALUATION_ID
+  export S0_EVALUATION_CONTRACT S0_ENABLE_THINKING
   export S0_METHOD_ID S0_TOKENIZER_METHOD TOKENIZER_PATH TOKENIZER_MANIFEST
   export S0_TOKENIZER_MANIFEST_SHA256 MODEL_ID MODEL_PATH
   export MODEL_IDENTITY_SHA256 BASE_MODEL_ARTIFACT_SHA256
@@ -102,9 +103,18 @@ if [[ "${JOB_MODE}" == "test" ]]; then
   export S0_TEST_ANSWER_KEY S0_TEST_ANSWER_KEY_SHA256 S0_TEST_PANEL_ID
   export S0_TEST_ROWS CHECKPOINT_PATH S0_TRAIN_RUN_ID
   export S0_EVAL_OUTPUT_ROOT S0_EVAL_NUM_NODES S0_EVAL_TASKS_PER_NODE
-  export S0_EVAL_GPUS_PER_NODE S0_MAX_NEW_TOKENS S0_MAX_TOTAL_TOKENS
-  export S0_REASONING_EFFORT S0_EVAL_SEED
-  export S0_MINIMUM_FAMILY_ACCURACY S0_TARGET_FAMILY_ACCURACY
+  export S0_EVAL_WORLD_SIZE S0_EVAL_GPUS_PER_NODE
+  export S0_MAX_NEW_TOKENS S0_MAX_TOTAL_TOKENS
+  export S0_REASONING_EFFORT S0_EVAL_SEED S0_EVAL_BATCH_SIZE
+  export S0_MINIMUM_VALID_TOOL_TRAJECTORY
+  export S0_MINIMUM_REASONING_PRESENT S0_MINIMUM_EXACT_REASONING
+  export S0_MINIMUM_VALID_SINGLE_TOOL_CALL
+  export S0_MINIMUM_EXACT_TOOL_ARGUMENT
+  export S0_MINIMUM_FAMILY_PAYLOAD_ACCURACY
+  export S0_MINIMUM_FAMILY_FINAL_ANSWER_ACCURACY
+  export S0_MINIMUM_AMBIGUOUS_DEFER_ACCURACY
+  export S0_MAXIMUM_DIRECT_ANSWER_RATE
+  export S0_IDENTIFIER_REGISTRY S0_IDENTIFIER_REGISTRY_SHA256
   export S0_WANDB_ENTITY S0_WANDB_PROJECT
 
   # Use the Slurm job ID for one unique and immutable result path.
@@ -127,12 +137,12 @@ if [[ "${JOB_MODE}" == "test" ]]; then
   echo "W&B entity: ${S0_WANDB_ENTITY}"
   echo "W&B project: ${S0_WANDB_PROJECT}"
 
-  # One process can use all eight GPUs through the Transformers device map.
+  # One process on each node can use all eight GPUs.
   # Reject a job if its allocation differs from this topology.
   if [[ "${CONTRACT_ONLY}" == "0" ]]; then
     [[ "${SLURM_NNODES:-}" == "${S0_EVAL_NUM_NODES}" ]] || \
       die "The allocated node count differs from the test contract."
-    [[ "${SLURM_NTASKS:-}" == "${S0_EVAL_TASKS_PER_NODE}" ]] || \
+    [[ "${SLURM_NTASKS:-}" == "${S0_EVAL_WORLD_SIZE}" ]] || \
       die "The allocated task count differs from the test contract."
     allocated_tasks_per_node="${SLURM_NTASKS_PER_NODE:-${SLURM_TASKS_PER_NODE:-}}"
     allocated_tasks_per_node="${allocated_tasks_per_node%%(*}"
@@ -142,13 +152,14 @@ if [[ "${JOB_MODE}" == "test" ]]; then
 
   # This hash identifies all code that can affect prompts, output, or scores.
   evaluation_code_files=(
+    runtime/tools.py
+    runtime/world_model_prompts.py
+    runtime/world_model_schemas.py
     runtime/world_model_training.py
-    runtime/world_model_s0.py
-    runtime/world_model_s0_tokenizer.py
-    runtime/world_model_domain_bpe.py
-    runtime/world_model_token_adapter.py
+    runtime/world_model_s0_tools.py
     scripts/build_world_model_v2_s0_generation_bundle.py
     scripts/evaluate_world_model_v2_s0.py
+    scripts/merge_world_model_v2_s0_generation_shards.py
     scripts/run_world_model_v2_s0_exact_generation.py
     scripts/validate_world_model_v2_s0_eval_contract.py
     scripts/validate_world_model_v2_s0_train_contract.py
@@ -201,6 +212,9 @@ if [[ "${JOB_MODE}" == "test" ]]; then
     "model_identity_sha256=${MODEL_IDENTITY_SHA256}" \
     "base_model_artifact_sha256=${BASE_MODEL_ARTIFACT_SHA256}" \
     "evaluation_code_sha256=${S0_EVALUATION_CODE_SHA256}" \
+    "nodes=${S0_EVAL_NUM_NODES}" \
+    "tasks_per_node=${S0_EVAL_TASKS_PER_NODE}" \
+    "world_size=${S0_EVAL_WORLD_SIZE}" \
     "wandb_entity=${S0_WANDB_ENTITY}" \
     "wandb_project=${S0_WANDB_PROJECT}" \
     "output_dir=${OUTPUT_DIR}" \
@@ -221,7 +235,9 @@ if [[ "${JOB_MODE}" == "test" ]]; then
   # Remove only ROCm-SMI state that the current user owns.
   # This step prevents a stale state error at the first torch import.
   echo "Clear user-owned ROCm-SMI state before the first torch import."
-  srun --nodes=1 --ntasks=1 --ntasks-per-node=1 --cpu-bind=none bash -c '
+  srun --nodes="${S0_EVAL_NUM_NODES}" \
+    --ntasks="${S0_EVAL_NUM_NODES}" --ntasks-per-node=1 \
+    --cpu-bind=none bash -c '
     set -euo pipefail
     shopt -s nullglob
     for path in /dev/shm/rocm_smi* /dev/shm/amd_smi*; do
@@ -261,55 +277,116 @@ if [[ "${JOB_MODE}" == "test" ]]; then
   export HF_DATASETS_CACHE="${HF_HOME}/datasets"
   export TORCH_EXTENSIONS_DIR="/mnt/bb/${USER}/mentor_torch_extensions/torch280_rocm631"
   export TRITON_CACHE_DIR="/mnt/bb/${USER}/mentor_triton/${SLURM_JOB_ID}/test"
-  mkdir -p "${HF_HOME}" "${HF_DATASETS_CACHE}" "${TRITON_CACHE_DIR}"
 
   # The base-model hash covers its metadata and all weight shards.
-  # Reuse only a node-local cache that passes this complete check.
+  # Reuse only node-local caches that pass the complete check.
   LOCAL_MODEL_CACHE_ROOT="${LOCAL_MODEL_CACHE_ROOT:-/mnt/bb/${USER}/mentor_model_cache}"
   LOCAL_MODEL_DIR="${LOCAL_MODEL_CACHE_ROOT}/${MODEL_ID}-${BASE_MODEL_ARTIFACT_SHA256:0:16}"
   [[ "${LOCAL_MODEL_CACHE_ROOT}" == "/mnt/bb/${USER}/"* ]] || \
     die "The local model root must stay below the user burst buffer."
   [[ "${LOCAL_MODEL_DIR}" == "${LOCAL_MODEL_CACHE_ROOT}/"* ]] || \
     die "The local model path must stay below its root."
-  mkdir -p "${LOCAL_MODEL_CACHE_ROOT}"
-  exec 9>"${LOCAL_MODEL_CACHE_ROOT}/.${MODEL_ID}.stage.lock"
-  # The lock prevents two jobs from writing the same node-local cache.
-  flock 9
-  if [[ -e "${LOCAL_MODEL_DIR}" ]]; then
-    # Check every cached file before the model process uses the cache.
-    [[ -s "${LOCAL_MODEL_DIR}/.mentor_model_identity_sha256" ]] || \
-      die "The model cache has no identity marker."
-    [[ "$(<"${LOCAL_MODEL_DIR}/.mentor_model_identity_sha256")" == \
-      "${BASE_MODEL_ARTIFACT_SHA256}" ]] || \
-      die "The model cache marker changed."
-    python "${BASE_MODEL_VALIDATOR}" --validate-base-model \
-      "${LOCAL_MODEL_DIR}" "${BASE_MODEL_ARTIFACT_SHA256}" \
-      "${BASE_MODEL_WEIGHT_SHARD_COUNT}" \
-      "${LOCAL_MODEL_DIR}/.mentor_base_model_artifact.json"
-  else
-    # Copy to a temporary path and publish the cache only after validation.
-    TEST_MODEL_STAGING_DIR="$(
-      mktemp -d \
-        "${LOCAL_MODEL_CACHE_ROOT}/.${MODEL_ID}.test.${SLURM_JOB_ID}.XXXXXX"
-    )"
-    rsync -a "${MODEL_PATH}/" "${TEST_MODEL_STAGING_DIR}/"
-    python "${BASE_MODEL_VALIDATOR}" --validate-base-model \
-      "${TEST_MODEL_STAGING_DIR}" "${BASE_MODEL_ARTIFACT_SHA256}" \
-      "${BASE_MODEL_WEIGHT_SHARD_COUNT}" \
-      "${TEST_MODEL_STAGING_DIR}/.mentor_base_model_artifact.json"
-    printf '%s\n' "${BASE_MODEL_ARTIFACT_SHA256}" \
-      > "${TEST_MODEL_STAGING_DIR}/.mentor_model_identity_sha256"
-    mv "${TEST_MODEL_STAGING_DIR}" "${LOCAL_MODEL_DIR}"
-    TEST_MODEL_STAGING_DIR=""
-  fi
-  flock -u 9
+  export LOCAL_MODEL_CACHE_ROOT LOCAL_MODEL_DIR BASE_MODEL_VALIDATOR
 
-  # Confirm that the one task can use all eight GPUs and each required package.
-  # This check runs before the script loads model weights into GPU memory.
-  srun --nodes=1 --ntasks=1 --ntasks-per-node=1 \
+  mapfile -t EVAL_NODELIST < <(
+    scontrol show hostnames "${SLURM_JOB_NODELIST}"
+  )
+  [[ "${#EVAL_NODELIST[@]}" -eq "${S0_EVAL_NUM_NODES}" ]] || \
+    die "The allocated test node list is incomplete."
+
+  # Stage one verified model copy on each node in bounded waves.
+  stage_eval_model_wave() {
+    local first="$1"
+    local count="$2"
+    local hosts
+    hosts="$(IFS=,; echo "${EVAL_NODELIST[*]:first:count}")"
+    echo "Stage the test model on nodes $((first + 1))-$((first + count))."
+    srun --overlap --nodes="${count}" --ntasks="${count}" \
+      --ntasks-per-node=1 -w "${hosts}" --cpu-bind=none bash -c '
+      set -euo pipefail
+      marker="${LOCAL_MODEL_DIR}/.mentor_model_identity_sha256"
+      receipt="${LOCAL_MODEL_DIR}/.mentor_base_model_artifact.json"
+      mkdir -p "${LOCAL_MODEL_CACHE_ROOT}"
+      exec 9>"${LOCAL_MODEL_CACHE_ROOT}/.${MODEL_ID}.stage.lock"
+      flock 9
+      if [[ -e "${LOCAL_MODEL_DIR}" ]]; then
+        [[ -s "${marker}" ]] || {
+          echo "[ERROR] The model cache has no identity marker." >&2
+          exit 2
+        }
+        [[ "$(<"${marker}")" == "${BASE_MODEL_ARTIFACT_SHA256}" ]] || {
+          echo "[ERROR] The model cache marker changed." >&2
+          exit 2
+        }
+        python "${BASE_MODEL_VALIDATOR}" --validate-base-model \
+          "${LOCAL_MODEL_DIR}" "${BASE_MODEL_ARTIFACT_SHA256}" \
+          "${BASE_MODEL_WEIGHT_SHARD_COUNT}" "${receipt}"
+        echo "[$(hostname)] Use the verified model cache."
+        exit 0
+      fi
+      staging="$(
+        mktemp -d \
+          "${LOCAL_MODEL_CACHE_ROOT}/.${MODEL_ID}.test.${SLURM_JOB_ID}.XXXXXX"
+      )"
+      cleanup_staging() {
+        [[ -z "${staging:-}" || ! -e "${staging}" ]] || \
+          rm -rf -- "${staging}"
+      }
+      trap cleanup_staging EXIT
+      rsync -a "${MODEL_PATH}/" "${staging}/"
+      python "${BASE_MODEL_VALIDATOR}" --validate-base-model \
+        "${staging}" "${BASE_MODEL_ARTIFACT_SHA256}" \
+        "${BASE_MODEL_WEIGHT_SHARD_COUNT}" \
+        "${staging}/.mentor_base_model_artifact.json"
+      printf "%s\n" "${BASE_MODEL_ARTIFACT_SHA256}" \
+        > "${staging}/.mentor_model_identity_sha256"
+      mv "${staging}" "${LOCAL_MODEL_DIR}"
+      staging=""
+      echo "[$(hostname)] The model cache is ready."
+    '
+  }
+
+  if [[ -z "${EVAL_MODEL_STAGE_WAVE_SIZE:-}" ]]; then
+    EVAL_MODEL_STAGE_WAVE_SIZE=8
+    if (( S0_EVAL_NUM_NODES < EVAL_MODEL_STAGE_WAVE_SIZE )); then
+      EVAL_MODEL_STAGE_WAVE_SIZE="${S0_EVAL_NUM_NODES}"
+    fi
+  fi
+  require_positive_integer EVAL_MODEL_STAGE_WAVE_SIZE \
+    "${EVAL_MODEL_STAGE_WAVE_SIZE}"
+  (( EVAL_MODEL_STAGE_WAVE_SIZE <= S0_EVAL_NUM_NODES )) || \
+    die "EVAL_MODEL_STAGE_WAVE_SIZE exceeds the test node count."
+  for ((first = 0; first < S0_EVAL_NUM_NODES; first += EVAL_MODEL_STAGE_WAVE_SIZE)); do
+    count="${EVAL_MODEL_STAGE_WAVE_SIZE}"
+    remaining="$((S0_EVAL_NUM_NODES - first))"
+    (( remaining >= count )) || count="${remaining}"
+    stage_eval_model_wave "${first}" "${count}"
+  done
+
+  # Confirm that each task can use all eight GPUs and required packages.
+  srun --nodes="${S0_EVAL_NUM_NODES}" \
+    --ntasks="${S0_EVAL_WORLD_SIZE}" --ntasks-per-node=1 \
     --gpus-per-task="${S0_EVAL_GPUS_PER_NODE}" --cpu-bind=none \
-    --accel-bind=none python -c \
-    'import torch, transformers, peft, accelerate, wandb; assert torch.cuda.is_available(); assert torch.cuda.device_count() == 8; print("test_python_rocm_ready", flush=True)'
+    --accel-bind=none python -c '
+import os
+import socket
+from pathlib import Path
+
+import accelerate
+import peft
+import torch
+import transformers
+import wandb
+
+for name in ("HF_HOME", "HF_DATASETS_CACHE", "TRITON_CACHE_DIR"):
+    Path(os.environ[name]).mkdir(parents=True, exist_ok=True)
+assert torch.cuda.is_available()
+assert torch.cuda.device_count() == 8
+print(
+    "test_python_rocm_ready host={}".format(socket.gethostname()),
+    flush=True,
+)
+'
 
   # The bundle builder reads public questions and writes only safe prompt fields.
   # It does not copy the private answer key into the bundle.
@@ -318,33 +395,64 @@ if [[ "${JOB_MODE}" == "test" ]]; then
     --evaluator-manifest-sha256 "${S0_EVALUATOR_MANIFEST_SHA256}" \
     --output-dir "${GENERATION_BUNDLE_DIR}"
 
-  # Give the model process only the public bundle and verified model inputs.
+  GENERATION_SHARDS_DIR="${OUTPUT_DIR}/generation_shards"
+  mkdir -p "${GENERATION_SHARDS_DIR}"
+  export GENERATION_SHARDS_DIR
+
+  # Give each model process only the public bundle and verified model inputs.
   # Remove the answer-key path and W&B key from its environment.
-  srun --nodes=1 --ntasks=1 --ntasks-per-node=1 \
+  srun --nodes="${S0_EVAL_NUM_NODES}" \
+    --ntasks="${S0_EVAL_WORLD_SIZE}" --ntasks-per-node=1 \
     --gpus-per-task="${S0_EVAL_GPUS_PER_NODE}" --cpu-bind=none \
-    --accel-bind=none env \
+    --accel-bind=none bash -c '
+    set -euo pipefail
+    shard_name="$(printf "shard-%05d" "${SLURM_PROCID}")"
+    thinking_args=()
+    [[ "${S0_ENABLE_THINKING}" != "1" ]] || \
+      thinking_args+=(--enable-thinking)
+    env \
+      -u WANDB_API_KEY \
+      -u S0_TEST_ANSWER_KEY \
+      -u S0_TEST_ANSWER_KEY_SHA256 \
+      -u S0_EVALUATOR_MANIFEST \
+      -u S0_IDENTIFIER_REGISTRY \
+      -u S0_IDENTIFIER_REGISTRY_SHA256 \
+      WANDB_MODE=disabled \
+      python scripts/run_world_model_v2_s0_exact_generation.py \
+        --generation-bundle "${GENERATION_BUNDLE_DIR}" \
+        --base-model-path "${LOCAL_MODEL_DIR}" \
+        --checkpoint-path "${CHECKPOINT_PATH}" \
+        --tokenizer-path "${TOKENIZER_PATH}" \
+        --tokenizer-manifest "${TOKENIZER_MANIFEST}" \
+        --output-dir "${GENERATION_SHARDS_DIR}/${shard_name}" \
+        --method-id "${S0_METHOD_ID}" \
+        --corpus-manifest-sha256 "${S0_CORPUS_MANIFEST_SHA256}" \
+        --tokenizer-manifest-sha256 \
+          "${S0_TOKENIZER_MANIFEST_SHA256}" \
+        --model-identity-sha256 "${MODEL_IDENTITY_SHA256}" \
+        --max-new-tokens "${S0_MAX_NEW_TOKENS}" \
+        --max-total-tokens "${S0_MAX_TOTAL_TOKENS}" \
+        --reasoning-effort "${S0_REASONING_EFFORT}" \
+        --seed "${S0_EVAL_SEED}" \
+        --batch-size "${S0_EVAL_BATCH_SIZE}" \
+        --shard-index "${SLURM_PROCID}" \
+        --shard-count "${S0_EVAL_WORLD_SIZE}" \
+        --shard-output \
+        "${thinking_args[@]}"
+  '
+
+  # After all model processes produce complete shards, merge them.
+  env \
     -u WANDB_API_KEY \
     -u S0_TEST_ANSWER_KEY \
     -u S0_TEST_ANSWER_KEY_SHA256 \
-    -u S0_EVALUATOR_MANIFEST \
-    WANDB_MODE=disabled \
-    python scripts/run_world_model_v2_s0_exact_generation.py \
+    python scripts/merge_world_model_v2_s0_generation_shards.py \
       --generation-bundle "${GENERATION_BUNDLE_DIR}" \
-      --base-model-path "${LOCAL_MODEL_DIR}" \
-      --checkpoint-path "${CHECKPOINT_PATH}" \
-      --tokenizer-path "${TOKENIZER_PATH}" \
-      --tokenizer-manifest "${TOKENIZER_MANIFEST}" \
+      --shards-root "${GENERATION_SHARDS_DIR}" \
       --output-dir "${GENERATION_OUTPUT_DIR}" \
-      --method-id "${S0_METHOD_ID}" \
-      --corpus-manifest-sha256 "${S0_CORPUS_MANIFEST_SHA256}" \
-      --tokenizer-manifest-sha256 "${S0_TOKENIZER_MANIFEST_SHA256}" \
-      --model-identity-sha256 "${MODEL_IDENTITY_SHA256}" \
-      --max-new-tokens "${S0_MAX_NEW_TOKENS}" \
-      --max-total-tokens "${S0_MAX_TOTAL_TOKENS}" \
-      --reasoning-effort "${S0_REASONING_EFFORT}" \
-      --seed "${S0_EVAL_SEED}"
+      --expected-shard-count "${S0_EVAL_WORLD_SIZE}"
 
-  # The model process exits before the scorer reads the private answer key.
+  # The model processes exit before the scorer reads the private answer key.
   # Append exact metrics to the W&B run from the checkpoint receipt.
   python scripts/evaluate_world_model_v2_s0.py \
     --evaluator-manifest "${S0_EVALUATOR_MANIFEST}" \
@@ -353,8 +461,24 @@ if [[ "${JOB_MODE}" == "test" ]]; then
     --generation-manifest "${GENERATION_OUTPUT_DIR}/generation_manifest.json" \
     --tokenizer-manifest "${TOKENIZER_MANIFEST}" \
     --output-dir "${REPORT_OUTPUT_DIR}" \
-    --minimum-family-accuracy "${S0_MINIMUM_FAMILY_ACCURACY}" \
-    --target-family-accuracy "${S0_TARGET_FAMILY_ACCURACY}" \
+    --minimum-valid-tool-trajectory \
+      "${S0_MINIMUM_VALID_TOOL_TRAJECTORY}" \
+    --minimum-reasoning-present \
+      "${S0_MINIMUM_REASONING_PRESENT}" \
+    --minimum-exact-reasoning \
+      "${S0_MINIMUM_EXACT_REASONING}" \
+    --minimum-valid-single-tool-call \
+      "${S0_MINIMUM_VALID_SINGLE_TOOL_CALL}" \
+    --minimum-exact-tool-argument \
+      "${S0_MINIMUM_EXACT_TOOL_ARGUMENT}" \
+    --minimum-family-payload-accuracy \
+      "${S0_MINIMUM_FAMILY_PAYLOAD_ACCURACY}" \
+    --minimum-family-final-answer-accuracy \
+      "${S0_MINIMUM_FAMILY_FINAL_ANSWER_ACCURACY}" \
+    --minimum-ambiguous-defer-accuracy \
+      "${S0_MINIMUM_AMBIGUOUS_DEFER_ACCURACY}" \
+    --maximum-direct-answer-rate \
+      "${S0_MAXIMUM_DIRECT_ANSWER_RATE}" \
     --publish-wandb
 
   # Require the answer-free bundle, raw outputs, exact report, and W&B receipt.
@@ -364,7 +488,7 @@ if [[ "${JOB_MODE}" == "test" ]]; then
     "${GENERATION_OUTPUT_DIR}/generation_plan.json"
     "${GENERATION_OUTPUT_DIR}/predictions.jsonl"
     "${GENERATION_OUTPUT_DIR}/generation_manifest.json"
-    "${REPORT_OUTPUT_DIR}/exact_mapping_report.json"
+    "${REPORT_OUTPUT_DIR}/exact_tool_report.json"
     "${REPORT_OUTPUT_DIR}/test_metrics.json"
     "${REPORT_OUTPUT_DIR}/wandb_test_run.json"
   )
@@ -385,7 +509,7 @@ source "${contract_env}"
 export S0_RUN_CONFIG S0_RUN_CONFIG_SHA256 S0_CONFIG_ID S0_RUN_SCOPE
 export S0_METHOD_ID S0_TRAIN_MODE S0_TOKENIZER_METHOD
 export S0_TOKENIZER_ARM_ROOT S0_TOKENIZER_ARM_MANIFEST_SHA256
-export S0_TOKENIZER_MANIFEST_SHA256 TOKENIZER_PATH TOKEN_ADAPTER_MANIFEST
+export S0_TOKENIZER_MANIFEST_SHA256 TOKENIZER_PATH
 export MODEL_ID MODEL_PATH MODEL_IDENTITY_SHA256
 export BASE_MODEL_ARTIFACT_SCHEMA BASE_MODEL_ARTIFACT_SHA256
 export BASE_MODEL_WEIGHT_SHARD_COUNT S0_CORPUS_ROOT
@@ -401,6 +525,8 @@ export S0_TRAINING_CODE_SHA256=""
 S0_TRACKING_MODE=online
 S0_WANDB_ENTITY=jail-ai
 export S0_TRACKING_MODE S0_WANDB_ENTITY
+[[ "${S0_TRAIN_MODE}" == "lora" ]] || \
+  die "The canonical S0 train mode must be LoRA."
 
 # Add the scheduler identity to this execution and its output path.
 if [[ "${CONTRACT_ONLY}" == "1" ]]; then
@@ -448,10 +574,6 @@ required_files=(
   "${MODEL_PATH}/model.safetensors.index.json"
   "${TRAINER_PATH}"
 )
-[[ -z "${TOKEN_ADAPTER_MANIFEST}" ]] || \
-  required_files+=("${TOKEN_ADAPTER_MANIFEST}")
-[[ "${S0_TRAIN_MODE}" != "full_finetune" ]] || \
-  required_files+=("${DS_CONFIG}")
 for required in "${required_files[@]}"; do
   [[ -f "${required}" ]] || die "A required file is absent: ${required}"
 done
@@ -459,12 +581,6 @@ done
 # Verify the config and model metadata before the model stage.
 [[ "$(sha256sum "${S0_RUN_CONFIG}" | awk '{print $1}')" == \
   "${S0_RUN_CONFIG_SHA256}" ]] || die "The run config identity changed."
-if [[ "${S0_TRAIN_MODE}" == "full_finetune" ]]; then
-  [[ "$(sha256sum "${DS_CONFIG}" | awk '{print $1}')" == \
-    "${DS_CONFIG_SHA256_EXPECTED}" ]] || \
-    die "The DeepSpeed config identity changed."
-fi
-
 model_identity_inputs=(
   "${MODEL_PATH}/config.json"
   "${MODEL_PATH}/model.safetensors.index.json"
@@ -483,24 +599,15 @@ actual_model_identity="$({
 
 # Hash the direct code inputs for this method.
 training_code_files=(
+  runtime/world_model_prompts.py
+  runtime/world_model_schemas.py
   runtime/world_model_training.py
-  runtime/world_model_s0.py
-  runtime/world_model_s0_tokenizer.py
-  runtime/world_model_domain_bpe.py
-  runtime/world_model_token_adapter.py
   scripts/validate_world_model_v2_s0_train_contract.py
-  utils/utils.py
+  scripts/train_sft_dp_tp_ep.py
+  scripts/world_model_dp_tp_ep.py
+  scripts/tp_ep_autograd.py
   world_model_v2_s0.slurm
 )
-if [[ "${S0_TRAIN_MODE}" == "lora" ]]; then
-  training_code_files+=(
-    scripts/train_sft_dp_tp_ep.py
-    scripts/world_model_dp_tp_ep.py
-    scripts/tp_ep_autograd.py
-  )
-else
-  training_code_files+=(scripts/train_sft_full_zero3.py)
-fi
 S0_TRAINING_CODE_SHA256="$({
   for path in "${training_code_files[@]}"; do
     [[ -f "${path}" ]] || die "A train code file is absent: ${path}"
@@ -520,9 +627,6 @@ mkdir -p "${OUTPUT_DIR}/run_contract" "${OUTPUT_DIR}/wandb"
 RUN_CONTRACT_DIR="${OUTPUT_DIR}/run_contract"
 export RUN_CONTRACT_DIR
 cp "${S0_RUN_CONFIG}" "${RUN_CONTRACT_DIR}/run_config.json"
-if [[ "${S0_TRAIN_MODE}" == "full_finetune" ]]; then
-  cp "${DS_CONFIG}" "${RUN_CONTRACT_DIR}/deepspeed_config.json"
-fi
 
 BASE_MODEL_VALIDATOR="${CONTRACT_CHECKER}"
 export BASE_MODEL_VALIDATOR
@@ -622,7 +726,6 @@ export NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export ACCELERATE_USE_DEEPSPEED=true
 export ACCELERATE_DEEPSPEED_MOE_LAYER_CLS_NAMES=GptOssMLP
-export DS_CONFIG_SHA256_EXPECTED
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 export TOKENIZERS_PARALLELISM=false
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-7}"
@@ -818,7 +921,7 @@ for host, counts in by_host_device_counts.items():
         )
 PY
 
-# Build the arguments that both trainers share.
+# Build the canonical LoRA trainer arguments.
 train_args=(
   --model_path "${TRAIN_MODEL_PATH}"
   --tokenizer_path "${TOKENIZER_PATH}"
@@ -841,64 +944,43 @@ train_args=(
   --max_length "${MAX_LENGTH}"
   --seed "${SEED}"
 )
-[[ -z "${TOKEN_ADAPTER_MANIFEST}" ]] || \
-  train_args+=(--token_adapter_manifest "${TOKEN_ADAPTER_MANIFEST}")
-
-# Add the arguments for the selected train mode.
-if [[ "${S0_TRAIN_MODE}" == "lora" ]]; then
-  train_args+=(
-    --tp_size "${TP_SIZE}"
-    --ep_size "${EP_SIZE}"
-    --save_steps "${SAVE_STEPS}"
-    --save_total_limit "${SAVE_TOTAL_LIMIT}"
-    --eval_strategy "${EVAL_STRATEGY}"
-    --lora_r "${LORA_R}"
-    --lora_alpha "${LORA_ALPHA}"
-    --lora_dropout "${LORA_DROPOUT}"
-  )
-  if [[ "${EVAL_ON_START}" == "1" ]]; then
-    train_args+=(--eval_on_start)
-  else
-    train_args+=(--no-eval_on_start)
-  fi
-  if [[ "${PRESERVE_DATASET_ORDER}" == "1" ]]; then
-    train_args+=(--preserve_dataset_order)
-  else
-    train_args+=(--no-preserve_dataset_order)
-  fi
-  if [[ "${AUTOGRAD_MULTITHREADING}" == "1" ]]; then
-    train_args+=(--autograd-multithreading)
-  else
-    train_args+=(--no-autograd-multithreading)
-  fi
-  if [[ "${LOCAL_FILES_ONLY}" == "1" ]]; then
-    train_args+=(--local_files_only)
-  else
-    train_args+=(--no-local_files_only)
-  fi
-  if [[ "${STRICT_TESTED_STACK}" == "1" ]]; then
-    train_args+=(--strict_tested_stack)
-  else
-    train_args+=(--no-strict_tested_stack)
-  fi
-  [[ "${BF16}" != "1" ]] || train_args+=(--bf16)
+# Add the method values.
+train_args+=(
+  --tp_size "${TP_SIZE}"
+  --ep_size "${EP_SIZE}"
+  --save_steps "${SAVE_STEPS}"
+  --save_total_limit "${SAVE_TOTAL_LIMIT}"
+  --eval_strategy "${EVAL_STRATEGY}"
+  --lora_r "${LORA_R}"
+  --lora_alpha "${LORA_ALPHA}"
+  --lora_dropout "${LORA_DROPOUT}"
+)
+if [[ "${EVAL_ON_START}" == "1" ]]; then
+  train_args+=(--eval_on_start)
 else
-  train_args+=(
-    --deepspeed "${DS_CONFIG}"
-    --expected_model_parameters "${EXPECTED_MODEL_PARAMETERS}"
-    --local_files_only "$([[ "${LOCAL_FILES_ONLY}" == "1" ]] && echo true || echo false)"
-    --bf16 "$([[ "${BF16}" == "1" ]] && echo true || echo false)"
-    --gradient_checkpointing true
-    --ddp_find_unused_parameters false
-    --dataloader_num_workers 0
-    --data_seed "${SEED}"
-    --eval_strategy "${EVAL_STRATEGY}"
-    --eval_on_start "$([[ "${EVAL_ON_START}" == "1" ]] && echo true || echo false)"
-    --packing false
-    --report_to wandb
-    --run_name "${WANDB_NAME}"
-  )
+  train_args+=(--no-eval_on_start)
 fi
+if [[ "${PRESERVE_DATASET_ORDER}" == "1" ]]; then
+  train_args+=(--preserve_dataset_order)
+else
+  train_args+=(--no-preserve_dataset_order)
+fi
+if [[ "${AUTOGRAD_MULTITHREADING}" == "1" ]]; then
+  train_args+=(--autograd-multithreading)
+else
+  train_args+=(--no-autograd-multithreading)
+fi
+if [[ "${LOCAL_FILES_ONLY}" == "1" ]]; then
+  train_args+=(--local_files_only)
+else
+  train_args+=(--no-local_files_only)
+fi
+if [[ "${STRICT_TESTED_STACK}" == "1" ]]; then
+  train_args+=(--strict_tested_stack)
+else
+  train_args+=(--no-strict_tested_stack)
+fi
+[[ "${BF16}" != "1" ]] || train_args+=(--bf16)
 
 # Launch one process for each selected rank.
 launch_training() {
@@ -921,12 +1003,10 @@ launch_training() {
       echo "[ERROR] The local rank count changed." >&2
       exit 2
     }
-    if [[ "${S0_TRAIN_MODE}" == "lora" ]]; then
-      export TP_GROUP_INDEX="$((RANK / TP_SIZE))"
-      export TP_GROUP_RANK="$((RANK % TP_SIZE))"
-      export EP_GROUP_INDEX="${TP_GROUP_INDEX}"
-      export EP_GROUP_RANK="${TP_GROUP_RANK}"
-    fi
+    export TP_GROUP_INDEX="$((RANK / TP_SIZE))"
+    export TP_GROUP_RANK="$((RANK % TP_SIZE))"
+    export EP_GROUP_INDEX="${TP_GROUP_INDEX}"
+    export EP_GROUP_RANK="${TP_GROUP_RANK}"
     export HF_HOME="${HF_HOME}/rank_${RANK}"
     export HF_DATASETS_CACHE="${HF_HOME}/datasets"
     export TRITON_CACHE_DIR="${TRITON_CACHE_DIR}/rank_${RANK}"
@@ -962,23 +1042,13 @@ done
   die "The train launch failed with status ${train_status}."
 
 # Require the final model files and the completed exposure receipt.
-if [[ "${S0_TRAIN_MODE}" == "lora" ]]; then
-  completed_files=(
-    "${OUTPUT_DIR}/adapter_config.json"
-    "${OUTPUT_DIR}/adapter_model.safetensors"
-    "${OUTPUT_DIR}/tp_adapter_manifest.json"
-    "${OUTPUT_DIR}/validation_metrics.jsonl"
-    "${RUN_CONTRACT_DIR}/training_exposure.json"
-  )
-else
-  completed_files=(
-    "${OUTPUT_DIR}/config.json"
-    "${OUTPUT_DIR}/model.safetensors.index.json"
-    "${OUTPUT_DIR}/validation_metrics.jsonl"
-    "${RUN_CONTRACT_DIR}/full_finetune_manifest.json"
-    "${RUN_CONTRACT_DIR}/training_exposure.json"
-  )
-fi
+completed_files=(
+  "${OUTPUT_DIR}/adapter_config.json"
+  "${OUTPUT_DIR}/adapter_model.safetensors"
+  "${OUTPUT_DIR}/tp_adapter_manifest.json"
+  "${OUTPUT_DIR}/validation_metrics.jsonl"
+  "${RUN_CONTRACT_DIR}/training_exposure.json"
+)
 for completed in "${completed_files[@]}"; do
   [[ -s "${completed}" ]] || \
     die "The completed output lacks ${completed}."

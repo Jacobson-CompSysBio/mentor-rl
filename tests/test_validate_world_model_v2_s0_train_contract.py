@@ -1,4 +1,4 @@
-"""Test the flexible S0 train contract."""
+"""Test the canonical S0 train contract."""
 
 from __future__ import annotations
 
@@ -12,63 +12,33 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VALIDATOR = REPO_ROOT / "scripts/validate_world_model_v2_s0_train_contract.py"
-BASE_CONFIG = REPO_ROOT / "config/world_model_v2_s0_20b_qualification_v4.json"
-METHOD_ID = "oss20b-fully-atomic-identifiers-lora-r32"
+QUALIFICATION_CONFIG = (
+    REPO_ROOT
+    / "config/world_model_v2_s0_20b_tool_trajectory_qualification_v6.json"
+)
+TRAINING_CONFIG = (
+    REPO_ROOT
+    / "config/world_model_v2_s0_120b_tool_trajectory_training_v6.json"
+)
+QUALIFICATION_METHOD = "oss20b-plain-base-tokenizer-lora-r32"
+TRAINING_METHOD = "oss120b-plain-base-tokenizer-lora-r32"
 
 
 def run_validator(
-    tmp_path: Path,
+    config: Path,
+    method_id: str,
     *,
-    max_steps: int | None = None,
+    root: Path = REPO_ROOT,
 ) -> subprocess.CompletedProcess[str]:
-    """Run the validator with a 1,000-row contract."""
-
-    root = tmp_path / "repo"
-    config_path = root / "config/run.json"
-    evaluator_path = (
-        root / "data/world_model_v2/eval/s0_human_identifiers_v4/manifest.json"
-    )
-    config_path.parent.mkdir(parents=True)
-    evaluator_path.parent.mkdir(parents=True)
-
-    config = json.loads(BASE_CONFIG.read_text(encoding="utf-8"))
-    config["run_scope"] = "qualification"
-    config["corpus"]["train_rows"] = 1_000
-    config["corpus"]["manifest_sha256"] = "ignored-manifest-value"
-    config["corpus"]["train_sha256"] = "ignored-train-value"
-    config["corpus"]["validation_sha256"] = "ignored-validation-value"
-    for method in config["methods"]:
-        method["arm_manifest_sha256"] = "ignored-arm-value"
-        method["tokenizer_manifest_sha256"] = "ignored-tokenizer-value"
-    config["run_settings"]["num_train_epochs"] = 3
-    if max_steps is not None:
-        config["run_settings"]["max_steps"] = max_steps
-    config_path.write_text(
-        json.dumps(config, indent=2) + "\n",
-        encoding="utf-8",
-    )
-
-    evaluator = {
-        "validation": {
-            "questions_path": "ignored/questions.jsonl",
-            "questions_sha256": "ignored-question-value",
-            "row_count": 1,
-            "answer_key_path": "data/world_model_v2/eval/answers.jsonl",
-            "answer_key_sha256": "ignored-answer-value",
-        }
-    }
-    evaluator_path.write_text(
-        json.dumps(evaluator, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    """Run the train validator."""
 
     return subprocess.run(
         [
             sys.executable,
             str(VALIDATOR),
             str(root),
-            str(config_path),
-            METHOD_ID,
+            str(config),
+            method_id,
         ],
         check=False,
         capture_output=True,
@@ -76,29 +46,85 @@ def run_validator(
     )
 
 
-def test_validator_calculates_steps_from_epochs(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("config", "method_id", "model_id", "run_scope"),
+    [
+        (
+            QUALIFICATION_CONFIG,
+            QUALIFICATION_METHOD,
+            "gpt-oss-20b-bf16",
+            "qualification",
+        ),
+        (
+            TRAINING_CONFIG,
+            TRAINING_METHOD,
+            "gpt-oss-120b-bf16",
+            "production",
+        ),
+    ],
+)
+def test_validator_accepts_the_v6_trajectory_contracts(
+    config: Path,
+    method_id: str,
+    model_id: str,
+    run_scope: str,
 ) -> None:
-    """The validator calculates steps for a smaller dataset."""
+    """Accept each canonical trajectory train contract."""
 
-    result = run_validator(tmp_path)
+    result = run_validator(config, method_id)
 
     assert result.returncode == 0, result.stderr
-    assert "S0_RUN_SCOPE=qualification" in result.stdout
-    assert "S0_TRAIN_ROWS=1000" in result.stdout
-    assert "TRAIN_UPDATES_PER_EPOCH=32" in result.stdout
-    assert "TRAIN_TOTAL_STEPS=96" in result.stdout
-    assert "TRAIN_MAX_STEPS" not in result.stdout
+    assert f"MODEL_ID={model_id}" in result.stdout
+    assert f"S0_RUN_SCOPE={run_scope}" in result.stdout
+    assert "S0_TRAIN_ROWS=4096" in result.stdout
+    assert "TRAIN_UPDATES_PER_EPOCH=128" in result.stdout
+    assert "TRAIN_TOTAL_STEPS=1280" in result.stdout
+    assert "LOSS_CONTRACT=s0_tool_trajectory_v1" in result.stdout
 
 
-@pytest.mark.parametrize("max_steps", [-1, 96])
-def test_validator_rejects_max_steps(
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        (
+            "max_steps",
+            96,
+            "max_steps is not supported",
+        ),
+        (
+            "run_scope",
+            "unknown",
+            "run_scope must be one of",
+        ),
+    ],
+)
+def test_validator_rejects_removed_values(
     tmp_path: Path,
-    max_steps: int,
+    field: str,
+    value: object,
+    message: str,
 ) -> None:
-    """The validator rejects the removed step parameter."""
+    """Reject one value outside the canonical contract."""
 
-    result = run_validator(tmp_path, max_steps=max_steps)
+    root = tmp_path / "repo"
+    config_path = root / "config/run.json"
+    config_path.parent.mkdir(parents=True)
+    config = json.loads(
+        QUALIFICATION_CONFIG.read_text(encoding="utf-8")
+    )
+    if field == "max_steps":
+        config["run_settings"][field] = value
+    else:
+        config[field] = value
+    config_path.write_text(
+        json.dumps(config, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    result = run_validator(
+        config_path,
+        QUALIFICATION_METHOD,
+        root=root,
+    )
 
     assert result.returncode != 0
-    assert "max_steps is not supported" in result.stderr
+    assert message in result.stderr
