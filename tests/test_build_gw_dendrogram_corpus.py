@@ -217,6 +217,7 @@ def test_build_task_prototypes_and_materialization_are_balanced_and_compatible(t
         assert len(set(counts.values())) == 1
 
     for task in tasks:
+        assert task["hidden_target"]["requires_user_input"] is False
         seed_gene_ids = set(task["visible_inputs"]["seed_gene_ids"])
         if task["task_type"] == "explanation":
             assert seed_gene_ids == set(task["hidden_target"]["target_gene_ids"])

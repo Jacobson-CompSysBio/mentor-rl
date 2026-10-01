@@ -995,12 +995,14 @@ def materialize_tasks(
                     "target_gene_ids": None,
                     "target_gene_symbols": None,
                     "relationship_status": NONE_RELATIONSHIP_STATUS,
+                    "requires_user_input": False,
                 }
             else:
                 hidden_target = {
                     "target_gene_ids": target_module["gene_ids"],
                     "target_gene_symbols": target_module["gene_symbols"],
                     "relationship_status": POSITIVE_RELATIONSHIP_STATUS,
+                    "requires_user_input": False,
                 }
 
             task_id = f"{prototype['prototype_id']}.{evidence_mode}"

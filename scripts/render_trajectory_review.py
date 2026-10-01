@@ -213,7 +213,8 @@ def _score_summary(branch: CandidateBranch) -> str:
         f"total `{score.total_score:.3f}`, normalized `{float(score.normalized_score or 0.0):.3f}`, "
         f"schema `{score.schema_score:.3f}`, gene-delta `{score.complex_membership_delta:.3f}`, "
         f"mechanism-delta `{score.mechanistic_label_delta:.3f}`, "
-        f"mechanism-evidence `{score.mechanism_evidence_score:.3f}`"
+        f"mechanism-evidence `{score.mechanism_evidence_score:.3f}`, "
+        f"abstention `{score.abstention_score:.3f}`"
     )
 
 
@@ -364,6 +365,9 @@ def _final_visual_class(summary: dict[str, Any] | None) -> str:
         return "final"
     final_state = summary.get("final_state", {})
     relationship = final_state.get("relationship_status") if isinstance(final_state, dict) else None
+    continuation = final_state.get("continuation_state") if isinstance(final_state, dict) else None
+    if continuation == "defer":
+        return "deferred" if summary.get("defer_correct") is True else "lowQuality"
     gene_score = summary.get("terminal_absolute_complex_score")
     if _is_non_none_task(summary) and relationship == "insufficient_support":
         return "lowQuality"
@@ -380,6 +384,11 @@ def _final_warning(summary: dict[str, Any] | None) -> str | None:
         return None
     final_state = summary.get("final_state", {})
     relationship = final_state.get("relationship_status") if isinstance(final_state, dict) else "unknown"
+    continuation = final_state.get("continuation_state") if isinstance(final_state, dict) else None
+    if continuation == "defer" and summary.get("false_defer") is True:
+        return "Invalid defer: the task did not require new user input."
+    if summary.get("missed_defer") is True:
+        return "Missing defer: the task required new user input."
     gene_score = summary.get("terminal_absolute_complex_score")
     if _is_non_none_task(summary) and relationship == "insufficient_support":
         return "Low-quality final state: a non-none task ended as insufficient support."
@@ -442,6 +451,7 @@ def _mermaid_graph_source(
         "  classDef selected fill:#dbeafe,stroke:#2563eb,stroke-width:2px;",
         "  classDef unselected fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,stroke-dasharray:4 3;",
         "  classDef final fill:#dcfce7,stroke:#16a34a,stroke-width:2px;",
+        "  classDef deferred fill:#ede9fe,stroke:#7c3aed,stroke-width:2px;",
         "  classDef taskMismatch fill:#ffedd5,stroke:#f97316,stroke-width:2px;",
         "  classDef lowQuality fill:#fee2e2,stroke:#dc2626,stroke-width:2px;",
     ]
@@ -549,7 +559,12 @@ def _trajectory_overview(
                 f"- Source task: `{_summary_value(summary, 'source_task_id')}`",
                 f"- Steps/findings: `{summary.get('step_count', len(turns))}` / `{summary.get('finding_count', len(turns))}`",
                 f"- Final status: `{final_state.get('relationship_status', 'unknown')}`; "
+                f"continuation: `{final_state.get('continuation_state', 'unknown')}`; "
                 f"termination: `{final_state.get('termination_reason', 'unknown')}`",
+                f"- Defer target/result: `{summary.get('requires_user_input', False)}` / "
+                f"`{summary.get('defer_correct', False)}`; false defer: "
+                f"`{summary.get('false_defer', False)}`; missed defer: "
+                f"`{summary.get('missed_defer', False)}`",
                 f"- Terminal reward: `{float(summary.get('terminal_reward', 0.0)):.3f}`; "
                 f"gene score `{float(summary.get('terminal_absolute_complex_score', 0.0)):.3f}`; "
                 f"mechanism-evidence `{float(summary.get('terminal_mechanism_evidence_score', 0.0)):.3f}`",
@@ -561,6 +576,7 @@ def _trajectory_overview(
                 f"- Claim: {_truncate(final_interpretation.get('mechanistic_claim', ''), max_chars=max_text_chars) or '_empty_'}",
                 f"- Evidence: {_truncate(final_interpretation.get('main_evidence', ''), max_chars=max_text_chars) or '_empty_'}",
                 f"- Uncertainty: {_truncate(final_interpretation.get('uncertainty', ''), max_chars=max_text_chars) or '_empty_'}",
+                f"- Required user input: {_truncate(final_interpretation.get('uncertainty', ''), max_chars=max_text_chars) if final_state.get('continuation_state') == 'defer' else '_none_'}",
                 f"- Next subgoal: {_truncate(final_interpretation.get('next_subgoal', ''), max_chars=max_text_chars) or '_empty_'}",
                 "",
             ]
@@ -794,6 +810,7 @@ def render_mermaid_graphs(
         "  classDef selected fill:#dbeafe,stroke:#2563eb,stroke-width:2px;",
         "  classDef unselected fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,stroke-dasharray:4 3;",
         "  classDef final fill:#dcfce7,stroke:#16a34a,stroke-width:2px;",
+        "  classDef deferred fill:#ede9fe,stroke:#7c3aed,stroke-width:2px;",
         "  classDef taskMismatch fill:#ffedd5,stroke:#f97316,stroke-width:2px;",
         "  classDef lowQuality fill:#fee2e2,stroke:#dc2626,stroke-width:2px;",
     ]
@@ -937,6 +954,7 @@ def _html_summary_panel(
                 _html_badge(summary.get("evidence_mode", "unknown"), "mode"),
                 _html_badge(summary.get("difficulty", "unknown"), "difficulty"),
                 _html_badge(final_state.get("relationship_status", "unknown"), _final_visual_class(summary)),
+                _html_badge(final_state.get("continuation_state", "unknown"), _final_visual_class(summary)),
             ]
         )
         metrics = "".join(
@@ -982,12 +1000,16 @@ def _html_summary_panel(
             <h4>Hidden Training Target</h4>
             <p><strong>Scoring intent:</strong> {_html_escape(expected_behavior)}</p>
             <p><strong>Target status:</strong> <code>{_html_escape(alignment.get("target_status", "unknown"))}</code></p>
+            <p><strong>Requires user input:</strong> <code>{_html_escape(summary.get("requires_user_input", False) if summary else False)}</code></p>
             <p><strong>Target genes:</strong> {_html_escape("null" if alignment.get("target_count") is None else alignment.get("target_count"))} ({_html_escape(alignment.get("target_preview", "unknown"))})</p>
             <p><strong>Hidden mechanism labels:</strong> {_html_escape("none" if not task_row or not task_row.get("mechanism_labels") else _json_inline(task_row.get("mechanism_labels"), max_chars=300))}</p>
           </div>
           <div>
             <h4>Final Output</h4>
             <p><strong>Relationship:</strong> <code>{_html_escape(final_state.get("relationship_status", "unknown"))}</code></p>
+            <p><strong>Continuation:</strong> <code>{_html_escape(final_state.get("continuation_state", "unknown"))}</code></p>
+            <p><strong>Termination:</strong> <code>{_html_escape(final_state.get("termination_reason", "unknown"))}</code></p>
+            <p><strong>Required user input:</strong> {_html_escape(_truncate(final_interpretation.get("uncertainty", ""), max_chars=max_text_chars) if final_state.get("continuation_state") == "defer" else "none")}</p>
             <p><strong>Predicted genes:</strong> {_html_escape(alignment.get("predicted_count", 0))} ({_html_escape(alignment.get("predicted_preview", "none"))})</p>
             <p><strong>Mechanistic labels:</strong> {_html_escape(labels)}</p>
             <p><strong>Claim:</strong> {_html_escape(_truncate(final_interpretation.get("mechanistic_claim", ""), max_chars=max_text_chars) or "empty")}</p>
@@ -1224,6 +1246,8 @@ def render_html(
       --unselected: #94a3b8;
       --final: #16a34a;
       --final-bg: #dcfce7;
+      --deferred: #7c3aed;
+      --deferred-bg: #ede9fe;
       --warn: #f97316;
       --warn-bg: #ffedd5;
       --bad: #dc2626;
@@ -1275,6 +1299,7 @@ def render_html(
     .swatch.selected {{ color: var(--selected); background: var(--selected-bg); }}
     .swatch.unselected {{ color: var(--unselected); background: #f8fafc; border-style: dashed; }}
     .swatch.final {{ color: var(--final); background: var(--final-bg); }}
+    .swatch.deferred {{ color: var(--deferred); background: var(--deferred-bg); }}
     .swatch.mismatch {{ color: var(--warn); background: var(--warn-bg); }}
     .swatch.low {{ color: var(--bad); background: var(--bad-bg); }}
     details.trajectory {{
@@ -1310,6 +1335,7 @@ def render_html(
       color: #3730a3;
     }}
     .badge.final {{ background: var(--final-bg); color: #166534; }}
+    .badge.deferred {{ background: var(--deferred-bg); color: #5b21b6; }}
     .badge.taskMismatch {{ background: var(--warn-bg); color: #9a3412; }}
     .badge.lowQuality {{ background: var(--bad-bg); color: #991b1b; }}
     .metric {{
@@ -1381,6 +1407,7 @@ def render_html(
           <span><i class="swatch selected"></i> selected branch</span>
           <span><i class="swatch unselected"></i> unselected candidate</span>
           <span><i class="swatch final"></i> final state</span>
+          <span><i class="swatch deferred"></i> correct defer</span>
           <span><i class="swatch mismatch"></i> task mismatch risk</span>
           <span><i class="swatch low"></i> low-quality state</span>
         </div>

@@ -220,6 +220,101 @@ class RenderTrajectoryReviewTests(unittest.TestCase):
         self.assertIn("Reasoning And Verification Details", html)
         self.assertIn("mermaid", html)
 
+    def test_renderers_show_a_correct_terminal_defer(self) -> None:
+        turn = _toy_turn()
+        final_state = turn.branch.verifier_step.updated_state.to_dict()
+        final_state["continuation_state"] = "defer"
+        final_state["termination_reason"] = "user_input_required"
+        final_interpretation = turn.branch.verifier_step.updated_interpretation.to_dict()
+        final_interpretation["uncertainty"] = "The user must select one identifier."
+        final_interpretation["next_subgoal"] = ""
+        summary = {
+            "trajectory_id": turn.trajectory_id,
+            "source_task_id": "toy.explanation.minimal",
+            "task_type": "explanation",
+            "evidence_mode": "minimal",
+            "difficulty": "complete",
+            "step_count": 1,
+            "finding_count": 1,
+            "terminal_reward": 2.0,
+            "terminal_absolute_complex_score": 1.0,
+            "terminal_mechanism_evidence_score": 0.7,
+            "terminal_abstention_score": 1.0,
+            "requires_user_input": True,
+            "defer_correct": True,
+            "false_defer": False,
+            "missed_defer": False,
+            "final_interpretation": final_interpretation,
+            "final_state": final_state,
+        }
+        turns = {turn.trajectory_id: [turn]}
+        summaries = {turn.trajectory_id: summary}
+
+        markdown = render_markdown(
+            turns_by_trajectory=turns,
+            summaries=summaries,
+            trajectory_ids=[turn.trajectory_id],
+            source_label="defer fixture",
+            max_text_chars=500,
+        )
+        html = render_html(
+            turns_by_trajectory=turns,
+            summaries=summaries,
+            trajectory_ids=[turn.trajectory_id],
+            source_label="defer fixture",
+            branch_pools={},
+            task_rows={
+                "toy.explanation.minimal": {
+                    "task_id": "toy.explanation.minimal",
+                    "task_type": "explanation",
+                    "query_text": "Explain the shared mechanism for ENSG1 and ENSG2.",
+                    "hidden_target": {
+                        "relationship_status": "validated_group",
+                        "target_gene_ids": ["ENSG1", "ENSG2"],
+                        "requires_user_input": True,
+                    },
+                    "mechanism_labels": None,
+                }
+            },
+            max_unselected_per_step=0,
+            max_text_chars=500,
+        )
+
+        self.assertIn("continuation: `defer`", markdown)
+        self.assertIn("termination: `user_input_required`", markdown)
+        self.assertIn("Required user input: The user must select one identifier.", markdown)
+        self.assertIn('class="badge deferred"', html)
+        self.assertIn("The user must select one identifier.", html)
+
+        false_summary = json.loads(json.dumps(summary))
+        false_summary["requires_user_input"] = False
+        false_summary["defer_correct"] = False
+        false_summary["false_defer"] = True
+        false_summaries = {turn.trajectory_id: false_summary}
+        false_markdown = render_markdown(
+            turns_by_trajectory=turns,
+            summaries=false_summaries,
+            trajectory_ids=[turn.trajectory_id],
+            source_label="false defer fixture",
+            max_text_chars=500,
+        )
+        false_html = render_html(
+            turns_by_trajectory=turns,
+            summaries=false_summaries,
+            trajectory_ids=[turn.trajectory_id],
+            source_label="false defer fixture",
+            branch_pools={},
+            max_unselected_per_step=0,
+            max_text_chars=500,
+        )
+
+        self.assertIn("lowQuality;", false_markdown)
+        self.assertIn('class="badge lowQuality"', false_html)
+        self.assertIn(
+            "Invalid defer: the task did not require new user input.",
+            false_html,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

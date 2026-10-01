@@ -10,6 +10,7 @@ from runtime.schemas import (
     PreferencePair,
     SharedPrefixContext,
     TaskType,
+    TerminationReason,
     ToolAction,
     ToolObservation,
     ToolObservationStatus,
@@ -86,6 +87,21 @@ def _build_branch(branch_id: str) -> CandidateBranch:
 
 
 class RuntimeValidatorTests(unittest.TestCase):
+    def test_tool_action_is_invalid_after_defer(self) -> None:
+        _, state = initialize_state_from_corum_task(_build_task_row(), max_budget=4)
+        state.continuation_state = ContinuationState.DEFER
+        state.termination_reason = TerminationReason.USER_INPUT_REQUIRED
+        action = ToolAction(
+            tool_name="get_neighbors",
+            arguments={"gene": "ENSG00000068024"},
+            call_id="call_after_defer",
+        )
+
+        result = validate_tool_action_semantics(action, state=state)
+
+        self.assertFalse(result.valid)
+        self.assertTrue(any("terminal mode" in error for error in result.errors))
+
     def test_validate_tool_action_schema_accepts_valid_graph_call(self) -> None:
         action = ToolAction(
             tool_name="get_neighbors",

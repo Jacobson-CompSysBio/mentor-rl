@@ -472,6 +472,7 @@ def test_build_corum_corpus_smoke_and_determinism(tmp_path, monkeypatch):
             gene_to_complexes.setdefault(gene_id, set()).add(complex_record_id)
 
     for task in result_1["tasks"]:
+        assert task["hidden_target"]["requires_user_input"] is False
         seed_gene_ids = set(task["visible_inputs"]["seed_gene_ids"])
         if task["task_type"] == "explanation":
             assert seed_gene_ids == set(task["hidden_target"]["target_gene_ids"])

@@ -19,6 +19,7 @@ import json
 from typing import Any, Iterable
 
 from .schemas import (
+    TERMINAL_CONTINUATION_STATES,
     CandidateBranch,
     ContinuationState,
     LabelSource,
@@ -28,6 +29,7 @@ from .schemas import (
     SchemaValidationError,
     StructuredState,
     TaskType,
+    TerminationReason,
     ToolAction,
     ToolObservationStatus,
 )
@@ -60,6 +62,7 @@ class LocalScoringConfig:
     schema_weight: float = 1.0
     complex_delta_weight: float = 1.0
     mechanism_delta_weight: float = 1.0
+    abstention_weight: float = 1.0
     efficiency_weight: float = 1.0
     step_penalty_lambda: float = 0.05
     invalid_call_penalty_lambda: float = 0.95
@@ -80,6 +83,7 @@ class LocalScoringConfig:
             "schema_weight",
             "complex_delta_weight",
             "mechanism_delta_weight",
+            "abstention_weight",
             "efficiency_weight",
             "step_penalty_lambda",
             "invalid_call_penalty_lambda",
@@ -117,6 +121,7 @@ class TerminalScoringConfig:
     complex_delta_weight: float = 1.0
     absolute_mechanism_weight: float = 1.0
     mechanism_delta_weight: float = 1.0
+    abstention_weight: float = 1.0
     efficiency_weight: float = 1.0
     local_config: LocalScoringConfig = field(default_factory=LocalScoringConfig)
 
@@ -127,6 +132,7 @@ class TerminalScoringConfig:
             "complex_delta_weight",
             "absolute_mechanism_weight",
             "mechanism_delta_weight",
+            "abstention_weight",
             "efficiency_weight",
         )
         for field_name in numeric_fields:
@@ -176,6 +182,86 @@ def _require_mapping(name: str, value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         _fail(f"{name} must be a dict, got {type(value).__name__}.")
     return value
+
+
+def _requires_user_input(task_row: dict[str, Any]) -> bool:
+    """Read the hidden defer target and keep old task rows valid."""
+
+    hidden_target = _require_mapping("hidden_target", task_row.get("hidden_target"))
+    value = hidden_target.get("requires_user_input", False)
+    if not isinstance(value, bool):
+        _fail("hidden_target.requires_user_input must be a bool.")
+    return value
+
+
+def _continuation_alignment(
+    task_row: dict[str, Any],
+    state: StructuredState,
+    *,
+    terminal: bool,
+) -> dict[str, Any]:
+    """Compare one continuation choice with the hidden defer target."""
+
+    requires_user_input = _requires_user_input(task_row)
+    deferred = state.continuation_state == ContinuationState.DEFER
+    valid_defer = (
+        deferred
+        and state.termination_reason
+        == TerminationReason.USER_INPUT_REQUIRED
+    )
+    terminal_state = state.continuation_state in TERMINAL_CONTINUATION_STATES
+    correct_defer = requires_user_input and valid_defer
+    false_defer = deferred and not requires_user_input
+    missed_defer = (
+        requires_user_input
+        and not correct_defer
+        and (terminal or terminal_state)
+    )
+    return {
+        "requires_user_input": requires_user_input,
+        "deferred": deferred,
+        "valid_defer": valid_defer,
+        "correct_defer": correct_defer,
+        "false_defer": false_defer,
+        "missed_defer": missed_defer,
+        "abstention_score": 1.0 if correct_defer else 0.0,
+    }
+
+
+def _calibrate_task_success_with_continuation(
+    task_success: dict[str, Any],
+    continuation: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply the hidden defer target to one task-success result."""
+
+    calibrated = dict(task_success)
+    calibrated["base_task_success"] = {
+        "task_success": task_success.get("task_success"),
+        "task_success_level": task_success.get("task_success_level"),
+        "task_quality_failure_reasons": list(
+            task_success.get("task_quality_failure_reasons", [])
+        ),
+    }
+    calibrated["continuation_alignment"] = dict(continuation)
+    if continuation["correct_defer"]:
+        calibrated["task_success"] = True
+        calibrated["task_success_level"] = "positive"
+        calibrated["task_quality_failure_reasons"] = []
+    elif continuation["false_defer"]:
+        calibrated["task_success"] = False
+        calibrated["task_success_level"] = "negative"
+        calibrated["task_quality_failure_reasons"] = [
+            *task_success.get("task_quality_failure_reasons", []),
+            "unexpected_defer_for_answerable_task",
+        ]
+    elif continuation["missed_defer"]:
+        calibrated["task_success"] = False
+        calibrated["task_success_level"] = "negative"
+        calibrated["task_quality_failure_reasons"] = [
+            *task_success.get("task_quality_failure_reasons", []),
+            "required_user_input_not_deferred",
+        ]
+    return calibrated
 
 
 def _require_positive_int(name: str, value: Any) -> int:
@@ -1164,12 +1250,19 @@ def score_candidate_branch(
     task_type = TaskType(task_row["task_type"])
     hidden_target = _require_mapping("hidden_target", task_row["hidden_target"])
     post_state = branch.verifier_step.updated_state
+    continuation_alignment = _continuation_alignment(
+        task_row,
+        post_state,
+        terminal=False,
+    )
     schema_errors = _schema_validation_errors(
         branch,
         prior_state=prior_state,
         available_gene_ids=available_gene_ids,
         available_layers=available_layers,
     )
+    if continuation_alignment["false_defer"]:
+        schema_errors.append("unexpected_defer_for_answerable_task")
     schema_score = 0.0 if schema_errors else 1.0
 
     if task_type == TaskType.NONE:
@@ -1230,6 +1323,12 @@ def score_candidate_branch(
         state=post_state,
         mechanism_evidence=post_mechanism_evidence,
     )
+    base_task_success = task_success
+    task_success = _calibrate_task_success_with_continuation(
+        base_task_success,
+        continuation_alignment,
+    )
+    abstention_score = float(continuation_alignment["abstention_score"])
     mechanism_evidence_delta = (
         post_mechanism_evidence["score"] - pre_mechanism_evidence["score"]
     )
@@ -1250,7 +1349,11 @@ def score_candidate_branch(
         if post_recall + 1e-9 < pre_recall:
             task_mismatch_penalty = pre_recall - post_recall
             effective_mechanistic_delta = min(effective_mechanistic_delta, 0.0)
-    elif task_type != TaskType.NONE and task_success["task_success_level"] == "negative" and complex_delta < 0:
+    elif (
+        task_type != TaskType.NONE
+        and base_task_success["task_success_level"] == "negative"
+        and complex_delta < 0
+    ):
         effective_mechanistic_delta = min(effective_mechanistic_delta, 0.0)
 
     tool_action = branch.actor_step.tool_action
@@ -1303,6 +1406,7 @@ def score_candidate_branch(
         config.schema_weight * schema_score
         + config.complex_delta_weight * complex_delta
         + config.mechanism_delta_weight * effective_mechanistic_delta
+        + config.abstention_weight * abstention_score
         - config.efficiency_weight * efficiency_penalty
         - task_mismatch_penalty
     )
@@ -1332,6 +1436,8 @@ def score_candidate_branch(
             "effective_delta_for_score": effective_mechanistic_delta,
         },
         "task_success": task_success,
+        "continuation": continuation_alignment,
+        "abstention_weight": config.abstention_weight,
         "task_mismatch_penalty": task_mismatch_penalty,
         "efficiency": {
             "step_fraction": step_fraction,
@@ -1355,6 +1461,7 @@ def score_candidate_branch(
         normalized_score=None,
         mechanism_evidence_delta=mechanism_evidence_delta,
         mechanism_evidence_score=post_mechanism_evidence["score"],
+        abstention_score=abstention_score,
         score_metadata=score_metadata,
     )
 
@@ -1367,16 +1474,26 @@ def _terminal_schema_score(final_state: StructuredState) -> tuple[float, dict[st
     except SchemaValidationError as error:
         schema_valid = False
         schema_errors.append(str(error))
-    termination_recorded = (
-        final_state.continuation_state == ContinuationState.STOP
-        and final_state.termination_reason is not None
-    )
+    stop_reasons = {
+        TerminationReason.MODEL_STOP,
+        TerminationReason.BUDGET_EXHAUSTED,
+        TerminationReason.RUNTIME_ERROR,
+    }
+    if final_state.continuation_state == ContinuationState.DEFER:
+        termination_recorded = (
+            final_state.termination_reason == TerminationReason.USER_INPUT_REQUIRED
+        )
+    elif final_state.continuation_state == ContinuationState.STOP:
+        termination_recorded = final_state.termination_reason in stop_reasons
+    else:
+        termination_recorded = False
     return (
         1.0 if schema_valid and termination_recorded else 0.0,
         {
             "schema_valid": schema_valid,
             "schema_errors": schema_errors,
             "termination_recorded": termination_recorded,
+            "continuation_state": final_state.continuation_state.value,
             "termination_reason": (
                 final_state.termination_reason.value
                 if final_state.termination_reason is not None
@@ -1476,6 +1593,17 @@ def score_terminal_trajectory(
         state=final_state,
         mechanism_evidence=final_mechanism_evidence,
     )
+    continuation_alignment = _continuation_alignment(
+        task_row,
+        final_state,
+        terminal=True,
+    )
+    base_task_success = task_success
+    task_success = _calibrate_task_success_with_continuation(
+        base_task_success,
+        continuation_alignment,
+    )
+    abstention_score = float(continuation_alignment["abstention_score"])
     initial_mechanism_evidence_score = float(initial_mechanism_evidence["score"])
     final_mechanism_evidence_score = float(final_mechanism_evidence["score"])
     if _has_canonical_label_targets(canonical_targets):
@@ -1487,7 +1615,7 @@ def score_terminal_trajectory(
         final_mechanistic_score = final_mechanism_evidence_score
         mechanism_score_source = "evidence_grounded_unsupervised"
     mechanistic_delta = final_mechanistic_score - initial_mechanistic_score
-    mechanism_cap = _mechanism_cap_for_task_success(task_success)
+    mechanism_cap = _mechanism_cap_for_task_success(base_task_success)
     effective_final_mechanistic_score = min(final_mechanistic_score, mechanism_cap)
     effective_mechanistic_delta = effective_final_mechanistic_score - min(
         initial_mechanistic_score,
@@ -1495,6 +1623,13 @@ def score_terminal_trajectory(
     )
 
     schema_score, schema_metadata = _terminal_schema_score(final_state)
+    if continuation_alignment["false_defer"]:
+        schema_score = 0.0
+        schema_metadata["schema_valid"] = False
+        schema_metadata["schema_errors"] = [
+            *schema_metadata.get("schema_errors", []),
+            "unexpected_defer_for_answerable_task",
+        ]
     total_tool_calls = max(0, final_state.total_tool_call_count - initial_state.total_tool_call_count)
     invalid_tool_calls = max(0, final_state.invalid_tool_call_count - initial_state.invalid_tool_call_count)
     invalid_ratio = _safe_divide(invalid_tool_calls, total_tool_calls)
@@ -1510,6 +1645,7 @@ def score_terminal_trajectory(
         + config.complex_delta_weight * complex_delta
         + config.absolute_mechanism_weight * effective_final_mechanistic_score
         + config.mechanism_delta_weight * effective_mechanistic_delta
+        + config.abstention_weight * abstention_score
         - config.efficiency_weight * efficiency_penalty
     )
 
@@ -1524,6 +1660,11 @@ def score_terminal_trajectory(
         "effective_absolute_mechanistic_score": effective_final_mechanistic_score,
         "effective_mechanistic_delta": effective_mechanistic_delta,
         "mechanism_reward_cap": mechanism_cap,
+        "abstention_score": abstention_score,
+        "requires_user_input": continuation_alignment["requires_user_input"],
+        "defer_correct": continuation_alignment["correct_defer"],
+        "false_defer": continuation_alignment["false_defer"],
+        "missed_defer": continuation_alignment["missed_defer"],
         "task_success": task_success["task_success"],
         "task_success_level": task_success["task_success_level"],
         "task_quality_failure_reasons": task_success["task_quality_failure_reasons"],
@@ -1534,6 +1675,7 @@ def score_terminal_trajectory(
             "step_count": step_count,
             "max_steps": max_steps,
             "task_success": task_success,
+            "continuation": continuation_alignment,
             "schema": schema_metadata,
             "complex": complex_metadata,
             "mechanistic": {
@@ -1554,6 +1696,7 @@ def score_terminal_trajectory(
                 "step_penalty_lambda": config.local_config.step_penalty_lambda,
                 "invalid_call_penalty_lambda": config.local_config.invalid_call_penalty_lambda,
             },
+            "abstention_weight": config.abstention_weight,
         },
     }
 

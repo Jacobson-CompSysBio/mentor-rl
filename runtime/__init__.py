@@ -37,6 +37,7 @@ from .scoring import (
 from .schemas import (
     KNOWN_TOOL_NAMES,
     RUNTIME_SCHEMA_VERSION,
+    TERMINAL_CONTINUATION_STATES,
     ActorStep,
     CandidateBranch,
     ContinuationState,
@@ -71,6 +72,7 @@ from .state import (
     decrement_budget,
     finalize_budget_exhausted,
     finalize_model_stop,
+    finalize_user_input_required,
     initialize_state_from_corum_task,
     make_initial_interpretation,
     record_tool_call,
@@ -121,6 +123,7 @@ from .validators import (
 __all__ = [
     "KNOWN_TOOL_NAMES",
     "RUNTIME_SCHEMA_VERSION",
+    "TERMINAL_CONTINUATION_STATES",
     "CompiledRuntimeBackend",
     "RuntimeEnvironment",
     "RwrHpcAppBackend",
@@ -193,6 +196,7 @@ __all__ = [
     "decrement_budget",
     "finalize_budget_exhausted",
     "finalize_model_stop",
+    "finalize_user_input_required",
     "enrich_gene_set",
     "get_neighbors",
     "initialize_state_from_corum_task",

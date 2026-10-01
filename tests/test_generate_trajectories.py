@@ -37,6 +37,7 @@ from scripts.generate_trajectories import (
     TrajectoryGenerationConfig,
     _actor_prompt_payload,
     _build_actor_step_from_model_candidate,
+    _build_branch_from_model_output,
     _build_evidence_record,
     _build_labels_from_model_payload,
     _expand_tool_action_gene_set_handles,
@@ -51,6 +52,7 @@ from scripts.generate_trajectories import (
     _resolve_rwr_hpc_flist,
     _resolve_store_dir,
     _runtime_tool_parameters,
+    _score_branch,
     _task_shard_bucket,
     _validate_verifier_payload,
     _verifier_output_schema,
@@ -262,6 +264,64 @@ class _FakeModelGenerator:
                     },
                 },
                 "raw_text": '{"updated_interpretation":{"mechanistic_claim":"The current evidence does not support one shared mechanism.","main_evidence":"No supporting subgraph edges were found.","uncertainty":"","next_subgoal":""},"updated_state":{"relationship_status":"insufficient_support","predicted_gene_ids":[],"mechanistic_labels":[],"continuation_decision":"stop","verifier_notes":"Abstain on the none task."}}',
+                "generator_errors": [],
+            }
+        ]
+
+
+class _DeferModelGenerator:
+    model_name = "gpt-oss-120b-bf16"
+
+    def generate_actor_candidates(
+        self,
+        context,
+        *,
+        task_row,
+        step_index,
+        n_act,
+        seed,
+        environment=None,
+        **kwargs,
+    ):
+        del context, task_row, step_index, n_act, seed, environment, kwargs
+        return [
+            {
+                "reasoning_text": "The visible identifier does not select one target.",
+                "tool_action": None,
+                "generator_errors": [],
+            }
+        ]
+
+    def generate_verifier_candidates(
+        self,
+        context,
+        *,
+        task_row,
+        actor_candidate,
+        actor_step,
+        observation,
+        step_index,
+        n_ver,
+        seed,
+    ):
+        del context, task_row, actor_candidate, actor_step, observation, step_index, n_ver, seed
+        return [
+            {
+                "payload": {
+                    "updated_interpretation": {
+                        "mechanistic_claim": "",
+                        "main_evidence": "The visible identifier has more than one valid meaning.",
+                        "uncertainty": "",
+                        "next_subgoal": "",
+                    },
+                    "updated_state": {
+                        "relationship_status": "unknown",
+                        "predicted_gene_ids": ["ENSG1", "ENSG2"],
+                        "mechanistic_labels": [],
+                        "continuation_decision": "defer",
+                        "verifier_notes": "The user must select the intended identifier.",
+                    },
+                },
                 "generator_errors": [],
             }
         ]
@@ -674,6 +734,95 @@ class _BrokenFinalChannelTokenizer:
 
 
 class GenerateTrajectoriesTests(unittest.TestCase):
+    def test_invalid_defer_falls_back_to_revise_without_schema_error(self) -> None:
+        task = _task_rows()[0]
+        _, prior_state = initialize_state_from_corum_task(task, max_budget=3)
+        branch = _build_branch_from_model_output(
+            task,
+            prior_state,
+            ActorStep(reasoning_text="The identifier can have more than one meaning."),
+            None,
+            {
+                "payload": {
+                    "updated_interpretation": {
+                        "mechanistic_claim": "",
+                        "main_evidence": "The identifier is ambiguous.",
+                        "uncertainty": "",
+                        "next_subgoal": "",
+                    },
+                    "updated_state": {
+                        "relationship_status": "unknown",
+                        "predicted_gene_ids": ["ENSG1", "ENSG2"],
+                        "mechanistic_labels": [],
+                        "continuation_decision": "defer",
+                        "verifier_notes": "",
+                    },
+                },
+                "generator_errors": [],
+            },
+            branch_id="invalid_defer",
+            step_index=0,
+            symbol_lookup={"ENSG1": "GENE1", "ENSG2": "GENE2"},
+            generator_errors=[],
+        )
+
+        self.assertEqual(
+            branch.verifier_step.continuation_decision,
+            ContinuationState.REVISE,
+        )
+        self.assertIn(
+            "verifier_defer_required_user_input_missing",
+            branch.metadata["generator_errors"],
+        )
+        scored_branch = _score_branch(
+            task,
+            prior_state,
+            branch,
+            step_index=0,
+            max_steps=3,
+            prior_actions=[],
+            environment=_build_environment(),
+        )
+        self.assertEqual(scored_branch.local_score.schema_score, 0.0)
+
+    def test_verifier_schema_and_parser_accept_terminal_defer(self) -> None:
+        continuation_enum = _verifier_output_schema()["properties"]["updated_state"][
+            "properties"
+        ]["continuation_decision"]["enum"]
+        valid_payload = {
+            "updated_interpretation": {
+                "mechanistic_claim": "",
+                "main_evidence": "The identifier is ambiguous.",
+                "uncertainty": "The user must select one identifier.",
+                "next_subgoal": "",
+            },
+            "updated_state": {
+                "relationship_status": "unknown",
+                "predicted_gene_ids": [],
+                "mechanistic_labels": [],
+                "continuation_decision": "defer",
+                "verifier_notes": "Request the intended identifier.",
+            },
+        }
+
+        self.assertIn("defer", continuation_enum)
+        self.assertEqual(_validate_verifier_payload(valid_payload), [])
+
+        next_subgoal_payload = json.loads(json.dumps(valid_payload))
+        next_subgoal_payload["updated_interpretation"]["next_subgoal"] = "Continue."
+        self.assertIn(
+            "verifier_defer_next_subgoal_not_empty",
+            _validate_verifier_payload(next_subgoal_payload),
+        )
+
+        missing_request_payload = json.loads(json.dumps(valid_payload))
+        missing_request_payload["updated_interpretation"]["uncertainty"] = ""
+        missing_request_payload["updated_state"]["verifier_notes"] = ""
+        self.assertIn(
+            "verifier_defer_required_user_input_missing",
+            _validate_verifier_payload(missing_request_payload),
+        )
+
     def test_verifier_schema_and_parser_accept_reactome_labels(self) -> None:
         label_source_enum = _verifier_output_schema()["properties"]["updated_state"]["properties"][
             "mechanistic_labels"
@@ -875,6 +1024,7 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             "evidence_mode",
             "hidden_target",
             "mechanism_labels",
+            "requires_user_input",
             "source_task_id",
             "target_gene_ids",
             "target_gene_symbols",
@@ -1682,6 +1832,43 @@ class GenerateTrajectoriesTests(unittest.TestCase):
             self.assertEqual(first_branch["metadata"]["generator_backend"], "model_vllm")
             self.assertEqual(first_branch["verifier_step"]["updated_state"]["relationship_status"], "validated_group")
             self.assertEqual(first_branch["local_score"]["schema_score"], 1.0)
+
+    def test_model_defer_is_terminal_and_writes_abstention_fields(self) -> None:
+        task = _task_rows()[0]
+        task["hidden_target"]["requires_user_input"] = True
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for max_steps in (1, 3):
+                with self.subTest(max_steps=max_steps):
+                    out_dir = Path(tmpdir) / f"defer_run_{max_steps}"
+                    generate_trajectories(
+                        task_rows=[task],
+                        out_dir=out_dir,
+                        environment=_build_environment(),
+                        config=TrajectoryGenerationConfig(
+                            max_steps=max_steps,
+                            n_act=1,
+                            n_ver=1,
+                            seed=5,
+                            candidate_source="model_vllm",
+                        ),
+                        candidate_generator=_DeferModelGenerator(),
+                    )
+
+                    summary = _read_jsonl(out_dir / "final_summaries.jsonl")[0]
+
+                    self.assertEqual(summary["step_count"], 1)
+                    self.assertEqual(summary["continuation_decision"], "defer")
+                    self.assertEqual(summary["termination_reason"], "user_input_required")
+                    self.assertEqual(summary["terminal_schema_score"], 1.0)
+                    self.assertEqual(summary["terminal_abstention_score"], 1.0)
+                    self.assertTrue(summary["requires_user_input"])
+                    self.assertTrue(summary["defer_correct"])
+                    self.assertFalse(summary["false_defer"])
+                    self.assertFalse(summary["missed_defer"])
+                    self.assertIn(
+                        "Required user input: The user must select the intended identifier.",
+                        summary["rendered_summary"],
+                    )
 
     def test_model_actor_tool_repair_recovers_duplicate_tool_call(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

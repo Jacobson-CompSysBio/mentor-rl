@@ -22,7 +22,7 @@ from numbers import Real
 from typing import Any
 
 
-RUNTIME_SCHEMA_VERSION = "mentor-rl-runtime-v1"
+RUNTIME_SCHEMA_VERSION = "mentor-rl-runtime-v2"
 KNOWN_TOOL_NAMES = (
     "query_mygene",
     "enrich_gene_set",
@@ -86,6 +86,7 @@ class ContinuationState(StrEnum):
 
     CONTINUE = "continue"
     REVISE = "revise"
+    DEFER = "defer"
     STOP = "stop"
 
 
@@ -134,6 +135,15 @@ class TerminationReason(StrEnum):
     MODEL_STOP = "model_stop"
     BUDGET_EXHAUSTED = "budget_exhausted"
     RUNTIME_ERROR = "runtime_error"
+    USER_INPUT_REQUIRED = "user_input_required"
+
+
+TERMINAL_CONTINUATION_STATES = frozenset(
+    {
+        ContinuationState.DEFER,
+        ContinuationState.STOP,
+    }
+)
 
 
 def _fail(message: str) -> None:
@@ -527,6 +537,23 @@ class StructuredState(SchemaMixin):
             self.termination_reason = _coerce_enum(
                 "termination_reason", self.termination_reason, TerminationReason
             )
+        if (
+            self.continuation_state == ContinuationState.DEFER
+            and self.termination_reason
+            != TerminationReason.USER_INPUT_REQUIRED
+        ):
+            _fail(
+                "A defer state must use the user_input_required "
+                "termination_reason."
+            )
+        if (
+            self.termination_reason == TerminationReason.USER_INPUT_REQUIRED
+            and self.continuation_state != ContinuationState.DEFER
+        ):
+            _fail(
+                "The user_input_required termination_reason requires "
+                "a defer state."
+            )
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "StructuredState":
@@ -567,6 +594,31 @@ class VerifierStep(SchemaMixin):
         self.verifier_notes = _require_str("verifier_notes", self.verifier_notes, allow_empty=True)
         if self.updated_state.continuation_state != self.continuation_decision:
             _fail("updated_state.continuation_state must match continuation_decision.")
+        if (
+            self.updated_state.termination_reason
+            == TerminationReason.USER_INPUT_REQUIRED
+            and self.continuation_decision != ContinuationState.DEFER
+        ):
+            _fail(
+                "The user_input_required termination_reason requires "
+                "a defer continuation_decision."
+            )
+        if self.continuation_decision == ContinuationState.DEFER:
+            if self.updated_state.termination_reason != TerminationReason.USER_INPUT_REQUIRED:
+                _fail(
+                    "A defer continuation_decision must use the user_input_required "
+                    "termination_reason."
+                )
+            if self.updated_interpretation.next_subgoal != "":
+                _fail("A defer continuation_decision must use an empty next_subgoal.")
+            if not (
+                self.updated_interpretation.uncertainty.strip()
+                or self.verifier_notes.strip()
+            ):
+                _fail(
+                    "A defer continuation_decision must state the required user input "
+                    "in uncertainty or verifier_notes."
+                )
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "VerifierStep":
@@ -591,6 +643,7 @@ class LocalScoreBreakdown(SchemaMixin):
     normalized_score: float | None = None
     mechanism_evidence_delta: float = 0.0
     mechanism_evidence_score: float = 0.0
+    abstention_score: float = 0.0
     score_metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -613,6 +666,9 @@ class LocalScoreBreakdown(SchemaMixin):
         self.mechanism_evidence_score = _require_real(
             "mechanism_evidence_score", self.mechanism_evidence_score
         )
+        self.abstention_score = _require_real("abstention_score", self.abstention_score)
+        if not 0.0 <= self.abstention_score <= 1.0:
+            _fail("abstention_score must be in [0, 1].")
         self.score_metadata = _require_mapping("score_metadata", self.score_metadata)
 
     @classmethod
@@ -627,6 +683,7 @@ class LocalScoreBreakdown(SchemaMixin):
             normalized_score=payload.get("normalized_score"),
             mechanism_evidence_delta=payload.get("mechanism_evidence_delta", 0.0),
             mechanism_evidence_score=payload.get("mechanism_evidence_score", 0.0),
+            abstention_score=payload.get("abstention_score", 0.0),
             score_metadata=payload.get("score_metadata", {}),
         )
 
@@ -833,6 +890,7 @@ class PreferencePair(SchemaMixin):
 __all__ = [
     "KNOWN_TOOL_NAMES",
     "RUNTIME_SCHEMA_VERSION",
+    "TERMINAL_CONTINUATION_STATES",
     "ActorStep",
     "CandidateBranch",
     "ContinuationState",

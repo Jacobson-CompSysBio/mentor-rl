@@ -260,6 +260,27 @@ def finalize_model_stop(
     return new_interpretation, new_state
 
 
+def finalize_user_input_required(
+    interpretation: Interpretation,
+    state: StructuredState,
+    *,
+    required_user_input: str,
+) -> tuple[Interpretation, StructuredState]:
+    """End a trajectory that needs more input from the user."""
+
+    if not isinstance(required_user_input, str) or not required_user_input.strip():
+        _fail("required_user_input must be a non-empty string.")
+    new_interpretation = clone_interpretation(interpretation)
+    new_interpretation.uncertainty = required_user_input.strip()
+    new_interpretation.next_subgoal = ""
+    new_state = set_continuation_state(
+        state,
+        ContinuationState.DEFER,
+        termination_reason=TerminationReason.USER_INPUT_REQUIRED,
+    )
+    return new_interpretation, new_state
+
+
 __all__ = [
     "append_evidence_record",
     "build_seed_gene_group",
@@ -269,6 +290,7 @@ __all__ = [
     "decrement_budget",
     "finalize_budget_exhausted",
     "finalize_model_stop",
+    "finalize_user_input_required",
     "initialize_state_from_corum_task",
     "make_initial_interpretation",
     "record_tool_call",

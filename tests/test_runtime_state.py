@@ -13,6 +13,7 @@ from runtime.state import (
     decrement_budget,
     finalize_budget_exhausted,
     finalize_model_stop,
+    finalize_user_input_required,
     initialize_state_from_corum_task,
     record_tool_call,
     replace_mechanistic_labels,
@@ -118,6 +119,28 @@ class RuntimeStateTests(unittest.TestCase):
         self.assertEqual(
             exhausted_state.termination_reason,
             TerminationReason.BUDGET_EXHAUSTED,
+        )
+
+    def test_finalize_user_input_required_sets_terminal_defer(self) -> None:
+        interpretation, state = initialize_state_from_corum_task(_build_task_row(), max_budget=2)
+
+        deferred_interpretation, deferred_state = finalize_user_input_required(
+            interpretation,
+            state,
+            required_user_input="The user must select one identifier.",
+        )
+
+        self.assertEqual(state.continuation_state, ContinuationState.CONTINUE)
+        self.assertEqual(interpretation.next_subgoal, _build_task_row()["query_text"])
+        self.assertEqual(deferred_interpretation.next_subgoal, "")
+        self.assertEqual(
+            deferred_interpretation.uncertainty,
+            "The user must select one identifier.",
+        )
+        self.assertEqual(deferred_state.continuation_state, ContinuationState.DEFER)
+        self.assertEqual(
+            deferred_state.termination_reason,
+            TerminationReason.USER_INPUT_REQUIRED,
         )
 
 

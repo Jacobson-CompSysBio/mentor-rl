@@ -1713,6 +1713,7 @@ def materialize_tasks(
                     "target_gene_ids": None,
                     "target_gene_symbols": None,
                     "relationship_status": NONE_RELATIONSHIP_STATUS,
+                    "requires_user_input": False,
                 }
                 mechanism_labels = None
                 source_complex_ids = []
@@ -1722,6 +1723,7 @@ def materialize_tasks(
                     "target_gene_ids": complex_row["gene_ids"],
                     "target_gene_symbols": complex_row["gene_symbols"],
                     "relationship_status": POSITIVE_RELATIONSHIP_STATUS,
+                    "requires_user_input": False,
                 }
                 mechanism_labels = complex_row["mechanism_labels"]
                 source_complex_ids = complex_row["source_complex_ids"]

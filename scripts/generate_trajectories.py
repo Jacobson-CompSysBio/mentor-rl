@@ -46,6 +46,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from runtime import (
+    TERMINAL_CONTINUATION_STATES,
     ActorStep,
     CandidateBranch,
     ContinuationState,
@@ -500,6 +501,7 @@ Relationship status meanings:
 Continuation decision meanings:
 - continue: one more step could improve the hypothesis
 - revise: the last action was invalid, noisy, or unhelpful; try a different direction
+- defer: only new user input can make the task answerable
 - stop: current evidence is sufficient for the best current conclusion
 
 Label source meanings:
@@ -526,6 +528,8 @@ State update guidance:
   should not force an unsupported expansion or pruning decision.
 - For none tasks, prefer "insufficient_support" or "multiple_groups" when one coherent mechanism is not supported.
 - If relationship_status is insufficient_support, an empty predicted_gene_ids list is acceptable.
+- Use defer only when the user must supply missing or corrected input.
+- For defer, clear next_subgoal and state the required input in uncertainty or verifier_notes.
 - Prefer GO or FCGS labels when visible annotations support them.
 - Mechanistic labels must be copied from or directly summarized from observed
   annotation/enrichment evidence. Generic labels such as "network module",
@@ -2856,8 +2860,21 @@ def _validate_verifier_payload(payload: dict[str, Any]) -> list[str]:
         except Exception:
             errors.append("verifier_continuation_decision_invalid")
 
-    if not isinstance(updated_state.get("verifier_notes"), str):
+    verifier_notes = updated_state.get("verifier_notes")
+    if not isinstance(verifier_notes, str):
         errors.append("verifier_notes_missing_or_invalid")
+    if continuation_decision == ContinuationState.DEFER.value:
+        next_subgoal = updated_interpretation.get("next_subgoal")
+        uncertainty = updated_interpretation.get("uncertainty")
+        if isinstance(next_subgoal, str) and next_subgoal:
+            errors.append("verifier_defer_next_subgoal_not_empty")
+        if not (
+            isinstance(uncertainty, str)
+            and uncertainty.strip()
+            or isinstance(verifier_notes, str)
+            and verifier_notes.strip()
+        ):
+            errors.append("verifier_defer_required_user_input_missing")
     return errors
 
 
@@ -4963,6 +4980,9 @@ def _render_interpretation(
     if continuation_state == ContinuationState.STOP:
         uncertainty = ""
         next_subgoal = ""
+    elif continuation_state == ContinuationState.DEFER:
+        uncertainty = "The user must supply the missing input before this task can continue."
+        next_subgoal = ""
     elif continuation_state == ContinuationState.REVISE:
         uncertainty = "The last action did not provide enough clean evidence."
         next_subgoal = query_text
@@ -5435,6 +5455,7 @@ def _render_final_summary(
     interpretation: Interpretation,
     state: Any,
     findings: list[str],
+    verifier_notes: str = "",
 ) -> str:
     predicted_gene_ids = _flatten_predicted_gene_ids(state)
     claim = interpretation.mechanistic_claim.strip()
@@ -5458,10 +5479,22 @@ def _render_final_summary(
         if state.termination_reason is not None
         else state.continuation_state.value
     )
+    required_user_input = ""
+    if state.continuation_state == ContinuationState.DEFER:
+        required_user_input = (
+            "Required user input: "
+            + (
+                interpretation.uncertainty.strip()
+                or verifier_notes.strip()
+                or "The user must supply the missing input."
+            )
+            + " "
+        )
     return (
         f"Claim: {claim} "
         f"Supporting findings: {supporting_findings} "
         f"Stopping condition: {stopping_condition}. "
+        f"{required_user_input}"
         f"Query: {task_row['query_text']}"
     )
 
@@ -5791,8 +5824,29 @@ def _build_branch_from_model_output(
         continuation_state = ContinuationState.REVISE
         errors.append("verifier_continuation_decision_invalid")
 
+    defer_required_input_missing = False
+    if continuation_state == ContinuationState.DEFER:
+        defer_next_subgoal = updated_interpretation_payload.get("next_subgoal")
+        defer_uncertainty = updated_interpretation_payload.get("uncertainty")
+        defer_notes = updated_state_payload.get("verifier_notes")
+        if isinstance(defer_next_subgoal, str) and defer_next_subgoal:
+            errors.append("verifier_defer_next_subgoal_not_empty")
+        if not (
+            isinstance(defer_uncertainty, str)
+            and defer_uncertainty.strip()
+            or isinstance(defer_notes, str)
+            and defer_notes.strip()
+        ):
+            errors.append("verifier_defer_required_user_input_missing")
+            defer_required_input_missing = True
+
+    if defer_required_input_missing:
+        continuation_state = ContinuationState.REVISE
+
     termination_reason = None
-    if updated_state.remaining_budget <= 0:
+    if continuation_state == ContinuationState.DEFER:
+        termination_reason = TerminationReason.USER_INPUT_REQUIRED
+    elif updated_state.remaining_budget <= 0:
         continuation_state = ContinuationState.STOP
         termination_reason = TerminationReason.BUDGET_EXHAUSTED
     elif continuation_state == ContinuationState.STOP:
@@ -5803,11 +5857,14 @@ def _build_branch_from_model_output(
         termination_reason=termination_reason,
     )
 
+    next_subgoal = _safe_text(updated_interpretation_payload.get("next_subgoal"))
+    if continuation_state == ContinuationState.DEFER:
+        next_subgoal = ""
     updated_interpretation = Interpretation(
         mechanistic_claim=_safe_text(updated_interpretation_payload.get("mechanistic_claim")),
         main_evidence=_safe_text(updated_interpretation_payload.get("main_evidence")),
         uncertainty=_safe_text(updated_interpretation_payload.get("uncertainty")),
-        next_subgoal=_safe_text(updated_interpretation_payload.get("next_subgoal")),
+        next_subgoal=next_subgoal,
     )
 
     verifier_notes = _safe_text(updated_state_payload.get("verifier_notes"))
@@ -6085,6 +6142,14 @@ def _branch_quality_features(
     post_gene_ids = _branch_predicted_gene_ids(branch)
     relationship_status = branch.verifier_step.updated_state.relationship_status.value
     tool_name = _branch_tool_name(branch)
+    continuation = branch.local_score.score_metadata.get("continuation", {})
+    if not isinstance(continuation, dict):
+        continuation = {}
+    continuation_alignment_rank = 0
+    if continuation.get("correct_defer") is True:
+        continuation_alignment_rank = 1
+    elif continuation.get("false_defer") is True or continuation.get("missed_defer") is True:
+        continuation_alignment_rank = -1
     return {
         "tool_name": tool_name,
         "has_successful_tool": _branch_has_successful_tool(branch),
@@ -6095,6 +6160,8 @@ def _branch_quality_features(
         "mechanistic_delta": branch.local_score.mechanistic_label_delta,
         "mechanism_evidence_delta": branch.local_score.mechanism_evidence_delta,
         "mechanism_evidence_score": branch.local_score.mechanism_evidence_score,
+        "abstention_score": branch.local_score.abstention_score,
+        "continuation_alignment_rank": continuation_alignment_rank,
         "efficiency_penalty": branch.local_score.efficiency_penalty,
         "recall_delta": _complex_metric_delta(branch, "recall"),
         "precision_delta": _complex_metric_delta(branch, "precision"),
@@ -6175,9 +6242,11 @@ def _branch_task_quality_tuple(
     mechanism_evidence_score = float(features["mechanism_evidence_score"])
     recall_delta = float(features["recall_delta"])
     precision_delta = float(features["precision_delta"])
+    continuation_alignment_rank = int(features["continuation_alignment_rank"])
 
     if task_type == "recovery":
         quality = (
+            continuation_alignment_rank,
             complex_delta,
             recall_delta,
             int(group_size_delta > 0),
@@ -6193,6 +6262,7 @@ def _branch_task_quality_tuple(
         )
     elif task_type == "refinement":
         quality = (
+            continuation_alignment_rank,
             precision_delta,
             complex_delta,
             int(group_size_delta < 0),
@@ -6208,6 +6278,7 @@ def _branch_task_quality_tuple(
         )
     elif task_type == "none":
         quality = (
+            continuation_alignment_rank,
             int(status == RelationshipStatus.INSUFFICIENT_SUPPORT.value),
             complex_delta,
             mechanism_evidence_delta,
@@ -6221,6 +6292,7 @@ def _branch_task_quality_tuple(
         )
     else:
         quality = (
+            continuation_alignment_rank,
             complex_delta,
             recall_delta,
             precision_delta,
@@ -6460,7 +6532,7 @@ def generate_task_trajectory(
     selected_branch_ids: list[str] = []
 
     for step_index in range(config.max_steps):
-        if state.continuation_state == ContinuationState.STOP or state.remaining_budget <= 0:
+        if state.continuation_state in TERMINAL_CONTINUATION_STATES or state.remaining_budget <= 0:
             break
 
         context = SharedPrefixContext(
@@ -6983,6 +7055,11 @@ def generate_task_trajectory(
             interpretation,
             state,
             [record["finding_text"] for record in finding_records],
+            (
+                trajectory_turns[-1].branch.verifier_step.verifier_notes
+                if trajectory_turns
+                else ""
+            ),
         ),
     }
 
@@ -7118,6 +7195,12 @@ def generate_trajectories(
                             "rendered_summary": generated["rendered_summary"],
                             "final_interpretation": generated["final_interpretation"].to_dict(),
                             "final_state": generated["final_state"].to_dict(),
+                            "continuation_decision": generated["final_state"].continuation_state.value,
+                            "termination_reason": (
+                                generated["final_state"].termination_reason.value
+                                if generated["final_state"].termination_reason is not None
+                                else None
+                            ),
                             "finding_count": len(generated["finding_records"]),
                             "terminal_schema_score": terminal_score["schema_score"],
                             "terminal_absolute_complex_score": terminal_score["absolute_complex_score"],
@@ -7135,6 +7218,11 @@ def generate_trajectories(
                                 terminal_score.get("mechanistic_delta", 0.0),
                             ),
                             "terminal_mechanism_reward_cap": terminal_score.get("mechanism_reward_cap", 1.0),
+                            "terminal_abstention_score": terminal_score.get("abstention_score", 0.0),
+                            "requires_user_input": terminal_score.get("requires_user_input", False),
+                            "defer_correct": terminal_score.get("defer_correct", False),
+                            "false_defer": terminal_score.get("false_defer", False),
+                            "missed_defer": terminal_score.get("missed_defer", False),
                             "task_success": terminal_score.get("task_success", False),
                             "task_success_level": terminal_score.get("task_success_level", "unknown"),
                             "task_quality_failure_reasons": terminal_score.get(

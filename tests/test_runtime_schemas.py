@@ -19,6 +19,7 @@ from runtime.schemas import (
     SharedPrefixContext,
     StructuredState,
     TaskType,
+    TerminationReason,
     ToolAction,
     ToolObservation,
     ToolObservationStatus,
@@ -172,6 +173,102 @@ class RuntimeSchemaTests(unittest.TestCase):
                 updated_state=state,
                 continuation_decision=ContinuationState.CONTINUE,
             )
+
+    def test_verifier_step_accepts_terminal_defer_contract(self) -> None:
+        state = _build_base_state()
+        state.continuation_state = ContinuationState.DEFER
+        state.termination_reason = TerminationReason.USER_INPUT_REQUIRED
+        step = VerifierStep(
+            updated_interpretation=Interpretation(
+                "",
+                "The symbol has several current identifiers.",
+                "The user must select one identifier.",
+                "",
+            ),
+            updated_state=state,
+            continuation_decision=ContinuationState.DEFER,
+        )
+
+        restored = VerifierStep.from_dict(step.to_dict())
+
+        self.assertEqual(restored.continuation_decision, ContinuationState.DEFER)
+        self.assertEqual(
+            restored.updated_state.termination_reason,
+            TerminationReason.USER_INPUT_REQUIRED,
+        )
+
+    def test_verifier_step_rejects_defer_with_wrong_termination_reason(self) -> None:
+        state = _build_base_state()
+        state.continuation_state = ContinuationState.DEFER
+        state.termination_reason = TerminationReason.MODEL_STOP
+
+        with self.assertRaisesRegex(SchemaValidationError, "user_input_required"):
+            VerifierStep(
+                updated_interpretation=Interpretation("", "", "Input is required.", ""),
+                updated_state=state,
+                continuation_decision=ContinuationState.DEFER,
+            )
+
+    def test_state_rejects_user_input_reason_without_defer(self) -> None:
+        payload = _build_base_state().to_dict()
+        payload["continuation_state"] = ContinuationState.STOP.value
+        payload["termination_reason"] = (
+            TerminationReason.USER_INPUT_REQUIRED.value
+        )
+
+        with self.assertRaisesRegex(
+            SchemaValidationError,
+            "requires a defer state",
+        ):
+            StructuredState.from_dict(payload)
+
+    def test_verifier_step_rejects_defer_with_next_subgoal(self) -> None:
+        state = _build_base_state()
+        state.continuation_state = ContinuationState.DEFER
+        state.termination_reason = TerminationReason.USER_INPUT_REQUIRED
+
+        with self.assertRaisesRegex(SchemaValidationError, "empty next_subgoal"):
+            VerifierStep(
+                updated_interpretation=Interpretation(
+                    "",
+                    "The input is ambiguous.",
+                    "The user must select one identifier.",
+                    "Ask the user for an identifier.",
+                ),
+                updated_state=state,
+                continuation_decision=ContinuationState.DEFER,
+            )
+
+    def test_verifier_step_rejects_defer_without_required_input_text(self) -> None:
+        state = _build_base_state()
+        state.continuation_state = ContinuationState.DEFER
+        state.termination_reason = TerminationReason.USER_INPUT_REQUIRED
+
+        with self.assertRaisesRegex(SchemaValidationError, "required user input"):
+            VerifierStep(
+                updated_interpretation=Interpretation(
+                    "",
+                    "The input is ambiguous.",
+                    "",
+                    "",
+                ),
+                updated_state=state,
+                continuation_decision=ContinuationState.DEFER,
+                verifier_notes="",
+            )
+
+    def test_local_score_old_payload_defaults_abstention_score_to_zero(self) -> None:
+        score = LocalScoreBreakdown.from_dict(
+            {
+                "schema_score": 1.0,
+                "complex_membership_delta": 0.0,
+                "mechanistic_label_delta": 0.0,
+                "efficiency_penalty": 0.0,
+                "total_score": 1.0,
+            }
+        )
+
+        self.assertEqual(score.abstention_score, 0.0)
 
     def test_preference_pair_round_trip_preserves_nested_branch_content(self) -> None:
         pair = PreferencePair(

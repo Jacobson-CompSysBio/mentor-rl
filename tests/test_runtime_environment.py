@@ -340,7 +340,7 @@ class RuntimeEnvironmentTests(unittest.TestCase):
 
         self.assertEqual(observation.status, ToolObservationStatus.SUCCESS)
         self.assertEqual(observation.payload["unique_neighbors"], ["ENSG2"])
-        self.assertEqual(observation.provenance["runtime_version"], "mentor-rl-runtime-v1")
+        self.assertEqual(observation.provenance["runtime_version"], "mentor-rl-runtime-v2")
 
     def test_execute_normalizes_all_layer_alias(self) -> None:
         environment = _build_environment()

@@ -195,6 +195,7 @@ def _score_summary(branch: CandidateBranch) -> str:
     return (
         f"schema={score.schema_score:.3f}, complex_delta={score.complex_membership_delta:.3f}, "
         f"mechanism_delta={score.mechanistic_label_delta:.3f}, "
+        f"abstention={score.abstention_score:.3f}, "
         f"efficiency_penalty={score.efficiency_penalty:.3f}, total={score.total_score:.3f}, "
         f"normalized={float(score.normalized_score or 0.0):.3f}"
     )
@@ -214,7 +215,8 @@ def _branch_block(title: str, branch: CandidateBranch, *, max_text_chars: int) -
         f"- Sampling directive: `{directive_name or 'none'}`",
         f"- Score: {_score_summary(branch)}",
         f"- Observation: {_observation_summary(branch, max_chars=max_text_chars)}",
-        f"- Relationship: `{state.relationship_status.value}`; continuation: `{state.continuation_state.value}`",
+        f"- Relationship: `{state.relationship_status.value}`; continuation: `{state.continuation_state.value}`; "
+        f"termination: `{state.termination_reason.value if state.termination_reason is not None else 'none'}`",
         f"- Predicted genes: {_predicted_gene_summary(branch)}",
         f"- Mechanistic labels: {_label_summary(branch)}",
         "",

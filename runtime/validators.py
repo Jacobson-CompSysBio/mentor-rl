@@ -39,11 +39,14 @@ from .rwr_hpc_requests import (
 )
 from .schemas import (
     KNOWN_TOOL_NAMES,
+    TERMINAL_CONTINUATION_STATES,
     CandidateBranch,
+    ContinuationState,
     PreferencePair,
     SchemaValidationError,
     SharedPrefixContext,
     StructuredState,
+    TerminationReason,
     ToolAction,
 )
 
@@ -594,8 +597,8 @@ def validate_tool_action_semantics(
     if state is not None:
         if not isinstance(state, StructuredState):
             return ValidationResult.fail("state must be a StructuredState instance.")
-        if state.continuation_state == "stop":
-            result.add_error("Tool calls are not valid after the state has entered stop mode.")
+        if state.continuation_state in TERMINAL_CONTINUATION_STATES:
+            result.add_error("Tool calls are not valid after the state has entered a terminal mode.")
         if state.remaining_budget <= 0:
             result.add_error("Tool calls are not valid when the remaining budget is 0.")
 
@@ -779,6 +782,25 @@ def validate_candidate_branch(branch: CandidateBranch) -> ValidationResult:
         if tool_action.call_id != observation.call_id:
             result.add_error("tool_action.call_id must match observation.call_id.")
         result.extend(validate_tool_action_schema(tool_action))
+
+    verifier = branch.verifier_step
+    state = verifier.updated_state
+    if state.continuation_state == ContinuationState.DEFER:
+        if state.termination_reason != TerminationReason.USER_INPUT_REQUIRED:
+            result.add_error(
+                "A defer state must use the user_input_required termination reason."
+            )
+        if verifier.updated_interpretation.next_subgoal:
+            result.add_error("A defer state must clear the next subgoal.")
+        if not (
+            verifier.updated_interpretation.uncertainty.strip()
+            or verifier.verifier_notes.strip()
+        ):
+            result.add_error("A defer state must state the required user input.")
+    elif state.termination_reason == TerminationReason.USER_INPUT_REQUIRED:
+        result.add_error(
+            "The user_input_required termination reason requires a defer state."
+        )
 
     return result
 

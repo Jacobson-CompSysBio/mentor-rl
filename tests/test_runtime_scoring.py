@@ -299,6 +299,141 @@ class RuntimeScoringTests(unittest.TestCase):
             TerminationReason.MODEL_STOP.value,
         )
 
+    def test_correct_defer_gets_schema_and_abstention_credit(self) -> None:
+        task = _recovery_task()
+        task["hidden_target"]["requires_user_input"] = True
+        interpretation, initial_state = initialize_state_from_corum_task(task, max_budget=4)
+        final_state = _clone_state(initial_state)
+        final_state.continuation_state = ContinuationState.DEFER
+        final_state.termination_reason = TerminationReason.USER_INPUT_REQUIRED
+        defer_interpretation = Interpretation(
+            mechanistic_claim=interpretation.mechanistic_claim,
+            main_evidence="The visible identifiers do not select one target group.",
+            uncertainty="The user must select the intended identifier.",
+            next_subgoal="",
+        )
+        branch = _make_branch("correct_defer", defer_interpretation, final_state)
+
+        local_score = score_candidate_branch(
+            task,
+            initial_state,
+            branch,
+            step_index=1,
+            max_steps=4,
+        )
+        terminal_score = score_terminal_trajectory(
+            task,
+            initial_state,
+            final_state,
+            step_count=1,
+            max_steps=4,
+        )
+
+        self.assertEqual(local_score.schema_score, 1.0)
+        self.assertEqual(local_score.abstention_score, 1.0)
+        self.assertTrue(local_score.score_metadata["continuation"]["correct_defer"])
+        self.assertEqual(terminal_score["schema_score"], 1.0)
+        self.assertEqual(terminal_score["abstention_score"], 1.0)
+        self.assertTrue(terminal_score["defer_correct"])
+        self.assertTrue(terminal_score["task_success"])
+        self.assertEqual(terminal_score["mechanism_reward_cap"], 0.15)
+        self.assertFalse(
+            terminal_score["metadata"]["task_success"][
+                "base_task_success"
+            ]["task_success"]
+        )
+
+    def test_false_defer_gets_zero_local_and_terminal_schema_score(self) -> None:
+        task = _recovery_task()
+        interpretation, initial_state = initialize_state_from_corum_task(task, max_budget=4)
+        final_state = _clone_state(initial_state)
+        final_state.continuation_state = ContinuationState.DEFER
+        final_state.termination_reason = TerminationReason.USER_INPUT_REQUIRED
+        defer_interpretation = Interpretation(
+            mechanistic_claim=interpretation.mechanistic_claim,
+            main_evidence="The model requested more input.",
+            uncertainty="The user must provide another identifier.",
+            next_subgoal="",
+        )
+        branch = _make_branch("false_defer", defer_interpretation, final_state)
+
+        local_score = score_candidate_branch(
+            task,
+            initial_state,
+            branch,
+            step_index=1,
+            max_steps=4,
+        )
+        terminal_score = score_terminal_trajectory(
+            task,
+            initial_state,
+            final_state,
+            step_count=1,
+            max_steps=4,
+        )
+
+        self.assertEqual(local_score.schema_score, 0.0)
+        self.assertEqual(local_score.abstention_score, 0.0)
+        self.assertTrue(local_score.score_metadata["continuation"]["false_defer"])
+        self.assertEqual(terminal_score["schema_score"], 0.0)
+        self.assertTrue(terminal_score["false_defer"])
+        self.assertFalse(terminal_score["task_success"])
+        self.assertIn(
+            "unexpected_defer_for_answerable_task",
+            terminal_score["task_quality_failure_reasons"],
+        )
+
+    def test_missed_defer_fails_the_terminal_task(self) -> None:
+        task = _recovery_task()
+        task["hidden_target"]["requires_user_input"] = True
+        _, initial_state = initialize_state_from_corum_task(task, max_budget=4)
+        final_state = _clone_state(initial_state)
+        final_state.continuation_state = ContinuationState.STOP
+        final_state.termination_reason = TerminationReason.MODEL_STOP
+
+        terminal_score = score_terminal_trajectory(
+            task,
+            initial_state,
+            final_state,
+            step_count=1,
+            max_steps=4,
+        )
+
+        self.assertEqual(terminal_score["schema_score"], 1.0)
+        self.assertTrue(terminal_score["missed_defer"])
+        self.assertFalse(terminal_score["task_success"])
+        self.assertIn(
+            "required_user_input_not_deferred",
+            terminal_score["task_quality_failure_reasons"],
+        )
+
+    def test_user_input_reason_without_defer_fails_terminal_schema(self) -> None:
+        task = _recovery_task()
+        _, initial_state = initialize_state_from_corum_task(
+            task,
+            max_budget=4,
+        )
+        final_state = _clone_state(initial_state)
+        final_state.continuation_state = ContinuationState.STOP
+        final_state.termination_reason = (
+            TerminationReason.USER_INPUT_REQUIRED
+        )
+
+        terminal_score = score_terminal_trajectory(
+            task,
+            initial_state,
+            final_state,
+            step_count=1,
+            max_steps=4,
+        )
+
+        self.assertEqual(terminal_score["schema_score"], 0.0)
+        schema = terminal_score["metadata"]["schema"]
+        self.assertFalse(schema["schema_valid"])
+        self.assertTrue(
+            any("requires a defer state" in error for error in schema["schema_errors"])
+        )
+
     def test_duplicate_empty_tool_call_increases_efficiency_penalty(self) -> None:
         interpretation, prior_state = initialize_state_from_corum_task(_recovery_task(), max_budget=4)
         updated_state = _clone_state(prior_state)

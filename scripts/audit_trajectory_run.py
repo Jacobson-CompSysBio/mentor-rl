@@ -218,22 +218,6 @@ def _counter_to_sorted_dict(counter: Counter[Any]) -> dict[str, int]:
     return {str(key): counter[key] for key in sorted(counter, key=str)}
 
 
-def _load_jsonl_objects(path: Path) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    if not path.exists():
-        return rows
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            if line.strip():
-                try:
-                    payload = json.loads(line)
-                except Exception:
-                    continue
-                if isinstance(payload, dict):
-                    rows.append(payload)
-    return rows
-
-
 def _task_path_from_freeze(report: AuditReport) -> Path | None:
     run_freeze = report.freeze.get("run_freeze")
     if isinstance(run_freeze, dict):
@@ -246,16 +230,40 @@ def _task_path_from_freeze(report: AuditReport) -> Path | None:
     return None
 
 
-def _load_task_index_for_run(report: AuditReport) -> dict[str, dict[str, Any]]:
+def _load_task_index_for_run(
+    report: AuditReport,
+) -> tuple[dict[str, dict[str, Any]], bool]:
     tasks_path = _task_path_from_freeze(report)
     if tasks_path is None:
-        return {}
-    rows = _load_jsonl_objects(tasks_path)
-    return {
-        str(row.get("task_id")): row
-        for row in rows
-        if isinstance(row.get("task_id"), str)
-    }
+        return {}, False
+    rows = _read_jsonl(tasks_path, report)
+    if not rows:
+        report.error(
+            "task_source_empty",
+            "The configured task source has no valid rows.",
+            artifact=tasks_path.name,
+        )
+    task_index: dict[str, dict[str, Any]] = {}
+    for row_index, row in enumerate(rows, start=1):
+        task_id = row.get("task_id")
+        if not isinstance(task_id, str) or not task_id:
+            report.error(
+                "task_source_id_invalid",
+                "A task source row has no valid task_id.",
+                artifact=tasks_path.name,
+                row_index=row_index,
+            )
+            continue
+        if task_id in task_index:
+            report.error(
+                "task_source_id_duplicate",
+                "The task source has a duplicate task_id.",
+                artifact=tasks_path.name,
+                row_index=row_index,
+            )
+            continue
+        task_index[task_id] = row
+    return task_index, True
 
 
 def _unique_gene_ids_from_state(state: dict[str, Any]) -> list[str]:
@@ -316,6 +324,73 @@ def _size_bin_for_task(row: dict[str, Any]) -> str:
     return "other"
 
 
+def _defer_alignment(
+    summary: dict[str, Any],
+    task_row: dict[str, Any] | None,
+) -> dict[str, bool]:
+    """Derive defer results from the task target and final state."""
+
+    if task_row is not None:
+        hidden_target = task_row.get("hidden_target")
+        requires_user_input_raw = (
+            hidden_target.get("requires_user_input", False)
+            if isinstance(hidden_target, dict)
+            else False
+        )
+    else:
+        requires_user_input_raw = summary.get(
+            "requires_user_input",
+            False,
+        )
+    requires_user_input = (
+        requires_user_input_raw
+        if isinstance(requires_user_input_raw, bool)
+        else False
+    )
+    final_state = summary.get("final_state")
+    continuation = (
+        final_state.get("continuation_state")
+        if isinstance(final_state, dict)
+        else None
+    )
+    termination = (
+        final_state.get("termination_reason")
+        if isinstance(final_state, dict)
+        else None
+    )
+    deferred = continuation == "defer"
+    valid_defer = deferred and termination == "user_input_required"
+    correct_defer = requires_user_input and valid_defer
+    return {
+        "requires_user_input": requires_user_input,
+        "deferred": deferred,
+        "valid_defer": valid_defer,
+        "correct_defer": correct_defer,
+        "false_defer": deferred and not requires_user_input,
+        "missed_defer": requires_user_input and not correct_defer,
+    }
+
+
+def _apply_defer_alignment(
+    alignment: dict[str, Any],
+    defer_alignment: dict[str, bool],
+) -> dict[str, Any]:
+    """Apply the defer result to one task-success result."""
+
+    result = dict(alignment)
+    result.update(defer_alignment)
+    if defer_alignment["correct_defer"]:
+        result["task_success"] = True
+        result["task_success_level"] = "positive"
+    elif (
+        defer_alignment["false_defer"]
+        or defer_alignment["missed_defer"]
+    ):
+        result["task_success"] = False
+        result["task_success_level"] = "negative"
+    return result
+
+
 def _final_summary_alignment(
     summary: dict[str, Any],
     task_row: dict[str, Any] | None,
@@ -331,6 +406,7 @@ def _final_summary_alignment(
     hidden_target = task_row.get("hidden_target")
     if not isinstance(hidden_target, dict):
         return None
+    defer_alignment = _defer_alignment(summary, task_row)
 
     if task_type == "none":
         expected_relationship = str(hidden_target.get("relationship_status"))
@@ -345,7 +421,7 @@ def _final_summary_alignment(
                 or not predicted_gene_ids
             )
         )
-        return {
+        return _apply_defer_alignment({
             "task_type": task_type,
             "size_bin": _size_bin_for_task(task_row),
             "difficulty": task_row.get("difficulty"),
@@ -358,7 +434,7 @@ def _final_summary_alignment(
             "precision": 1.0 if success else 0.0,
             "recall": 1.0 if success else 0.0,
             "jaccard": 1.0 if success else 0.0,
-        }
+        }, defer_alignment)
 
     target_gene_ids = hidden_target.get("target_gene_ids")
     if not isinstance(target_gene_ids, list):
@@ -379,7 +455,7 @@ def _final_summary_alignment(
     )
     if task_type == "refinement" and partial and metrics["precision"] < 0.60:
         partial = False
-    return {
+    return _apply_defer_alignment({
         "task_type": task_type,
         "size_bin": _size_bin_for_task(task_row),
         "difficulty": task_row.get("difficulty"),
@@ -393,7 +469,7 @@ def _final_summary_alignment(
         "jaccard": metrics["jaccard"],
         "task_success": success,
         "task_success_level": "positive" if success else ("partial" if partial else "negative"),
-    }
+    }, defer_alignment)
 
 
 def _max_enrichment_precision(payload: dict[str, Any]) -> float | None:
@@ -982,6 +1058,7 @@ def _audit_final_summaries(
     report: AuditReport,
     manifest: dict[str, Any] | None,
     task_index: dict[str, dict[str, Any]],
+    task_source_declared: bool,
     config: AuditConfig,
 ) -> None:
     task_type_counts: Counter[str] = Counter()
@@ -998,6 +1075,11 @@ def _audit_final_summaries(
     jaccard_values: list[float] = []
     validated_group_count = 0
     validated_weak_evidence_count = 0
+    defer_count = 0
+    expected_defer_count = 0
+    correct_defer_count = 0
+    false_defer_count = 0
+    missed_defer_count = 0
     for row_index, row in enumerate(rows, start=1):
         task_type = row.get("task_type")
         evidence_mode = row.get("evidence_mode")
@@ -1032,9 +1114,115 @@ def _audit_final_summaries(
             )
         source_task_id = row.get("source_task_id")
         task_row = task_index.get(str(source_task_id)) if source_task_id is not None else None
+        source_task_missing = task_source_declared and not isinstance(
+            task_row,
+            dict,
+        )
+        if source_task_missing:
+            report.error(
+                "summary_source_task_missing",
+                "The final summary has no matching source task.",
+                artifact="final_summaries.jsonl",
+                row_index=row_index,
+            )
+        defer_task_row = {} if source_task_missing else task_row
+        hidden_target = (
+            defer_task_row.get("hidden_target", {})
+            if isinstance(defer_task_row, dict)
+            else {}
+        )
+        if isinstance(defer_task_row, dict):
+            requires_user_input_raw = (
+                hidden_target.get("requires_user_input", False)
+                if isinstance(hidden_target, dict)
+                else False
+            )
+        else:
+            requires_user_input_raw = row.get(
+                "requires_user_input",
+                False,
+            )
+        if not isinstance(requires_user_input_raw, bool):
+            report.error(
+                "requires_user_input_invalid",
+                "requires_user_input must be a bool.",
+                artifact="final_summaries.jsonl",
+                row_index=row_index,
+            )
+            requires_user_input = False
+        else:
+            requires_user_input = requires_user_input_raw
+        defer_alignment = _defer_alignment(row, defer_task_row)
+        continuation = (
+            final_state.get("continuation_state")
+            if isinstance(final_state, dict)
+            else None
+        )
+        termination = (
+            final_state.get("termination_reason")
+            if isinstance(final_state, dict)
+            else None
+        )
+        if (continuation == "defer") != (
+            termination == "user_input_required"
+        ):
+            report.error(
+                "defer_termination_invalid",
+                "The defer decision and termination reason do not match.",
+                artifact="final_summaries.jsonl",
+                row_index=row_index,
+            )
+        copied_fields = {
+            "requires_user_input": requires_user_input,
+            "defer_correct": defer_alignment["correct_defer"],
+            "false_defer": defer_alignment["false_defer"],
+            "missed_defer": defer_alignment["missed_defer"],
+        }
+        for field_name, expected_value in copied_fields.items():
+            if field_name in row and row.get(field_name) is not expected_value:
+                report.error(
+                    "defer_summary_mismatch",
+                    f"{field_name} differs from the task and final state.",
+                    artifact="final_summaries.jsonl",
+                    row_index=row_index,
+                )
+        defer_count += int(defer_alignment["deferred"])
+        expected_defer_count += int(requires_user_input)
+        correct_defer_count += int(defer_alignment["correct_defer"])
+        false_defer_count += int(defer_alignment["false_defer"])
+        missed_defer_count += int(defer_alignment["missed_defer"])
         alignment = _final_summary_alignment(row, task_row)
         if alignment is None:
             continue
+        defer_overrides_success = any(
+            alignment.get(field_name) is True
+            for field_name in (
+                "correct_defer",
+                "false_defer",
+                "missed_defer",
+            )
+        )
+        if defer_overrides_success:
+            copied_task_success = {
+                "task_success": alignment.get("task_success"),
+                "task_success_level": alignment.get("task_success_level"),
+            }
+            for field_name, expected_value in copied_task_success.items():
+                if field_name not in row:
+                    continue
+                observed_value = row.get(field_name)
+                mismatch = (
+                    observed_value is not expected_value
+                    if isinstance(expected_value, bool)
+                    else observed_value != expected_value
+                )
+                if mismatch:
+                    report.error(
+                        "task_success_summary_mismatch",
+                        f"{field_name} differs from the defer result.",
+                        artifact="final_summaries.jsonl",
+                        row_index=row_index,
+                    )
         size_bin = str(alignment.get("size_bin", "unknown"))
         success_level = str(alignment.get("task_success_level", "unknown"))
         alignment_task_type = str(alignment.get("task_type", task_type))
@@ -1092,6 +1280,17 @@ def _audit_final_summaries(
         validated_weak_evidence_count / validated_group_count
         if validated_group_count
         else 0.0
+    )
+    answerable_count = len(rows) - expected_defer_count
+    false_defer_rate = (
+        false_defer_count / answerable_count
+        if answerable_count
+        else None
+    )
+    defer_recall = (
+        correct_defer_count / expected_defer_count
+        if expected_defer_count
+        else None
     )
 
     if (
@@ -1158,6 +1357,13 @@ def _audit_final_summaries(
             "validated_group_count": validated_group_count,
             "validated_weak_evidence_count": validated_weak_evidence_count,
             "validated_weak_evidence_rate": validated_weak_evidence_rate,
+            "defer_count": defer_count,
+            "expected_defer_count": expected_defer_count,
+            "correct_defer_count": correct_defer_count,
+            "false_defer_count": false_defer_count,
+            "missed_defer_count": missed_defer_count,
+            "false_defer_rate": false_defer_rate,
+            "defer_recall": defer_recall,
             "terminal_precision_mean": _mean(precision_values),
             "terminal_recall_mean": _mean(recall_values),
             "terminal_jaccard_mean": _mean(jaccard_values),
@@ -1402,8 +1608,15 @@ def audit_run(run_dir: Path, config: AuditConfig) -> AuditReport:
     _audit_logs(run_dir, report)
     branch_pool_lookup = _audit_branch_pools(rows_by_file["branch_pools.jsonl"], report, config)
     _audit_turns(rows_by_file["trajectory_turns.jsonl"], report, config)
-    task_index = _load_task_index_for_run(report)
-    _audit_final_summaries(rows_by_file["final_summaries.jsonl"], report, manifest, task_index, config)
+    task_index, task_source_declared = _load_task_index_for_run(report)
+    _audit_final_summaries(
+        rows_by_file["final_summaries.jsonl"],
+        report,
+        manifest,
+        task_index,
+        task_source_declared,
+        config,
+    )
     raw_pair_steps = _audit_preference_pairs(
         rows_by_file["preference_pairs_raw.jsonl"],
         report,
@@ -1528,6 +1741,13 @@ def _print_human(report: AuditReport) -> None:
         "mechanism_label_only_pair_rate",
         "mechanism_evidence_improvement_pair_rate",
         "validated_weak_evidence_rate",
+        "defer_count",
+        "expected_defer_count",
+        "correct_defer_count",
+        "false_defer_count",
+        "missed_defer_count",
+        "false_defer_rate",
+        "defer_recall",
         "step0_pair_rate",
         "branch_pool_steps_without_raw_pairs",
         "vllm_400_count",
