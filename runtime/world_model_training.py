@@ -1,4 +1,4 @@
-"""Prepare the canonical S0 tool trajectory data and exposure receipts."""
+"""Prepare world-model SFT data and exposure receipts."""
 
 from __future__ import annotations
 
@@ -12,7 +12,14 @@ import random
 import re
 from typing import Any
 
-from runtime.world_model_prompts import s0_tool_trajectory_prompt_contract
+from runtime.world_model_contracts import (
+    SUPERVISED_EXPLANATION_LOSS_CONTRACT,
+    SupervisedTraceRecord,
+)
+from runtime.world_model_prompts import (
+    s0_shared_trace_prompt_contract,
+    s0_tool_trajectory_prompt_contract,
+)
 from runtime.world_model_schemas import S0_FAMILIES, IdentifierToolSFTRecord
 
 
@@ -33,6 +40,9 @@ S0_TOOL_TRAJECTORY_LOSS_CONTRACT = "s0_tool_trajectory_v1"
 S0_TOOL_TRAJECTORY_DATASET_ID = (
     "world_model_v2_s0_human_identifier_trajectories_v6"
 )
+S0_SHARED_TRACE_DATASET_ID = (
+    "world_model_v2_s0_human_identifier_supervised_traces_v7"
+)
 S0_EXPOSURE_SCOPE_BY_RUN_SCOPE = {
     "qualification": "unrestricted",
     "production": "all_eligible_train_rows",
@@ -43,7 +53,13 @@ S0_EXPOSURE_CORPUS_BY_LOSS_CONTRACT = {
         "system_prompt_sha256": (
             s0_tool_trajectory_prompt_contract().system_prompt_sha256
         ),
-    }
+    },
+    SUPERVISED_EXPLANATION_LOSS_CONTRACT: {
+        "dataset_id": S0_SHARED_TRACE_DATASET_ID,
+        "system_prompt_sha256": (
+            s0_shared_trace_prompt_contract().system_prompt_sha256
+        ),
+    },
 }
 
 
@@ -178,6 +194,45 @@ def flatten_tool_sft_record_for_arrow(
     }
 
 
+def flatten_supervised_trace_for_arrow(
+    record: Mapping[str, Any],
+    *,
+    expected_split: str = "train",
+) -> dict[str, str]:
+    """Convert one shared trace to a stable scalar schema."""
+
+    parsed = SupervisedTraceRecord.from_dict(record)
+    if parsed.split != expected_split:
+        raise ValueError(
+            f"The shared trace adapter requires split {expected_split!r}"
+        )
+    prompt_form_id = {
+        "train": "train",
+        "val": "validation",
+    }.get(expected_split)
+    if prompt_form_id is None:
+        raise ValueError(
+            f"The shared trace split is not supported: {expected_split!r}"
+        )
+    fact_id = parsed.provenance.get("fact_id")
+    if not isinstance(fact_id, str) or not fact_id:
+        raise ValueError("The shared trace requires one fact_id")
+    if parsed.provenance.get("prompt_form_id") != prompt_form_id:
+        raise ValueError("The shared trace prompt form differs from its split")
+    expected_role = "train" if expected_split == "train" else "unseen"
+    if parsed.provenance.get("fact_role") != expected_role:
+        raise ValueError("The shared trace fact role differs from its split")
+    return {
+        "trace_json": canonical_json(parsed.to_dict()),
+        "metadata_json": canonical_json(dict(parsed.metadata)),
+        "question_family": str(parsed.metadata["question_family"]),
+        "record_id": parsed.record_id,
+        "fact_id": fact_id,
+        "prompt_form_id": prompt_form_id,
+        "split": expected_split,
+    }
+
+
 def normalize_token_ids(value: Any) -> list[int]:
     """Return one flat token sequence from one tokenizer result."""
 
@@ -265,6 +320,114 @@ def tokenize_tool_trajectory_for_sft(
     )
     if len(completion_mask) != len(full_ids):
         raise RuntimeError("The trajectory loss mask has an invalid length")
+    return {
+        "input_ids": full_ids,
+        "completion_mask": completion_mask,
+    }
+
+
+def tokenize_supervised_trace_for_sft(
+    record: SupervisedTraceRecord,
+    tokenizer: Any,
+    max_length: int,
+) -> dict[str, list[int]]:
+    """Tokenize one shared trace and mask all non-assistant tokens."""
+
+    messages = [dict(message) for message in record.to_messages()]
+    if len(messages) < 3 or len(messages[2:-1]) % 2:
+        raise ValueError("A supervised trace has an invalid message count")
+    if [message.get("role") for message in messages[:2]] != [
+        "system",
+        "user",
+    ]:
+        raise ValueError("A supervised trace must start with system and user")
+    if messages[-1].get("role") != "assistant":
+        raise ValueError("A supervised trace must end with an assistant")
+
+    template_args = {
+        "tools": list(record.tools),
+        "enable_thinking": True,
+        "reasoning_effort": "low",
+    }
+
+    def render(selected: list[dict[str, Any]]) -> list[int]:
+        return normalize_token_ids(
+            tokenizer.apply_chat_template(
+                selected,
+                tokenize=True,
+                add_generation_prompt=False,
+                **template_args,
+            )
+        )
+
+    base_messages = messages[:2]
+    base_ids = render(base_messages)
+    full_ids = list(base_ids)
+    completion_mask = [0] * len(base_ids)
+
+    for message_index in range(2, len(messages) - 1, 2):
+        assistant_message = messages[message_index]
+        tool_message = messages[message_index + 1]
+        if (
+            assistant_message.get("role") != "assistant"
+            or "tool_calls" not in assistant_message
+            or tool_message.get("role") != "tool"
+        ):
+            raise ValueError(
+                "A supervised trace action must contain an assistant call "
+                "and one tool result"
+            )
+
+        assistant_ids = render(base_messages + [assistant_message])
+        if assistant_ids[: len(base_ids)] != base_ids:
+            raise RuntimeError(
+                "The trace prefix is not a prefix of the assistant call"
+            )
+        assistant_delta = assistant_ids[len(base_ids) :]
+        if not assistant_delta:
+            raise RuntimeError("The trace has no assistant call tokens")
+        full_ids.extend(assistant_delta)
+        completion_mask.extend([1] * len(assistant_delta))
+
+        through_tool_ids = render(
+            base_messages + [assistant_message, tool_message]
+        )
+        if through_tool_ids[: len(assistant_ids)] != assistant_ids:
+            raise RuntimeError(
+                "The assistant call is not a prefix of the tool result"
+            )
+        tool_delta = through_tool_ids[len(assistant_ids) :]
+        if not tool_delta:
+            raise RuntimeError("The trace has no tool result tokens")
+        full_ids.extend(tool_delta)
+        completion_mask.extend([0] * len(tool_delta))
+
+        plain_assistant = dict(assistant_message)
+        plain_assistant.pop("thinking", None)
+        base_messages = base_messages + [plain_assistant, tool_message]
+        base_ids = render(base_messages)
+
+    final_message = messages[-1]
+    if "tool_calls" in final_message:
+        raise ValueError("The final assistant action cannot call a tool")
+    final_ids = render(base_messages + [final_message])
+    if final_ids[: len(base_ids)] != base_ids:
+        raise RuntimeError(
+            "The trace prefix is not a prefix of the final answer"
+        )
+    final_delta = final_ids[len(base_ids) :]
+    if not final_delta:
+        raise RuntimeError("The trace has no final answer tokens")
+    full_ids.extend(final_delta)
+    completion_mask.extend([1] * len(final_delta))
+
+    if len(full_ids) > max_length:
+        raise RuntimeError(
+            f"Tokenized trace has {len(full_ids)} tokens, exceeding "
+            f"--max_length={max_length}"
+        )
+    if len(completion_mask) != len(full_ids):
+        raise RuntimeError("The trace loss mask has an invalid length")
     return {
         "input_ids": full_ids,
         "completion_mask": completion_mask,

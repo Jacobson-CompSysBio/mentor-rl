@@ -19,6 +19,12 @@ RUN_CONFIG = (
     "world_model_v2_s0_120b_full_registry_tool_trajectory_"
     "test_v6_64n_bs4_sans_3_long_rows.json"
 )
+V7_RUN_CONFIG = (
+    REPO_ROOT
+    / "config/"
+    "world_model_v2_s0_120b_full_shared_trace_"
+    "test_v7_64n_bs4_sans_3_long_rows.json"
+)
 METHOD_ID = "oss120b-plain-base-tokenizer-lora-r32"
 
 
@@ -34,8 +40,18 @@ def _stable_sha256(value: object) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _write_checkpoint(path: Path, *, loss_contract: str) -> None:
-    """Write one mock v6 120B checkpoint contract."""
+def _write_checkpoint(
+    path: Path,
+    *,
+    loss_contract: str,
+    corpus_manifest_sha256: str = (
+        "27343d0e58d09f42b039c15debaddb23a08eabbb9cd6ab93700c5dff1c3d21fe"
+    ),
+    train_sha256: str = (
+        "5d1b96e3d6f0b093d76d55ca960af7f0686cdbeed20b7d80bfba7718bb58922d"
+    ),
+) -> None:
+    """Write one mock 120B checkpoint contract."""
 
     contract_dir = path / "run_contract"
     contract_dir.mkdir(parents=True)
@@ -50,12 +66,8 @@ def _write_checkpoint(path: Path, *, loss_contract: str) -> None:
             "model_identity_sha256": (
                 "905e86330e48859268f5e51fd569acf619e6030e1508b37e6a82e61dcf0c7889"
             ),
-            "corpus_manifest_sha256": (
-                "27343d0e58d09f42b039c15debaddb23a08eabbb9cd6ab93700c5dff1c3d21fe"
-            ),
-            "train_sha256": (
-                "5d1b96e3d6f0b093d76d55ca960af7f0686cdbeed20b7d80bfba7718bb58922d"
-            ),
+            "corpus_manifest_sha256": corpus_manifest_sha256,
+            "train_sha256": train_sha256,
             "tokenizer_manifest_sha256": (
                 "245163b5189a64afb8e5b061585f90d4c15bcf94599b68307e9ff008880fe3c0"
             ),
@@ -79,15 +91,18 @@ def _write_checkpoint(path: Path, *, loss_contract: str) -> None:
     )
 
 
-def _run_validator(checkpoint: Path) -> subprocess.CompletedProcess[str]:
-    """Run the v6 evaluation contract validator."""
+def _run_validator(
+    checkpoint: Path,
+    run_config: Path = RUN_CONFIG,
+) -> subprocess.CompletedProcess[str]:
+    """Run the evaluation contract validator."""
 
     return subprocess.run(
         [
             sys.executable,
             str(VALIDATOR),
             str(REPO_ROOT),
-            str(RUN_CONFIG),
+            str(run_config),
             METHOD_ID,
             str(checkpoint),
         ],
@@ -144,6 +159,32 @@ class V6EvaluationContractTest(unittest.TestCase):
             "The checkpoint loss contract changed",
             result.stderr,
         )
+
+    def test_validator_exports_the_v7_shared_trace_contract(self) -> None:
+        """The validator exports the full v7 shared trace contract."""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            checkpoint = Path(temporary) / "checkpoint"
+            _write_checkpoint(
+                checkpoint,
+                loss_contract="supervised_explanation_trace_v1",
+                corpus_manifest_sha256=(
+                    "c2c46c765e5d3d7dd02c567a7d6a10df9a8af9648418100cecee31bd0b70918d"
+                ),
+                train_sha256=(
+                    "fef1915180642a5adbb5dc6b40ddc6673eeaf5769c061a501b48ed5a85cd388e"
+                ),
+            )
+            result = _run_validator(checkpoint, V7_RUN_CONFIG)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "S0_EVALUATION_CONTRACT=full_registry_supervised_trace_v1",
+            result.stdout,
+        )
+        self.assertIn("S0_TEST_ROWS=120830", result.stdout)
+        self.assertIn("S0_MAX_NEW_TOKENS=512", result.stdout)
+        self.assertIn("S0_MAX_TOTAL_TOKENS=2048", result.stdout)
 
 
 if __name__ == "__main__":

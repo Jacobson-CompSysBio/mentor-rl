@@ -4,7 +4,17 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import sys
 import unicodedata
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from runtime.world_model_s0_tools import (  # noqa: E402
+    REGISTRY_SCHEMA_VERSION_V1,
+    REGISTRY_SCHEMA_VERSION_V2,
+)
 
 # Match human Ensembl gene IDs and quoted GTF attributes.
 GENE_ID_RE = re.compile(r"ENSG\d{11}")
@@ -19,7 +29,7 @@ def _parse_gtf_attributes(raw_attributes: str) -> dict[str, str]:
 def _read_gene_symbols(
     gtf_path: Path,
 ) -> tuple[dict[str, list[str]], dict[str, int]]:
-    """Read named human gene IDs from an Ensembl GTF file.
+    """Read all human gene IDs from an Ensembl GTF file.
 
     Return the ID-to-symbol map and the summary counts.
     """
@@ -73,18 +83,31 @@ def _read_gene_symbols(
         for symbol in symbols:
             ids_by_symbol.setdefault(symbol, set()).add(gene_id)
 
+    multiple_symbol_gene_ids = sorted(
+        gene_id
+        for gene_id, symbols in symbols_by_id.items()
+        if len(symbols) > 1
+    )
+    if multiple_symbol_gene_ids:
+        raise ValueError(
+            "The GTF maps one gene ID to multiple normalized symbols: "
+            f"{multiple_symbol_gene_ids[:10]}"
+        )
+
     mappings = {
-        gene_id: sorted(symbols_by_id[gene_id])
-        for gene_id in sorted(symbols_by_id)
+        gene_id: sorted(symbols_by_id.get(gene_id, set()))
+        for gene_id in sorted(all_gene_ids)
     }
+    gene_ids_without_name = len(all_gene_ids - set(symbols_by_id))
 
     counts = {
         "gene_feature_rows": gene_feature_rows,
         "total_gene_ids": len(all_gene_ids),
-        "named_gene_ids": len(mappings),
-        "excluded_gene_ids_without_name": len(
-            all_gene_ids - set(symbols_by_id)
-        ),
+        "named_gene_ids": len(symbols_by_id),
+        "gene_ids_with_multiple_symbols": 0,
+        "gene_ids_without_name": gene_ids_without_name,
+        "retained_gene_ids_without_name": gene_ids_without_name,
+        "excluded_gene_ids_without_name": 0,
         "unique_gene_names": len(ids_by_symbol),
         "ambiguous_gene_names": sum(
             len(gene_ids) > 1 for gene_ids in ids_by_symbol.values()
@@ -116,12 +139,43 @@ def write_gene_registry(
     *,
     gtf_path: Path,
     out_path: Path,
-) -> None:
+    schema_version: str = REGISTRY_SCHEMA_VERSION_V2,
+) -> dict[str, object]:
     """Write the extracted Ensembl gene registry."""
+
+    if schema_version == REGISTRY_SCHEMA_VERSION_V1:
+        output_mappings = {
+            gene_id: symbols
+            for gene_id, symbols in mappings.items()
+            if symbols
+        }
+        output_counts = {
+            key: counts[key]
+            for key in (
+                "gene_feature_rows",
+                "total_gene_ids",
+                "named_gene_ids",
+                "unique_gene_names",
+                "ambiguous_gene_names",
+                "largest_candidate_set",
+                "invalid_gene_id_rows",
+            )
+        }
+        output_counts["excluded_gene_ids_without_name"] = (
+            counts["total_gene_ids"] - counts["named_gene_ids"]
+        )
+        gene_symbols_rule = "deduplicate and sort"
+    elif schema_version == REGISTRY_SCHEMA_VERSION_V2:
+        output_mappings = mappings
+        output_counts = counts
+        gene_symbols_rule = (
+            "deduplicate and sort; use an empty list when no name exists"
+        )
+    else:
+        raise ValueError("The registry schema version is not supported")
+
     payload = {
-        "schema_version": (
-            "mentor-rl-world-model-s0-ensembl-registry-v1"
-        ),
+        "schema_version": schema_version,
         "source": {
             "assembly": "GRCh38",
             "file_name": gtf_path.name,
@@ -136,10 +190,10 @@ def write_gene_registry(
         "normalization": {
             "gene_id": "strip and require ENSG plus 11 digits",
             "gene_name": "apply NFKC and strip",
-            "gene_symbols": "deduplicate and sort",
+            "gene_symbols": gene_symbols_rule,
         },
-        "counts": counts,
-        "gene_symbols_by_id": mappings,
+        "counts": output_counts,
+        "gene_symbols_by_id": output_mappings,
     }
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -154,14 +208,15 @@ def write_gene_registry(
         encoding="utf-8",
     )
 
-    print(f"Wrote {len(mappings):,} named gene IDs to {out_path}")
+    print(f"Wrote {len(output_mappings):,} gene IDs to {out_path}")
+    return payload
 
 
 def _parse_args() -> argparse.Namespace:
     """Parse the command-line arguments."""
     parser = argparse.ArgumentParser(
         description=(
-            "Extract named human gene IDs from the Ensembl release 116 GTF."
+            "Extract all human gene IDs from the Ensembl release 116 GTF."
         )
     )
     parser.add_argument(
@@ -175,6 +230,15 @@ def _parse_args() -> argparse.Namespace:
         type=Path,
         required=True,
         help="Path for the extracted JSON registry.",
+    )
+    parser.add_argument(
+        "--registry-schema-version",
+        choices=(
+            REGISTRY_SCHEMA_VERSION_V1,
+            REGISTRY_SCHEMA_VERSION_V2,
+        ),
+        default=REGISTRY_SCHEMA_VERSION_V2,
+        help="Registry schema to write. The default keeps unnamed gene IDs.",
     )
     return parser.parse_args()
 
@@ -192,14 +256,15 @@ def main() -> int:
         raise ValueError("The output path cannot replace the GTF file")
 
     mappings, counts = _read_gene_symbols(gtf_path)
-    write_gene_registry(
+    registry = write_gene_registry(
         mappings,
         counts,
         gtf_path=gtf_path,
         out_path=out_path,
+        schema_version=args.registry_schema_version,
     )
 
-    print(json.dumps(counts, indent=2, sort_keys=True))
+    print(json.dumps(registry["counts"], indent=2, sort_keys=True))
     return 0
 
 

@@ -1,0 +1,19 @@
+{
+  "schema_version": "mentor-rl-world-model-s0-full-shared-eval-build-v7",
+  "evaluation_id": "world_model_v2_s0_full_shared_eval_v7_sans_3_long_rows",
+  "source_build_config": {
+    "path": "config/world_model_v2_s0_shared_traces_v7.json",
+    "sha256": "9359233318e98bf593547cd5ae44bdb02ca4c1014be14aefcb6340fb917757a6"
+  },
+  "population_filter": {
+    "maximum_ambiguous_candidate_gene_ids": 49,
+    "expected_excluded_fact_ids": [
+      "fact_1544b1236c875b2ad88138d0",
+      "fact_39c1052bc4d239a961544728",
+      "fact_fd3fc526542e105e08c060b9"
+    ]
+  },
+  "outputs": {
+    "evaluator_dir": "data/world_model_v2/eval/s0_human_identifier_supervised_traces_full_registry_v7_sans_3_long_rows"
+  }
+}

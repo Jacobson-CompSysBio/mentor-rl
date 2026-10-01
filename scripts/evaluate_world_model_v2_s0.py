@@ -21,6 +21,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from runtime.tools import ToolExecutionError  # noqa: E402
+from runtime.world_model_contracts import (  # noqa: E402
+    WorldModelContractError,
+    parse_world_model_answer,
+)
 from runtime.world_model_s0_tools import S0IdentifierToolRuntime  # noqa: E402
 from runtime.world_model_schemas import S0_FAMILIES  # noqa: E402
 from runtime.world_model_training import (  # noqa: E402
@@ -37,16 +41,30 @@ TOOL_TRAJECTORY_EVALUATOR_SCHEMA_VERSION = (
 FULL_TOOL_TRAJECTORY_EVALUATOR_SCHEMA_VERSION = (
     "mentor-rl-world-model-s0-full-tool-trajectory-evaluator-manifest-v6"
 )
+SHARED_TRACE_EVALUATOR_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-shared-evaluator-manifest-v7"
+)
+FULL_SHARED_TRACE_EVALUATOR_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-full-shared-evaluator-manifest-v7"
+)
 TOOL_TRAJECTORY_EVALUATION_CONTRACT = (
     "unseen_component_tool_trajectory_v1"
 )
 FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT = (
     "full_registry_tool_trajectory_v1"
 )
+SHARED_TRACE_EVALUATION_CONTRACT = (
+    "unseen_component_supervised_trace_v1"
+)
+FULL_SHARED_TRACE_EVALUATION_CONTRACT = (
+    "full_registry_supervised_trace_v1"
+)
 TOOL_TRAJECTORY_EVALUATION_CONTRACTS = frozenset(
     {
         TOOL_TRAJECTORY_EVALUATION_CONTRACT,
         FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT,
+        SHARED_TRACE_EVALUATION_CONTRACT,
+        FULL_SHARED_TRACE_EVALUATION_CONTRACT,
     }
 )
 TOOL_TRAJECTORY_DATASET_ID = (
@@ -54,6 +72,21 @@ TOOL_TRAJECTORY_DATASET_ID = (
 )
 FULL_TOOL_TRAJECTORY_DATASET_ID = (
     "world_model_v2_s0_human_identifier_trajectories_full_registry_v6"
+)
+SHARED_TRACE_DATASET_ID = (
+    "world_model_v2_s0_human_identifier_supervised_traces_v7"
+)
+FULL_SHARED_TRACE_DATASET_ID = (
+    "world_model_v2_s0_human_identifier_supervised_traces_full_registry_v7"
+)
+SHARED_TRACE_EVALUATION_CONTRACTS = frozenset(
+    {
+        SHARED_TRACE_EVALUATION_CONTRACT,
+        FULL_SHARED_TRACE_EVALUATION_CONTRACT,
+    }
+)
+SHARED_TRACE_PREDICTION_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-shared-trace-predictions-v7"
 )
 AMBIGUOUS_SYMBOL_FAMILY = "human_ambiguous_symbol"
 WILSON_Z_95 = 1.959963984540054
@@ -67,6 +100,13 @@ TOOL_TRAJECTORY_CALL_RE = re.compile(
     re.DOTALL,
 )
 FINAL_ANSWER_RE = re.compile(
+    r"\s*(?:<\|start\|>assistant)?\s*"
+    r"<\|channel\|>final<\|message\|>(.*?)\s*",
+    re.DOTALL,
+)
+SHARED_FINAL_ACTION_RE = re.compile(
+    r"\s*(?:<\|start\|>assistant)?\s*"
+    r"<\|channel\|>analysis<\|message\|>(.*?)<\|end\|>"
     r"\s*(?:<\|start\|>assistant)?\s*"
     r"<\|channel\|>final<\|message\|>(.*?)\s*",
     re.DOTALL,
@@ -248,6 +288,30 @@ def parse_final_answer(text: str) -> tuple[str | None, str | None]:
     return answer, None
 
 
+def parse_shared_final_action(
+    text: str,
+) -> tuple[str | None, str | None, str | None]:
+    """Parse one supervised explanation and final JSON answer."""
+
+    if not isinstance(text, str):
+        return None, None, "prediction_is_not_text"
+    normalized = _remove_terminal_tokens(text)
+    if normalized.count("<|channel|>analysis<|message|>") != 1:
+        return None, None, "final_analysis_count"
+    if normalized.count("<|channel|>final<|message|>") != 1:
+        return None, None, "final_answer_count"
+    match = SHARED_FINAL_ACTION_RE.fullmatch(normalized)
+    if match is None:
+        return None, None, "final_action_format"
+    explanation = match.group(1).strip()
+    answer = match.group(2).strip()
+    if not explanation:
+        return None, None, "final_analysis_is_empty"
+    if not answer:
+        return explanation, None, "final_answer_is_empty"
+    return explanation, answer, None
+
+
 def score_tool_trajectory_record(
     question: Mapping[str, Any],
     answer_row: Mapping[str, Any],
@@ -267,6 +331,14 @@ def score_tool_trajectory_record(
     expected_payload = answer_row.get("expected_tool_payload")
     expected_thinking = answer_row.get("expected_assistant_thinking")
     expected_final = answer_row.get("expected_final_answer")
+    expected_status = answer_row.get("expected_status")
+    expected_continuation = answer_row.get(
+        "expected_continuation_decision"
+    )
+    uses_shared_answer = isinstance(expected_status, str)
+    expected_final_explanation = answer_row.get(
+        "expected_final_explanation"
+    )
     if not isinstance(expected_call, Mapping):
         raise S0EvaluationError("A trajectory answer row has no expected call")
     if not isinstance(expected_payload, Mapping):
@@ -346,31 +418,112 @@ def score_tool_trajectory_record(
 
     encoded_final = prediction_row.get("encoded_final_answer")
     if isinstance(encoded_final, str):
-        final_answer, final_parse_error = parse_final_answer(encoded_final)
+        if uses_shared_answer:
+            final_explanation, final_answer, final_parse_error = (
+                parse_shared_final_action(encoded_final)
+            )
+        else:
+            final_explanation = None
+            final_answer, final_parse_error = parse_final_answer(encoded_final)
     else:
+        final_explanation = None
         final_answer, final_parse_error = None, "final_answer_is_absent"
     generated_final = prediction_row.get("assistant_final")
     final_matches_turn = (
         isinstance(generated_final, str)
         and generated_final == final_answer
     )
+    generated_final_explanation = prediction_row.get(
+        "assistant_final_explanation"
+    )
+    final_explanation_matches_turn = (
+        isinstance(generated_final_explanation, str)
+        and generated_final_explanation == final_explanation
+    )
+    final_explanation_present = (
+        isinstance(final_explanation, str)
+        and bool(final_explanation.strip())
+        and final_explanation_matches_turn
+        if uses_shared_answer
+        else True
+    )
+    final_explanation_exact = (
+        final_explanation_present
+        and final_explanation == expected_final_explanation
+        if uses_shared_answer
+        else True
+    )
+    parsed_structured_answer = None
+    structured_answer_error = None
+    if uses_shared_answer and final_answer is not None:
+        try:
+            parsed_structured_answer = parse_world_model_answer(final_answer)
+        except WorldModelContractError as error:
+            structured_answer_error = error.code
+    structured_json_valid = (
+        parsed_structured_answer is not None
+        if uses_shared_answer
+        else True
+    )
     valid_final_answer = (
         final_answer is not None
         and final_matches_turn
         and not final_disallowed_tokens
+        and structured_json_valid
+        and final_explanation_present
     )
     final_answer_exact = valid_final_answer and final_answer == expected_final
     valid_tool_trajectory = valid_single_call and valid_final_answer
     family = answer_row.get("family")
-    ambiguous_defer = (
-        family != AMBIGUOUS_SYMBOL_FAMILY
-        or (
-            payload_exact
-            and final_answer_exact
-            and runtime_payload.get("status") == "ambiguous"
-            and runtime_payload.get("action") == "defer"
+    if uses_shared_answer:
+        status_exact = (
+            structured_json_valid
+            and parsed_structured_answer.status == expected_status
         )
-    )
+        continuation_exact = (
+            structured_json_valid
+            and parsed_structured_answer.continuation_decision
+            == expected_continuation
+        )
+        ambiguous_defer = (
+            family != AMBIGUOUS_SYMBOL_FAMILY
+            or (
+                payload_exact
+                and status_exact
+                and parsed_structured_answer.continuation_decision == "defer"
+            )
+        )
+        not_found_defer = (
+            expected_status != "not_found"
+            or (
+                status_exact
+                and parsed_structured_answer.continuation_decision == "defer"
+            )
+        )
+        expected_result = parse_world_model_answer(expected_final).result
+        unnamed_id_resolved = (
+            expected_result.get("gene_symbol") is not None
+            or expected_status != "resolved"
+            or (
+                status_exact
+                and continuation_exact
+                and parsed_structured_answer.result.get("gene_symbol") is None
+            )
+        )
+    else:
+        status_exact = True
+        continuation_exact = True
+        not_found_defer = True
+        unnamed_id_resolved = True
+        ambiguous_defer = (
+            family != AMBIGUOUS_SYMBOL_FAMILY
+            or (
+                payload_exact
+                and final_answer_exact
+                and runtime_payload.get("status") == "ambiguous"
+                and runtime_payload.get("action") == "defer"
+            )
+        )
     return {
         "record_id": question["record_id"],
         "fact_id": answer_row.get("fact_id"),
@@ -388,10 +541,13 @@ def score_tool_trajectory_record(
         ),
         "expected_tool_payload": dict(expected_payload),
         "encoded_final_answer": encoded_final,
+        "assistant_final_explanation": final_explanation,
+        "expected_final_explanation": expected_final_explanation,
         "assistant_final": final_answer,
         "expected_final_answer": expected_final,
         "parse_error": parse_error,
         "final_parse_error": final_parse_error,
+        "structured_answer_error": structured_answer_error,
         "tool_error": runtime_tool_error,
         "generated_tool_error": generated_tool_error,
         "reasoning_present": reasoning_present,
@@ -400,9 +556,16 @@ def score_tool_trajectory_record(
         "exact_tool_argument": exact_call,
         "payload_exact": payload_exact,
         "valid_final_answer": valid_final_answer,
+        "final_explanation_present": final_explanation_present,
+        "final_explanation_exact": final_explanation_exact,
+        "structured_json_valid": structured_json_valid,
+        "status_exact": status_exact,
+        "continuation_decision_exact": continuation_exact,
         "final_answer_exact": final_answer_exact,
         "valid_tool_trajectory": valid_tool_trajectory,
         "ambiguous_defer_correct": ambiguous_defer,
+        "not_found_defer_correct": not_found_defer,
+        "unnamed_id_resolved_correct": unnamed_id_resolved,
         "direct_answer": direct_answer,
         "network_used_false": network_used_false,
         "disallowed_special_tokens": list(disallowed_tokens),
@@ -450,6 +613,12 @@ def _load_tool_panel(
     elif evaluation_contract == FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT:
         expected_schema = FULL_TOOL_TRAJECTORY_EVALUATOR_SCHEMA_VERSION
         expected_dataset = FULL_TOOL_TRAJECTORY_DATASET_ID
+    elif evaluation_contract == SHARED_TRACE_EVALUATION_CONTRACT:
+        expected_schema = SHARED_TRACE_EVALUATOR_SCHEMA_VERSION
+        expected_dataset = SHARED_TRACE_DATASET_ID
+    elif evaluation_contract == FULL_SHARED_TRACE_EVALUATION_CONTRACT:
+        expected_schema = FULL_SHARED_TRACE_EVALUATOR_SCHEMA_VERSION
+        expected_dataset = FULL_SHARED_TRACE_DATASET_ID
     else:
         raise S0EvaluationError("The trajectory evaluator contract changed")
     if (
@@ -514,9 +683,14 @@ def _load_tool_predictions(
         for key, value in generation.items()
         if key != "manifest_sha256"
     }
+    expected_prediction_schema = (
+        SHARED_TRACE_PREDICTION_SCHEMA_VERSION
+        if evaluation_contract in SHARED_TRACE_EVALUATION_CONTRACTS
+        else TOOL_TRAJECTORY_PREDICTION_SCHEMA_VERSION
+    )
     if (
         generation.get("schema_version")
-        != TOOL_TRAJECTORY_PREDICTION_SCHEMA_VERSION
+        != expected_prediction_schema
         or generation.get("evaluation_contract") != evaluation_contract
         or not isinstance(claimed, str)
         or stable_sha256(identity) != claimed
@@ -554,7 +728,20 @@ def _tool_trajectory_summary(
     exact_count, exact_rate = rate("exact_tool_argument")
     payload_count, payload_rate = rate("payload_exact")
     final_count, final_rate = rate("final_answer_exact")
+    structured_count, structured_rate = rate("structured_json_valid")
+    status_count, status_rate = rate("status_exact")
+    continuation_count, continuation_rate = rate(
+        "continuation_decision_exact"
+    )
+    final_explanation_count, final_explanation_rate = rate(
+        "final_explanation_present"
+    )
+    exact_final_explanation_count, exact_final_explanation_rate = rate(
+        "final_explanation_exact"
+    )
     defer_count, defer_rate = rate("ambiguous_defer_correct")
+    not_found_count, not_found_rate = rate("not_found_defer_correct")
+    unnamed_count, unnamed_rate = rate("unnamed_id_resolved_correct")
     direct_count, direct_rate = rate("direct_answer")
     network_count, network_rate = rate("network_used_false")
     return {
@@ -575,8 +762,22 @@ def _tool_trajectory_summary(
         "final_answer_exact_count": final_count,
         "final_answer_accuracy": final_rate,
         "final_answer_wilson_95": wilson_interval(final_count, count),
+        "structured_json_valid_count": structured_count,
+        "structured_json_valid_rate": structured_rate,
+        "status_exact_count": status_count,
+        "status_exact_rate": status_rate,
+        "continuation_decision_exact_count": continuation_count,
+        "continuation_decision_exact_rate": continuation_rate,
+        "final_explanation_present_count": final_explanation_count,
+        "final_explanation_present_rate": final_explanation_rate,
+        "final_explanation_exact_count": exact_final_explanation_count,
+        "final_explanation_exact_rate": exact_final_explanation_rate,
         "ambiguous_defer_correct_count": defer_count,
         "ambiguous_defer_accuracy": defer_rate,
+        "not_found_defer_correct_count": not_found_count,
+        "not_found_defer_accuracy": not_found_rate,
+        "unnamed_id_resolved_correct_count": unnamed_count,
+        "unnamed_id_resolved_accuracy": unnamed_rate,
         "direct_answer_count": direct_count,
         "direct_answer_rate": direct_rate,
         "network_used_false_count": network_count,
@@ -612,6 +813,9 @@ def build_tool_trajectory_report(
     }
     overall = _tool_trajectory_summary(rows)
     ambiguous = by_family[AMBIGUOUS_SYMBOL_FAMILY]
+    uses_shared_answer = (
+        evaluation_contract in SHARED_TRACE_EVALUATION_CONTRACTS
+    )
     gate_checks = {
         "valid_tool_trajectory": (
             overall["valid_tool_trajectory_rate"]
@@ -650,9 +854,33 @@ def build_tool_trajectory_report(
         ),
         "network_disabled": overall["network_used_false_rate"] == 1.0,
     }
+    if uses_shared_answer:
+        gate_checks.update(
+            {
+                "structured_json_valid": (
+                    overall["structured_json_valid_rate"] == 1.0
+                ),
+                "status_exact": overall["status_exact_rate"] == 1.0,
+                "continuation_decision_exact": (
+                    overall["continuation_decision_exact_rate"] == 1.0
+                ),
+                "final_explanation_present": (
+                    overall["final_explanation_present_rate"]
+                    >= minimum_reasoning_present
+                ),
+                "not_found_defer": (
+                    overall["not_found_defer_accuracy"] == 1.0
+                ),
+                "unnamed_id_resolved": (
+                    overall["unnamed_id_resolved_accuracy"] == 1.0
+                ),
+            }
+        )
     metrics = {
         "schema_version": (
-            "mentor-rl-world-model-s0-tool-trajectory-test-metrics-v6"
+            "mentor-rl-world-model-s0-shared-trace-test-metrics-v7"
+            if uses_shared_answer
+            else "mentor-rl-world-model-s0-tool-trajectory-test-metrics-v6"
         ),
         "evaluation_contract": evaluation_contract,
         "test_panel_id": generation["test_panel_id"],
@@ -694,7 +922,9 @@ def build_tool_trajectory_report(
     metrics["metrics_sha256"] = stable_sha256(metrics)
     report = {
         "schema_version": (
-            "mentor-rl-world-model-s0-tool-trajectory-test-report-v6"
+            "mentor-rl-world-model-s0-shared-trace-test-report-v7"
+            if uses_shared_answer
+            else "mentor-rl-world-model-s0-tool-trajectory-test-report-v6"
         ),
         "private_report": True,
         "metrics": metrics,
@@ -713,6 +943,15 @@ def build_tool_trajectory_report(
                     str(row["final_parse_error"])
                     for row in rows
                     if row["final_parse_error"] is not None
+                ).items()
+            )
+        ),
+        "structured_answer_error_counts": dict(
+            sorted(
+                Counter(
+                    str(row.get("structured_answer_error"))
+                    for row in rows
+                    if row.get("structured_answer_error") is not None
                 ).items()
             )
         ),
@@ -773,6 +1012,18 @@ def publish_wandb(metrics: Mapping[str, Any]) -> dict[str, Any]:
         "test/payload_accuracy": metrics["overall"]["payload_accuracy"],
         "test/final_answer_accuracy": metrics["overall"][
             "final_answer_accuracy"
+        ],
+        "test/structured_json_valid_rate": metrics["overall"][
+            "structured_json_valid_rate"
+        ],
+        "test/status_exact_rate": metrics["overall"][
+            "status_exact_rate"
+        ],
+        "test/continuation_decision_exact_rate": metrics["overall"][
+            "continuation_decision_exact_rate"
+        ],
+        "test/final_explanation_present_rate": metrics["overall"][
+            "final_explanation_present_rate"
         ],
         "test/direct_answer_rate": metrics["overall"][
             "direct_answer_rate"

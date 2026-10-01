@@ -16,7 +16,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from runtime.world_model_s0_tools import identifier_tool_definitions  # noqa: E402
+from runtime.world_model_s0_tools import (  # noqa: E402
+    TOOL_CONTRACT_VERSION_V1,
+    TOOL_CONTRACT_VERSION_V2,
+    identifier_tool_definitions,
+)
 from runtime.world_model_schemas import (  # noqa: E402
     IdentifierToolSFTMetadata,
 )
@@ -28,11 +32,23 @@ BUNDLE_TOOL_TRAJECTORY_SCHEMA_VERSION = (
 BUNDLE_FULL_TOOL_TRAJECTORY_SCHEMA_VERSION = (
     "mentor-rl-world-model-s0-full-tool-trajectory-generation-bundle-v6"
 )
+BUNDLE_SHARED_TRACE_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-shared-trace-generation-bundle-v7"
+)
+BUNDLE_FULL_SHARED_TRACE_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-full-shared-trace-generation-bundle-v7"
+)
 EVALUATOR_TOOL_TRAJECTORY_SCHEMA_VERSION = (
     "mentor-rl-world-model-s0-evaluator-manifest-v6"
 )
 EVALUATOR_FULL_TOOL_TRAJECTORY_SCHEMA_VERSION = (
     "mentor-rl-world-model-s0-full-tool-trajectory-evaluator-manifest-v6"
+)
+EVALUATOR_SHARED_TRACE_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-shared-evaluator-manifest-v7"
+)
+EVALUATOR_FULL_SHARED_TRACE_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-full-shared-evaluator-manifest-v7"
 )
 TOOL_TRAJECTORY_EVALUATION_CONTRACT = (
     "unseen_component_tool_trajectory_v1"
@@ -40,10 +56,18 @@ TOOL_TRAJECTORY_EVALUATION_CONTRACT = (
 FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT = (
     "full_registry_tool_trajectory_v1"
 )
+SHARED_TRACE_EVALUATION_CONTRACT = (
+    "unseen_component_supervised_trace_v1"
+)
+FULL_SHARED_TRACE_EVALUATION_CONTRACT = (
+    "full_registry_supervised_trace_v1"
+)
 TOOL_TRAJECTORY_EVALUATION_CONTRACTS = frozenset(
     {
         TOOL_TRAJECTORY_EVALUATION_CONTRACT,
         FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT,
+        SHARED_TRACE_EVALUATION_CONTRACT,
+        FULL_SHARED_TRACE_EVALUATION_CONTRACT,
     }
 )
 TOOL_TRAJECTORY_DATASET_ID = (
@@ -51,6 +75,12 @@ TOOL_TRAJECTORY_DATASET_ID = (
 )
 FULL_TOOL_TRAJECTORY_DATASET_ID = (
     "world_model_v2_s0_human_identifier_trajectories_full_registry_v6"
+)
+SHARED_TRACE_DATASET_ID = (
+    "world_model_v2_s0_human_identifier_supervised_traces_v7"
+)
+FULL_SHARED_TRACE_DATASET_ID = (
+    "world_model_v2_s0_human_identifier_supervised_traces_full_registry_v7"
 )
 QUESTION_KEYS = frozenset(
     {
@@ -178,6 +208,7 @@ def _validate_question(
     row: Mapping[str, Any],
     *,
     expected_fact_role: str,
+    tool_contract_version: str = TOOL_CONTRACT_VERSION_V1,
 ) -> dict[str, Any]:
     """Return one valid answer-free test question."""
 
@@ -199,20 +230,41 @@ def _validate_question(
         or provenance.get("prompt_form_id") != "test"
     ):
         raise S0GenerationBundleError("A test row has invalid provenance")
-    try:
-        parsed_metadata = IdentifierToolSFTMetadata.from_dict(metadata)
-    except (KeyError, TypeError, ValueError) as error:
-        raise S0GenerationBundleError(
-            f"A test row has invalid trajectory metadata: {error}"
-        ) from error
+    if tool_contract_version == TOOL_CONTRACT_VERSION_V1:
+        try:
+            parsed_metadata = IdentifierToolSFTMetadata.from_dict(metadata)
+        except (KeyError, TypeError, ValueError) as error:
+            raise S0GenerationBundleError(
+                f"A test row has invalid trajectory metadata: {error}"
+            ) from error
+        system_prompt_sha256 = parsed_metadata.system_prompt_sha256
+    else:
+        if (
+            not isinstance(metadata, Mapping)
+            or metadata.get("book_mode") != "tool_call"
+            or metadata.get("answer_schema_version")
+            != "mentor-rl-world-model-answer-v1"
+            or metadata.get("loss_contract")
+            != "supervised_explanation_trace_v1"
+            or metadata.get("tool_contract_version")
+            != TOOL_CONTRACT_VERSION_V2
+            or metadata.get("question_schema_version")
+            != "mentor-rl-world-model-s0-question-v1"
+        ):
+            raise S0GenerationBundleError(
+                "A test row has invalid shared trace metadata"
+            )
+        system_prompt_sha256 = metadata.get("system_prompt_sha256")
     prompt_hash = hashlib.sha256(
         str(row.get("system", "")).encode("utf-8")
     ).hexdigest()
-    if prompt_hash != parsed_metadata.system_prompt_sha256:
+    if prompt_hash != system_prompt_sha256:
         raise S0GenerationBundleError(
             "A test row has a changed trajectory system prompt"
         )
-    if row.get("tools") != identifier_tool_definitions():
+    if row.get("tools") != identifier_tool_definitions(
+        contract_version=tool_contract_version
+    ):
         raise S0GenerationBundleError(
             "A test row has changed tool definitions"
         )
@@ -243,6 +295,7 @@ def build_generation_bundle(
             TOOL_TRAJECTORY_EVALUATION_CONTRACT,
             BUNDLE_TOOL_TRAJECTORY_SCHEMA_VERSION,
             "unseen",
+            TOOL_CONTRACT_VERSION_V1,
         )
     elif evaluation_contract == FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT:
         expected_contract = (
@@ -251,10 +304,29 @@ def build_generation_bundle(
             FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT,
             BUNDLE_FULL_TOOL_TRAJECTORY_SCHEMA_VERSION,
             "registry_population",
+            TOOL_CONTRACT_VERSION_V1,
+        )
+    elif evaluation_contract == SHARED_TRACE_EVALUATION_CONTRACT:
+        expected_contract = (
+            EVALUATOR_SHARED_TRACE_SCHEMA_VERSION,
+            SHARED_TRACE_DATASET_ID,
+            SHARED_TRACE_EVALUATION_CONTRACT,
+            BUNDLE_SHARED_TRACE_SCHEMA_VERSION,
+            "unseen",
+            TOOL_CONTRACT_VERSION_V2,
+        )
+    elif evaluation_contract == FULL_SHARED_TRACE_EVALUATION_CONTRACT:
+        expected_contract = (
+            EVALUATOR_FULL_SHARED_TRACE_SCHEMA_VERSION,
+            FULL_SHARED_TRACE_DATASET_ID,
+            FULL_SHARED_TRACE_EVALUATION_CONTRACT,
+            BUNDLE_FULL_SHARED_TRACE_SCHEMA_VERSION,
+            "registry_population",
+            TOOL_CONTRACT_VERSION_V2,
         )
     else:
         raise S0GenerationBundleError(
-            "The evaluator is not a v6 trajectory contract"
+            "The evaluator does not use a supported trajectory contract"
         )
     if (
         evaluator.get("schema_version") != expected_contract[0]
@@ -311,6 +383,7 @@ def build_generation_bundle(
         _validate_question(
             row,
             expected_fact_role=expected_contract[4],
+            tool_contract_version=expected_contract[5],
         )
         for row in read_jsonl(questions_path)
     ]

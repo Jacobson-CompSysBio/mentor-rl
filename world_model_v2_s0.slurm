@@ -153,6 +153,7 @@ if [[ "${JOB_MODE}" == "test" ]]; then
   # This hash identifies all code that can affect prompts, output, or scores.
   evaluation_code_files=(
     runtime/tools.py
+    runtime/world_model_contracts.py
     runtime/world_model_prompts.py
     runtime/world_model_schemas.py
     runtime/world_model_training.py
@@ -599,6 +600,7 @@ actual_model_identity="$({
 
 # Hash the direct code inputs for this method.
 training_code_files=(
+  runtime/world_model_contracts.py
   runtime/world_model_prompts.py
   runtime/world_model_schemas.py
   runtime/world_model_training.py

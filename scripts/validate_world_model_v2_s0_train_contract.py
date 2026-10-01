@@ -26,6 +26,8 @@ SCHEMAS = frozenset(
     {
         "mentor-rl-world-model-s0-20b-tool-trajectory-qualification-v6",
         "mentor-rl-world-model-s0-120b-tool-trajectory-training-v6",
+        "mentor-rl-world-model-s0-20b-shared-trace-qualification-v7",
+        "mentor-rl-world-model-s0-120b-shared-trace-training-v7",
     }
 )
 DATASET_ID = "world_model_v2_s0_human_identifier_trajectories_v6"
@@ -33,6 +35,42 @@ MANIFEST_SCHEMA_VERSION = "mentor-rl-world-model-s0-manifest-v6"
 TRAINING_CONTRACT = "tool_trajectory_v1"
 EVALUATION_CONTRACT = "unseen_component_tool_trajectory_v1"
 LOSS_CONTRACT = "s0_tool_trajectory_v1"
+SHARED_DATASET_ID = (
+    "world_model_v2_s0_human_identifier_supervised_traces_v7"
+)
+SHARED_MANIFEST_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-shared-manifest-v7"
+)
+SHARED_TRAINING_CONTRACT = "supervised_trace_v1"
+SHARED_EVALUATION_CONTRACT = "unseen_component_supervised_trace_v1"
+SHARED_LOSS_CONTRACT = "supervised_explanation_trace_v1"
+SHARED_EVALUATOR_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-shared-evaluator-manifest-v7"
+)
+
+
+def _contract_for_schema(schema: str) -> dict[str, str]:
+    """Return the fixed corpus contract for one train schema."""
+
+    if schema.endswith("-v6"):
+        return {
+            "dataset_id": DATASET_ID,
+            "manifest_schema_version": MANIFEST_SCHEMA_VERSION,
+            "training_contract": TRAINING_CONTRACT,
+            "evaluation_contract": EVALUATION_CONTRACT,
+            "loss_contract": LOSS_CONTRACT,
+            "evaluator_schema_version": (
+                "mentor-rl-world-model-s0-evaluator-manifest-v6"
+            ),
+        }
+    return {
+        "dataset_id": SHARED_DATASET_ID,
+        "manifest_schema_version": SHARED_MANIFEST_SCHEMA_VERSION,
+        "training_contract": SHARED_TRAINING_CONTRACT,
+        "evaluation_contract": SHARED_EVALUATION_CONTRACT,
+        "loss_contract": SHARED_LOSS_CONTRACT,
+        "evaluator_schema_version": SHARED_EVALUATOR_SCHEMA_VERSION,
+    }
 
 
 def sha256_file(path: Path) -> str:
@@ -216,6 +254,7 @@ def validate_train_contract(
         raise SystemExit(
             f"The train config schema is not supported: {schema!r}"
         )
+    contract = _contract_for_schema(str(schema))
 
     methods = [
         value
@@ -372,7 +411,7 @@ def validate_train_contract(
         raise SystemExit(
             "The weight decay or gradient limit is invalid"
         )
-    if trainer.get("loss_contract") != LOSS_CONTRACT:
+    if trainer.get("loss_contract") != contract["loss_contract"]:
         raise SystemExit("The S0 loss contract changed")
     if require_number(
         trainer.get("completion_loss_weight"),
@@ -416,19 +455,51 @@ def validate_train_contract(
         corpus_manifest_path, "corpus manifest"
     )
     if (
-        corpus_manifest.get("dataset_id") != DATASET_ID
+        corpus_manifest.get("dataset_id") != contract["dataset_id"]
         or corpus_manifest.get("schema_version")
-        != MANIFEST_SCHEMA_VERSION
+        != contract["manifest_schema_version"]
         or corpus_manifest.get("training_contract")
-        != TRAINING_CONTRACT
+        != contract["training_contract"]
         or corpus_manifest.get("evaluation_contract")
-        != EVALUATION_CONTRACT
+        != contract["evaluation_contract"]
         or corpus_manifest.get("row_counts", {}).get("train")
         != train_rows
         or corpus_manifest.get("row_counts", {}).get("validation")
         != validation_rows
     ):
         raise SystemExit("The corpus manifest contract changed")
+    if schema.endswith("-v7"):
+        if (
+            corpus_manifest.get("loss_contract")
+            != contract["loss_contract"]
+            or corpus_manifest.get("record_schema_version")
+            != "mentor-rl-world-model-supervised-trace-v1"
+            or corpus_manifest.get("tool_contract_version")
+            != "mentor-rl-world-model-s0-identifier-tools-v2"
+        ):
+            raise SystemExit("The shared trace corpus contract changed")
+        audit = require_object(
+            corpus_manifest.get("explanation_audit"),
+            "explanation_audit",
+        )
+        audit_path = Path(
+            absolute_path(
+                root,
+                audit.get("path"),
+                "explanation audit path",
+            )
+        )
+        audit_sha256 = require_sha256(
+            audit.get("sha256"),
+            "explanation audit SHA-256",
+        )
+        verify_file(audit_path, audit_sha256, "explanation audit")
+        audit_payload = read_json(audit_path, "explanation audit")
+        if (
+            audit_payload.get("model_text_created") is not False
+            or audit_payload.get("model_sample_used") is not False
+        ):
+            raise SystemExit("The explanation audit source flags changed")
 
     train_path = corpus_root / require_string(
         corpus.get("train_file"), "train_file"
@@ -463,9 +534,10 @@ def validate_train_contract(
     evaluator = read_json(evaluator_path, "evaluator manifest")
     if (
         evaluator.get("schema_version")
-        != "mentor-rl-world-model-s0-evaluator-manifest-v6"
-        or evaluator.get("dataset_id") != DATASET_ID
-        or evaluator.get("evaluation_contract") != EVALUATION_CONTRACT
+        != contract["evaluator_schema_version"]
+        or evaluator.get("dataset_id") != contract["dataset_id"]
+        or evaluator.get("evaluation_contract")
+        != contract["evaluation_contract"]
     ):
         raise SystemExit("The evaluator manifest contract changed")
     validation_panel = require_object(
@@ -617,7 +689,7 @@ def validate_train_contract(
         "BF16": str(
             int(require_bool(settings.get("bf16"), "bf16"))
         ),
-        "LOSS_CONTRACT": LOSS_CONTRACT,
+        "LOSS_CONTRACT": contract["loss_contract"],
         "LORA_R": str(lora_rank),
         "LORA_ALPHA": str(
             require_int(trainer.get("lora_alpha"), "lora_alpha")

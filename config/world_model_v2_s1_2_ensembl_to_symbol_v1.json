@@ -1,0 +1,149 @@
+{
+  "schema_version": "mentor-rl-world-model-s1-2-build-v1",
+  "dataset_id": "world_model_v2_s1_2_ensembl_to_symbol_v1",
+  "identifier_registry": {
+    "path": "data/world_model_v2/sources/ensembl_116_human_gene_ids_and_symbols_v2.json",
+    "expected_sha256": "7a2f71fdfe9db21a96dcbc3775d099ec1691443041ac5639abe3dab7f21ffbaf"
+  },
+  "s0_split_contract": {
+    "build_config_path": "config/world_model_v2_s0_shared_traces_v7.json",
+    "build_config_sha256": "9359233318e98bf593547cd5ae44bdb02ca4c1014be14aefcb6340fb917757a6",
+    "split_manifest_path": "data/world_model_v2/sft/s0_human_identifier_supervised_traces_v7/split_manifest.json",
+    "split_manifest_sha256": "6fcbc58c9d8b4a256d340d34c5a08e4358d2c0747cac33872885515b7bdb80a2"
+  },
+  "assignment_seed": 1729,
+  "allocations": {
+    "train": {
+      "direct": 500,
+      "inside_task": 500,
+      "already_resolved": 300,
+      "version_suffix": 200,
+      "no_symbol": 300,
+      "invalid_input": 200
+    },
+    "validation": {
+      "direct": 100,
+      "inside_task": 100,
+      "already_resolved": 60,
+      "version_suffix": 40,
+      "no_symbol": 60,
+      "invalid_input": 40
+    },
+    "test": {
+      "direct": 100,
+      "inside_task": 100,
+      "already_resolved": 60,
+      "version_suffix": 40,
+      "no_symbol": 60,
+      "invalid_input": 40
+    }
+  },
+  "explanation_audit": {
+    "sample_seed": 1729,
+    "sample_size_per_form": 200
+  },
+  "prompt_assignment_seed": 1729,
+  "prompt_forms": {
+    "train": {
+      "direct": [
+        "What is the human gene symbol for {gene_id}?",
+        "Give the gene symbol for human Ensembl gene ID {gene_id}.",
+        "Resolve this human Ensembl gene ID to its symbol: {gene_id}."
+      ],
+      "inside_task": [
+        "Before the next analysis step, give the symbol for seed gene {gene_id}.",
+        "The next operation needs a readable label. Resolve seed {gene_id} to its gene symbol.",
+        "Prepare the gene symbol for seed {gene_id}, so the larger analysis can continue."
+      ],
+      "already_resolved": [
+        "Pinned Ensembl release 116 registry block: {registry_entry_json}. Use this block to resolve {gene_id}.",
+        "The pinned registry supplies this entry: {registry_entry_json}. Return the symbol for {gene_id}.",
+        "Authoritative Ensembl release 116 registry entry: {registry_entry_json}. Which symbol names {gene_id}?"
+      ],
+      "version_suffix": [
+        "Give the human gene symbol for versioned Ensembl gene ID {input_gene_id}.",
+        "Resolve {input_gene_id} to its human gene symbol.",
+        "What symbol belongs to the versioned human gene ID {input_gene_id}?"
+      ],
+      "no_symbol_direct": [
+        "What is the human gene symbol for {gene_id}?",
+        "Give the gene symbol for human Ensembl gene ID {gene_id}.",
+        "Resolve this human Ensembl gene ID to its symbol: {gene_id}."
+      ],
+      "no_symbol_inside_task": [
+        "Before the next analysis step, give the symbol for seed gene {gene_id}.",
+        "The next operation needs a readable label. Resolve seed {gene_id} to its gene symbol.",
+        "Prepare the gene symbol for seed {gene_id}, so the larger analysis can continue."
+      ],
+      "invalid_input": [
+        "Give the human gene symbol for {input_gene_id}.",
+        "Resolve this value as a human Ensembl gene ID: {input_gene_id}.",
+        "What human gene symbol belongs to {input_gene_id}?"
+      ]
+    },
+    "validation": {
+      "direct": [
+        "Find the human gene symbol for {gene_id}.",
+        "Resolve the symbol for human Ensembl gene ID {gene_id}."
+      ],
+      "inside_task": [
+        "Resolve the symbol for seed {gene_id} before the next analysis operation.",
+        "The analysis needs a readable symbol for {gene_id} before it continues."
+      ],
+      "already_resolved": [
+        "Pinned Ensembl release 116 registry block: {registry_entry_json}. Resolve {gene_id} from the supplied block.",
+        "Use this authoritative registry entry without another lookup: {registry_entry_json}. Return the symbol for {gene_id}."
+      ],
+      "version_suffix": [
+        "Find the human gene symbol for versioned ID {input_gene_id}.",
+        "Resolve the symbol for {input_gene_id}."
+      ],
+      "no_symbol_direct": [
+        "Find the human gene symbol for {gene_id}.",
+        "Resolve the symbol for human Ensembl gene ID {gene_id}."
+      ],
+      "no_symbol_inside_task": [
+        "Resolve the symbol for seed {gene_id} before the next analysis operation.",
+        "The analysis needs a readable symbol for {gene_id} before it continues."
+      ],
+      "invalid_input": [
+        "Find the human gene symbol for {input_gene_id}.",
+        "Resolve {input_gene_id} as a human Ensembl gene ID."
+      ]
+    },
+    "test": {
+      "direct": [
+        "Which human gene symbol matches {gene_id}?",
+        "Return the gene symbol for human Ensembl gene ID {gene_id}."
+      ],
+      "inside_task": [
+        "Before the workflow continues, resolve the symbol for seed {gene_id}.",
+        "The next workflow step needs a readable symbol for {gene_id}."
+      ],
+      "already_resolved": [
+        "Pinned Ensembl release 116 registry block: {registry_entry_json}. Answer for {gene_id} from this block.",
+        "The prompt supplies this authoritative registry entry: {registry_entry_json}. Resolve {gene_id} without another lookup."
+      ],
+      "version_suffix": [
+        "Which human gene symbol matches versioned ID {input_gene_id}?",
+        "Return the gene symbol for {input_gene_id}."
+      ],
+      "no_symbol_direct": [
+        "Which human gene symbol matches {gene_id}?",
+        "Return the gene symbol for human Ensembl gene ID {gene_id}."
+      ],
+      "no_symbol_inside_task": [
+        "Before the workflow continues, resolve the symbol for seed {gene_id}.",
+        "The next workflow step needs a readable symbol for {gene_id}."
+      ],
+      "invalid_input": [
+        "Which human gene symbol matches {input_gene_id}?",
+        "Return the human gene symbol for {input_gene_id}."
+      ]
+    }
+  },
+  "outputs": {
+    "corpus_dir": "data/world_model_v2/sft/s1_2_ensembl_to_symbol_v1",
+    "evaluator_dir": "data/world_model_v2/eval/s1_2_ensembl_to_symbol_v1"
+  }
+}

@@ -62,11 +62,17 @@ from runtime.world_model_training import (  # noqa: E402
     consumed_training_index_plan,
     derive_optimizer_step_schedule,
     epoch_training_indices_with_replica_padding,
+    flatten_supervised_trace_for_arrow,
     flatten_tool_sft_record_for_arrow,
     s0_exposure_corpus_identity,
     s0_exposure_scope,
+    tokenize_supervised_trace_for_sft,
     tokenize_tool_trajectory_for_sft,
     tokenizer_artifact_hashes,
+)
+from runtime.world_model_contracts import (  # noqa: E402
+    SUPERVISED_EXPLANATION_LOSS_CONTRACT,
+    SupervisedTraceRecord,
 )
 from runtime.world_model_schemas import (  # noqa: E402
     S0_FAMILIES,
@@ -100,6 +106,12 @@ S0_IDENTITY_ENV = {
 }
 
 S0_TOOL_TRAJECTORY_LOSS_CONTRACT = "s0_tool_trajectory_v1"
+S0_LOSS_CONTRACTS = frozenset(
+    {
+        S0_TOOL_TRAJECTORY_LOSS_CONTRACT,
+        SUPERVISED_EXPLANATION_LOSS_CONTRACT,
+    }
+)
 
 
 def required_run_identity() -> dict[str, str]:
@@ -119,8 +131,22 @@ def required_run_identity() -> dict[str, str]:
 def loss_contract_config(loss_contract: str) -> dict[str, Any]:
     """Return the fixed S0 trajectory loss contract."""
 
-    if loss_contract != S0_TOOL_TRAJECTORY_LOSS_CONTRACT:
+    if loss_contract not in S0_LOSS_CONTRACTS:
         raise ValueError(f"Unknown loss contract: {loss_contract!r}")
+    if loss_contract == SUPERVISED_EXPLANATION_LOSS_CONTRACT:
+        return {
+            "loss_contract": loss_contract,
+            "completion_loss_weight": 1.0,
+            "target_format": "supervised_trace",
+            "supervised_messages": [
+                "assistant_explanation",
+                "assistant_tool_call",
+                "assistant_final",
+            ],
+            "masked_messages": ["system", "user", "tool"],
+            "enable_thinking": True,
+            "reasoning_effort": "low",
+        }
     return {
         "loss_contract": loss_contract,
         "completion_loss_weight": 1.0,
@@ -387,7 +413,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup_ratio", type=float, default=0.03)
     parser.add_argument(
         "--loss_contract",
-        choices=(S0_TOOL_TRAJECTORY_LOSS_CONTRACT,),
+        choices=tuple(sorted(S0_LOSS_CONTRACTS)),
         default=S0_TOOL_TRAJECTORY_LOSS_CONTRACT,
     )
     parser.add_argument("--weight_decay", type=float, default=0.0)
@@ -552,11 +578,29 @@ def _tokenize_tool_trajectory(
     )
 
 
+def _tokenize_shared_trace(
+    record: dict[str, Any],
+    tokenizer,
+    max_length: int,
+) -> dict[str, list[int]]:
+    """Render one shared trace with role-aware supervision."""
+
+    parsed = SupervisedTraceRecord.from_dict(
+        json.loads(record["trace_json"])
+    )
+    return tokenize_supervised_trace_for_sft(
+        parsed,
+        tokenizer,
+        max_length,
+    )
+
+
 def _iter_flattened_sft_records(
     path: str,
     source_size: int,
     source_mtime_ns: int,
     expected_split: str,
+    loss_contract: str,
 ):
     """Yield a stable scalar schema and reset stale Arrow caches."""
 
@@ -567,10 +611,20 @@ def _iter_flattened_sft_records(
                 continue
             try:
                 record = json.loads(line)
-                yield flatten_tool_sft_record_for_arrow(
-                    record,
-                    expected_split=expected_split,
-                )
+                if loss_contract == S0_TOOL_TRAJECTORY_LOSS_CONTRACT:
+                    yield flatten_tool_sft_record_for_arrow(
+                        record,
+                        expected_split=expected_split,
+                    )
+                elif loss_contract == SUPERVISED_EXPLANATION_LOSS_CONTRACT:
+                    yield flatten_supervised_trace_for_arrow(
+                        record,
+                        expected_split=expected_split,
+                    )
+                else:
+                    raise ValueError(
+                        f"Unknown loss contract: {loss_contract!r}"
+                    )
             except (TypeError, ValueError, json.JSONDecodeError) as exc:
                 raise RuntimeError(
                     f"Invalid trajectory JSONL record at {path}:"
@@ -583,33 +637,47 @@ def _load_flattened_sft_dataset(
     rank: int,
     *,
     expected_split: str,
+    loss_contract: str,
 ):
     """Build one homogeneous Arrow cache, then share it across local TP ranks."""
 
     source = Path(path).resolve()
     stat = source.stat()
-    features = Features({
-        "system": Value("string"),
-        "question": Value("string"),
-        "input_json": Value("string"),
-        "tools_json": Value("string"),
-        "assistant_tool_call_json": Value("string"),
-        "assistant_thinking": Value("string"),
-        "tool_result_json": Value("string"),
-        "assistant_final": Value("string"),
+    common_features = {
         "metadata_json": Value("string"),
         "question_family": Value("string"),
         "record_id": Value("string"),
         "fact_id": Value("string"),
         "prompt_form_id": Value("string"),
         "split": Value("string"),
-    })
+    }
+    if loss_contract == S0_TOOL_TRAJECTORY_LOSS_CONTRACT:
+        features = Features(
+            {
+                "system": Value("string"),
+                "question": Value("string"),
+                "input_json": Value("string"),
+                "tools_json": Value("string"),
+                "assistant_tool_call_json": Value("string"),
+                "assistant_thinking": Value("string"),
+                "tool_result_json": Value("string"),
+                "assistant_final": Value("string"),
+                **common_features,
+            }
+        )
+    elif loss_contract == SUPERVISED_EXPLANATION_LOSS_CONTRACT:
+        features = Features(
+            {"trace_json": Value("string"), **common_features}
+        )
+    else:
+        raise ValueError(f"Unknown loss contract: {loss_contract!r}")
     # These source attributes force a new cache after a local file change.
     generator_kwargs = {
         "path": str(source),
         "source_size": stat.st_size,
         "source_mtime_ns": stat.st_mtime_ns,
         "expected_split": expected_split,
+        "loss_contract": loss_contract,
     }
 
     # All ranks must use one shared Hugging Face cache directory.
@@ -631,6 +699,7 @@ def _tokenization_cache_fingerprint(
     source_fingerprint: str,
     max_length: int,
     tokenizer_identity_sha256: str,
+    loss_contract: str,
 ) -> str:
     """Return the cache identity for one tokenization contract."""
 
@@ -640,7 +709,7 @@ def _tokenization_cache_fingerprint(
                 "source_fingerprint": source_fingerprint,
                 "max_length": max_length,
                 "tokenizer_identity_sha256": tokenizer_identity_sha256,
-                "loss_contract": S0_TOOL_TRAJECTORY_LOSS_CONTRACT,
+                "loss_contract": loss_contract,
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -659,13 +728,14 @@ def load_tokenized_dataset(
     loss_contract: str = S0_TOOL_TRAJECTORY_LOSS_CONTRACT,
     answer_key_path: str | None = None,
 ):
-    if loss_contract != S0_TOOL_TRAJECTORY_LOSS_CONTRACT:
+    if loss_contract not in S0_LOSS_CONTRACTS:
         raise ValueError(f"Unknown loss contract: {loss_contract!r}")
     expected_split = "val" if answer_key_path else "train"
     dataset = _load_flattened_sft_dataset(
         path,
         rank,
         expected_split=expected_split,
+        loss_contract=loss_contract,
     )
     if len(dataset) == 0:
         raise RuntimeError(f"{label} dataset is empty")
@@ -682,7 +752,13 @@ def load_tokenized_dataset(
         tokenizer_identity_sha256: str,
     ) -> dict[str, list[int]]:
         del tokenizer_identity_sha256
-        return _tokenize_tool_trajectory(
+        if loss_contract == S0_TOOL_TRAJECTORY_LOSS_CONTRACT:
+            return _tokenize_tool_trajectory(
+                record,
+                tokenizer,
+                max_length,
+            )
+        return _tokenize_shared_trace(
             record,
             tokenizer,
             max_length,
@@ -696,6 +772,7 @@ def load_tokenized_dataset(
         source_fingerprint=dataset._fingerprint,
         max_length=max_length,
         tokenizer_identity_sha256=tokenizer_identity_sha256,
+        loss_contract=loss_contract,
     )
     # Remove source columns after token conversion. Keep only IDs and masks.
     tokenized = dataset.map(
@@ -725,7 +802,7 @@ def assert_s0_supervision(
     # Inspect a small sample before the model allocates its weights.
     checked_prompt = 0
     checked_completion = 0
-    if loss_contract != S0_TOOL_TRAJECTORY_LOSS_CONTRACT:
+    if loss_contract not in S0_LOSS_CONTRACTS:
         raise ValueError(f"Unknown loss contract: {loss_contract!r}")
     for index in range(min(max_examples, len(dataset))):
         example = dataset[index]
@@ -1403,7 +1480,7 @@ def compute_loss_objective(
 ) -> dict[str, Any]:
     """Compute one forward pass and the fixed S0 loss contract."""
 
-    if loss_contract != S0_TOOL_TRAJECTORY_LOSS_CONTRACT:
+    if loss_contract not in S0_LOSS_CONTRACTS:
         raise ValueError(f"Unknown loss contract: {loss_contract!r}")
 
     if "mapping_target_mask" in batch:

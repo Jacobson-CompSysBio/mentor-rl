@@ -15,12 +15,23 @@ from typing import Any
 from .tools import ToolExecutionError, ToolExecutionResult
 
 # These variables do not change.
-REGISTRY_SCHEMA_VERSION = (
+REGISTRY_SCHEMA_VERSION_V1 = (
     "mentor-rl-world-model-s0-ensembl-registry-v1"
 )
-TOOL_CONTRACT_VERSION = (
+REGISTRY_SCHEMA_VERSION_V2 = (
+    "mentor-rl-world-model-s0-ensembl-registry-v2"
+)
+REGISTRY_SCHEMA_VERSION = REGISTRY_SCHEMA_VERSION_V1
+SUPPORTED_REGISTRY_SCHEMA_VERSIONS = frozenset(
+    {REGISTRY_SCHEMA_VERSION_V1, REGISTRY_SCHEMA_VERSION_V2}
+)
+TOOL_CONTRACT_VERSION_V1 = (
     "mentor-rl-world-model-s0-identifier-tools-v1"
 )
+TOOL_CONTRACT_VERSION_V2 = (
+    "mentor-rl-world-model-s0-identifier-tools-v2"
+)
+TOOL_CONTRACT_VERSION = TOOL_CONTRACT_VERSION_V1
 
 ENSEMBL_RELEASE = "Ensembl_116"
 ENSEMBL_PATTERN = re.compile(r"^ENSG[0-9]{11}$")
@@ -29,8 +40,26 @@ SYMBOL_TOOL_NAME = "lookup_human_gene_symbol"
 ENSEMBL_TOOL_NAME = "lookup_human_ensembl_gene_id"
 
 
-def identifier_tool_definitions() -> list[dict[str, Any]]:
+def identifier_tool_definitions(
+    *,
+    contract_version: str = TOOL_CONTRACT_VERSION,
+) -> list[dict[str, Any]]:
     """Return the S0 function definitions."""
+
+    if contract_version not in {
+        TOOL_CONTRACT_VERSION_V1,
+        TOOL_CONTRACT_VERSION_V2,
+    }:
+        raise ValueError("The S0 identifier tool contract version is invalid.")
+    ensembl_description = (
+        "Look up all gene symbols for one human Ensembl gene ID "
+        "in release 116."
+        if contract_version == TOOL_CONTRACT_VERSION_V1
+        else (
+            "Look up the gene symbol for one human Ensembl gene ID "
+            "in release 116. The symbol can be null."
+        )
+    )
 
     return [
         {
@@ -61,10 +90,7 @@ def identifier_tool_definitions() -> list[dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": ENSEMBL_TOOL_NAME,
-                "description": (
-                    "Look up all gene symbols for one human Ensembl gene ID "
-                    "in release 116."
-                ),
+                "description": ensembl_description,
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -149,6 +175,8 @@ class S0IdentifierToolRuntime:
 
     registry_path: Path
     registry_sha256: str
+    registry_schema_version: str
+    tool_contract_version: str
     gene_symbols_by_id: Mapping[str, tuple[str, ...]]
     gene_ids_by_symbol: Mapping[str, tuple[str, ...]]
 
@@ -181,10 +209,16 @@ class S0IdentifierToolRuntime:
                 "The identifier registry must be one JSON object."
             )
 
-        if payload.get("schema_version") != REGISTRY_SCHEMA_VERSION:
+        registry_schema_version = payload.get("schema_version")
+        if registry_schema_version not in SUPPORTED_REGISTRY_SCHEMA_VERSIONS:
             raise ToolExecutionError(
                 "The identifier registry schema version changed."
             )
+        tool_contract_version = (
+            TOOL_CONTRACT_VERSION_V2
+            if registry_schema_version == REGISTRY_SCHEMA_VERSION_V2
+            else TOOL_CONTRACT_VERSION_V1
+        )
 
         source = payload.get("source")
         if not isinstance(source, Mapping):
@@ -212,9 +246,16 @@ class S0IdentifierToolRuntime:
         for raw_gene_id, raw_symbols in raw_symbols_by_id.items():
             gene_id = _require_canonical_gene_id(raw_gene_id)
 
-            if not isinstance(raw_symbols, list) or not raw_symbols:
+            if not isinstance(raw_symbols, list):
                 raise ToolExecutionError(
-                    f"The registry has no symbols for {gene_id}."
+                    f"The registry symbols for {gene_id} must be a list."
+                )
+            if (
+                registry_schema_version == REGISTRY_SCHEMA_VERSION_V1
+                and not raw_symbols
+            ):
+                raise ToolExecutionError(
+                    f"The legacy registry has no symbols for {gene_id}."
                 )
 
             symbols = tuple(
@@ -225,6 +266,13 @@ class S0IdentifierToolRuntime:
             if list(symbols) != sorted(set(symbols)):
                 raise ToolExecutionError(
                     f"The symbols for {gene_id} are not canonical."
+                )
+            if (
+                registry_schema_version == REGISTRY_SCHEMA_VERSION_V2
+                and len(symbols) > 1
+            ):
+                raise ToolExecutionError(
+                    f"The shared registry has multiple symbols for {gene_id}."
                 )
 
             symbols_by_id[gene_id] = symbols
@@ -240,6 +288,8 @@ class S0IdentifierToolRuntime:
         return cls(
             registry_path=path,
             registry_sha256=actual_sha256,
+            registry_schema_version=str(registry_schema_version),
+            tool_contract_version=tool_contract_version,
             gene_symbols_by_id=MappingProxyType(symbols_by_id),
             gene_ids_by_symbol=MappingProxyType(ids_by_symbol),
         )
@@ -249,9 +299,9 @@ class S0IdentifierToolRuntime:
 
         return {
             "tool_name": tool_name,
-            "tool_contract_version": TOOL_CONTRACT_VERSION,
+            "tool_contract_version": self.tool_contract_version,
             "source": "pinned_registry",
-            "registry_schema_version": REGISTRY_SCHEMA_VERSION,
+            "registry_schema_version": self.registry_schema_version,
             "registry_sha256": self.registry_sha256,
             "ensembl_release": ENSEMBL_RELEASE,
             "network_used": False,
@@ -288,8 +338,9 @@ class S0IdentifierToolRuntime:
                 "status": "ambiguous",
                 "gene_symbol": gene_symbol,
                 "candidate_gene_ids": list(gene_ids),
-                "action": "defer",
             }
+            if self.tool_contract_version == TOOL_CONTRACT_VERSION_V1:
+                payload["action"] = "defer"
 
         return ToolExecutionResult(
             payload=payload,
@@ -308,9 +359,16 @@ class S0IdentifierToolRuntime:
             field_name="gene_id",
         )
         gene_id = _require_canonical_gene_id(raw_gene_id)
+        gene_is_known = gene_id in self.gene_symbols_by_id
         gene_symbols = self.gene_symbols_by_id.get(gene_id, ())
 
-        if not gene_symbols:
+        if self.tool_contract_version == TOOL_CONTRACT_VERSION_V2:
+            payload = {
+                "status": "resolved" if gene_is_known else "not_found",
+                "gene_id": gene_id,
+                "gene_symbol": gene_symbols[0] if gene_symbols else None,
+            }
+        elif not gene_symbols:
             payload = {
                 "status": "not_found",
                 "gene_id": gene_id,
@@ -326,7 +384,7 @@ class S0IdentifierToolRuntime:
         return ToolExecutionResult(
             payload=payload,
             provenance=self._provenance(ENSEMBL_TOOL_NAME),
-            is_empty=not gene_symbols,
+            is_empty=not gene_is_known,
         )
 
     def execute(

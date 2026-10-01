@@ -11,25 +11,62 @@ import sys
 from typing import Any
 
 
-TEST_SCHEMA_VERSION = (
+V6_TEST_SCHEMA_VERSION = (
     "mentor-rl-world-model-s0-full-tool-trajectory-test-v6"
 )
-EVALUATOR_SCHEMA_VERSION = (
+V6_EVALUATOR_SCHEMA_VERSION = (
     "mentor-rl-world-model-s0-full-tool-trajectory-evaluator-manifest-v6"
 )
 EXPOSURE_SCHEMA_VERSION = "mentor-rl-s0-training-exposure-v2"
-EVALUATION_CONTRACT = "full_registry_tool_trajectory_v1"
-CORPUS_DATASET_ID = (
+V6_EVALUATION_CONTRACT = "full_registry_tool_trajectory_v1"
+V6_CORPUS_DATASET_ID = (
     "world_model_v2_s0_human_identifier_trajectories_v6"
 )
-EVALUATOR_DATASET_ID = (
+V6_EVALUATOR_DATASET_ID = (
     "world_model_v2_s0_human_identifier_trajectories_full_registry_v6"
 )
-CORPUS_EVALUATION_CONTRACT = (
+V6_CORPUS_EVALUATION_CONTRACT = (
     "unseen_component_tool_trajectory_v1"
 )
 CHECKPOINT_FORMAT = "mentor-rl-s0-tp-lora-v1"
-LOSS_CONTRACT = "s0_tool_trajectory_v1"
+V7_TEST_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-full-shared-trace-test-v7"
+)
+V7_EVALUATOR_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-full-shared-evaluator-manifest-v7"
+)
+V7_EVALUATION_CONTRACT = "full_registry_supervised_trace_v1"
+V7_CORPUS_DATASET_ID = (
+    "world_model_v2_s0_human_identifier_supervised_traces_v7"
+)
+V7_EVALUATOR_DATASET_ID = (
+    "world_model_v2_s0_human_identifier_supervised_traces_full_registry_v7"
+)
+V7_CORPUS_EVALUATION_CONTRACT = (
+    "unseen_component_supervised_trace_v1"
+)
+TEST_CONTRACTS = {
+    V6_TEST_SCHEMA_VERSION: {
+        "evaluator_schema_version": V6_EVALUATOR_SCHEMA_VERSION,
+        "evaluation_contract": V6_EVALUATION_CONTRACT,
+        "corpus_dataset_id": V6_CORPUS_DATASET_ID,
+        "evaluator_dataset_id": V6_EVALUATOR_DATASET_ID,
+        "corpus_evaluation_contract": V6_CORPUS_EVALUATION_CONTRACT,
+        "training_contract": "tool_trajectory_v1",
+        "loss_contract": "s0_tool_trajectory_v1",
+        "population_contract": "named_registry_v6",
+    },
+    V7_TEST_SCHEMA_VERSION: {
+        "evaluator_schema_version": V7_EVALUATOR_SCHEMA_VERSION,
+        "evaluation_contract": V7_EVALUATION_CONTRACT,
+        "corpus_dataset_id": V7_CORPUS_DATASET_ID,
+        "evaluator_dataset_id": V7_EVALUATOR_DATASET_ID,
+        "corpus_evaluation_contract": V7_CORPUS_EVALUATION_CONTRACT,
+        "training_contract": "supervised_trace_v1",
+        "loss_contract": "supervised_explanation_trace_v1",
+        "population_contract": "shared_registry_v7",
+    },
+}
 
 
 def canonical_json(value: Any) -> str:
@@ -176,9 +213,11 @@ def main() -> int:
         raise SystemExit("The completed checkpoint directory is absent")
 
     config = read_json(config_path, "the S0 test config")
+    contract = TEST_CONTRACTS.get(config.get("schema_version"))
     if (
-        config.get("schema_version") != TEST_SCHEMA_VERSION
-        or config.get("evaluation_contract") != EVALUATION_CONTRACT
+        contract is None
+        or config.get("evaluation_contract")
+        != contract["evaluation_contract"]
     ):
         raise SystemExit("The S0 test config contract changed")
     methods = config.get("methods")
@@ -267,11 +306,11 @@ def main() -> int:
         corpus.get("train_sha256"), "train file"
     )
     if (
-        corpus_manifest.get("dataset_id") != CORPUS_DATASET_ID
+        corpus_manifest.get("dataset_id") != contract["corpus_dataset_id"]
         or corpus_manifest.get("evaluation_contract")
-        != CORPUS_EVALUATION_CONTRACT
+        != contract["corpus_evaluation_contract"]
         or corpus_manifest.get("training_contract")
-        != "tool_trajectory_v1"
+        != contract["training_contract"]
         or corpus_manifest.get("train_population", {}).get(
             "eligible_train_rows"
         )
@@ -304,10 +343,13 @@ def main() -> int:
     )
     test = evaluator.get("test")
     if (
-        evaluator.get("schema_version") != EVALUATOR_SCHEMA_VERSION
-        or evaluator.get("dataset_id") != EVALUATOR_DATASET_ID
-        or evaluator.get("source_dataset_id") != CORPUS_DATASET_ID
-        or evaluator.get("evaluation_contract") != EVALUATION_CONTRACT
+        evaluator.get("schema_version")
+        != contract["evaluator_schema_version"]
+        or evaluator.get("dataset_id") != contract["evaluator_dataset_id"]
+        or evaluator.get("source_dataset_id")
+        != contract["corpus_dataset_id"]
+        or evaluator.get("evaluation_contract")
+        != contract["evaluation_contract"]
         or not isinstance(test, dict)
     ):
         raise SystemExit("The evaluator manifest contract changed")
@@ -380,7 +422,7 @@ def main() -> int:
         raise SystemExit("The selected checkpoint contract changed")
     if (
         adapter_manifest.get("objective", {}).get("loss_contract")
-        != LOSS_CONTRACT
+        != contract["loss_contract"]
     ):
         raise SystemExit("The checkpoint loss contract changed")
     train_run_id = require_string(
@@ -599,23 +641,79 @@ def main() -> int:
             "The evaluator population filter changed"
         )
     excluded_ambiguous = len(excluded_records)
-    expected_family_counts = {
-        "human_ambiguous_symbol": (
-            ambiguous_gene_names - excluded_ambiguous
-        ),
-        "human_ensembl_to_symbol": named_gene_ids,
-        "human_symbol_to_ensembl": (
-            unique_gene_names - ambiguous_gene_names
-        ),
-    }
-    if (
-        population.get("scope")
-        != (
+    if contract["population_contract"] == "shared_registry_v7":
+        total_gene_ids = require_int(
+            registry_counts.get("total_gene_ids"),
+            "total gene ID count",
+        )
+        unnamed_gene_ids = require_int(
+            registry_counts.get("gene_ids_without_name"),
+            "unnamed gene ID count",
+        )
+        fixed_not_found = require_int(
+            population.get("fixed_not_found_symbol_count"),
+            "fixed absent-symbol count",
+        )
+        expected_family_counts = {
+            "human_ambiguous_symbol": (
+                ambiguous_gene_names - excluded_ambiguous
+            ),
+            "human_ensembl_to_symbol": total_gene_ids,
+            "human_symbol_to_ensembl": (
+                unique_gene_names
+                - ambiguous_gene_names
+                + fixed_not_found
+            ),
+        }
+        expected_row_count = (
+            total_gene_ids
+            + unique_gene_names
+            - excluded_ambiguous
+            + fixed_not_found
+        )
+        expected_scope = (
+            "all_registry_gene_ids_and_symbols_except_declared_long_"
+            "ambiguities_plus_fixed_absent_symbol_panel"
+        )
+        expected_status_counts = {
+            "ambiguous": ambiguous_gene_names - excluded_ambiguous,
+            "not_found": fixed_not_found,
+            "resolved": (
+                expected_row_count
+                - ambiguous_gene_names
+                + excluded_ambiguous
+                - fixed_not_found
+            ),
+        }
+        if (
+            population.get("registry_gene_id_count") != total_gene_ids
+            or population.get("registry_symbol_count")
+            != unique_gene_names
+            or population.get("unnamed_gene_id_count")
+            != unnamed_gene_ids
+            or population.get("status_counts") != expected_status_counts
+        ):
+            raise SystemExit("The full shared population changed")
+    else:
+        expected_family_counts = {
+            "human_ambiguous_symbol": (
+                ambiguous_gene_names - excluded_ambiguous
+            ),
+            "human_ensembl_to_symbol": named_gene_ids,
+            "human_symbol_to_ensembl": (
+                unique_gene_names - ambiguous_gene_names
+            ),
+        }
+        expected_row_count = (
+            named_gene_ids + unique_gene_names - excluded_ambiguous
+        )
+        expected_scope = (
             "all_named_gene_ids_and_all_gene_symbols_"
             "except_declared_long_ambiguities"
         )
-        or population.get("row_count")
-        != named_gene_ids + unique_gene_names - excluded_ambiguous
+    if (
+        population.get("scope") != expected_scope
+        or population.get("row_count") != expected_row_count
         or population.get("row_count") != panel_row_count
         or population.get("family_counts") != expected_family_counts
     ):
@@ -634,7 +732,7 @@ def main() -> int:
         "S0_EVALUATION_ID": require_string(
             config.get("evaluation_id"), "evaluation ID"
         ),
-        "S0_EVALUATION_CONTRACT": EVALUATION_CONTRACT,
+        "S0_EVALUATION_CONTRACT": str(contract["evaluation_contract"]),
         "S0_METHOD_ID": method_id,
         "S0_TOKENIZER_METHOD": tokenizer_method,
         "TOKENIZER_PATH": str(tokenizer_path),

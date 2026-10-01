@@ -19,10 +19,17 @@ if str(REPO_ROOT) not in sys.path:
 from runtime.world_model_prompts import (  # noqa: E402
     s0_tool_trajectory_prompt_contract,
 )
+from runtime.world_model_contracts import (  # noqa: E402
+    SUPERVISED_TRACE_SCHEMA_VERSION,
+)
+from runtime.world_model_s0_shared import (  # noqa: E402
+    build_s0_shared_trace,
+)
 from runtime.world_model_s0_tools import (  # noqa: E402
     ENSEMBL_TOOL_NAME,
     SYMBOL_TOOL_NAME,
     TOOL_CONTRACT_VERSION,
+    TOOL_CONTRACT_VERSION_V2,
     S0IdentifierToolRuntime,
     identifier_tool_definitions,
 )
@@ -634,6 +641,55 @@ def make_record(
             "rendering_index": rendering_index,
         },
         **trajectory,
+    )
+    return record.to_dict()
+
+
+def make_shared_record(
+    fact: Mapping[str, Any],
+    *,
+    config: Mapping[str, Any],
+    registry_id: str,
+    prompt_form: str,
+    runtime: S0IdentifierToolRuntime,
+) -> dict[str, Any]:
+    """Create one S0 record with the shared trace contract."""
+
+    if runtime.tool_contract_version != TOOL_CONTRACT_VERSION_V2:
+        raise ValueError("The shared S0 row needs a version 2 registry.")
+    split = {"train": "train", "validation": "val"}[prompt_form]
+    question, rendering_index = render_question(
+        fact,
+        config=config,
+        prompt_form=prompt_form,
+    )
+    tool_name = _tool_name(str(fact["family"]))
+    result = runtime.execute(tool_name, fact["input"])
+    record_id = "wm2_s0_shared_" + stable_sha256(
+        {
+            "fact_id": fact["fact_id"],
+            "prompt_form": prompt_form,
+            "split": split,
+            "record_schema_version": SUPERVISED_TRACE_SCHEMA_VERSION,
+        }
+    )[:24]
+    record = build_s0_shared_trace(
+        record_id=record_id,
+        question=question,
+        question_family=str(fact["family"]),
+        tool_name=tool_name,
+        arguments=fact["input"],
+        tool_result=result.payload,
+        split=split,
+        identifier_registry_id=registry_id,
+        provenance={
+            "fact_id": fact["fact_id"],
+            "fact_group_id": fact["fact_group_id"],
+            "fact_role": "train" if split == "train" else "unseen",
+            "prompt_form_id": prompt_form,
+            "rendering_index": rendering_index,
+            "tool_result_provenance": dict(result.provenance),
+        },
     )
     return record.to_dict()
 

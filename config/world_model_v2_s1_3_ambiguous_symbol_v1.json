@@ -1,0 +1,87 @@
+{
+  "schema_version": "mentor-rl-world-model-s1-3-build-v1",
+  "dataset_id": "world_model_v2_s1_3_ambiguous_symbol_v1",
+  "identifier_registry": {
+    "path": "data/world_model_v2/sources/ensembl_116_human_gene_ids_and_symbols_v2.json",
+    "expected_sha256": "7a2f71fdfe9db21a96dcbc3775d099ec1691443041ac5639abe3dab7f21ffbaf"
+  },
+  "multiplex_gene_universe": {
+    "path": "data/corum_corpus/cache/multiplex_gene_universe.json",
+    "expected_sha256": "a8c8f5504453a65141a42718426aef59c6f2f373c8ab66de073b9f83c812f1a0"
+  },
+  "s0_split_contract": {
+    "build_config_path": "config/world_model_v2_s0_shared_traces_v7.json",
+    "build_config_sha256": "9359233318e98bf593547cd5ae44bdb02ca4c1014be14aefcb6340fb917757a6",
+    "split_manifest_path": "data/world_model_v2/sft/s0_human_identifier_supervised_traces_v7/split_manifest.json",
+    "split_manifest_sha256": "6fcbc58c9d8b4a256d340d34c5a08e4358d2c0747cac33872885515b7bdb80a2"
+  },
+  "s1_1_question_pool": {
+    "config_path": "config/world_model_v2_s1_1_symbol_to_ensembl_v1.json",
+    "config_sha256": "69add9177dc80de660c6741ab00d3499f06243e45d4dafc23307b926e008c38b"
+  },
+  "population_filter": {
+    "maximum_candidate_gene_ids": 49,
+    "expected_excluded_fact_ids": [
+      "fact_1544b1236c875b2ad88138d0",
+      "fact_39c1052bc4d239a961544728",
+      "fact_fd3fc526542e105e08c060b9"
+    ]
+  },
+  "sampling": {
+    "assignment_seed": 1729,
+    "target_multiplex_candidate_fraction": 0.85
+  },
+  "allocations": {
+    "train": {
+      "direct": 400,
+      "inside_task": 400,
+      "already_marked": 200
+    },
+    "validation": {
+      "direct": 48,
+      "inside_task": 48,
+      "already_marked": 24
+    },
+    "test": {
+      "direct": 48,
+      "inside_task": 48,
+      "already_marked": 24
+    }
+  },
+  "shared_pool_selection": {
+    "s1_1_dataset_id": "world_model_v2_s1_1_symbol_to_ensembl_v1",
+    "s1_1_train_row_count": 1000,
+    "s1_3_form_counts": {
+      "direct": 133,
+      "inside_task": 133,
+      "already_marked": 67
+    },
+    "minimum_ambiguous_fraction": 0.20,
+    "maximum_ambiguous_fraction": 0.25,
+    "selection_seed": 1729
+  },
+  "explanation_audit": {
+    "sample_seed": 1729,
+    "sample_size_per_form": 200
+  },
+  "prompt_assignment_seed": 1729,
+  "already_marked_prompt_forms": {
+    "train": [
+      "Pinned Ensembl release 116 registry block: {registry_entry_json}. Use this block to resolve {gene_symbol}.",
+      "The pinned registry marks {gene_symbol} as ambiguous: {registry_entry_json}. Return every candidate.",
+      "Authoritative Ensembl release 116 registry entry: {registry_entry_json}. Resolve {gene_symbol} without another lookup."
+    ],
+    "validation": [
+      "Pinned Ensembl release 116 registry block: {registry_entry_json}. Resolve {gene_symbol} from the supplied block.",
+      "Use this authoritative registry entry without another lookup: {registry_entry_json}. Return every candidate for {gene_symbol}."
+    ],
+    "test": [
+      "Pinned Ensembl release 116 registry block: {registry_entry_json}. Answer for {gene_symbol} from this block.",
+      "The prompt supplies this authoritative registry entry: {registry_entry_json}. Resolve {gene_symbol} without another lookup."
+    ]
+  },
+  "outputs": {
+    "corpus_dir": "data/world_model_v2/sft/s1_3_ambiguous_symbol_v1",
+    "evaluator_dir": "data/world_model_v2/eval/s1_3_ambiguous_symbol_v1"
+  }
+}

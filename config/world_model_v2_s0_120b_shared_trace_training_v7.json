@@ -1,0 +1,85 @@
+{
+  "schema_version": "mentor-rl-world-model-s0-120b-shared-trace-training-v7",
+  "training_id": "world_model_v2_s0_120b_shared_trace_training_v7",
+  "run_scope": "production",
+  "promotion_eligible": true,
+  "production_matrix_cell": true,
+  "model": {
+    "model_id": "gpt-oss-120b-bf16",
+    "path": "../models/gpt-oss-120b-bf16",
+    "model_identity_sha256": "905e86330e48859268f5e51fd569acf619e6030e1508b37e6a82e61dcf0c7889",
+    "base_model_artifact_schema": "mentor-rl-base-model-artifact-v2",
+    "base_model_artifact_sha256": "b1713d10cbba7c69498037d7712c5988db95804dc62c614111e1f470d16449bc",
+    "weight_shard_count": 36
+  },
+  "corpus": {
+    "root": "data/world_model_v2/sft/s0_human_identifier_supervised_traces_v7",
+    "manifest_sha256": "c2c46c765e5d3d7dd02c567a7d6a10df9a8af9648418100cecee31bd0b70918d",
+    "train_file": "train.jsonl",
+    "train_sha256": "fef1915180642a5adbb5dc6b40ddc6673eeaf5769c061a501b48ed5a85cd388e",
+    "train_rows": 4096,
+    "validation_file": "val.jsonl",
+    "validation_sha256": "fabc721c37a9887037db29cc30cf44820868de39c620903697076a416e6742d2",
+    "validation_rows": 622,
+    "evaluator_manifest": "data/world_model_v2/eval/s0_human_identifier_supervised_traces_v7/manifest.json",
+    "evaluator_manifest_sha256": "cb0c7c07b1fe1b14b415b846d77748f06b731af7d529f6ad54cba7fd775f90b5"
+  },
+  "trainer": {
+    "path": "scripts/train_sft_dp_tp_ep.py",
+    "fine_tune_configuration": "lora_r32",
+    "loader_identity": "peft_adapter_loader",
+    "lora_rank": 32,
+    "lora_alpha": 64,
+    "lora_dropout": 0,
+    "loss_contract": "supervised_explanation_trace_v1",
+    "completion_loss_weight": 1
+  },
+  "run_settings": {
+    "num_nodes": 16,
+    "gpus_per_node": 8,
+    "tp_size": 8,
+    "ep_size": 8,
+    "data_parallel_size": 16,
+    "num_train_epochs": 10,
+    "per_device_train_batch_size": 1,
+    "gradient_accumulation_steps": 2,
+    "global_batch_size": 32,
+    "learning_rate": 0.0001,
+    "lr_scheduler_type": "cosine",
+    "warmup_ratio": 0.03,
+    "weight_decay": 0,
+    "max_grad_norm": 1,
+    "max_length": 1024,
+    "logging_steps": 10,
+    "eval_strategy": "epoch",
+    "eval_on_start": true,
+    "per_device_eval_batch_size": 1,
+    "save_strategy": "steps",
+    "save_steps": 200,
+    "save_total_limit": 3,
+    "seed": 900913,
+    "preserve_dataset_order": false,
+    "autograd_multithreading": true,
+    "local_files_only": true,
+    "strict_tested_stack": true,
+    "bf16": true
+  },
+  "methods": [
+    {
+      "method_id": "oss120b-plain-base-tokenizer-lora-r32",
+      "tokenizer_method": "plain_base_tokenizer",
+      "arm_root": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer",
+      "arm_manifest_sha256": "b1379f9a1a751ce7bdc2a99389717ba3095c64e3fbfa608ef77eee181bb8cb6e",
+      "tokenizer_path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
+      "token_adapter_manifest": null,
+      "tokenizer_manifest_sha256": "245163b5189a64afb8e5b061585f90d4c15bcf94599b68307e9ff008880fe3c0",
+      "output_root": "data/world_model_v2/checkpoints/s0_120b_shared_trace_training_v7/oss120b-plain-base-tokenizer-lora-r32"
+    }
+  ],
+  "validation_gate": {
+    "checkpoint_set": "each_saved_checkpoint_and_final",
+    "selection_metric": "eval/completion_loss",
+    "required_method_count": 1,
+    "full_registry_access": false
+  }
+}

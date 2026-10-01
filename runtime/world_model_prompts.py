@@ -26,6 +26,32 @@ S0_TOOL_TRAJECTORY_SYSTEM_PROMPT = (
     "Do not use graph facts, network services, or another species."
 )
 
+S0_SHARED_TRACE_SYSTEM_PROMPT = (
+    "Use exactly one provided tool to resolve each human Ensembl gene ID "
+    "or gene symbol with the pinned Ensembl release 116 registry. "
+    "Before the call, explain the applicable rule and next action. "
+    "Copy the input exactly into the matching tool argument. "
+    "After the result, explain the result rule and next action. "
+    "Return one JSON object with status, result, continuation_decision, "
+    "and summary in that order. Do not use graph facts, network services, "
+    "or another species."
+)
+
+S1_STAGE = "S1"
+S1_ALLOWED_BOOK_MODES = ("tool_call", "closed_book")
+S1_SOURCE_DOCUMENT = (
+    "agents/world_model_v2_curriculum/S1-coordinate-system.md"
+)
+S1_SHARED_TRACE_SYSTEM_PROMPT = (
+    "Use the provided local tools only when the task needs a fact that the "
+    "prompt does not supply. Treat a labeled registry block as authoritative. "
+    "Before each call, explain the applicable rule and next action. After the "
+    "last call, use its result. In the final action, explain the result rule "
+    "and claim limit. Return one JSON object with status, result, "
+    "continuation_decision, and summary in that order. Do not invent "
+    "identifiers or graph facts."
+)
+
 # Define the prompt contract for a stage.
 @dataclass(frozen=True)
 class StagePromptContract:
@@ -63,6 +89,32 @@ def s0_tool_trajectory_prompt_contract() -> StagePromptContract:
         source_document=S0_SOURCE_DOCUMENT,
         system_prompt=S0_TOOL_TRAJECTORY_SYSTEM_PROMPT,
         system_prompt_sha256=_sha256_text(S0_TOOL_TRAJECTORY_SYSTEM_PROMPT),
+    )
+
+
+def s0_shared_trace_prompt_contract() -> StagePromptContract:
+    """Return the fixed S0 shared trace prompt contract."""
+
+    return StagePromptContract(
+        schema_version=PROMPT_CONTRACT_SCHEMA_VERSION,
+        stage=S0_STAGE,
+        allowed_book_modes=S0_ALLOWED_BOOK_MODES,
+        source_document=S0_SOURCE_DOCUMENT,
+        system_prompt=S0_SHARED_TRACE_SYSTEM_PROMPT,
+        system_prompt_sha256=_sha256_text(S0_SHARED_TRACE_SYSTEM_PROMPT),
+    )
+
+
+def s1_shared_trace_prompt_contract() -> StagePromptContract:
+    """Return the shared S1 prompt contract."""
+
+    return StagePromptContract(
+        schema_version=PROMPT_CONTRACT_SCHEMA_VERSION,
+        stage=S1_STAGE,
+        allowed_book_modes=S1_ALLOWED_BOOK_MODES,
+        source_document=S1_SOURCE_DOCUMENT,
+        system_prompt=S1_SHARED_TRACE_SYSTEM_PROMPT,
+        system_prompt_sha256=_sha256_text(S1_SHARED_TRACE_SYSTEM_PROMPT),
     )
 
 

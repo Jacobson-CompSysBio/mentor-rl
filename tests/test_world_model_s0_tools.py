@@ -31,7 +31,9 @@ from runtime.world_model_schemas import (
 from runtime.world_model_s0_tools import (
     ENSEMBL_TOOL_NAME,
     REGISTRY_SCHEMA_VERSION,
+    REGISTRY_SCHEMA_VERSION_V2,
     SYMBOL_TOOL_NAME,
+    TOOL_CONTRACT_VERSION_V2,
     S0IdentifierToolRuntime,
     identifier_tool_definitions,
 )
@@ -47,6 +49,21 @@ def _registry_payload() -> dict[str, object]:
             "ENSG00000000003": ["SHARED", "TSPAN6"],
             "ENSG00000000005": ["SHARED", "TNMD"],
             "ENSG00000000419": ["DPM1"],
+        },
+    }
+
+
+def _shared_registry_payload() -> dict[str, object]:
+    """Return one registry that retains an unnamed gene ID."""
+
+    return {
+        "schema_version": REGISTRY_SCHEMA_VERSION_V2,
+        "source": {"release": 116},
+        "gene_symbols_by_id": {
+            "ENSG00000000003": ["SHARED"],
+            "ENSG00000000005": ["SHARED"],
+            "ENSG00000000419": ["DPM1"],
+            "ENSG00000999999": [],
         },
     }
 
@@ -219,6 +236,146 @@ class S0IdentifierToolTests(unittest.TestCase):
             self.registry_path,
             expected_sha256=self.registry_sha256,
         )
+
+    def _load_shared_runtime(self) -> S0IdentifierToolRuntime:
+        """Load a shared-contract test registry."""
+
+        directory = Path(self.temporary_directory.name) / "shared"
+        directory.mkdir()
+        registry_path, registry_sha256 = _write_registry(
+            directory,
+            _shared_registry_payload(),
+        )
+        return S0IdentifierToolRuntime.from_registry(
+            registry_path,
+            expected_sha256=registry_sha256,
+        )
+
+    def test_shared_tool_definition_states_nullable_symbol(self) -> None:
+        """Describe the nullable result of the shared ID lookup."""
+
+        definitions = identifier_tool_definitions(
+            contract_version=TOOL_CONTRACT_VERSION_V2,
+        )
+
+        self.assertIn(
+            "symbol can be null",
+            definitions[1]["function"]["description"],
+        )
+
+    def test_shared_registry_keeps_an_unnamed_gene_id(self) -> None:
+        """Keep registry membership separate from symbol presence."""
+
+        runtime = self._load_shared_runtime()
+
+        self.assertEqual(
+            runtime.gene_symbols_by_id["ENSG00000999999"],
+            (),
+        )
+        self.assertEqual(
+            runtime.registry_schema_version,
+            REGISTRY_SCHEMA_VERSION_V2,
+        )
+        self.assertEqual(
+            runtime.tool_contract_version,
+            TOOL_CONTRACT_VERSION_V2,
+        )
+
+    def test_shared_id_lookup_returns_one_nullable_symbol(self) -> None:
+        """Distinguish a named ID, an unnamed ID, and an absent ID."""
+
+        runtime = self._load_shared_runtime()
+        named = runtime.execute(
+            ENSEMBL_TOOL_NAME,
+            {"gene_id": "ENSG00000000419"},
+        )
+        unnamed = runtime.execute(
+            ENSEMBL_TOOL_NAME,
+            {"gene_id": "ENSG00000999999"},
+        )
+        absent = runtime.execute(
+            ENSEMBL_TOOL_NAME,
+            {"gene_id": "ENSG99999999999"},
+        )
+
+        self.assertEqual(
+            named.payload,
+            {
+                "status": "resolved",
+                "gene_id": "ENSG00000000419",
+                "gene_symbol": "DPM1",
+            },
+        )
+        self.assertEqual(
+            unnamed.payload,
+            {
+                "status": "resolved",
+                "gene_id": "ENSG00000999999",
+                "gene_symbol": None,
+            },
+        )
+        self.assertFalse(unnamed.is_empty)
+        self.assertEqual(
+            unnamed.provenance["tool_contract_version"],
+            TOOL_CONTRACT_VERSION_V2,
+        )
+        self.assertEqual(
+            unnamed.provenance["registry_schema_version"],
+            REGISTRY_SCHEMA_VERSION_V2,
+        )
+        self.assertEqual(
+            absent.payload,
+            {
+                "status": "not_found",
+                "gene_id": "ENSG99999999999",
+                "gene_symbol": None,
+            },
+        )
+        self.assertTrue(absent.is_empty)
+
+    def test_shared_ambiguous_result_has_no_continuation_action(self) -> None:
+        """Keep the continuation decision out of the tool result."""
+
+        result = self._load_shared_runtime().execute(
+            SYMBOL_TOOL_NAME,
+            {"gene_symbol": "SHARED"},
+        )
+
+        self.assertEqual(
+            result.payload,
+            {
+                "status": "ambiguous",
+                "gene_symbol": "SHARED",
+                "candidate_gene_ids": [
+                    "ENSG00000000003",
+                    "ENSG00000000005",
+                ],
+            },
+        )
+
+    def test_shared_registry_rejects_multiple_symbols_for_one_id(self) -> None:
+        """Reject a registry that cannot use the singular result shape."""
+
+        payload = _shared_registry_payload()
+        payload["gene_symbols_by_id"]["ENSG00000000419"] = [
+            "ALIAS",
+            "DPM1",
+        ]
+        directory = Path(self.temporary_directory.name) / "multiple"
+        directory.mkdir()
+        registry_path, registry_sha256 = _write_registry(
+            directory,
+            payload,
+        )
+
+        with self.assertRaisesRegex(
+            ToolExecutionError,
+            "multiple symbols",
+        ):
+            S0IdentifierToolRuntime.from_registry(
+                registry_path,
+                expected_sha256=registry_sha256,
+            )
 
     def test_symbol_lookup_returns_a_resolved_result(self) -> None:
         """Check one symbol with one gene ID."""

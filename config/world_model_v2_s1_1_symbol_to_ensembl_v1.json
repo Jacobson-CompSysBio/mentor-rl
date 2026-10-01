@@ -1,0 +1,91 @@
+{
+  "schema_version": "mentor-rl-world-model-s1-1-build-v1",
+  "dataset_id": "world_model_v2_s1_1_symbol_to_ensembl_v1",
+  "identifier_registry": {
+    "path": "data/world_model_v2/sources/ensembl_116_human_gene_ids_and_symbols_v2.json",
+    "expected_sha256": "7a2f71fdfe9db21a96dcbc3775d099ec1691443041ac5639abe3dab7f21ffbaf"
+  },
+  "s0_split_contract": {
+    "build_config_path": "config/world_model_v2_s0_shared_traces_v7.json",
+    "build_config_sha256": "9359233318e98bf593547cd5ae44bdb02ca4c1014be14aefcb6340fb917757a6",
+    "split_manifest_path": "data/world_model_v2/sft/s0_human_identifier_supervised_traces_v7/split_manifest.json",
+    "split_manifest_sha256": "6fcbc58c9d8b4a256d340d34c5a08e4358d2c0747cac33872885515b7bdb80a2"
+  },
+  "assignment_seed": 1729,
+  "allocations": {
+    "train": {
+      "direct": 300,
+      "inside_task": 300,
+      "already_resolved": 200,
+      "absent_symbol": 200
+    },
+    "validation": {
+      "direct": 96,
+      "inside_task": 96,
+      "already_resolved": 64,
+      "absent_symbol": 64
+    },
+    "test": {
+      "direct": 96,
+      "inside_task": 96,
+      "already_resolved": 64,
+      "absent_symbol": 64
+    }
+  },
+  "explanation_audit": {
+    "sample_seed": 1729,
+    "sample_size_per_form": 200
+  },
+  "prompt_assignment_seed": 1729,
+  "prompt_forms": {
+    "train": {
+      "direct": [
+        "Resolve the human gene symbol {gene_symbol} as an Ensembl gene ID.",
+        "Give the human Ensembl gene ID for the symbol {gene_symbol}.",
+        "Convert this human gene symbol to its Ensembl gene ID: {gene_symbol}."
+      ],
+      "inside_task": [
+        "Before the next analysis step, resolve the seed gene {gene_symbol} as a human Ensembl gene ID.",
+        "The next operation needs an Ensembl ID. Resolve the current seed symbol {gene_symbol} first.",
+        "Prepare the Ensembl gene ID for seed {gene_symbol}, so the larger analysis can continue."
+      ],
+      "already_resolved": [
+        "Pinned Ensembl release 116 registry block: {registry_entry_json}. Use this block to resolve {gene_symbol}.",
+        "The pinned registry supplies this entry: {registry_entry_json}. Return the resolved human gene for {gene_symbol}.",
+        "Authoritative Ensembl release 116 registry entry: {registry_entry_json}. Which gene does {gene_symbol} identify?"
+      ]
+    },
+    "validation": {
+      "direct": [
+        "Find the human Ensembl gene ID for {gene_symbol}.",
+        "Resolve this human gene symbol: {gene_symbol}."
+      ],
+      "inside_task": [
+        "Resolve seed symbol {gene_symbol} before the next analysis operation.",
+        "The analysis needs the Ensembl ID for seed {gene_symbol} before it continues."
+      ],
+      "already_resolved": [
+        "Pinned Ensembl release 116 registry block: {registry_entry_json}. Resolve {gene_symbol} from the supplied block.",
+        "Use this authoritative registry entry without another lookup: {registry_entry_json}. Return the gene for {gene_symbol}."
+      ]
+    },
+    "test": {
+      "direct": [
+        "What is the human Ensembl gene ID for {gene_symbol}?",
+        "Return the Ensembl gene ID that matches the human symbol {gene_symbol}."
+      ],
+      "inside_task": [
+        "Before the workflow continues, convert seed {gene_symbol} to its Ensembl gene ID.",
+        "The next workflow step requires the human Ensembl ID for {gene_symbol}."
+      ],
+      "already_resolved": [
+        "Pinned Ensembl release 116 registry block: {registry_entry_json}. Answer for {gene_symbol} from this block.",
+        "The prompt supplies this authoritative registry entry: {registry_entry_json}. Resolve {gene_symbol} without another lookup."
+      ]
+    }
+  },
+  "outputs": {
+    "corpus_dir": "data/world_model_v2/sft/s1_1_symbol_to_ensembl_v1",
+    "evaluator_dir": "data/world_model_v2/eval/s1_1_symbol_to_ensembl_v1"
+  }
+}

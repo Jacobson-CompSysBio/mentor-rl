@@ -24,16 +24,22 @@ from runtime.world_model_training import (  # noqa: E402
     validated_tokenizer_manifest,
 )
 from scripts.build_world_model_v2_s0_generation_bundle import (  # noqa: E402
+    BUNDLE_FULL_SHARED_TRACE_SCHEMA_VERSION,
     BUNDLE_FULL_TOOL_TRAJECTORY_SCHEMA_VERSION,
+    BUNDLE_SHARED_TRACE_SCHEMA_VERSION,
     BUNDLE_TOOL_TRAJECTORY_SCHEMA_VERSION,
+    FULL_SHARED_TRACE_EVALUATION_CONTRACT,
     FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT,
     QUESTION_KEYS,
+    SHARED_TRACE_EVALUATION_CONTRACT,
     TOOL_TRAJECTORY_EVALUATION_CONTRACT,
     TOOL_TRAJECTORY_EVALUATION_CONTRACTS,
 )
 from scripts.evaluate_world_model_v2_s0 import (  # noqa: E402
+    SHARED_TRACE_PREDICTION_SCHEMA_VERSION,
     TOOL_TRAJECTORY_PREDICTION_SCHEMA_VERSION,
     parse_final_answer,
+    parse_shared_final_action,
     parse_tool_trajectory_call,
 )
 from runtime.tools import ToolExecutionError  # noqa: E402
@@ -63,6 +69,20 @@ SHARD_PREDICTION_SCHEMA_VERSION = (
     "mentor-rl-world-model-s0-prediction-shard-v1"
 )
 SHARD_STRATEGY = "strided_record_order_v1"
+SHARED_TRACE_EVALUATION_CONTRACTS = frozenset(
+    {
+        SHARED_TRACE_EVALUATION_CONTRACT,
+        FULL_SHARED_TRACE_EVALUATION_CONTRACT,
+    }
+)
+
+
+def _prediction_schema(evaluation_contract: str) -> str:
+    """Return the prediction schema for one evaluation contract."""
+
+    if evaluation_contract in SHARED_TRACE_EVALUATION_CONTRACTS:
+        return SHARED_TRACE_PREDICTION_SCHEMA_VERSION
+    return TOOL_TRAJECTORY_PREDICTION_SCHEMA_VERSION
 
 
 class S0GenerationError(RuntimeError):
@@ -173,9 +193,13 @@ def load_bundle(bundle_root: Path) -> tuple[dict[str, Any], list[dict[str, Any]]
         expected_schema = BUNDLE_FULL_TOOL_TRAJECTORY_SCHEMA_VERSION
     elif evaluation_contract == TOOL_TRAJECTORY_EVALUATION_CONTRACT:
         expected_schema = BUNDLE_TOOL_TRAJECTORY_SCHEMA_VERSION
+    elif evaluation_contract == SHARED_TRACE_EVALUATION_CONTRACT:
+        expected_schema = BUNDLE_SHARED_TRACE_SCHEMA_VERSION
+    elif evaluation_contract == FULL_SHARED_TRACE_EVALUATION_CONTRACT:
+        expected_schema = BUNDLE_FULL_SHARED_TRACE_SCHEMA_VERSION
     else:
         raise S0GenerationError(
-            "The bundle is not a v6 trajectory contract"
+            "The bundle is not a supported trajectory contract"
         )
     if (
         manifest.get("schema_version") != expected_schema
@@ -574,7 +598,9 @@ def merge_prediction_shards(
     write_jsonl(predictions_path, predictions)
     elapsed_values = [float(item["elapsed_seconds"]) for item in shard_receipts]
     manifest = {
-        "schema_version": TOOL_TRAJECTORY_PREDICTION_SCHEMA_VERSION,
+        "schema_version": _prediction_schema(
+            str(first_manifest["evaluation_contract"])
+        ),
         **{key: first_manifest[key] for key in common_keys},
         "record_count": len(predictions),
         "predictions_sha256": sha256_file(predictions_path),
@@ -673,7 +699,9 @@ def generate_predictions(
     generation_config.update(
         {
             "generation_passes": 2,
-            "final_enable_thinking": False,
+            "final_enable_thinking": (
+                evaluation_contract in SHARED_TRACE_EVALUATION_CONTRACTS
+            ),
         }
     )
     plan = {
@@ -813,6 +841,7 @@ def generate_predictions(
                     "encoded_final_answer": None,
                     "raw_final_generation": None,
                     "assistant_final": None,
+                    "assistant_final_explanation": None,
                     "final_prompt_tokens": None,
                     "final_generated_tokens": None,
                     "final_disallowed_special_tokens": [],
@@ -871,15 +900,24 @@ def generate_predictions(
                         "content": prediction_row["tool_payload"],
                     },
                 ]
+                final_enable_thinking = (
+                    evaluation_contract
+                    in SHARED_TRACE_EVALUATION_CONTRACTS
+                )
                 final_prompt = tokenizer.apply_chat_template(
                     messages,
                     tools=row["tools"],
                     tokenize=False,
                     add_generation_prompt=True,
-                    enable_thinking=False,
+                    enable_thinking=final_enable_thinking,
                     reasoning_effort=reasoning_effort,
                 )
-                if not final_prompt.endswith(GPT_OSS_FINAL_PROMPT_SUFFIX):
+                expected_suffix = (
+                    GPT_OSS_TOOL_PROMPT_SUFFIX
+                    if final_enable_thinking
+                    else GPT_OSS_FINAL_PROMPT_SUFFIX
+                )
+                if not final_prompt.endswith(expected_suffix):
                     raise S0GenerationError(
                         "The final prompt lacks its assistant boundary"
                     )
@@ -939,12 +977,21 @@ def generate_predictions(
                     eos_token=tokenizer.eos_token,
                     pad_token=tokenizer.pad_token,
                 )
-                assistant_final, _ = parse_final_answer(encoded_final)
+                if evaluation_contract in SHARED_TRACE_EVALUATION_CONTRACTS:
+                    (
+                        final_explanation,
+                        assistant_final,
+                        _,
+                    ) = parse_shared_final_action(encoded_final)
+                else:
+                    final_explanation = None
+                    assistant_final, _ = parse_final_answer(encoded_final)
                 batch_predictions[prediction_index].update(
                     {
                         "encoded_final_answer": encoded_final,
                         "raw_final_generation": raw_final,
                         "assistant_final": assistant_final,
+                        "assistant_final_explanation": final_explanation,
                         "final_prompt_tokens": (
                             final_prompt_token_counts[final_offset]
                         ),
@@ -979,7 +1026,7 @@ def generate_predictions(
         "schema_version": (
             SHARD_PREDICTION_SCHEMA_VERSION
             if shard_count > 1 or shard_output
-            else TOOL_TRAJECTORY_PREDICTION_SCHEMA_VERSION
+            else _prediction_schema(evaluation_contract)
         ),
         "evaluation_contract": bundle["evaluation_contract"],
         "test_panel_id": bundle["test_panel_id"],
