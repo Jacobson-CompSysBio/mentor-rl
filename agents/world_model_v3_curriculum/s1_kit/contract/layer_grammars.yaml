@@ -1,0 +1,82 @@
+# Dispatch on the first field. The build mints the tag strings. Never rewrite
+# them. Every parse normalizes to the same eight keys, null where the grammar
+# has no slot.
+#
+# Frozen 2026-10-01 to the form of the repo's lattice flist,
+# data/world_model_v2/lattice/ws0_brain_v1/flists/full_brain_multiplex_v1.tsv:
+#   - bulkPEN and TFs have 5 fields, and scPEN has 6. Field 2 names the
+#     family part, and it must equal family_part below.
+#   - HumanNetV3 keeps the v3 form.
+#
+# A parse copies each field value exactly, with its case, hyphens,
+# underscores and version. The one exception is layer_family, which comes
+# from the layer_family vocabulary. The lattice registry spells some scPEN
+# cell types with underscores (amygdala_excitatory). The tag has hyphens
+# (amygdala-excitatory), and the parse copies the tag.
+normalized_keys: [layer_id, layer_family, source, network, organ, region, cell_type, version]
+sep: ":"
+version_pattern: "^v[0-9]+$"
+
+families:
+  humannet:
+    match_prefix: "HumanNetV3"
+    arity: 5
+    fields: [source, network, organ, cell_type, version]
+    nulls: [region]
+    family_from: network
+    # An unrecognized network gives other. Do not guess the nearest named
+    # family. The flist has cocitation, database, gene_interaction,
+    # gene_neighbor and phylogenetic, which all give other.
+    network_family:
+      string_ppi: ppi
+      biogrid_ppi: ppi
+      coexpression: coexpression
+    unrecognized_network_family: other
+
+  bulk_pen:
+    match_prefix: "bulkPEN"
+    arity: 5
+    fields: [prefix, family_part, organ, region, version]
+    family_part: bulk_pen
+    nulls: [source, network, cell_type]
+    family_from: prefix
+    family: bulk_pen
+
+  scpen:
+    match_prefix: "scPEN"
+    arity: 6
+    fields: [prefix, family_part, organ, region, cell_type, version]
+    family_part: single_cell_pen
+    nulls: [source, network]
+    family_from: prefix
+    family: scpen
+
+  tf_target:
+    # The prefix is TFs (confirmed 2026-09-30). The one TF layer in the repo
+    # is TFs:tf_target:brain:all:v1.
+    match_prefix: "TFs"
+    arity: 5
+    fields: [prefix, family_part, organ, region, version]
+    family_part: tf_target
+    nulls: [source, network, cell_type]
+    family_from: prefix
+    family: tf_target
+
+# Strings that are not layer tags. A layer tag question about one of these
+# gives invalid_input with wrong_input_type, not a parse. A string that
+# matches no family and no namespace here is a malformed tag (invalid_input).
+other_namespaces:
+  context_id:
+    # The lattice form: organ:region:tissue:cell_type:version, for example
+    # brain:hippocampus:hippocampus:astrocyte:v1 and global:all:all:all:v1.
+    # S1.7.5 uses a 6-field form with a stage part
+    # (brain:hippocampus:CA1:astrocyte:adult:v1). The advisor decides which
+    # form is canonical.
+    first_field_in: [brain, global]
+    arity: [5, 6]
+    found_input_type: context_id
+  module_id:
+    # rwr_loe:<multiplex_id>:seed_<gene_id>:<construction rule>. MENTOR-EV
+    # module IDs (mentor_ev) wait for S1.9.
+    first_field_in: [rwr_loe, mentor_ev]
+    found_input_type: module_id

@@ -1,4 +1,4 @@
-> Updated 2026-09-30 to the S1 contract in `S1-coordinate-system.md`. Changes from the advisor's version: `provenance` on every tool result and answer (`null` without registry evidence), a per-call `evidence_id`, the registry block as JSON, `blocked_reason` as a sentence on every `defer` answer (`null` otherwise), the frozen bulkPEN and TF tag form, and the agreed trace fixes. New traces: S1.6.7 and S1.7.9. S0.7 still uses a placeholder ID.
+> Updated 2026-09-30 to the S1 contract in `S1-coordinate-system.md`. Changes from the advisor's version: `provenance` on every tool result and answer (`null` without registry evidence), a per-call `evidence_id`, the registry block as JSON, `blocked_reason` as a sentence on every `defer` answer (`null` otherwise), the frozen bulkPEN and TF tag form, and the agreed trace fixes. New traces: S1.6.7 and S1.7.9. S0.7 still uses a placeholder ID. Updated 2026-10-01: the S1.3.10 result names its multiplex, the S0.5 summary uses digits, the scPEN traces use the six-field lattice tags, and S1.3.6 uses BMS1P4 (trace fixes 12 to 15).
 
 # S0: Identity Worked Traces
 
@@ -159,7 +159,7 @@
                                   `"ENSG00000290587": {"chromosome": "19", "biotype": "lncRNA"}}},`  
  `"continuation_decision": "defer",`  
  `"blocked_reason": "The symbol GOLGA2P9 matches 2 genes in Ensembl release 116, and nothing in the task chooses one.",`  
- `"summary": "The symbol GOLGA2P9 matches two genes in Ensembl release 116: <GENE:ENSG00000269332|GOLGA2P9>, <GENE:ENSG00000290587|GOLGA2P9>. Give one Ensembl gene ID to continue."}`
+ `"summary": "The symbol GOLGA2P9 matches 2 genes in Ensembl release 116: <GENE:ENSG00000269332|GOLGA2P9>, <GENE:ENSG00000290587|GOLGA2P9>. Give one Ensembl gene ID to continue."}`
 
 **S0.6: Absent symbol**  
 `User:`  
@@ -1005,36 +1005,36 @@
 `Active multiplex: full_brain_multiplex_v1`
 
 `User:`  
-`Find the human Ensembl gene ID for GOLGA2P9.`
+`Find the human Ensembl gene ID for BMS1P4.`
 
 `Thinking:`  
-`The task gives only the symbol GOLGA2P9. I will look it up in the registry.`
+`The task gives only the symbol BMS1P4. I will look it up in the registry.`
 
 `Tool call:`  
-`lookup_human_gene_symbol({"gene_symbol": "GOLGA2P9"})`
+`lookup_human_gene_symbol({"gene_symbol": "BMS1P4"})`
 
 `Tool result:`  
 `{"status": "ambiguous",`  
  `"provenance": {"registry": "ensembl", "release": "116", "evidence_id": "ev_reg_53xfkm"},`  
- `"gene_symbol": "GOLGA2P9",`  
- `"candidate_gene_ids": ["ENSG00000269332", "ENSG00000290587"],`  
- `"candidate_details": {"ENSG00000269332": {"chromosome": "19", "biotype": "transcribed_unprocessed_pseudogene"},`  
-                       `"ENSG00000290587": {"chromosome": "19", "biotype": "lncRNA"}}}`
+ `"gene_symbol": "BMS1P4",`  
+ `"candidate_gene_ids": ["ENSG00000242338", "ENSG00000271816"],`  
+ `"candidate_details": {"ENSG00000242338": {"chromosome": "10", "biotype": "transcribed_unprocessed_pseudogene"},`  
+                       `"ENSG00000271816": {"chromosome": "10", "biotype": "lncRNA"}}}`
 
 `Thinking:`  
-`The registry maps GOLGA2P9 to two IDs on chromosome 19: a transcribed`  
+`The registry maps BMS1P4 to two IDs on chromosome 10: a transcribed`  
 `pseudogene and a lncRNA. The harness names the active multiplex, so I will`  
 `check which candidates are nodes in it.`
 
 `Tool call:`  
 `check_multiplex_membership({"multiplex_id": "full_brain_multiplex_v1",`  
-                            `"gene_ids": ["ENSG00000269332", "ENSG00000290587"]})`
+                            `"gene_ids": ["ENSG00000242338", "ENSG00000271816"]})`
 
 `Tool result:`  
 `{"status": "resolved",`  
  `"provenance": {"registry": "ensembl", "release": "116", "evidence_id": "ev_mem_ihtjof"},`  
  `"multiplex_id": "full_brain_multiplex_v1",`  
- `"present_gene_ids": ["ENSG00000269332", "ENSG00000290587"],`  
+ `"present_gene_ids": ["ENSG00000242338", "ENSG00000271816"],`  
  `"absent_gene_ids": []}`
 
 `Thinking:`  
@@ -1044,15 +1044,15 @@
 `Answer:`  
 `{"status": "ambiguous",`  
  `"provenance": {"registry": "ensembl", "release": "116", "evidence_id": "ev_reg_53xfkm"},`  
- `"result": {"gene_symbol": "GOLGA2P9",`  
-            `"candidate_gene_ids": ["ENSG00000269332", "ENSG00000290587"],`  
-            `"candidate_details": {"ENSG00000269332": {"chromosome": "19", "biotype": "transcribed_unprocessed_pseudogene"},`  
-                                  `"ENSG00000290587": {"chromosome": "19", "biotype": "lncRNA"}},`  
+ `"result": {"gene_symbol": "BMS1P4",`  
+            `"candidate_gene_ids": ["ENSG00000242338", "ENSG00000271816"],`  
+            `"candidate_details": {"ENSG00000242338": {"chromosome": "10", "biotype": "transcribed_unprocessed_pseudogene"},`  
+                                  `"ENSG00000271816": {"chromosome": "10", "biotype": "lncRNA"}},`  
             `"multiplex_id": "full_brain_multiplex_v1",`  
-            `"present_gene_ids": ["ENSG00000269332", "ENSG00000290587"]},`  
+            `"present_gene_ids": ["ENSG00000242338", "ENSG00000271816"]},`  
  `"continuation_decision": "defer",`  
- `"blocked_reason": "The symbol GOLGA2P9 matches 2 genes, and 2 of them are nodes in full_brain_multiplex_v1, so the multiplex does not choose one.",`  
- `"summary": "GOLGA2P9 matches 2 genes in Ensembl release 116, and both are nodes in full_brain_multiplex_v1: <GENE:ENSG00000269332|GOLGA2P9> (transcribed pseudogene) and <GENE:ENSG00000290587|GOLGA2P9> (lncRNA). Give one Ensembl gene ID to continue."}`
+ `"blocked_reason": "The symbol BMS1P4 matches 2 genes, and 2 of them are nodes in full_brain_multiplex_v1, so the multiplex does not choose one.",`  
+ `"summary": "BMS1P4 matches 2 genes in Ensembl release 116, and both are nodes in full_brain_multiplex_v1: <GENE:ENSG00000242338|BMS1P4> (transcribed pseudogene) and <GENE:ENSG00000271816|BMS1P4> (lncRNA). Give one Ensembl gene ID to continue."}`
 
 **S1.3.7: Multiplex Keeps None**
 
@@ -1219,6 +1219,7 @@
             `"candidate_gene_ids": ["ENSG00000269332", "ENSG00000290587"],`  
             `"candidate_details": {"ENSG00000269332": {"chromosome": "19", "biotype": "transcribed_unprocessed_pseudogene"},`  
                                   `"ENSG00000290587": {"chromosome": "19", "biotype": "lncRNA"}},`  
+            `"multiplex_id": "full_brain_multiplex_v1",`  
             `"failed_tool": "check_multiplex_membership",`  
             `"error_code": "BACKEND_UNAVAILABLE"},`  
  `"continuation_decision": "defer",`  
@@ -1544,28 +1545,29 @@
 
 **S1.6.2: One Field (direct)**  
 `User:`  
-`Which cell type does layer scPEN:brain:CA1:astrocyte:v1 give?`
+`Which cell type does layer scPEN:single_cell_pen:brain:hippocampus:astrocyte:v1`  
+`give?`
 
 `Thinking:`  
-`The prefix scPEN marks a single-cell PEN layer, so the family is scpen. In`  
-`this grammar, the parts after the prefix are organ, region, cell type, and`  
-`version: brain, CA1, astrocyte, and v1. The cell type is astrocyte. The tag`  
-`gives no source.`
+`The prefix scPEN marks a single-cell PEN layer, and the second part,`  
+`single_cell_pen, gives the family scpen. In this grammar, the parts after the`  
+`family part are organ, region, cell type, and version: brain, hippocampus,`  
+`astrocyte, and v1. The cell type is astrocyte. The tag gives no source.`
 
 `Answer:`  
 `{"status": "resolved",`  
  `"provenance": null,`  
- `"result": {"layer_id": "scPEN:brain:CA1:astrocyte:v1",`  
+ `"result": {"layer_id": "scPEN:single_cell_pen:brain:hippocampus:astrocyte:v1",`  
             `"layer_family": "scpen",`  
             `"source": null,`  
             `"network": null,`  
             `"organ": "brain",`  
-            `"region": "CA1",`  
+            `"region": "hippocampus",`  
             `"cell_type": "astrocyte",`  
             `"version": "v1"},`  
  `"continuation_decision": "stop",`  
  `"blocked_reason": null,`  
- `"summary": "<LAYER:scPEN:brain:CA1:astrocyte:v1> gives the cell type astrocyte, in region CA1 of the brain."}`
+ `"summary": "<LAYER:scPEN:single_cell_pen:brain:hippocampus:astrocyte:v1> gives the cell type astrocyte, in region hippocampus of the brain."}`
 
 **S1.6.3: Direct parse, HumanNet Grammar (direct)**  
 `User:`  
@@ -1594,34 +1596,35 @@
 
 **S1.6.4: List filter by field (direct)**  
 `User:`  
-`Which of these layers have the region hippocampus?`  
-`bulkPEN:bulk_pen:brain:amygdala:v1, scPEN:brain:CA1:astrocyte:v1,`  
-`HumanNetV3:string_ppi:global:all:v3`
+`Which of these layers have the region amygdala?`  
+`scPEN:single_cell_pen:brain:amygdaloid-complex:astrocyte:v1,`  
+`bulkPEN:bulk_pen:brain:hippocampus:v1, HumanNetV3:string_ppi:global:all:v3`
 
 `Thinking:`  
-`I will parse each tag and compare its region field exactly. The bulkPEN tag`  
-`gives the region amygdala. The scPEN tag gives the region CA1. Whether CA1 is`  
-`part of the hippocampus is an ontology question, not a tag field, so it does`  
-`not match. The HumanNet tag gives no region. No layer matches.`
+`I will parse each tag and compare its region field exactly. The scPEN tag`  
+`gives the region amygdaloid-complex. Whether the amygdaloid complex is the`  
+`amygdala is an ontology question, not a tag field, so it does not match. The`  
+`bulkPEN tag gives the region hippocampus. The HumanNet tag gives no region. No`  
+`layer matches.`
 
 `Answer:`  
 `{"status": "resolved",`  
  `"provenance": null,`  
- `"result": {"layers": [{"layer_id": "bulkPEN:bulk_pen:brain:amygdala:v1",`  
-                        `"layer_family": "bulk_pen",`  
-                        `"source": null,`  
-                        `"network": null,`  
-                        `"organ": "brain",`  
-                        `"region": "amygdala",`  
-                        `"cell_type": null,`  
-                        `"version": "v1"},`  
-                       `{"layer_id": "scPEN:brain:CA1:astrocyte:v1",`  
+ `"result": {"layers": [{"layer_id": "scPEN:single_cell_pen:brain:amygdaloid-complex:astrocyte:v1",`  
                         `"layer_family": "scpen",`  
                         `"source": null,`  
                         `"network": null,`  
                         `"organ": "brain",`  
-                        `"region": "CA1",`  
+                        `"region": "amygdaloid-complex",`  
                         `"cell_type": "astrocyte",`  
+                        `"version": "v1"},`  
+                       `{"layer_id": "bulkPEN:bulk_pen:brain:hippocampus:v1",`  
+                        `"layer_family": "bulk_pen",`  
+                        `"source": null,`  
+                        `"network": null,`  
+                        `"organ": "brain",`  
+                        `"region": "hippocampus",`  
+                        `"cell_type": null,`  
                         `"version": "v1"},`  
                        `{"layer_id": "HumanNetV3:string_ppi:global:all:v3",`  
                         `"layer_family": "ppi",`  
@@ -1631,11 +1634,11 @@
                         `"region": null,`  
                         `"cell_type": "all",`  
                         `"version": "v3"}],`  
-            `"filter": {"field": "region", "value": "hippocampus"},`  
+            `"filter": {"field": "region", "value": "amygdala"},`  
             `"matching_layer_ids": []},`  
  `"continuation_decision": "stop",`  
  `"blocked_reason": null,`  
- `"summary": "No layer has the region hippocampus as written. <LAYER:bulkPEN:bulk_pen:brain:amygdala:v1> has the region amygdala, <LAYER:scPEN:brain:CA1:astrocyte:v1> has the region CA1, and <LAYER:HumanNetV3:string_ppi:global:all:v3> gives no region."}`
+ `"summary": "No layer has the region amygdala as written. <LAYER:scPEN:single_cell_pen:brain:amygdaloid-complex:astrocyte:v1> has the region amygdaloid-complex, <LAYER:bulkPEN:bulk_pen:brain:hippocampus:v1> has the region hippocampus, and <LAYER:HumanNetV3:string_ppi:global:all:v3> gives no region."}`
 
 **S1.6.5: Wrong type (direct)**  
 `User:`  
@@ -1657,21 +1660,22 @@
 
 **S1.6.6: Malformed tag (direct)**  
 `User:`  
-`The next analysis step uses layer scPEN:brain:CA1:astrocyte. Parse its tag`  
-`first.`
+`The next analysis step uses layer`  
+`scPEN:single_cell_pen:brain:hippocampus:astrocyte. Parse its tag first.`
 
 `Thinking:`  
-`The prefix scPEN marks a single-cell PEN layer, and that grammar needs organ,`  
-`region, cell type, and version. The tag ends after the cell type, with no`  
-`version part. I will not guess the version, so I cannot parse the tag.`
+`The prefix scPEN marks a single-cell PEN layer, and that grammar needs the`  
+`family part, organ, region, cell type, and version. The tag ends after the`  
+`cell type, with no version part. I will not guess the version, so I cannot`  
+`parse the tag.`
 
 `Answer:`  
 `{"status": "invalid_input",`  
  `"provenance": null,`  
- `"result": {"input": "scPEN:brain:CA1:astrocyte", "expected": "layer_tag"},`  
+ `"result": {"input": "scPEN:single_cell_pen:brain:hippocampus:astrocyte", "expected": "layer_tag"},`  
  `"continuation_decision": "defer",`  
- `"blocked_reason": "The input scPEN:brain:CA1:astrocyte is not a well-formed layer tag.",`  
- `"summary": "The tag scPEN:brain:CA1:astrocyte has no version part, so it is not a valid layer tag. Give the full tag to continue."}`
+ `"blocked_reason": "The input scPEN:single_cell_pen:brain:hippocampus:astrocyte is not a well-formed layer tag.",`  
+ `"summary": "The tag scPEN:single_cell_pen:brain:hippocampus:astrocyte has no version part, so it is not a valid layer tag. Give the full tag to continue."}`
 
 **S1.6.7: Direct parse, TF layer (direct)**  
 `User:`  
@@ -1711,15 +1715,17 @@
 
 **S1.7.1: Family of a layer (direct)**  
 `User:`  
-`What layer family is scPEN:brain:CA1:astrocyte:v1?`
+`What layer family is scPEN:single_cell_pen:brain:hippocampus:astrocyte:v1?`
 
 `Thinking:`  
-`The tag starts with scPEN, so this is a single-cell predictive expression network layer, and its family is scpen. An edge in it is a predictive expression association in CA1 astrocytes only.`
+`The prefix scPEN and the family part single_cell_pen set the family to scpen,`  
+`a single-cell predictive expression network layer. An edge in it is a`  
+`predictive expression association in hippocampus astrocytes only.`
 
 `Answer:`  
 `{"status": "resolved",`  
  `"provenance": null,`  
- `"result": {"layer_id": "scPEN:brain:CA1:astrocyte:v1",`  
+ `"result": {"layer_id": "scPEN:single_cell_pen:brain:hippocampus:astrocyte:v1",`  
             `"layer_family": "scpen",`  
             `"evidence_type": "context_predictive_expression",`  
             `"supported_claims": ["context_predictive_expression"],`  
@@ -1727,12 +1733,12 @@
                                    `"global_coexpression", "cofunctional_association", "holds_in_other_contexts", "causal_effect"]},`  
  `"continuation_decision": "stop",`  
  `"blocked_reason": null,`  
- `"summary": "<LAYER:scPEN:brain:CA1:astrocyte:v1> is in the scpen family. Its edges are predictive expression associations in CA1 astrocytes."}`
+ `"summary": "<LAYER:scPEN:single_cell_pen:brain:hippocampus:astrocyte:v1> is in the scpen family. Its edges are predictive expression associations in hippocampus astrocytes."}`
 
 **S1.7.2: List filter (direct)**  
 `User:`  
 `Which of these layers are PPI layers? HumanNetV3:string_ppi:global:all:v3,`  
-`HumanNetV3:coexpression:global:all:v3, scPEN:brain:CA1:astrocyte:v1`
+`HumanNetV3:coexpression:global:all:v3, scPEN:single_cell_pen:brain:hippocampus:astrocyte:v1`
 
 `Thinking:`  
 `The first tag names a PPI source, so its family is ppi. The second tag names`  
@@ -1744,10 +1750,10 @@
  `"provenance": null,`  
  `"result": {"layer_family": "ppi",`  
             `"matching_layer_ids": ["HumanNetV3:string_ppi:global:all:v3"],`  
-            `"other_layer_ids": ["HumanNetV3:coexpression:global:all:v3", "scPEN:brain:CA1:astrocyte:v1"]},`  
+            `"other_layer_ids": ["HumanNetV3:coexpression:global:all:v3", "scPEN:single_cell_pen:brain:hippocampus:astrocyte:v1"]},`  
  `"continuation_decision": "stop",`  
  `"blocked_reason": null,`  
- `"summary": "Only <LAYER:HumanNetV3:string_ppi:global:all:v3> is a PPI layer. <LAYER:HumanNetV3:coexpression:global:all:v3> is a coexpression layer, and <LAYER:scPEN:brain:CA1:astrocyte:v1> is a single-cell PEN layer."}`
+ `"summary": "Only <LAYER:HumanNetV3:string_ppi:global:all:v3> is a PPI layer. <LAYER:HumanNetV3:coexpression:global:all:v3> is a coexpression layer, and <LAYER:scPEN:single_cell_pen:brain:hippocampus:astrocyte:v1> is a single-cell PEN layer."}`
 
 **S1.7.3: Claims of a layer (step)**  
 `User:`  

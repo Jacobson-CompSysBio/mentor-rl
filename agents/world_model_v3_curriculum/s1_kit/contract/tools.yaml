@@ -1,0 +1,66 @@
+# Tool signatures and result shapes (S1 spec, section "Tools").
+#
+# Every tool result has "status" first and "provenance" second. The runtime
+# writes provenance into the result that the model sees. The other keys
+# follow the order listed for that status.
+
+# The tools that an S1 row may call. Every S1 row lists these three, closed-
+# book rows included, so the tool list does not tell the model whether to call.
+s1_callable:
+  [lookup_human_gene_symbol, lookup_human_ensembl_gene_id,
+   check_multiplex_membership]
+
+# Any tool, transport failure. A failed call reads no record, so its
+# provenance is null.
+error_result:
+  keys: [status, provenance, error_code, message]
+  status: error
+  provenance: null
+
+tools:
+  lookup_human_gene_symbol:
+    args: {gene_symbol: str}
+    # The argument copies the user's text exactly. The tool trims spaces and
+    # ignores case. If case folding joins two registry symbols, the result
+    # is ambiguous.
+    normalizes: [trim_spaces, ignore_case]
+    returns:
+      resolved: [status, provenance, gene_id, gene_symbol]
+      ambiguous: [status, provenance, gene_symbol, candidate_gene_ids, candidate_details]
+      not_found: [status, provenance, gene_symbol, candidate_gene_ids]
+    candidate_details: {chromosome: str, biotype: str}
+    provenance: registry
+
+  lookup_human_ensembl_gene_id:
+    args: {gene_id: str}
+    # The tool strips a numeric ".N" suffix only. It keeps any other suffix,
+    # so ENSG00000182378.14_PAR_Y is not_found. It checks the format. The
+    # model does not check or repair an ID.
+    normalizes: [trim_spaces, ignore_case, strip_numeric_version_suffix]
+    format: "^ENSG[0-9]{11}$"
+    returns:
+      resolved: [status, provenance, gene_id, gene_symbol]      # gene_symbol can be null
+      not_found: [status, provenance, gene_id, gene_symbol]     # gene_id is the input as given, gene_symbol is null
+      invalid_input: [status, provenance, input, expected]      # expected is human_gene_id
+    provenance: registry
+
+  check_multiplex_membership:
+    args: {multiplex_id: str, gene_ids: list}
+    # A gene is a member when it is in the gene table of the multiplex store,
+    # in any layer. The tool reports. It does not choose.
+    returns:
+      resolved: [status, provenance, multiplex_id, present_gene_ids, absent_gene_ids]
+    provenance: registry      # open question 4: the registry block or a graph block
+
+  resolve_context_ontology:
+    # Joins s1_callable when S1.5 is unblocked. Not in the S1 prompt yet.
+    available_from: S1.5
+    args: {context_id: str}
+    returns: [anatomy, cell_type, developmental_stage, pen_layers, ontology_versions]
+
+  query_mygene:
+    # Appears only as a harness block (S1.4.8). The model does not call it
+    # in S1.
+    harness_only: true
+    args: {query: str, fields: list}
+    returns: [query, requested_fields, results, result_count]

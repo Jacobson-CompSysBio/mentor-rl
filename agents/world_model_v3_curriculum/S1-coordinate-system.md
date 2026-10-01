@@ -9,22 +9,34 @@ Use these sources, in this order:
 1. The S1 question classes file, `S1-question-classes.md`. Keep it beside
    this file. Refer to a trace by its ID.
    - It is the advisor's file, with the agreed trace fixes and the decisions
-     in this document applied (2026-09-30).
+     in this document applied (2026-09-30 and 2026-10-01).
    - It has 66 worked traces: S0.1 to S0.7, S1.1.1 to S1.8.6, and the new
      S1.6.7 and S1.7.9.
-2. The advisor's kit:
-   - four YAML contract files: the vocabularies, the three layer tag
-     grammars, the tool signatures, and the provenance rule
-   - `validate.py`
-   - `selftest.sh`, with 21 broken traces
+2. The kit, in `s1_kit/` beside this file. It is the advisor's snapshot
+   94fa4d5, updated to this document on 2026-10-01. `s1_kit/README.md` lists
+   each local change.
+   - six YAML contract files in `s1_kit/contract/`: the vocabularies, the
+     `blocked_reason` templates, the four layer tag grammars, the tool
+     signatures and result shapes, the provenance rule, and the row form of a
+     generated corpus (`rows.yaml`)
+   - `validate.py`, for a question file (`.md`) or a generated corpus
+     (`.jsonl`)
+   - `selftest.sh`, with 53 broken traces and rows and 24 clean ones
    - `mutate.sh`
 
-   The kit is not in the repo yet. Add the commands to this file when you
-   commit the kit. Update its YAML contracts first:
-   - `provenance` on every tool result and answer, with `evidence_id`
-   - the registry block as JSON
-   - `blocked_reason` as a sentence
-   - the five-field bulkPEN and TFs grammar
+   Run these commands from the repo root, with the `pytorch-rocm`
+   environment:
+
+   ```bash
+   K=agents/world_model_v3_curriculum/s1_kit
+   PYTHON=python $K/selftest.sh       # run this first. It must print PASS.
+   PYTHON=python $K/mutate.sh         # after any change to validate.py
+   python $K/validate.py agents/world_model_v3_curriculum/S1-question-classes.md
+   python $K/validate.py <corpus>/train.jsonl
+   ```
+
+   Exit codes: 0 clean, 1 violations found, 2 or more could not run. Run
+   `selftest.sh` after any change to the contracts.
 3. `MENTOR-RL-World-Model_v3.md` (2026-09-29): the Data Catalog S1 section,
    the answer envelope, the layer tag grammars, the layer claim vocabulary,
    and the RWR++ Tool API contract.
@@ -144,7 +156,7 @@ the book mode of the row.
   `ambiguous_symbol` sentence, and the code stays in the backend.
 - Add an S1 `StagePromptContract` to `runtime/world_model_prompts.py`:
   - `allowed_book_modes`: `("tool_call", "closed_book")`
-  - `source_document`: `agents/world_model_v2_curriculum/S1-coordinate-system.md`
+  - `source_document`: `agents/world_model_v3_curriculum/S1-coordinate-system.md`
 
   All S1 rows then have the same `system_prompt_sha256`.
 
@@ -200,12 +212,19 @@ The final answer is one JSON object. Use the keys in this order:
 On every `defer` answer, `blocked_reason` is one sentence that tells the
 user what blocks the task. On every other answer it is `null`.
 
-- **Fixed templates, for now.** Each reason code has one sentence template.
-  The runtime fills the slots from the result.
+- **Fixed templates, for now.** Each reason code has one or more sentence
+  templates. The runtime fills the slots from the result.
 - **The code stays in the backend.** The row metadata records
   `blocked_reason_code`, hidden from the model like `question_family`. The
   validator and the Stage 2 scorer read the code. They check that the
   sentence equals the template for that code, filled from the result.
+- **Normative source.** `s1_kit/contract/blocked_reasons.yaml` holds each
+  template, the status that it fits, the source of each slot, and the prose
+  labels. The table below is a copy. If they differ, the YAML file wins.
+- **Slots that the result does not hold.** `{found}` and `{species}` come from
+  the hidden row metadata (`found_input_type`, `input_species`), rendered with
+  the YAML labels. Every other slot comes from the result.
+- Numbers in the sentence are digits ("2 genes").
 
 | Code | `status` | Template | Traces |
 |---|---|---|---|
@@ -215,9 +234,10 @@ user what blocks the task. On every other answer it is `null`.
 | `not_found` | `not_found` | The registry has no gene with the symbol {input} in Ensembl release 116. | S0.6, S1.1.3, S1.4.5 |
 | | | The registry has no gene with the ID {input} in Ensembl release 116. | S0.7, S1.2.5 |
 | `invalid_input` | `invalid_input` | The input {input} is not a well-formed {expected}. | S1.2.6, S1.6.6 |
-| `wrong_input_type` | `invalid_input` | The input {input} is a {found}, not a {expected}. | S1.6.5, S1.7.5 |
+| `wrong_input_type` | `invalid_input` | The input {input} is a {found}, not a {expected}. | S1.6.5, S1.7.5; planned for the S1.2 `ENST` and `ENSP` inputs |
 | `no_multiplex_supplied` | Planned | The task asks about multiplex membership, but it names no multiplex. | None |
 | `no_multiplex_membership` | `not_found` | No candidate for {symbol} is a node in {multiplex_id}. | S1.3.7 |
+| | Planned | The gene {gene_id} is not a node in {multiplex_id}. | None. For a clean resolution to a gene that is not in the multiplex. Depends on open question 11. |
 | `out_of_scope_species` | `invalid_input` | The input {input} is a {species} gene {kind}, and the registry holds human genes only. | S1.1.7, S1.2.10 |
 | `unrecognized_metric` | `ambiguous` | The name "{input}" can mean {c1} or {c2}, and the two have opposite directions. | S1.8.5 |
 | | `not_found` | The metric "{input}" is not in the direction conventions. | S1.8.6 |
@@ -277,8 +297,9 @@ always present, so the model decides its value, not whether to write the key.
   `human_gene_symbol`, `human_gene_id`, or `layer_tag`.
 - **Tool failure, answer on failed calls alone:** `{"tool": ...,
   "error_code": ..., <input key>: ...}`, for example `"gene_symbol": "VARS1"`.
-- **Tool failure, partial:** the lookup result, plus `"failed_tool"` and
-  `"error_code"`.
+- **Tool failure, partial:** the lookup result, plus `"multiplex_id"`,
+  `"failed_tool"`, and `"error_code"`. `multiplex_id` names the multiplex
+  that the failed check was to read (S1.3.10).
 
 ### Mapping to Stage 2
 
@@ -499,6 +520,7 @@ Also:
   | `step` | No | It names the curriculum stage, which is not task content |
   | `question_family` | No | It tells the model the family, for example that a symbol is ambiguous (S1.3) before the lookup |
   | Form number, source trace ID, split unit | No | Backend only |
+  | `blocked_reason_code`, `found_input_type`, `input_species` | No | They give the answer. The validator and the scorer read them to check the `blocked_reason` sentence. |
   | `schema_version`, `system_prompt_sha256`, `tool_contract_version`, `ensembl_release`, `identifier_registry_id` | No | Backend only, as in S0 |
   | `multiplex_id`, `layer_scope`, `layer_ids`, `entity_namespace` (the v3 fields) | Only as harness context, when the task needs it | See the rule below |
 
@@ -799,7 +821,7 @@ mints the tags. Do not rename them.
 |---|---|---|---|
 | `HumanNetV3` | source : network : organ : cell type : version | 5 | From the network field (see S1.7) |
 | `bulkPEN` | prefix : family : organ : region : version | 5 | `bulk_pen` |
-| `scPEN` | prefix : organ : region : cell type : version | 5 | `scpen` |
+| `scPEN` | prefix : family : organ : region : cell type : version | 6 | `scpen` |
 | `TFs` | prefix : family : organ : region : version | 5 | `tf_target` |
 
 - HumanNet tags have no region. For example, `HumanNetV3:string_ppi:global:all:v3`
@@ -808,21 +830,33 @@ mints the tags. Do not rename them.
   names the family, and it must match the prefix (`bulk_pen` for bulkPEN,
   `tf_target` for TFs). Field 4 fills `region`. In
   `TFs:tf_target:brain:all:v1`, `region` is `"all"`.
-- scPEN tags have no source and no network.
+- scPEN tags have no source and no network. Field 2 is the family part
+  `single_cell_pen`, and it must match the prefix. `layer_family` is `scpen`,
+  from the S1.7 enum. For example,
+  `scPEN:single_cell_pen:brain:hippocampus:astrocyte:v1` gives `organ:
+  "brain"`, `region: "hippocampus"`, and `cell_type: "astrocyte"`.
+- The normative grammars are in `s1_kit/contract/layer_grammars.yaml`.
 - Layer tags and context addresses are separate namespaces. A string such as
   `brain:cortex:L5:microglia:v1` addresses a context, not a layer.
 
-**Frozen tag form (2026-09-30).** bulkPEN and TFs use the five-field form
-of the repo's lattice flist
+**Frozen tag form (2026-09-30, scPEN 2026-10-01).** bulkPEN and TFs use the
+five-field form, and scPEN uses the six-field form, of the repo's lattice flist
 (`data/world_model_v2/lattice/ws0_brain_v1/flists/full_brain_multiplex_v1.tsv`),
-for example `bulkPEN:bulk_pen:brain:amygdala:v1` and
-`TFs:tf_target:brain:all:v1`.
+for example `bulkPEN:bulk_pen:brain:amygdala:v1`,
+`TFs:tf_target:brain:all:v1`, and
+`scPEN:single_cell_pen:brain:hippocampus:astrocyte:v1`.
 
 - The v3 three-field bulkPEN form (`bulkPEN:GTEx_v9-brain-hippocampus:v1`)
-  is not used. S1.6.1, S1.6.4, and S1.7.7 now use the five-field form.
-- The corrected PEN build must mint its bulkPEN tags in this form.
-- HumanNetV3 and scPEN keep the v3 form. When the PEN rebuild lands, check
-  their tags against the lattice flist.
+  is not used. S1.6.1 and S1.7.7 use the five-field form.
+- The v3 five-field scPEN form (`scPEN:brain:CA1:astrocyte:v1`) is not used.
+  S1.6.2, S1.6.4, S1.6.6, S1.7.1, and S1.7.2 use the six-field form. All 358
+  tags of the flist parse under the frozen grammars.
+- The corrected PEN build must mint its bulkPEN and scPEN tags in these forms.
+- HumanNetV3 keeps the v3 form. When the PEN rebuild lands, check its tags
+  against the lattice flist.
+- The flist spells cell types with hyphens (`amygdala-excitatory`). The lattice
+  registry spells some with underscores (`amygdala_excitatory`). A parse
+  copies the tag.
 - The older `data/full_brain_flist.tsv` names the TF layer `TFs:brain`. Do not
   use that name.
 
@@ -847,7 +881,9 @@ for example `bulkPEN:bulk_pen:brain:amygdala:v1` and
   - **Read the tag only.** A parse does not say that a layer is in a
     multiplex, and it makes no claim about edges.
   - **No inference.** Do not infer a part from biology. The region of
-    `scPEN:brain:CA1:astrocyte:v1` is `CA1`, not "hippocampus."
+    `scPEN:single_cell_pen:brain:amygdaloid-complex:astrocyte:v1` is
+    `amygdaloid-complex`, and a filter for the region `amygdala` does not
+    match it (S1.6.4).
   - **Copy values exactly.** Keep the case, the underscores, and the version.
     The one exception is `layer_family`, which comes from the S1.7 enum.
   - **Exact filters.** List filters compare field values exactly.
@@ -1102,11 +1138,25 @@ Measure it with these floors, on held-out phrasings and held-out split units:
 - Every trace in the question file, and every generated row, passes
   `validate.py` against the kit's YAML contracts before it enters the corpus.
   QC is all-or-nothing.
-- Run `selftest.sh` after any change to the contracts.
+- Run `selftest.sh` after any change to the contracts, and `mutate.sh` after
+  any change to `validate.py`. `selftest.sh` checks that the right check
+  catches each broken fixture. `mutate.sh` turns off each `flag(...)` call in
+  turn and checks that a fixture notices. Keep each `flag(...)` call on one
+  line, so that each mutant is a real one.
+- A generated corpus is JSONL in the row form of `s1_kit/contract/rows.yaml`.
+  The validator reads the hidden metadata of each row. So for a row it also
+  checks the `blocked_reason_code`, the label slots (`found_input_type`,
+  `input_species`), the row form, and the prompt rules below.
 - The kit validated the advisor's file, but it did not catch the problems
-  listed in "Trace fixes." Add a broken trace to the selftest for each of
-  these checks:
-  - two traces with the same user text
+  listed in "Trace fixes." The kit now has a check, and a broken fixture in
+  the selftest, for each of these (2026-10-01):
+  - two traces with the same visible input and the same tool outcomes. The
+    visible input is the harness context, the earlier turn, and the user
+    text. The tool outcomes are the tool and the status of each call.
+    `evidence_id` values do not count. Two rows can share user text on
+    purpose: a failure row repeats the prompt of its success row (S1.1.1 and
+    S1.1.8), and a near-miss row repeats a prompt under another harness block
+    (S1.3.1 and S1.3.4).
   - a `blocked_reason_code` that does not fit the `status` (see the
     `blocked_reason` table)
   - a `blocked_reason` sentence that differs from its filled template
@@ -1115,14 +1165,22 @@ Measure it with these floors, on held-out phrasings and held-out split units:
   - an answer or a tool result with no `provenance` key
   - an answer whose `evidence_id` differs from its evidence
   - an `evidence_id` that appears in more than one row
-  - a system prompt or a visible field that differs by book mode, step, or
-    question family
+  - a system prompt or a tool list that differs between rows, and a hidden
+    field name or value (book mode, step, question family, source trace) in
+    the visible text. These need generated rows.
   - an anchor type that is not in the anchor list
   - claim lists that are not in vocabulary order
-  - a summary that asks for input when the decision is not `defer`
+  - a summary that asks for input when the decision is not `defer`, and a
+    `defer` summary that asks for nothing. The phrases that ask are
+    `input_request_phrases` in `vocabularies.yaml`.
   - a summary with an anchor that is not in the result
   - failure-result keys that do not fit the failure rule (`tool` versus
     `failed_tool`)
+  - a tool result whose keys differ from `tools.yaml` for its status
+- The rule for visible fields also has a statistical part that one row cannot
+  show, for example a harness line that appears only on one form. The
+  masked-wording check and the corpus audit cover it (see "Generation
+  rules").
 
 ## Trace fixes
 
@@ -1165,6 +1223,27 @@ The updated question file applies these fixes to the advisor's traces
 
     This document still replaces the guidance bullets where they differ.
 
+Fixes of 2026-10-01:
+
+12. **S1.3.10:** the partial-failure result now has `"multiplex_id"`, so
+    every slot of its `blocked_reason` sentence comes from the result.
+13. **S0.5:** the summary says "2 genes", not "two genes". Numbers are
+    digits in every summary and every `blocked_reason` sentence.
+14. **scPEN tag form.** S1.6.2, S1.6.4, S1.6.6, S1.7.1, and S1.7.2 use real
+    six-field tags from the lattice flist. `CA1` is not a region in the flist.
+    - S1.6.2, S1.6.6, S1.7.1, and S1.7.2 use
+      `scPEN:single_cell_pen:brain:hippocampus:astrocyte:v1`. S1.6.6 drops its
+      version.
+    - S1.6.4 still has no match, and it still tests the no-inference rule: it
+      filters for the region `amygdala`, and the scPEN tag has the region
+      `amygdaloid-complex`.
+15. **S1.3.6:** GOLGA2P9 has only 1 candidate in the
+    `full_brain_multiplex_v1` store (ENSG00000269332), so the trace did not
+    hold. It now uses BMS1P4, with the same pair class on chromosome 10:
+    ENSG00000242338 (transcribed unprocessed pseudogene) and ENSG00000271816
+    (lncRNA). Both are nodes in the store. The store is provisional (see
+    "Repo data findings"). Check the trace again when the store is rebuilt.
+
 Still open for the advisor: the provenance on membership results (S1.3.5 to
 S1.3.7).
 
@@ -1200,6 +1279,8 @@ wording for now. A later move to model-written wording is planned.
 | `evidence_id` | Optional, "when the tool returns one"; no trace has one; the registry block is a prose header | Required and new for each call. The registry block is JSON with a `provenance` object. | A constant block can be memorized. A changing ID must be copied. |
 | `blocked_reason` | A code from 9 values on every `defer` answer | A sentence from a fixed template on every `defer` answer, and `null` otherwise. The code stays in the backend. | The user reads why the analysis stopped. The code still drives validation. |
 | Layer tag form | bulkPEN in 3 fields (`bulkPEN:GTEx_v9-brain-hippocampus:v1`), and TF tags in the same shape | bulkPEN and TFs frozen to the 5-field lattice form (`bulkPEN:bulk_pen:brain:amygdala:v1`, `TFs:tf_target:brain:all:v1`) | These are the tags that the repo's lattice flist uses |
+| scPEN tag form | 5 fields (`scPEN:brain:CA1:astrocyte:v1`) | Frozen 2026-10-01 to the 6-field lattice form (`scPEN:single_cell_pen:brain:hippocampus:astrocyte:v1`), with the family part `single_cell_pen` | The flist's 336 scPEN tags all use this form, and `CA1` is not a region in it |
+| S1.3.6 symbol | GOLGA2P9, both candidates nodes | BMS1P4 | In the store, only one GOLGA2P9 candidate is a node |
 | TF sign | Up to two `regulation_direction` traces | No signed TF layer for now. `regulation_direction` is unsupported for every `tf_target` layer. | The loaded TF layer has no sign and no direction |
 
 ## Repo data findings (2026-09-30)
@@ -1241,11 +1322,17 @@ wording for now. A later move to model-written wording is planned.
   `_archive` because they "contain incorrectly created PEN networks."
 - Effects on S1:
   - Take the bulkPEN and scPEN tags from the corrected PEN build, not from
-    the current flists. bulkPEN tags keep the frozen five-field form.
-  - The gene universe of a multiplex is the union of its PEN gene sets. Check
-    which PEN build the `full_brain_multiplex_v1` store used. If it used the
-    archived networks, rebuild the store before you take S1.3 membership
-    results from it.
+    the current flists. bulkPEN tags keep the frozen five-field form, and
+    scPEN tags keep the frozen six-field form. Until that build lands, the
+    S1.6 and S1.7 tag pools use the lattice flist tags.
+  - The gene universe of a multiplex is the union of its PEN gene sets. The
+    store `data/runtime/full_brain_multiplex_store` (33,244 genes) was built
+    in 2026-06 from `full_brain_flist.tsv`, so it probably used the archived
+    networks.
+  - Decided (2026-10-01): use this store for the S1.3 membership forms now,
+    pinned by SHA-256 and marked provisional in every manifest. When the
+    corrected build lands, rebuild the store, pin it again, regenerate the
+    membership rows, and check S1.3.5 to S1.3.7 again.
 
 ## Open questions
 
@@ -1293,7 +1380,8 @@ wording for now. A later move to model-written wording is planned.
 13. Applied: the registry block is JSON with a `provenance` object (see
     "Harness context blocks").
 14. The decisions in "Decisions that differ from the advisor's sources."
-15. Decided: bulkPEN and TFs are frozen to the five-field lattice form.
+15. Decided: bulkPEN and TFs are frozen to the five-field lattice form, and
+    scPEN to the six-field lattice form (2026-10-01).
 16. Decided for now: no signed TF layer. If one is added later, the
     recommended path stays:
     - Keep the RWR layer undirected, with positive weights.
@@ -1373,7 +1461,7 @@ Internal:
 - The advisor's S1 question classes file (64 traces), and the advisor's email
   of 2026-09-30.
 - `MENTOR-RL-World-Model_v3.md`
-- `agents/world_model_v2_curriculum/S0-human-gene-identifiers.md`
+- `agents/world_model_v3_curriculum/S0-human-gene-identifiers.md`
 - Runtime and scripts:
   - `runtime/world_model_s0_tools.py`
   - `runtime/world_model_prompts.py`

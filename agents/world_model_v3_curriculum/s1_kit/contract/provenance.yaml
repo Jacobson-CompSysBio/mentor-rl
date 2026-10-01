@@ -1,0 +1,79 @@
+# What an answer must carry to show where its identifiers came from.
+#
+# The point is the recall rule. The model must copy an identifier from a tool
+# result, never recall it from weights. Without provenance, an answer that
+# copied ENSG00000141510 and an answer that hallucinated it are identical
+# strings and no check can tell them apart. Provenance is what makes the copy
+# auditable.
+
+# The key is always present, on every answer and on every tool result. Its
+# value is a block or null. The model decides the value, not whether to write
+# the key, so the validator checks one shape.
+key_always_present: true
+
+# The fields of a block, in this order. At S1 there is one block type, the
+# registry block. Every field is required.
+required_at_s1: [registry, release, evidence_id]
+registry_block:
+  registry: ensembl
+  release: "116"
+  # The runtime makes a new random evidence_id for each call. It does not
+  # derive the ID from the input, and it does not reuse an ID across rows,
+  # so the model can only copy it. Without a changing value, a copied block
+  # and a memorized block are the same string.
+  evidence_id_pattern: "^ev_(reg|mem)_[a-z0-9]{6}$"
+  evidence_id_prefix:
+    lookup_human_gene_symbol: ev_reg_
+    lookup_human_ensembl_gene_id: ev_reg_
+    check_multiplex_membership: ev_mem_
+    harness_registry_block: ev_reg_
+evidence_id_unique_across_rows: true
+
+# Added at S2 when graph tools enter. A graph answer names the graph it read.
+added_at_s2: [multiplex_id, graph_version, layer_scope]
+
+# The block that each tool result carries. A membership result carries the
+# registry block until the advisor decides open question 4.
+tool_result_block:
+  lookup_human_gene_symbol: registry
+  lookup_human_ensembl_gene_id: registry
+  check_multiplex_membership: registry
+
+# A failed call is not evidence. It read no record, so its result has
+# "provenance": null, and an answer that rests only on failed calls has
+# "provenance": null. A partial failure still has a block: the successful
+# lookup and its provenance stand, and only the failed part is deferred on.
+error_results_are_not_evidence: true
+
+# An answer with registry evidence copies the block of the evidence it rests
+# on, every field included. The validator compares, it does not pattern match.
+# The evidence can be:
+#   - a successful tool result of this turn
+#   - a harness registry block that lists the exact input (rows with no call)
+#   - an answer of an earlier turn in context (S1.3.8, S1.3.9)
+# An answer that rests on a lookup and a membership check (S1.3.5 to S1.3.7)
+# copies the block of the lookup. A partial failure (S1.3.10) copies the
+# block of the successful lookup.
+copied_from_evidence: true
+lookup_tools: [lookup_human_gene_symbol, lookup_human_ensembl_gene_id]
+
+# Answers that rest on no registry evidence have "provenance": null. Their
+# warrant is the grammar or the convention table, which lives in the weights,
+# and inventing a block for them would teach the model to fabricate one:
+#   - the convention families (S1.6 to S1.9)
+#   - rejections with no call (S1.1.7, S1.2.10)
+#   - answers that rest on failed calls alone (S1.1.8, S1.2.11)
+#   - ID-to-ID comparisons with no lookup (S1.4.3, S1.4.4)
+null_when: no_registry_evidence
+
+# The harness registry block. The model trusts only this block, and it copies
+# the block's provenance object. It does not parse the header. The model
+# skips a call only when the block lists the exact input.
+harness_registry_block:
+  header: "Registry entries, Ensembl release 116:"
+  keys: [provenance, entries]
+  # A resolved entry is {gene_id, gene_symbol}. An ambiguous entry has the
+  # ambiguous tool-result shape with no provenance of its own. The block's
+  # provenance covers every entry.
+  resolved_entry: [gene_id, gene_symbol]
+  ambiguous_entry: [status, gene_symbol, candidate_gene_ids, candidate_details]

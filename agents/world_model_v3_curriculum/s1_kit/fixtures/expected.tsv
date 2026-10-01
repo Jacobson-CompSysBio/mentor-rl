@@ -1,0 +1,53 @@
+F1	status vocabulary
+F2	defer needs blocked_reason
+F3	blocked_reason matches template
+F4	continuation vocabulary
+F5	tool in inventory
+F6	layer tag parses
+F7	layer tag parses
+F8	layer_family vocabulary
+F9	claim vocabulary
+F10	answer JSON parses
+F11	layer tag parses
+F12	no by-reference placeholder
+F13	status vocabulary
+F14	provenance present
+F15	provenance copied
+F16	provenance present
+F17	context answer carries provenance
+F18	trace label matches its family
+F19	claim sets partition the vocabulary
+F20	claim sets partition the vocabulary
+F21	tool failure not reported as a negative
+F22	tool in inventory
+F23	blocked_reason fits status
+F24	blocked_reason null unless defer
+F25	blocked_reason matches template
+F26	provenance copied
+F27	provenance copied
+F28	no invented provenance
+F29	layer tag parses
+F30	layer tag parses
+F31	layer tag parses
+F32	tool result JSON parses
+F33	harness registry block parses
+F34	no duplicate prompt
+F35	thinking after tool result
+F36	tool provenance fits tool
+F37	provenance key present
+F38	evidence_id unique across rows
+F39	anchor vocabulary
+F40	claim order
+F41	summary asks only on defer
+F42	defer summary asks for input
+F43	summary anchors in result
+F44	failure keys
+F45	tool result shape
+J1	one prompt for every row
+J2	no hidden field in visible text
+J3	blocked_reason matches template
+J4	blocked_reason matches template
+J5	row shape
+J6	blocked_reason null unless defer
+J7	thinking after tool result
+J8	provenance copied
