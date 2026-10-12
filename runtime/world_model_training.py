@@ -1,4 +1,11 @@
-"""Prepare the canonical S0 tool trajectory data and exposure receipts."""
+"""Prepare S0 SFT data and exposure receipts.
+
+The trainer reads canonical rows of the shared world-model contract
+(`runtime/world_model/contract.yaml`, row schema `multiplex_sft_v3`). This
+module validates those rows, tokenizes them with a loss mask over the
+assistant turns, and builds the content-addressed exposure receipt that ties a
+checkpoint to the exact train rows it consumed.
+"""
 
 from __future__ import annotations
 
@@ -12,8 +19,7 @@ import random
 import re
 from typing import Any
 
-from runtime.world_model_prompts import s0_tool_trajectory_prompt_contract
-from runtime.world_model_schemas import S0_FAMILIES, IdentifierToolSFTRecord
+from runtime.world_model.contract import load_contract, system_prompt_sha256
 
 
 TOKENIZER_ARTIFACT_NAMES = frozenset(
@@ -28,23 +34,42 @@ TOKENIZER_ARTIFACT_NAMES = frozenset(
 )
 TOKENIZER_ARTIFACT_PREFIXES = ("chat_template", "tokenizer")
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
+_V3_CONTRACT = load_contract()
+_V3_SYSTEM_PROMPT_SHA256 = system_prompt_sha256(_V3_CONTRACT)
 
-S0_TOOL_TRAJECTORY_LOSS_CONTRACT = "s0_tool_trajectory_v1"
-S0_TOOL_TRAJECTORY_DATASET_ID = (
-    "world_model_v2_s0_human_identifier_trajectories_v6"
+S0_FAMILIES = frozenset(
+    {
+        "human_symbol_to_ensembl",
+        "human_ensembl_to_symbol",
+        "human_ambiguous_symbol",
+    }
 )
+# "multiplex_sft_v3" weights every assistant token equally (the uniform arms).
+# "multiplex_sft_v4_priority" upweights the tool call, the final JSON, and its
+# decision fields (the priority arms); see tokenize_v3_trace_for_sft.
+S0_V3_TRACE_LOSS_CONTRACT = "multiplex_sft_v3"
+S0_V4_PRIORITY_LOSS_CONTRACT = "multiplex_sft_v4_priority"
+S0_LOSS_CONTRACTS = frozenset(
+    {S0_V3_TRACE_LOSS_CONTRACT, S0_V4_PRIORITY_LOSS_CONTRACT}
+)
+S0_V4_DATASET_ID = "world_model_v4_s0_human_identifiers"
 S0_EXPOSURE_SCOPE_BY_RUN_SCOPE = {
     "qualification": "unrestricted",
     "production": "all_eligible_train_rows",
 }
-S0_EXPOSURE_CORPUS_BY_LOSS_CONTRACT = {
-    S0_TOOL_TRAJECTORY_LOSS_CONTRACT: {
-        "dataset_id": S0_TOOL_TRAJECTORY_DATASET_ID,
-        "system_prompt_sha256": (
-            s0_tool_trajectory_prompt_contract().system_prompt_sha256
-        ),
-    }
+V3_TOOL_DESCRIPTIONS = {
+    "lookup_human_gene_symbol": (
+        "Look up one human gene symbol in Ensembl release 116."
+    ),
+    "lookup_human_ensembl_gene_id": (
+        "Look up one human Ensembl gene ID in release 116."
+    ),
+    "check_multiplex_membership": (
+        "Check human Ensembl gene IDs in one registered multiplex."
+    ),
 }
+V3_HARNESS_HEADER = "Context (from the harness):"
+V3_USER_HEADER = "User request:"
 
 
 def canonical_json(value: Any) -> str:
@@ -58,10 +83,121 @@ def canonical_json(value: Any) -> str:
     )
 
 
+def ordered_json(value: Any) -> str:
+    """Return compact JSON without changing contract-significant key order."""
+
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
 def stable_sha256(value: Any) -> str:
     """Return the SHA-256 value for canonical JSON."""
 
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def question_families_for_dataset(dataset_id: str) -> frozenset[str]:
+    """Return the exact question-family contract for one training corpus."""
+
+    if dataset_id != S0_V4_DATASET_ID:
+        raise ValueError(f"The S0 dataset ID is not supported: {dataset_id!r}")
+    return S0_FAMILIES
+
+
+def renderable_v3_tools(tools: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Add tokenizer-only descriptions without changing the v3 wire."""
+
+    result: list[dict[str, Any]] = []
+    for tool in tools:
+        function = tool.get("function") if isinstance(tool, Mapping) else None
+        if not isinstance(function, Mapping):
+            raise ValueError("A v3 tool definition lacks function metadata")
+        name = function.get("name")
+        description = V3_TOOL_DESCRIPTIONS.get(str(name))
+        if description is None:
+            raise ValueError(f"Unknown v3 tool definition: {name!r}")
+        rendered_function = dict(function)
+        rendered_function.setdefault("description", description)
+        result.append({"type": "function", "function": rendered_function})
+    return result
+
+
+def _validate_v3_message_sequence(messages: Any) -> None:
+    """Validate the canonical message grammar for one v3 row."""
+
+    if not isinstance(messages, list) or len(messages) < 3:
+        raise ValueError("A v3 row must contain at least three messages")
+    if any(not isinstance(message, Mapping) for message in messages):
+        raise ValueError("A v3 message is not an object")
+    if messages[0].get("role") != "system":
+        raise ValueError("A v3 row must start with one system message")
+    if not isinstance(messages[0].get("content"), str):
+        raise ValueError("The v3 system message requires text content")
+
+    message_index = 1
+    if messages[message_index].get("role") == "harness":
+        if not isinstance(messages[message_index].get("content"), str):
+            raise ValueError("The v3 harness message requires text content")
+        message_index += 1
+
+    turn_count = 0
+    while message_index < len(messages):
+        user_message = messages[message_index]
+        if user_message.get("role") != "user":
+            raise ValueError("Each v3 turn must start with one user message")
+        if not isinstance(user_message.get("content"), str):
+            raise ValueError("A v3 user message requires text content")
+        message_index += 1
+
+        while (
+            message_index < len(messages)
+            and messages[message_index].get("role") == "assistant"
+            and "tool_call" in messages[message_index]
+        ):
+            call_message = messages[message_index]
+            call = call_message.get("tool_call")
+            if "content" in call_message or not isinstance(call, Mapping):
+                raise ValueError("A v3 assistant call has an invalid shape")
+            if not isinstance(call.get("name"), str) or not isinstance(
+                call.get("arguments"), Mapping
+            ):
+                raise ValueError("A v3 assistant call lacks tool metadata")
+            if not isinstance(call_message.get("thinking", ""), str):
+                raise ValueError("A v3 assistant call has invalid thinking")
+            message_index += 1
+            if (
+                message_index >= len(messages)
+                or messages[message_index].get("role") != "tool"
+            ):
+                raise ValueError("A v3 assistant call requires one tool result")
+            tool_message = messages[message_index]
+            if not isinstance(tool_message.get("name"), str):
+                raise ValueError("A v3 tool result requires one tool name")
+            if not isinstance(tool_message.get("content"), Mapping):
+                raise ValueError("A v3 tool result requires object content")
+            message_index += 1
+
+        if message_index >= len(messages):
+            raise ValueError("A v3 turn requires one final assistant answer")
+        final_message = messages[message_index]
+        if (
+            final_message.get("role") != "assistant"
+            or "tool_call" in final_message
+            or not isinstance(final_message.get("content"), Mapping)
+        ):
+            raise ValueError("A v3 turn has an invalid final assistant answer")
+        if list(final_message["content"]) != _V3_CONTRACT["answer"]["keys"]:
+            raise ValueError("The v3 final answer field order changed")
+        if not isinstance(final_message.get("thinking", ""), str):
+            raise ValueError("A v3 final answer has invalid thinking")
+        message_index += 1
+        turn_count += 1
+
+    if turn_count == 0:
+        raise ValueError("A v3 row requires at least one user turn")
 
 
 def sha256_file(path: Path) -> str:
@@ -129,51 +265,58 @@ def validated_tokenizer_manifest(path: Path) -> dict[str, Any]:
     return payload
 
 
-def flatten_tool_sft_record_for_arrow(
+def flatten_v3_trace_for_arrow(
     record: Mapping[str, Any],
     *,
     expected_split: str = "train",
+    dataset_id: str | None = None,
 ) -> dict[str, str]:
-    """Convert one S0 trajectory record to a stable scalar schema."""
+    """Convert one canonical v3 row to the trainer's scalar schema."""
 
-    parsed = IdentifierToolSFTRecord.from_dict(record)
-    if parsed.split != expected_split:
-        raise ValueError(
-            f"The S0 trajectory adapter requires split {expected_split!r}"
-        )
-    provenance = parsed.provenance
-    fact_id = provenance.get("fact_id")
-    if not isinstance(fact_id, str) or not fact_id:
-        raise ValueError("The S0 trajectory record requires one fact_id")
-    prompt_form_id = {
-        "train": "train",
-        "val": "validation",
-    }.get(expected_split)
-    if prompt_form_id is None:
-        raise ValueError(
-            f"The S0 trajectory split is not supported: {expected_split!r}"
-        )
-    if provenance.get("prompt_form_id") != prompt_form_id:
-        raise ValueError("The S0 prompt form differs from its split")
-    expected_role = "train" if expected_split == "train" else "unseen"
-    if provenance.get("fact_role") != expected_role:
-        raise ValueError("The S0 fact role differs from its split")
+    if expected_split not in {"train", "validation"}:
+        raise ValueError(f"Unsupported v3 split: {expected_split!r}")
+    if list(record) != ["row_id", "messages", "tools", "metadata"]:
+        raise ValueError("The v3 row field order changed")
+    row_id = record.get("row_id")
+    messages = record.get("messages")
+    tools = record.get("tools")
+    metadata = record.get("metadata")
+    if not isinstance(row_id, str) or not row_id:
+        raise ValueError("The v3 row requires one row_id")
+    _validate_v3_message_sequence(messages)
+    if not isinstance(tools, list) or not tools:
+        raise ValueError("The v3 row requires tool definitions")
+    if not isinstance(metadata, Mapping):
+        raise ValueError("The v3 row requires metadata")
+    contract = _V3_CONTRACT
+    if (
+        metadata.get("schema_version")
+        != contract["runtime"]["row_schema_version"]
+        or metadata.get("tool_contract_version")
+        != contract["runtime"]["tool_contract_version"]
+        or metadata.get("system_prompt_sha256")
+        != _V3_SYSTEM_PROMPT_SHA256
+        or messages[0].get("content") != contract["runtime"]["system_prompt"]
+    ):
+        raise ValueError("The v3 row does not match the canonical contract")
+    family = metadata.get("question_family")
+    split_unit = metadata.get("split_unit")
+    if dataset_id is not None:
+        question_families_for_dataset(dataset_id)
+    if family not in S0_FAMILIES:
+        raise ValueError("The v3 row has an unsupported question family")
+    if not isinstance(split_unit, str) or not split_unit:
+        raise ValueError("The v3 row requires one split_unit")
     return {
-        "system": parsed.system,
-        "question": parsed.question,
-        "input_json": canonical_json(dict(parsed.input)),
-        "tools_json": canonical_json(list(parsed.tools)),
-        "assistant_tool_call_json": canonical_json(
-            dict(parsed.assistant_tool_call)
-        ),
-        "assistant_thinking": parsed.assistant_thinking or "",
-        "tool_result_json": canonical_json(dict(parsed.tool_result or {})),
-        "assistant_final": parsed.assistant_final or "",
-        "metadata_json": canonical_json(parsed.metadata.to_dict()),
-        "question_family": parsed.metadata.question_family,
-        "record_id": parsed.record_id,
-        "fact_id": fact_id,
-        "prompt_form_id": prompt_form_id,
+        # The v3 wire contract assigns meaning to object key order. This
+        # scalar Arrow projection is later decoded and rendered for training,
+        # so canonical sorting here would silently change supervised labels.
+        "trace_json": ordered_json(dict(record)),
+        "metadata_json": canonical_json(dict(metadata)),
+        "question_family": str(family),
+        "record_id": row_id,
+        "fact_id": split_unit,
+        "prompt_form_id": expected_split,
         "split": expected_split,
     }
 
@@ -201,18 +344,84 @@ def normalize_token_ids(value: Any) -> list[int]:
     return token_ids
 
 
-def tokenize_tool_trajectory_for_sft(
-    record: IdentifierToolSFTRecord,
+
+
+
+def tokenize_v3_trace_for_sft(
+    record: Mapping[str, Any],
     tokenizer: Any,
     max_length: int,
-) -> dict[str, list[int]]:
-    """Render one trajectory and mask non-assistant message tokens."""
+    *,
+    priority_weights: bool = False,
+) -> dict[str, list[int] | list[float]]:
+    """Tokenize one canonical S0/S1 row and mask non-assistant turns."""
 
-    messages = record.to_messages()
-    if len(messages) != 5:
-        raise ValueError("A tool trajectory must contain five messages")
+    source_messages = record.get("messages")
+    tools = record.get("tools")
+    if not isinstance(tools, list):
+        raise ValueError("The v3 trace lacks messages or tools")
+    _validate_v3_message_sequence(source_messages)
+    messages: list[dict[str, Any]] = []
+    harness_content: str | None = None
+    for message in source_messages:
+        role = message.get("role")
+        if role == "harness":
+            harness_content = str(message["content"])
+        elif role == "system":
+            messages.append({"role": role, "content": message["content"]})
+        elif role == "user":
+            content = str(message["content"])
+            if harness_content is not None:
+                content = (
+                    f"{V3_HARNESS_HEADER}\n{harness_content}\n\n"
+                    f"{V3_USER_HEADER}\n{content}"
+                )
+                harness_content = None
+            messages.append({"role": role, "content": content})
+        elif role == "assistant" and "tool_call" in message:
+            call = message["tool_call"]
+            messages.append(
+                {
+                    "role": "assistant",
+                    "thinking": message.get("thinking", ""),
+                    "tool_calls": [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": call["name"],
+                                "arguments": call["arguments"],
+                            },
+                        }
+                    ],
+                }
+            )
+        elif role == "tool":
+            messages.append(
+                {
+                    "role": "tool",
+                    "name": message["name"],
+                    "content": message["content"],
+                }
+            )
+        elif role == "assistant" and "content" in message:
+            messages.append(
+                {
+                    "role": "assistant",
+                    "thinking": message.get("thinking", ""),
+                    "content": json.dumps(
+                        message["content"],
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                }
+            )
+        else:
+            raise ValueError("A v3 message has an unsupported shape")
+    if harness_content is not None:
+        raise ValueError("A v3 harness message requires a following user")
+
     template_args = {
-        "tools": list(record.tools),
+        "tools": renderable_v3_tools(tools),
         "enable_thinking": True,
         "reasoning_effort": "low",
     }
@@ -227,48 +436,207 @@ def tokenize_tool_trajectory_for_sft(
             )
         )
 
-    prompt_ids = render(messages[:2])
-    assistant_call_ids = render(messages[:3])
-    through_tool_ids = render(messages[:4])
-    if assistant_call_ids[: len(prompt_ids)] != prompt_ids:
-        raise RuntimeError(
-            "The trajectory prompt is not a prefix of the tool call"
-        )
-    if through_tool_ids[: len(assistant_call_ids)] != assistant_call_ids:
-        raise RuntimeError(
-            "The assistant tool call is not a prefix of the tool result"
-        )
+    current_user_index = max(
+        index
+        for index, message in enumerate(messages)
+        if message["role"] == "user"
+    )
+    base_messages = [
+        dict(message) for message in messages[: current_user_index + 1]
+    ]
+    for message in base_messages:
+        if message["role"] == "assistant":
+            message.pop("thinking", None)
+    base_ids = render(base_messages)
+    full_ids = list(base_ids)
+    completion_mask = [0] * len(base_ids)
+    raw_loss_weights: list[float] = [0.0] * len(base_ids)
 
-    messages_without_thinking = [dict(message) for message in messages]
-    messages_without_thinking[2].pop("thinking", None)
-    plain_tool_ids = render(messages_without_thinking[:4])
-    plain_full_ids = render(messages_without_thinking)
-    if plain_full_ids[: len(plain_tool_ids)] != plain_tool_ids:
-        raise RuntimeError(
-            "The tool result is not a prefix of the final answer"
+    current_messages = messages[current_user_index + 1 :]
+    for message_index in range(0, len(current_messages) - 1, 2):
+        assistant_message = current_messages[message_index]
+        tool_message = current_messages[message_index + 1]
+        if (
+            assistant_message.get("role") != "assistant"
+            or "tool_calls" not in assistant_message
+            or tool_message.get("role") != "tool"
+        ):
+            raise ValueError(
+                "A v3 tool action requires one assistant call and result"
+            )
+
+        assistant_ids = render(base_messages + [assistant_message])
+        if assistant_ids[: len(base_ids)] != base_ids:
+            raise RuntimeError("The v3 prefix is not a prefix of the tool call")
+        assistant_delta = assistant_ids[len(base_ids) :]
+        if not assistant_delta:
+            raise RuntimeError("The v3 trace has no assistant call tokens")
+        full_ids.extend(assistant_delta)
+        completion_mask.extend([1] * len(assistant_delta))
+        assistant_weights = [1.0] * len(assistant_delta)
+        if priority_weights:
+            plain_call = dict(assistant_message)
+            plain_call.pop("thinking", None)
+            plain_call_ids = render(base_messages + [plain_call])
+            if plain_call_ids[: len(base_ids)] != base_ids:
+                raise RuntimeError(
+                    "The v3 prefix is not a prefix of the plain tool call"
+                )
+            call_delta = plain_call_ids[len(base_ids) :]
+            if (
+                not call_delta
+                or assistant_delta[-len(call_delta) :] != call_delta
+            ):
+                raise RuntimeError(
+                    "The v3 tool call is not a suffix after its thinking"
+                )
+            assistant_weights[-len(call_delta) :] = [4.0] * len(
+                call_delta
+            )
+        raw_loss_weights.extend(assistant_weights)
+
+        through_tool_ids = render(
+            base_messages + [assistant_message, tool_message]
         )
-    final_ids = plain_full_ids[len(plain_tool_ids) :]
+        if through_tool_ids[: len(assistant_ids)] != assistant_ids:
+            raise RuntimeError("The v3 tool call is not a prefix of its result")
+        tool_delta = through_tool_ids[len(assistant_ids) :]
+        if not tool_delta:
+            raise RuntimeError("The v3 trace has no tool result tokens")
+        full_ids.extend(tool_delta)
+        completion_mask.extend([0] * len(tool_delta))
+        raw_loss_weights.extend([0.0] * len(tool_delta))
+
+        plain_assistant = dict(assistant_message)
+        plain_assistant.pop("thinking", None)
+        base_messages = base_messages + [plain_assistant, tool_message]
+        base_ids = render(base_messages)
+
+    final_message = current_messages[-1]
+    if (
+        final_message.get("role") != "assistant"
+        or "tool_calls" in final_message
+    ):
+        raise ValueError("The v3 trace must end with one assistant answer")
+    final_render_ids = render(base_messages + [final_message])
+    if final_render_ids[: len(base_ids)] != base_ids:
+        raise RuntimeError("The v3 prefix is not a prefix of the final answer")
+    final_ids = final_render_ids[len(base_ids) :]
     if not final_ids:
-        raise RuntimeError("The trajectory has no final answer tokens")
+        raise RuntimeError("The v3 trace has no final answer tokens")
+    full_ids.extend(final_ids)
+    completion_mask.extend([1] * len(final_ids))
+    final_weights = [1.0] * len(final_ids)
+    if priority_weights:
+        plain_final = dict(final_message)
+        plain_final.pop("thinking", None)
+        plain_final_render_ids = render(base_messages + [plain_final])
+        if plain_final_render_ids[: len(base_ids)] != base_ids:
+            raise RuntimeError(
+                "The v3 prefix is not a prefix of the plain final answer"
+            )
+        plain_final_delta = plain_final_render_ids[len(base_ids) :]
+        if (
+            not plain_final_delta
+            or final_ids[-len(plain_final_delta) :] != plain_final_delta
+        ):
+            raise RuntimeError(
+                "The v3 final answer is not a suffix after its thinking"
+            )
+        final_payload = json.loads(str(final_message["content"]))
+        final_json = ordered_json(final_payload)
+        encoded_json = tokenizer(
+            final_json,
+            add_special_tokens=False,
+            return_offsets_mapping=True,
+        )
+        json_ids = normalize_token_ids(encoded_json)
+        offsets = encoded_json.get("offset_mapping")
+        if hasattr(offsets, "tolist"):
+            offsets = offsets.tolist()
+        if (
+            not isinstance(offsets, (list, tuple))
+            or len(offsets) != len(json_ids)
+            or any(
+                not isinstance(offset, (list, tuple))
+                or len(offset) != 2
+                for offset in offsets
+            )
+        ):
+            raise RuntimeError(
+                "The priority loss requires tokenizer offset mappings"
+            )
+        matches = [
+            index
+            for index in range(len(plain_final_delta) - len(json_ids) + 1)
+            if plain_final_delta[index : index + len(json_ids)] == json_ids
+        ]
+        if len(matches) != 1:
+            raise RuntimeError(
+                "The final JSON tokens do not have one exact rendered span"
+            )
+        json_start = len(final_ids) - len(plain_final_delta) + matches[0]
+        for token_index in range(len(json_ids)):
+            final_weights[json_start + token_index] = 4.0
 
-    full_ids = through_tool_ids + final_ids
+        # Build exact top-level field spans from the same compact serializer.
+        # Marking by offset safely handles BPE tokens that straddle punctuation.
+        critical = {
+            "status",
+            "result",
+            "continuation_decision",
+            "blocked_reason",
+        }
+        cursor = 1
+        critical_spans: list[tuple[int, int]] = []
+        items = list(final_payload.items())
+        for item_index, (key, value) in enumerate(items):
+            encoded_item = (
+                ordered_json(str(key)) + ":" + ordered_json(value)
+            )
+            item_start = cursor
+            item_end = item_start + len(encoded_item)
+            if key in critical:
+                critical_spans.append((item_start, item_end))
+            cursor = item_end + (1 if item_index + 1 < len(items) else 0)
+        if cursor != len(final_json) - 1:
+            raise RuntimeError("The final JSON field spans are inconsistent")
+        for token_index, offset in enumerate(offsets):
+            token_start, token_end = (int(offset[0]), int(offset[1]))
+            if any(
+                token_end > field_start and token_start < field_end
+                for field_start, field_end in critical_spans
+            ):
+                final_weights[json_start + token_index] = 8.0
+    raw_loss_weights.extend(final_weights)
+
     if len(full_ids) > max_length:
         raise RuntimeError(
-            f"Tokenized trajectory has {len(full_ids)} tokens, exceeding "
+            f"Tokenized trace has {len(full_ids)} tokens, exceeding "
             f"--max_length={max_length}"
         )
-    completion_mask = (
-        [0] * len(prompt_ids)
-        + [1] * (len(assistant_call_ids) - len(prompt_ids))
-        + [0] * (len(through_tool_ids) - len(assistant_call_ids))
-        + [1] * len(final_ids)
-    )
     if len(completion_mask) != len(full_ids):
-        raise RuntimeError("The trajectory loss mask has an invalid length")
-    return {
+        raise RuntimeError("The v3 loss mask has an invalid length")
+    if len(raw_loss_weights) != len(full_ids):
+        raise RuntimeError("The v3 priority loss mask has an invalid length")
+    result: dict[str, list[int] | list[float]] = {
         "input_ids": full_ids,
         "completion_mask": completion_mask,
     }
+    if priority_weights:
+        positive_weights = [
+            weight for weight in raw_loss_weights if weight > 0.0
+        ]
+        if len(positive_weights) != sum(completion_mask):
+            raise RuntimeError(
+                "Each v3 completion token requires one positive loss weight"
+            )
+        mean_weight = sum(positive_weights) / len(positive_weights)
+        result["loss_weights"] = [
+            weight / mean_weight if weight > 0.0 else 0.0
+            for weight in raw_loss_weights
+        ]
+    return result
 
 
 def epoch_training_indices(
@@ -479,15 +847,22 @@ def s0_exposure_scope(run_scope: str) -> str:
         ) from error
 
 
-def s0_exposure_corpus_identity(loss_contract: str) -> dict[str, str]:
-    """Return the corpus identity for the S0 trajectory loss."""
+def s0_exposure_corpus_identity(
+    loss_contract: str,
+    dataset_id: str,
+) -> dict[str, str]:
+    """Return the corpus identity for one dataset and loss contract."""
 
-    try:
-        return dict(S0_EXPOSURE_CORPUS_BY_LOSS_CONTRACT[loss_contract])
-    except KeyError as error:
+    question_families_for_dataset(dataset_id)
+    if loss_contract not in S0_LOSS_CONTRACTS:
         raise ValueError(
-            f"The S0 loss contract is invalid: {loss_contract!r}"
-        ) from error
+            f"Dataset {dataset_id!r} requires one of the loss contracts "
+            f"{sorted(S0_LOSS_CONTRACTS)!r}, got {loss_contract!r}"
+        )
+    return {
+        "dataset_id": dataset_id,
+        "system_prompt_sha256": _V3_SYSTEM_PROMPT_SHA256,
+    }
 
 
 def build_training_exposure_manifest(
@@ -515,11 +890,9 @@ def build_training_exposure_manifest(
     padding_policy: str,
     exposure_scope: str,
     status: str,
+    dataset_id: str,
+    system_prompt_sha256: str,
     completed_global_step: int | None = None,
-    dataset_id: str = S0_TOOL_TRAJECTORY_DATASET_ID,
-    system_prompt_sha256: str = (
-        s0_tool_trajectory_prompt_contract().system_prompt_sha256
-    ),
 ) -> dict[str, Any]:
     """Build one compact content-addressed S0 exposure receipt."""
 
@@ -545,7 +918,11 @@ def build_training_exposure_manifest(
         raise ValueError("Each S0 record_id must be a nonempty string")
     if any(not isinstance(value, str) or not value for value in fact_ids):
         raise ValueError("Each S0 fact_id must be a nonempty string")
-    if any(family not in S0_FAMILIES for family in question_families):
+    allowed_question_families = question_families_for_dataset(dataset_id)
+    if any(
+        family not in allowed_question_families
+        for family in question_families
+    ):
         raise ValueError("The S0 exposure receipt has an unknown family")
     if set(prompt_form_ids) != {"train"}:
         raise ValueError("The S0 exposure receipt requires train prompt forms")
@@ -573,16 +950,12 @@ def build_training_exposure_manifest(
         raise ValueError("padding_policy must be a nonempty string")
     if exposure_scope not in set(S0_EXPOSURE_SCOPE_BY_RUN_SCOPE.values()):
         raise ValueError("The S0 exposure scope is invalid")
-    if dataset_id != S0_TOOL_TRAJECTORY_DATASET_ID:
-        raise ValueError("The S0 dataset ID must identify the v6 corpus")
     prompt_sha256 = _require_sha256(
         system_prompt_sha256,
         "S0 system prompt SHA-256",
     )
-    if prompt_sha256 != (
-        s0_tool_trajectory_prompt_contract().system_prompt_sha256
-    ):
-        raise ValueError("The S0 trajectory prompt identity changed")
+    if prompt_sha256 != _V3_SYSTEM_PROMPT_SHA256:
+        raise ValueError("The S0 system prompt identity changed")
 
     for label, indices in (
         ("consumed_indices", consumed_indices),
@@ -597,7 +970,8 @@ def build_training_exposure_manifest(
         raise ValueError("consumed_indices must reference S0 train rows")
     all_eligible_rows_exposed = set(consumed_indices) == set(range(row_count))
     full_exposure_required = exposure_scope == "all_eligible_train_rows"
-    if full_exposure_required and not all_eligible_rows_exposed:
+    exposure_satisfied = not full_exposure_required or all_eligible_rows_exposed
+    if not exposure_satisfied:
         raise ValueError(
             "The S0 production row plan must expose every eligible train row"
         )
@@ -659,7 +1033,7 @@ def build_training_exposure_manifest(
         "exposure_contract": {
             "scope": exposure_scope,
             "all_eligible_train_rows_required": full_exposure_required,
-            "satisfied": True,
+            "satisfied": exposure_satisfied,
         },
         "logical_exposure": {
             "record_occurrences": len(consumed_record_ids),

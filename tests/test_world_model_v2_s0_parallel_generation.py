@@ -8,14 +8,17 @@ from pathlib import Path
 import pytest
 
 from scripts.build_world_model_v2_s0_generation_bundle import (
-    BUNDLE_FULL_TOOL_TRAJECTORY_SCHEMA_VERSION,
-    FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT,
+    FULL_REGISTRY_BUNDLE_V3_SCHEMA_VERSION,
+    FULL_REGISTRY_V3_EVALUATION_CONTRACT,
 )
+from scripts import run_world_model_v2_s0_exact_generation as generator
 from scripts.run_world_model_v2_s0_exact_generation import (
     INFERENCE_DEVICE_MAP,
     SHARD_PREDICTION_SCHEMA_VERSION,
     SHARD_STRATEGY,
     S0GenerationError,
+    _load_resume_shard,
+    _write_partial_checkpoint,
     merge_prediction_shards,
     select_shard_rows,
     sha256_file,
@@ -23,6 +26,36 @@ from scripts.run_world_model_v2_s0_exact_generation import (
     write_json,
     write_jsonl,
 )
+
+
+SOURCE_INDEX_SHA256 = "f" * 64
+# Any file in the repository passes the path check; the fixture below stands
+# in for the source-index check, so these tests need no generated data.
+SOURCE_INDEX_PATH = "runtime/world_model/contract.yaml"
+
+
+@pytest.fixture(autouse=True)
+def _accept_the_bundle_source_index(monkeypatch) -> None:
+    monkeypatch.setattr(
+        generator, "check_source_index", lambda path, contract: {}
+    )
+    monkeypatch.setattr(
+        generator, "content_sha256", lambda payload: SOURCE_INDEX_SHA256
+    )
+
+
+def _resume_plan(rows: list[dict], *, shard_count: int = 1) -> dict:
+    """Return the identity fields needed by one partial checkpoint."""
+
+    return {
+        "schema_version": "mentor-rl-world-model-s0-generation-plan-v6",
+        "shard_index": 0,
+        "shard_count": shard_count,
+        "shard_strategy": SHARD_STRATEGY,
+        "full_record_count": len(rows),
+        "record_count": len(rows),
+        "reads_private_answer_keys": False,
+    }
 
 
 def _write_bundle(path: Path, row_count: int = 10) -> list[dict]:
@@ -45,23 +78,13 @@ def _write_bundle(path: Path, row_count: int = 10) -> list[dict]:
     write_jsonl(questions_path, rows)
     record_ids = [row["record_id"] for row in rows]
     manifest = {
-        "schema_version": BUNDLE_FULL_TOOL_TRAJECTORY_SCHEMA_VERSION,
-        "evaluation_contract": FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT,
+        "schema_version": FULL_REGISTRY_BUNDLE_V3_SCHEMA_VERSION,
+        "evaluation_contract": FULL_REGISTRY_V3_EVALUATION_CONTRACT,
         "test_panel_id": "a" * 64,
         "identifier_registry": {
-            "path": (
-                "data/world_model_v2/sources/"
-                "ensembl_116_human_gene_ids_and_symbols.json"
-            ),
-            "id": (
-                "sha256:"
-                "e67a4a1d8839c7f8ea568c3040c18941"
-                "a189f65afeed66dfeedb03c6e305c4ab"
-            ),
-            "sha256": (
-                "e67a4a1d8839c7f8ea568c3040c18941"
-                "a189f65afeed66dfeedb03c6e305c4ab"
-            ),
+            "path": SOURCE_INDEX_PATH,
+            "id": f"sha256:{SOURCE_INDEX_SHA256}",
+            "sha256": SOURCE_INDEX_SHA256,
         },
         "record_count": len(rows),
         "record_ids_sha256": stable_sha256(record_ids),
@@ -83,7 +106,7 @@ def _write_shards(
 
     generation_config = {"do_sample": False, "batch_size": 4}
     common = {
-        "evaluation_contract": FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT,
+        "evaluation_contract": FULL_REGISTRY_V3_EVALUATION_CONTRACT,
         "test_panel_id": "a" * 64,
         "method_id": "test-method",
         "train_run_id": "test-run",
@@ -186,6 +209,93 @@ def test_inference_reserves_gpu_zero_memory() -> None:
     """Use the placement policy that keeps more free memory on GPU zero."""
 
     assert INFERENCE_DEVICE_MAP == "balanced_low_0"
+
+
+
+
+
+
+def test_partial_checkpoint_resumes_an_ordered_batch_prefix(
+    tmp_path: Path,
+) -> None:
+    """Resume only the exact, batch-aligned prefix saved by a shard."""
+
+    rows = [{"record_id": f"record-{index}"} for index in range(4)]
+    predictions = [{"record_id": row["record_id"]} for row in rows[:2]]
+    plan = _resume_plan(rows)
+    write_json(tmp_path / "generation_plan.json", plan)
+    _write_partial_checkpoint(
+        tmp_path,
+        plan=plan,
+        rows=rows,
+        predictions=predictions,
+        elapsed_seconds=12.5,
+    )
+
+    status, manifest, resumed, elapsed = _load_resume_shard(
+        tmp_path,
+        plan=plan,
+        rows=rows,
+        batch_size=2,
+        shard_output=True,
+    )
+
+    assert status == "partial"
+    assert manifest is None
+    assert resumed == predictions
+    assert elapsed == 12.5
+
+
+def test_partial_checkpoint_rejects_a_nonprefix_record(
+    tmp_path: Path,
+) -> None:
+    """Do not resume a hash-valid checkpoint with the wrong record order."""
+
+    rows = [{"record_id": f"record-{index}"} for index in range(4)]
+    plan = _resume_plan(rows)
+    write_json(tmp_path / "generation_plan.json", plan)
+    _write_partial_checkpoint(
+        tmp_path,
+        plan=plan,
+        rows=rows,
+        predictions=[
+            {"record_id": "record-0"},
+            {"record_id": "record-2"},
+        ],
+        elapsed_seconds=1.0,
+    )
+
+    with pytest.raises(S0GenerationError, match="ordered batch prefix"):
+        _load_resume_shard(
+            tmp_path,
+            plan=plan,
+            rows=rows,
+            batch_size=2,
+            shard_output=True,
+        )
+
+
+def test_plan_only_resume_source_regenerates_from_zero(tmp_path: Path) -> None:
+    """A killed legacy shard with only a plan contains no reusable work."""
+
+    rows = [{"record_id": "record-0"}]
+    plan = _resume_plan(rows)
+    write_json(tmp_path / "generation_plan.json", {"old": "plan"})
+
+    status, manifest, predictions, elapsed = _load_resume_shard(
+        tmp_path,
+        plan=plan,
+        rows=rows,
+        batch_size=1,
+        shard_output=True,
+    )
+
+    assert (status, manifest, predictions, elapsed) == (
+        "empty",
+        None,
+        [],
+        0.0,
+    )
 
 
 def test_merge_rejects_one_missing_shard(tmp_path: Path) -> None:

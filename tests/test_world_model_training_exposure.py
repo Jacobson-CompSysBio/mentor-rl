@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import unittest
 
+from runtime.world_model.contract import load_contract, system_prompt_sha256
 from runtime.world_model_training import (
+    S0_V4_DATASET_ID,
+    S0_V4_PRIORITY_LOSS_CONTRACT,
     build_training_exposure_manifest,
     consumed_training_index_plan,
     derive_optimizer_step_schedule,
+    question_families_for_dataset,
     s0_exposure_corpus_identity,
     s0_exposure_scope,
 )
@@ -48,24 +52,20 @@ class OptimizerStepScheduleTest(unittest.TestCase):
         self.assertEqual(schedule["updates_per_epoch"], 4)
         self.assertEqual(schedule["total_steps"], 2_000)
 
-    def test_v6_complete_epoch_schedules(self) -> None:
-        """Derived steps match the v6 train schedules."""
+    def test_v4_sweep_schedule(self) -> None:
+        """Derived steps match the v4 sweep: 512 updates per epoch."""
 
-        cases = (
-            (1, 1, 2, 2_048),
-            (5, 16, 1, 1_280),
-            (10, 16, 2, 1_280),
+        schedule = derive_optimizer_step_schedule(
+            16_384,
+            num_train_epochs=3,
+            replica_count=16,
+            per_device_train_batch_size=1,
+            gradient_accumulation_steps=2,
         )
-        for epochs, replicas, accumulation, expected_steps in cases:
-            with self.subTest(epochs=epochs, accumulation=accumulation):
-                schedule = derive_optimizer_step_schedule(
-                    4_096,
-                    num_train_epochs=epochs,
-                    replica_count=replicas,
-                    per_device_train_batch_size=1,
-                    gradient_accumulation_steps=accumulation,
-                )
-                self.assertEqual(schedule["total_steps"], expected_steps)
+
+        self.assertEqual(schedule["global_batch_size"], 32)
+        self.assertEqual(schedule["updates_per_epoch"], 512)
+        self.assertEqual(schedule["total_steps"], 1_536)
 
 
 def exposure_args(*, total_steps: int, run_scope: str) -> dict:
@@ -113,6 +113,7 @@ def exposure_args(*, total_steps: int, run_scope: str) -> dict:
         "padding_policy": plan["padding_policy"],
         "exposure_scope": s0_exposure_scope(run_scope),
         "status": "planned",
+        **s0_exposure_corpus_identity("multiplex_sft_v3", S0_V4_DATASET_ID),
     }
 
 
@@ -201,25 +202,59 @@ class TrainingExposureTest(unittest.TestCase):
             ]
         )
 
-    def test_trajectory_receipt_uses_the_v6_corpus_identity(self) -> None:
-        """A trajectory receipt records its v6 data and prompt identities."""
+    def test_receipt_records_the_v4_corpus_identity(self) -> None:
+        """A receipt records the v4 dataset and the contract system prompt."""
 
-        arguments = exposure_args(
-            total_steps=4,
-            run_scope="production",
+        manifest = build_training_exposure_manifest(
+            **exposure_args(total_steps=4, run_scope="production")
         )
-        arguments.update(
-            s0_exposure_corpus_identity("s0_tool_trajectory_v1")
-        )
-        manifest = build_training_exposure_manifest(**arguments)
 
-        self.assertEqual(
-            manifest["corpus"]["dataset_id"],
-            "world_model_v2_s0_human_identifier_trajectories_v6",
-        )
+        self.assertEqual(manifest["corpus"]["dataset_id"], S0_V4_DATASET_ID)
         self.assertEqual(
             manifest["corpus"]["system_prompt_sha256"],
-            "064a8fc8f103d9dc021ebbe124614342f4a52fd8123a4e4ba1b8bf88588e6dbf",
+            system_prompt_sha256(load_contract()),
+        )
+
+    def test_receipt_rejects_another_system_prompt(self) -> None:
+        arguments = exposure_args(total_steps=4, run_scope="production")
+        arguments["system_prompt_sha256"] = "0" * 64
+
+        with self.assertRaisesRegex(ValueError, "system prompt identity"):
+            build_training_exposure_manifest(**arguments)
+
+    def test_only_the_v4_dataset_is_supported(self) -> None:
+        for dataset_id in (
+            "world_model_v2_s0_human_identifier_trajectories_v6",
+            "world_model_v3_s0_human_identifiers",
+            "world_model_v3_s1_coordinate_system",
+        ):
+            with self.subTest(dataset_id=dataset_id):
+                with self.assertRaisesRegex(ValueError, "not supported"):
+                    question_families_for_dataset(dataset_id)
+                with self.assertRaisesRegex(ValueError, "not supported"):
+                    s0_exposure_corpus_identity("multiplex_sft_v3", dataset_id)
+
+    def test_unknown_loss_contract_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "loss contracts"):
+            s0_exposure_corpus_identity(
+                "s0_tool_trajectory_v1", S0_V4_DATASET_ID
+            )
+
+    def test_v4_dataset_accepts_uniform_and_priority_loss_receipts(self) -> None:
+        identities = [
+            s0_exposure_corpus_identity(
+                loss_contract,
+                S0_V4_DATASET_ID,
+            )
+            for loss_contract in (
+                "multiplex_sft_v3",
+                S0_V4_PRIORITY_LOSS_CONTRACT,
+            )
+        ]
+
+        self.assertEqual(identities[0], identities[1])
+        self.assertEqual(
+            identities[0]["dataset_id"], S0_V4_DATASET_ID
         )
 
 

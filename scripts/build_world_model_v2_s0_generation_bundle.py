@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Build one answer-free S0 trajectory test bundle."""
+"""Build one answer-free S0 full-registry test bundle.
+
+The bundle holds only the public test questions. The generator reads it, so
+the model processes never see the private answer key.
+"""
 
 from __future__ import annotations
 
@@ -16,42 +20,28 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from runtime.world_model_s0_tools import identifier_tool_definitions  # noqa: E402
-from runtime.world_model_schemas import (  # noqa: E402
-    IdentifierToolSFTMetadata,
+from runtime.world_model.contract import (  # noqa: E402
+    load_contract,
+    system_prompt_sha256,
+    tool_definitions,
+)
+from runtime.world_model.source_index import (  # noqa: E402
+    check_source_index,
+    content_sha256,
 )
 
 
-BUNDLE_TOOL_TRAJECTORY_SCHEMA_VERSION = (
-    "mentor-rl-world-model-s0-tool-trajectory-generation-bundle-v6"
+FULL_REGISTRY_BUNDLE_V3_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-full-registry-generation-bundle-v3"
 )
-BUNDLE_FULL_TOOL_TRAJECTORY_SCHEMA_VERSION = (
-    "mentor-rl-world-model-s0-full-tool-trajectory-generation-bundle-v6"
+FULL_REGISTRY_EVALUATOR_V3_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-full-registry-evaluator-v3"
 )
-EVALUATOR_TOOL_TRAJECTORY_SCHEMA_VERSION = (
-    "mentor-rl-world-model-s0-evaluator-manifest-v6"
+FULL_REGISTRY_V3_EVALUATION_CONTRACT = "full_registry_multiplex_sft_v3"
+FULL_REGISTRY_V3_DATASET_ID = (
+    "world_model_v3_s0_human_identifiers_full_registry"
 )
-EVALUATOR_FULL_TOOL_TRAJECTORY_SCHEMA_VERSION = (
-    "mentor-rl-world-model-s0-full-tool-trajectory-evaluator-manifest-v6"
-)
-TOOL_TRAJECTORY_EVALUATION_CONTRACT = (
-    "unseen_component_tool_trajectory_v1"
-)
-FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT = (
-    "full_registry_tool_trajectory_v1"
-)
-TOOL_TRAJECTORY_EVALUATION_CONTRACTS = frozenset(
-    {
-        TOOL_TRAJECTORY_EVALUATION_CONTRACT,
-        FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT,
-    }
-)
-TOOL_TRAJECTORY_DATASET_ID = (
-    "world_model_v2_s0_human_identifier_trajectories_v6"
-)
-FULL_TOOL_TRAJECTORY_DATASET_ID = (
-    "world_model_v2_s0_human_identifier_trajectories_full_registry_v6"
-)
+V3_TOOL_CONTRACT_VERSION = "mentor-rl-world-model-s0-identifier-tools-v3"
 QUESTION_KEYS = frozenset(
     {
         "input",
@@ -150,10 +140,9 @@ def write_jsonl(path: Path, rows: list[Mapping[str, Any]]) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(
-        "".join(canonical_json(row) + "\n" for row in rows),
-        encoding="utf-8",
-    )
+    with temporary.open("w", encoding="utf-8") as destination:
+        for row in rows:
+            destination.write(canonical_json(row) + "\n")
     temporary.replace(path)
 
 
@@ -177,7 +166,8 @@ def _resolve_declared_path(root: Path, value: Any, label: str) -> Path:
 def _validate_question(
     row: Mapping[str, Any],
     *,
-    expected_fact_role: str,
+    expected_system_prompt_sha256: str,
+    expected_tools: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Return one valid answer-free test question."""
 
@@ -195,24 +185,25 @@ def _validate_question(
     if not isinstance(provenance, Mapping):
         raise S0GenerationBundleError("A test row has no provenance")
     if (
-        provenance.get("fact_role") != expected_fact_role
+        provenance.get("fact_role") != "registry_population"
         or provenance.get("prompt_form_id") != "test"
     ):
         raise S0GenerationBundleError("A test row has invalid provenance")
-    try:
-        parsed_metadata = IdentifierToolSFTMetadata.from_dict(metadata)
-    except (KeyError, TypeError, ValueError) as error:
-        raise S0GenerationBundleError(
-            f"A test row has invalid trajectory metadata: {error}"
-        ) from error
+    if (
+        not isinstance(metadata, Mapping)
+        or metadata.get("book_mode") != "tool_call"
+        or metadata.get("schema_version") != "multiplex_sft_v3"
+        or metadata.get("tool_contract_version") != V3_TOOL_CONTRACT_VERSION
+    ):
+        raise S0GenerationBundleError("A test row has invalid v3 metadata")
     prompt_hash = hashlib.sha256(
         str(row.get("system", "")).encode("utf-8")
     ).hexdigest()
-    if prompt_hash != parsed_metadata.system_prompt_sha256:
+    if prompt_hash != expected_system_prompt_sha256:
         raise S0GenerationBundleError(
             "A test row has a changed trajectory system prompt"
         )
-    if row.get("tools") != identifier_tool_definitions():
+    if row.get("tools") != expected_tools:
         raise S0GenerationBundleError(
             "A test row has changed tool definitions"
         )
@@ -235,33 +226,15 @@ def build_generation_bundle(
             "The evaluator manifest identity changed"
         )
     evaluator = read_json(evaluator_manifest_path)
-    evaluation_contract = evaluator.get("evaluation_contract")
-    if evaluation_contract == TOOL_TRAJECTORY_EVALUATION_CONTRACT:
-        expected_contract = (
-            EVALUATOR_TOOL_TRAJECTORY_SCHEMA_VERSION,
-            TOOL_TRAJECTORY_DATASET_ID,
-            TOOL_TRAJECTORY_EVALUATION_CONTRACT,
-            BUNDLE_TOOL_TRAJECTORY_SCHEMA_VERSION,
-            "unseen",
-        )
-    elif evaluation_contract == FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT:
-        expected_contract = (
-            EVALUATOR_FULL_TOOL_TRAJECTORY_SCHEMA_VERSION,
-            FULL_TOOL_TRAJECTORY_DATASET_ID,
-            FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT,
-            BUNDLE_FULL_TOOL_TRAJECTORY_SCHEMA_VERSION,
-            "registry_population",
-        )
-    else:
-        raise S0GenerationBundleError(
-            "The evaluator is not a v6 trajectory contract"
-        )
     if (
-        evaluator.get("schema_version") != expected_contract[0]
-        or evaluator.get("dataset_id") != expected_contract[1]
-        or evaluator.get("evaluation_contract") != expected_contract[2]
+        evaluator.get("schema_version")
+        != FULL_REGISTRY_EVALUATOR_V3_SCHEMA_VERSION
+        or evaluator.get("dataset_id") != FULL_REGISTRY_V3_DATASET_ID
+        or evaluator.get("evaluation_contract")
+        != FULL_REGISTRY_V3_EVALUATION_CONTRACT
     ):
         raise S0GenerationBundleError("The evaluator contract changed")
+    contract = load_contract()
     registry = evaluator.get("identifier_registry")
     if not isinstance(registry, Mapping) or set(registry) != {
         "path",
@@ -284,10 +257,9 @@ def build_generation_bundle(
         registry.get("path"),
         "identifier registry path",
     )
-    if sha256_file(registry_path) != registry_sha256:
-        raise S0GenerationBundleError(
-            "The trajectory evaluator registry file changed"
-        )
+    source_index = check_source_index(registry_path, contract)
+    if content_sha256(source_index) != registry_sha256:
+        raise S0GenerationBundleError("The v3 source index identity changed")
     public_registry = {
         "path": str(registry["path"]),
         "id": str(registry["id"]),
@@ -307,10 +279,13 @@ def build_generation_bundle(
         or sha256_file(questions_path) != expected_questions_hash
     ):
         raise S0GenerationBundleError("The test question identity changed")
+    expected_prompt_hash = system_prompt_sha256(contract)
+    expected_tools = tool_definitions(contract)
     rows = [
         _validate_question(
             row,
-            expected_fact_role=expected_contract[4],
+            expected_system_prompt_sha256=expected_prompt_hash,
+            expected_tools=expected_tools,
         )
         for row in read_jsonl(questions_path)
     ]
@@ -326,9 +301,9 @@ def build_generation_bundle(
     questions_output = output_dir / "questions.jsonl"
     write_jsonl(questions_output, rows)
     bundle = {
-        "schema_version": expected_contract[3],
-        "dataset_id": expected_contract[1],
-        "evaluation_contract": expected_contract[2],
+        "schema_version": FULL_REGISTRY_BUNDLE_V3_SCHEMA_VERSION,
+        "dataset_id": FULL_REGISTRY_V3_DATASET_ID,
+        "evaluation_contract": FULL_REGISTRY_V3_EVALUATION_CONTRACT,
         "test_panel_id": test.get("test_panel_id"),
         "record_count": len(rows),
         "record_ids_sha256": stable_sha256(record_ids),
@@ -336,8 +311,8 @@ def build_generation_bundle(
         "source_questions_sha256": expected_questions_hash,
         "questions_sha256": sha256_file(questions_output),
         "reads_private_answer_keys": False,
+        "identifier_registry": public_registry,
     }
-    bundle["identifier_registry"] = public_registry
     bundle["bundle_sha256"] = stable_sha256(bundle)
     write_json(output_dir / "manifest.json", bundle)
     return bundle
