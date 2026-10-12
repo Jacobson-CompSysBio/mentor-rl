@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Validate one canonical S0 train contract."""
+"""Validate one S0 v4 training contract and export its values.
+
+The launcher runs this check before it allocates any training work. It pins
+the run settings of the v4 sweep, the corpus and its runtime contract, the
+teacher-forced validation panel, the tokenizer, and the base model. It then
+prints shell assignments for the launcher to source.
+
+With --validate-base-model, it instead hashes one staged base-model copy.
+"""
 
 from __future__ import annotations
 
@@ -17,22 +25,76 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from runtime.world_model_training import (  # noqa: E402
-    S0_EXPOSURE_SCOPE_BY_RUN_SCOPE,
+    S0_LOSS_CONTRACTS,
+    S0_V3_TRACE_LOSS_CONTRACT,
+    S0_V4_DATASET_ID,
+    S0_V4_PRIORITY_LOSS_CONTRACT,
     derive_optimizer_step_schedule,
 )
 
 
-SCHEMAS = frozenset(
-    {
-        "mentor-rl-world-model-s0-20b-tool-trajectory-qualification-v6",
-        "mentor-rl-world-model-s0-120b-tool-trajectory-training-v6",
-    }
-)
-DATASET_ID = "world_model_v2_s0_human_identifier_trajectories_v6"
-MANIFEST_SCHEMA_VERSION = "mentor-rl-world-model-s0-manifest-v6"
-TRAINING_CONTRACT = "tool_trajectory_v1"
-EVALUATION_CONTRACT = "unseen_component_tool_trajectory_v1"
-LOSS_CONTRACT = "s0_tool_trajectory_v1"
+S0_V4_TRAINING_SCHEMA = "mentor-rl-world-model-s0-120b-training-v4"
+# All four arms of the v4 sweep share these settings. They differ only in the
+# LoRA rank and the loss contract.
+S0_V4_RUN_SETTINGS = {
+    "num_nodes": 16,
+    "gpus_per_node": 8,
+    "tp_size": 8,
+    "ep_size": 8,
+    "data_parallel_size": 16,
+    "num_train_epochs": 3,
+    "per_device_train_batch_size": 1,
+    "gradient_accumulation_steps": 2,
+    "global_batch_size": 32,
+    "learning_rate": 0.0001,
+    "lr_scheduler_type": "cosine",
+    "warmup_ratio": 0.03,
+    "weight_decay": 0,
+    "max_grad_norm": 1,
+    "max_length": 4096,
+    "logging_steps": 10,
+    "eval_strategy": "epoch",
+    "eval_on_start": True,
+    "per_device_eval_batch_size": 1,
+    "save_strategy": "steps",
+    "save_steps": 512,
+    "save_total_limit": 3,
+    "seed": 900913,
+    "preserve_dataset_order": False,
+    "autograd_multithreading": True,
+    "local_files_only": True,
+    "strict_tested_stack": True,
+    "bf16": True,
+}
+S0_V4_TRAIN_ROWS = 16384
+S0_V4_VALIDATION_ROWS = 622
+S0_V4_UPDATES_PER_EPOCH = 512
+S0_V4_TOTAL_STEPS = 1536
+V4_MANIFEST_SCHEMA_VERSION = "mentor-rl-world-model-s0-manifest-v2"
+V4_CORPUS_SCHEMA_VERSION = "mentor-rl-world-model-s0-corpus-v2"
+V4_EVALUATION_CONTRACT = "held_out_multiplex_sft_v4"
+V4_EVALUATOR_SCHEMA_VERSION = "mentor-rl-world-model-s0-evaluator-v4"
+V4_PRIORITY_LOSS_WEIGHTS = {
+    "nonassistant": 0,
+    "assistant_prose": 1,
+    "tool_call": 4,
+    "final_json": 4,
+    "critical_final_fields": 8,
+    "critical_field_names": [
+        "status",
+        "result",
+        "continuation_decision",
+        "blocked_reason",
+    ],
+    "normalization": "positive_token_mean_per_row",
+}
+V4_OVERLAY_METADATA_ADDITIONS = [
+    "fact_kind",
+    "framing",
+    "prompt_template_id",
+    "rendering_index",
+    "input_variant",
+]
 
 
 def sha256_file(path: Path) -> str:
@@ -202,7 +264,7 @@ def validate_train_contract(
     config_path: Path,
     method_id: str,
 ) -> dict[str, str]:
-    """Validate one v6 trajectory train contract."""
+    """Validate one S0 v4 training contract."""
 
     root = root.resolve()
     config_path = config_path.resolve()
@@ -212,7 +274,7 @@ def validate_train_contract(
         raise SystemExit("RUN_CONFIG must stay in the repository") from error
     config = read_json(config_path, "run config")
     schema = config.get("schema_version")
-    if schema not in SCHEMAS:
+    if schema != S0_V4_TRAINING_SCHEMA:
         raise SystemExit(
             f"The train config schema is not supported: {schema!r}"
         )
@@ -231,42 +293,20 @@ def validate_train_contract(
     settings = require_object(
         config.get("run_settings"), "run_settings"
     )
-    if "max_steps" in settings:
-        raise SystemExit(
-            "run_settings max_steps is not supported; set num_train_epochs"
-        )
     overrides = require_object(
         method.get("run_settings", {}), "method run_settings"
     )
-    if "max_steps" in overrides:
-        raise SystemExit(
-            "method run_settings max_steps is not supported; "
-            "set num_train_epochs"
-        )
     unknown_overrides = sorted(set(overrides) - set(settings))
     if unknown_overrides:
         raise SystemExit(
             f"The method run_settings has unknown keys: {unknown_overrides}"
         )
     settings.update(overrides)
+    if settings != S0_V4_RUN_SETTINGS:
+        raise SystemExit("The S0 v4 training schedule changed")
 
     run_scope = require_string(config.get("run_scope"), "run_scope")
-    if run_scope not in S0_EXPOSURE_SCOPE_BY_RUN_SCOPE:
-        allowed = ", ".join(sorted(S0_EXPOSURE_SCOPE_BY_RUN_SCOPE))
-        raise SystemExit(f"run_scope must be one of: {allowed}")
-    is_20b = schema.startswith(
-        "mentor-rl-world-model-s0-20b-"
-    )
-    if is_20b:
-        config_id = require_string(
-            config.get("qualification_id"), "qualification_id"
-        )
-        expected_prefix = "oss20b"
-    else:
-        config_id = require_string(
-            config.get("training_id"), "training_id"
-        )
-        expected_prefix = "oss120b"
+    config_id = require_string(config.get("training_id"), "training_id")
 
     tokenizer_method = require_string(
         method.get("tokenizer_method"), "tokenizer_method"
@@ -279,15 +319,19 @@ def validate_train_contract(
         raise SystemExit(
             "The base tokenizer must not have a token adapter"
         )
-    if (
-        trainer.get("fine_tune_configuration") != "lora_r32"
-        or trainer.get("loader_identity") != "peft_adapter_loader"
-    ):
-        raise SystemExit("The LoRA trainer contract changed")
     lora_rank = require_int(trainer.get("lora_rank"), "lora_rank")
-    if method_id != (
-        f"{expected_prefix}-plain-base-tokenizer-lora-r{lora_rank}"
+    if trainer.get("loader_identity") != "peft_adapter_loader":
+        raise SystemExit("The LoRA trainer contract changed")
+    if (
+        lora_rank not in {32, 128}
+        or trainer.get("fine_tune_configuration") != f"lora_r{lora_rank}"
+        or require_int(trainer.get("lora_alpha"), "lora_alpha")
+        != 2 * lora_rank
+        or require_number(trainer.get("lora_dropout"), "lora_dropout")
+        != 0.0
     ):
+        raise SystemExit("The v4 LoRA rank/alpha contract changed")
+    if method_id != f"oss120b-plain-base-tokenizer-lora-r{lora_rank}":
         raise SystemExit(
             "The method ID differs from its selected configuration"
         )
@@ -306,15 +350,6 @@ def validate_train_contract(
     data_parallel_size = require_int(
         settings.get("data_parallel_size"), "data_parallel_size"
     )
-    if tp_size != gpus_per_node or ep_size != gpus_per_node:
-        raise SystemExit(
-            "One node must hold one complete TP and EP replica"
-        )
-    if data_parallel_size != num_nodes:
-        raise SystemExit(
-            "The LoRA data parallel size must equal the node count"
-        )
-
     epochs = require_int(
         settings.get("num_train_epochs"), "num_train_epochs"
     )
@@ -329,29 +364,27 @@ def validate_train_contract(
     global_batch = require_int(
         settings.get("global_batch_size"), "global_batch_size"
     )
-    if global_batch != data_parallel_size * batch_size * grad_accum:
-        raise SystemExit(
-            "The global batch size differs from the selected topology"
-        )
     train_rows = require_int(
         corpus.get("train_rows"), "corpus train_rows"
     )
     validation_rows = require_int(
         corpus.get("validation_rows"), "corpus validation_rows"
     )
-    try:
-        schedule = derive_optimizer_step_schedule(
-            train_rows,
-            num_train_epochs=epochs,
-            replica_count=data_parallel_size,
-            per_device_train_batch_size=batch_size,
-            gradient_accumulation_steps=grad_accum,
-        )
-    except ValueError as error:
-        raise SystemExit(
-            f"The optimizer step schedule is invalid: {error}"
-        ) from error
-
+    schedule = derive_optimizer_step_schedule(
+        train_rows,
+        num_train_epochs=epochs,
+        replica_count=data_parallel_size,
+        per_device_train_batch_size=batch_size,
+        gradient_accumulation_steps=grad_accum,
+    )
+    if (
+        train_rows != S0_V4_TRAIN_ROWS
+        or validation_rows != S0_V4_VALIDATION_ROWS
+        or schedule["global_batch_size"] != global_batch
+        or schedule["updates_per_epoch"] != S0_V4_UPDATES_PER_EPOCH
+        or schedule["total_steps"] != S0_V4_TOTAL_STEPS
+    ):
+        raise SystemExit("The S0 v4 optimizer-step schedule changed")
     learning_rate = require_number(
         settings.get("learning_rate"), "learning_rate"
     )
@@ -364,16 +397,40 @@ def validate_train_contract(
     max_grad_norm = require_number(
         settings.get("max_grad_norm"), "max_grad_norm"
     )
-    if learning_rate <= 0 or not 0 <= warmup_ratio < 1:
-        raise SystemExit(
-            "The learning rate or warmup ratio is invalid"
-        )
-    if weight_decay < 0 or max_grad_norm <= 0:
-        raise SystemExit(
-            "The weight decay or gradient limit is invalid"
-        )
-    if trainer.get("loss_contract") != LOSS_CONTRACT:
+
+    # The uniform arms use multiplex_sft_v3; the priority arms use the fixed
+    # token weights of multiplex_sft_v4_priority.
+    loss_contract = require_string(
+        trainer.get("loss_contract"), "loss_contract"
+    )
+    if loss_contract not in S0_LOSS_CONTRACTS:
         raise SystemExit("The S0 loss contract changed")
+    priority_weights = trainer.get("token_loss_weights")
+    if loss_contract == S0_V4_PRIORITY_LOSS_CONTRACT:
+        if priority_weights != V4_PRIORITY_LOSS_WEIGHTS:
+            raise SystemExit("The S0 v4 priority loss weights changed")
+    elif priority_weights is not None:
+        raise SystemExit("The uniform S0 v4 arm has priority weights")
+    loss_arm = (
+        "priority"
+        if loss_contract == S0_V4_PRIORITY_LOSS_CONTRACT
+        else "uniform"
+    )
+    if (
+        config_id
+        != f"world_model_s0_120b_training_v4_r{lora_rank}_{loss_arm}"
+        or run_scope != "production"
+        or require_bool(
+            config.get("promotion_eligible"), "promotion_eligible"
+        )
+        is not True
+        or require_bool(
+            config.get("production_matrix_cell"),
+            "production_matrix_cell",
+        )
+        is not True
+    ):
+        raise SystemExit("The S0 v4 run identity changed")
     if require_number(
         trainer.get("completion_loss_weight"),
         "completion_loss_weight",
@@ -390,16 +447,27 @@ def validate_train_contract(
         settings.get("per_device_eval_batch_size"),
         "per_device_eval_batch_size",
     )
-    if eval_strategy != "epoch" or not eval_on_start:
-        raise SystemExit("The S0 validation contract changed")
-    if eval_batch_size != 1:
-        raise SystemExit("S0 requires one validation row per rank")
     save_strategy = require_string(
         settings.get("save_strategy"), "save_strategy"
     )
-    if save_strategy not in {"no", "steps"}:
-        raise SystemExit("The LoRA save strategy is invalid")
+    max_length = require_int(settings.get("max_length"), "max_length")
+    save_steps = require_int(settings.get("save_steps"), "save_steps")
+    save_total_limit = require_int(
+        settings.get("save_total_limit"), "save_total_limit"
+    )
+    validation_gate = require_object(
+        config.get("validation_gate"), "validation_gate"
+    )
+    if validation_gate != {
+        "checkpoint_set": "each_saved_checkpoint_and_final",
+        "selection_metric": "validation/hard_failure_count_then_accuracy",
+        "required_method_count": 1,
+        "full_registry_access": False,
+    }:
+        raise SystemExit("The S0 v4 validation gate changed")
 
+    # The corpus must be the published v4 build of the shared contract and
+    # the v4 overlay that are in this repository.
     corpus_root = Path(
         absolute_path(root, corpus.get("root"), "corpus root")
     )
@@ -416,19 +484,73 @@ def validate_train_contract(
         corpus_manifest_path, "corpus manifest"
     )
     if (
-        corpus_manifest.get("dataset_id") != DATASET_ID
+        corpus_manifest.get("dataset_id") != S0_V4_DATASET_ID
         or corpus_manifest.get("schema_version")
-        != MANIFEST_SCHEMA_VERSION
-        or corpus_manifest.get("training_contract")
-        != TRAINING_CONTRACT
-        or corpus_manifest.get("evaluation_contract")
-        != EVALUATION_CONTRACT
+        != V4_MANIFEST_SCHEMA_VERSION
+        or corpus_manifest.get("corpus_schema_version")
+        != V4_CORPUS_SCHEMA_VERSION
+        or corpus_manifest.get("contract", {}).get("row_schema_version")
+        != "multiplex_sft_v3"
         or corpus_manifest.get("row_counts", {}).get("train")
         != train_rows
         or corpus_manifest.get("row_counts", {}).get("validation")
         != validation_rows
     ):
-        raise SystemExit("The corpus manifest contract changed")
+        raise SystemExit("The v4 corpus manifest contract changed")
+    runtime_contract = require_object(
+        corpus_manifest.get("contract"), "corpus runtime contract"
+    )
+    runtime_contract_declared = require_string(
+        runtime_contract.get("path"),
+        "corpus runtime contract path",
+    )
+    if Path(runtime_contract_declared).as_posix() != (
+        "runtime/world_model/contract.yaml"
+    ):
+        raise SystemExit("The corpus runtime contract path changed")
+    verify_file(
+        Path(
+            absolute_path(
+                root,
+                runtime_contract_declared,
+                "corpus runtime contract path",
+            )
+        ),
+        require_sha256(
+            runtime_contract.get("sha256"),
+            "corpus runtime contract SHA-256",
+        ),
+        "corpus runtime contract",
+    )
+    overlay = require_object(
+        runtime_contract.get("s0_overlay"),
+        "S0 v4 runtime overlay",
+    )
+    overlay_declared = require_string(
+        overlay.get("path"), "S0 v4 runtime overlay path"
+    )
+    if (
+        Path(overlay_declared).as_posix() != "runtime/world_model/s0_v4.yaml"
+        or overlay.get("schema_version")
+        != "mentor-rl-world-model-s0-overlay-v1"
+        or overlay.get("metadata_optional_additions")
+        != V4_OVERLAY_METADATA_ADDITIONS
+    ):
+        raise SystemExit("The S0 v4 runtime overlay contract changed")
+    verify_file(
+        Path(
+            absolute_path(
+                root,
+                overlay_declared,
+                "S0 v4 runtime overlay path",
+            )
+        ),
+        require_sha256(
+            overlay.get("sha256"),
+            "S0 v4 runtime overlay SHA-256",
+        ),
+        "S0 v4 runtime overlay",
+    )
 
     train_path = corpus_root / require_string(
         corpus.get("train_file"), "train_file"
@@ -446,6 +568,17 @@ def validate_train_contract(
     verify_file(
         validation_path, validation_sha256, "validation file"
     )
+    if (
+        corpus_manifest.get("files", {}).get(train_path.name, {}).get("sha256")
+        != train_sha256
+        or corpus_manifest.get("files", {})
+        .get(validation_path.name, {})
+        .get("sha256")
+        != validation_sha256
+    ):
+        raise SystemExit("The v4 corpus file manifest changed")
+
+    # The trainer scores teacher-forced validation loss on this panel.
     evaluator_path = Path(
         absolute_path(
             root,
@@ -462,15 +595,25 @@ def validate_train_contract(
     )
     evaluator = read_json(evaluator_path, "evaluator manifest")
     if (
-        evaluator.get("schema_version")
-        != "mentor-rl-world-model-s0-evaluator-manifest-v6"
-        or evaluator.get("dataset_id") != DATASET_ID
-        or evaluator.get("evaluation_contract") != EVALUATION_CONTRACT
+        evaluator.get("schema_version") != V4_EVALUATOR_SCHEMA_VERSION
+        or evaluator.get("dataset_id") != S0_V4_DATASET_ID
+        or evaluator.get("evaluation_contract") != V4_EVALUATION_CONTRACT
+        or evaluator.get("corpus_manifest_sha256") != corpus_manifest_sha256
     ):
         raise SystemExit("The evaluator manifest contract changed")
+    if (
+        evaluator.get("row_schema_version") != "multiplex_sft_v3"
+        or evaluator.get("compatible_loss_contracts")
+        != [S0_V3_TRACE_LOSS_CONTRACT, S0_V4_PRIORITY_LOSS_CONTRACT]
+        or "loss_contract" in evaluator
+    ):
+        raise SystemExit("The v4 evaluator loss compatibility changed")
     validation_panel = require_object(
-        evaluator.get("validation"), "evaluator validation panel"
+        evaluator.get("teacher_forced_validation"),
+        "evaluator validation panel",
     )
+    if validation_panel.get("row_count") != validation_rows:
+        raise SystemExit("The v4 evaluator validation count changed")
     validation_answer_key_path = Path(
         absolute_path(
             root,
@@ -489,6 +632,8 @@ def validate_train_contract(
     )
 
     model_id = require_string(model.get("model_id"), "model_id")
+    if model_id != "gpt-oss-120b-bf16":
+        raise SystemExit("The selected model differs from the run schema")
     model_path = absolute_path(root, model.get("path"), "model path")
     base_schema = require_string(
         model.get("base_model_artifact_schema"),
@@ -502,6 +647,7 @@ def validate_train_contract(
         "S0_RUN_CONFIG_SHA256": sha256_file(config_path),
         "S0_CONFIG_ID": config_id,
         "S0_RUN_SCOPE": run_scope,
+        "S0_DATASET_ID": S0_V4_DATASET_ID,
         "S0_METHOD_ID": method_id,
         "S0_TRAIN_MODE": "lora",
         "S0_TOKENIZER_METHOD": tokenizer_method,
@@ -551,6 +697,7 @@ def validate_train_contract(
             validation_answer_key_sha256
         ),
         "S0_EVALUATOR_MANIFEST": str(evaluator_path),
+        "S0_EVALUATOR_MANIFEST_SHA256": evaluator_sha256,
         "TRAINER_PATH": str(trainer_path),
         "OUTPUT_ROOT": absolute_path(
             root, method.get("output_root"), "output_root"
@@ -578,9 +725,7 @@ def validate_train_contract(
         "WARMUP_RATIO": str(warmup_ratio),
         "WEIGHT_DECAY": str(weight_decay),
         "MAX_GRAD_NORM": str(max_grad_norm),
-        "MAX_LENGTH": str(
-            require_int(settings.get("max_length"), "max_length")
-        ),
+        "MAX_LENGTH": str(max_length),
         "LOGGING_STEPS": str(
             require_int(settings.get("logging_steps"), "logging_steps")
         ),
@@ -588,15 +733,8 @@ def validate_train_contract(
         "EVAL_ON_START": str(int(eval_on_start)),
         "EVAL_BATCH_SIZE": str(eval_batch_size),
         "SAVE_STRATEGY": save_strategy,
-        "SAVE_STEPS": str(
-            require_int(settings.get("save_steps", 1), "save_steps")
-        ),
-        "SAVE_TOTAL_LIMIT": str(
-            require_int(
-                settings.get("save_total_limit", 1),
-                "save_total_limit",
-            )
-        ),
+        "SAVE_STEPS": str(save_steps),
+        "SAVE_TOTAL_LIMIT": str(save_total_limit),
         "SEED": str(require_int(settings.get("seed"), "seed")),
         "PRESERVE_DATASET_ORDER": str(
             int(
@@ -617,7 +755,7 @@ def validate_train_contract(
         "BF16": str(
             int(require_bool(settings.get("bf16"), "bf16"))
         ),
-        "LOSS_CONTRACT": LOSS_CONTRACT,
+        "LOSS_CONTRACT": loss_contract,
         "LORA_R": str(lora_rank),
         "LORA_ALPHA": str(
             require_int(trainer.get("lora_alpha"), "lora_alpha")

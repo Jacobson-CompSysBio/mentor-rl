@@ -1,6 +1,6 @@
 {
-  "schema_version": "mentor-rl-world-model-s0-120b-tool-trajectory-training-v6",
-  "training_id": "world_model_v2_s0_120b_tool_trajectory_training_v6",
+  "schema_version": "mentor-rl-world-model-s0-120b-training-v4",
+  "training_id": "world_model_s0_120b_training_v4_r128_priority",
   "run_scope": "production",
   "promotion_eligible": true,
   "production_matrix_cell": true,
@@ -13,26 +13,40 @@
     "weight_shard_count": 36
   },
   "corpus": {
-    "root": "data/world_model_v2/sft/s0_human_identifier_trajectories_v6",
-    "manifest_sha256": "27343d0e58d09f42b039c15debaddb23a08eabbb9cd6ab93700c5dff1c3d21fe",
+    "root": "data/world_model_v4/corpora/s0",
+    "manifest_sha256": "20cbea3bb7e1f1bf9a54e9686b31a29abea992938a07aac58866b24c9832d638",
     "train_file": "train.jsonl",
-    "train_sha256": "5d1b96e3d6f0b093d76d55ca960af7f0686cdbeed20b7d80bfba7718bb58922d",
-    "train_rows": 4096,
-    "validation_file": "val.jsonl",
-    "validation_sha256": "f939932b01fa1220f2eaa0d3d9ef6787d1718baa7d0fb5a145c05af4c0febdb4",
-    "validation_rows": 670,
-    "evaluator_manifest": "data/world_model_v2/eval/s0_human_identifier_trajectories_v6/manifest.json",
-    "evaluator_manifest_sha256": "9d8e24dbdf6b7bc8564255a6b8c5c52c15a27464b4ca8110f348c6edbf56ce9d"
+    "train_sha256": "e0ba419b828ff1eb3862e14ac45b742345ce18ae25135efbb424c25263551bf2",
+    "train_rows": 16384,
+    "validation_file": "validation.jsonl",
+    "validation_sha256": "fbe556e0ab5895e7df28e64a66794edc734a6486f023d0b0f5bfde1a985d253f",
+    "validation_rows": 622,
+    "evaluator_manifest": "data/world_model_v4/eval/s0_validation/manifest.json",
+    "evaluator_manifest_sha256": "ffc2eb62de88fc851a3a32d6768a6e0fb35e8c4dc5a0ce04bbabbcb071706af3"
   },
   "trainer": {
     "path": "scripts/train_sft_dp_tp_ep.py",
-    "fine_tune_configuration": "lora_r32",
+    "fine_tune_configuration": "lora_r128",
     "loader_identity": "peft_adapter_loader",
-    "lora_rank": 32,
-    "lora_alpha": 64,
+    "lora_rank": 128,
+    "lora_alpha": 256,
     "lora_dropout": 0,
-    "loss_contract": "s0_tool_trajectory_v1",
-    "completion_loss_weight": 1
+    "loss_contract": "multiplex_sft_v4_priority",
+    "completion_loss_weight": 1,
+    "token_loss_weights": {
+      "nonassistant": 0,
+      "assistant_prose": 1,
+      "tool_call": 4,
+      "final_json": 4,
+      "critical_final_fields": 8,
+      "critical_field_names": [
+        "status",
+        "result",
+        "continuation_decision",
+        "blocked_reason"
+      ],
+      "normalization": "positive_token_mean_per_row"
+    }
   },
   "run_settings": {
     "num_nodes": 16,
@@ -40,7 +54,7 @@
     "tp_size": 8,
     "ep_size": 8,
     "data_parallel_size": 16,
-    "num_train_epochs": 10,
+    "num_train_epochs": 3,
     "per_device_train_batch_size": 1,
     "gradient_accumulation_steps": 2,
     "global_batch_size": 32,
@@ -49,13 +63,13 @@
     "warmup_ratio": 0.03,
     "weight_decay": 0,
     "max_grad_norm": 1,
-    "max_length": 1024,
+    "max_length": 4096,
     "logging_steps": 10,
     "eval_strategy": "epoch",
     "eval_on_start": true,
     "per_device_eval_batch_size": 1,
     "save_strategy": "steps",
-    "save_steps": 200,
+    "save_steps": 512,
     "save_total_limit": 3,
     "seed": 900913,
     "preserve_dataset_order": false,
@@ -66,19 +80,19 @@
   },
   "methods": [
     {
-      "method_id": "oss120b-plain-base-tokenizer-lora-r32",
+      "method_id": "oss120b-plain-base-tokenizer-lora-r128",
       "tokenizer_method": "plain_base_tokenizer",
       "arm_root": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer",
       "arm_manifest_sha256": "b1379f9a1a751ce7bdc2a99389717ba3095c64e3fbfa608ef77eee181bb8cb6e",
       "tokenizer_path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
       "token_adapter_manifest": null,
       "tokenizer_manifest_sha256": "245163b5189a64afb8e5b061585f90d4c15bcf94599b68307e9ff008880fe3c0",
-      "output_root": "data/world_model_v2/checkpoints/s0_120b_tool_trajectory_training_v6/oss120b-plain-base-tokenizer-lora-r32"
+      "output_root": "data/world_model_v4/checkpoints/s0_120b/r128_priority"
     }
   ],
   "validation_gate": {
     "checkpoint_set": "each_saved_checkpoint_and_final",
-    "selection_metric": "eval/completion_loss",
+    "selection_metric": "validation/hard_failure_count_then_accuracy",
     "required_method_count": 1,
     "full_registry_access": false
   }

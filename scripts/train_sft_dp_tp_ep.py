@@ -62,15 +62,14 @@ from runtime.world_model_training import (  # noqa: E402
     consumed_training_index_plan,
     derive_optimizer_step_schedule,
     epoch_training_indices_with_replica_padding,
-    flatten_tool_sft_record_for_arrow,
+    flatten_v3_trace_for_arrow,
+    question_families_for_dataset,
+    S0_LOSS_CONTRACTS,
+    S0_V4_PRIORITY_LOSS_CONTRACT,
     s0_exposure_corpus_identity,
     s0_exposure_scope,
-    tokenize_tool_trajectory_for_sft,
+    tokenize_v3_trace_for_sft,
     tokenizer_artifact_hashes,
-)
-from runtime.world_model_schemas import (  # noqa: E402
-    S0_FAMILIES,
-    IdentifierToolSFTRecord,
 )
 from tp_ep_autograd import (  # noqa: E402
     copy_to_expert_parallel_region,
@@ -99,7 +98,6 @@ S0_IDENTITY_ENV = {
     "training_code_sha256": "S0_TRAINING_CODE_SHA256",
 }
 
-S0_TOOL_TRAJECTORY_LOSS_CONTRACT = "s0_tool_trajectory_v1"
 
 
 def required_run_identity() -> dict[str, str]:
@@ -117,23 +115,68 @@ def required_run_identity() -> dict[str, str]:
 
 
 def loss_contract_config(loss_contract: str) -> dict[str, Any]:
-    """Return the fixed S0 trajectory loss contract."""
+    """Return the fixed S0 loss contract.
 
-    if loss_contract != S0_TOOL_TRAJECTORY_LOSS_CONTRACT:
+    The adapter manifest records this as its objective.
+    """
+
+    if loss_contract not in S0_LOSS_CONTRACTS:
         raise ValueError(f"Unknown loss contract: {loss_contract!r}")
-    return {
+    result = {
         "loss_contract": loss_contract,
         "completion_loss_weight": 1.0,
-        "target_format": "tool_trajectory",
+        "target_format": "multiplex_sft_v3",
         "supervised_messages": [
             "assistant_thinking",
             "assistant_tool_call",
+            "assistant_final_thinking",
             "assistant_final",
         ],
-        "masked_messages": ["user", "tool"],
+        "masked_messages": [
+            "system",
+            "harness",
+            "user",
+            "tool",
+            "earlier_assistant_final",
+        ],
         "enable_thinking": True,
         "reasoning_effort": "low",
     }
+    if loss_contract == S0_V4_PRIORITY_LOSS_CONTRACT:
+        result["token_loss_weights"] = {
+            "nonassistant": 0.0,
+            "assistant_prose": 1.0,
+            "tool_call": 4.0,
+            "final_json": 4.0,
+            "critical_final_fields": 8.0,
+            "critical_field_names": [
+                "status",
+                "result",
+                "continuation_decision",
+                "blocked_reason",
+            ],
+            "normalization": "positive_token_mean_per_row",
+        }
+    return result
+
+
+def validate_dataset_question_families(
+    dataset_id: str,
+    question_families: list[str],
+    *,
+    label: str,
+) -> None:
+    """Require the exact family set registered for one selected corpus."""
+
+    expected = question_families_for_dataset(dataset_id)
+    actual = frozenset(str(value) for value in question_families)
+    if actual != expected:
+        missing = sorted(expected - actual)
+        unexpected = sorted(actual - expected)
+        raise RuntimeError(
+            f"The {dataset_id} {label} set has the wrong question families; "
+            f"missing={missing!r}, unexpected={unexpected!r}"
+        )
 
 
 def initialize_wandb(
@@ -387,8 +430,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup_ratio", type=float, default=0.03)
     parser.add_argument(
         "--loss_contract",
-        choices=(S0_TOOL_TRAJECTORY_LOSS_CONTRACT,),
-        default=S0_TOOL_TRAJECTORY_LOSS_CONTRACT,
+        choices=tuple(sorted(S0_LOSS_CONTRACTS)),
+        required=True,
     )
     parser.add_argument("--weight_decay", type=float, default=0.0)
     parser.add_argument("--max_grad_norm", type=float, default=1.0)
@@ -515,40 +558,26 @@ def seed_everything(seed: int) -> None:
 
 
 # Block 3 creates the exact S0 token sequence and loss masks.
-def _tokenize_tool_trajectory(
+
+
+
+
+
+
+def _tokenize_v3_trace(
     record: dict[str, Any],
     tokenizer,
     max_length: int,
+    *,
+    priority_weights: bool = False,
 ) -> dict[str, list[int]]:
-    """Render one tool trajectory with role-aware supervision."""
+    """Render one canonical v3 trace with role-aware supervision."""
 
-    payload = {
-        "record_id": record["record_id"],
-        "metadata": json.loads(record["metadata_json"]),
-        "system": record["system"],
-        "question": record["question"],
-        "input": json.loads(record["input_json"]),
-        "tools": json.loads(record["tools_json"]),
-        "assistant_tool_call": json.loads(
-            record["assistant_tool_call_json"]
-        ),
-        "assistant_thinking": record["assistant_thinking"],
-        "tool_result": json.loads(record["tool_result_json"]),
-        "assistant_final": record["assistant_final"],
-        "split": record["split"],
-        "provenance": {
-            "fact_id": record["fact_id"],
-            "fact_role": (
-                "train" if record["split"] == "train" else "unseen"
-            ),
-            "prompt_form_id": record["prompt_form_id"],
-        },
-    }
-    parsed = IdentifierToolSFTRecord.from_dict(payload)
-    return tokenize_tool_trajectory_for_sft(
-        parsed,
+    return tokenize_v3_trace_for_sft(
+        json.loads(record["trace_json"]),
         tokenizer,
         max_length,
+        priority_weights=priority_weights,
     )
 
 
@@ -557,6 +586,8 @@ def _iter_flattened_sft_records(
     source_size: int,
     source_mtime_ns: int,
     expected_split: str,
+    loss_contract: str,
+    dataset_id: str | None = None,
 ):
     """Yield a stable scalar schema and reset stale Arrow caches."""
 
@@ -567,9 +598,14 @@ def _iter_flattened_sft_records(
                 continue
             try:
                 record = json.loads(line)
-                yield flatten_tool_sft_record_for_arrow(
+                if loss_contract not in S0_LOSS_CONTRACTS:
+                    raise ValueError(
+                        f"Unknown loss contract: {loss_contract!r}"
+                    )
+                yield flatten_v3_trace_for_arrow(
                     record,
                     expected_split=expected_split,
+                    dataset_id=dataset_id,
                 )
             except (TypeError, ValueError, json.JSONDecodeError) as exc:
                 raise RuntimeError(
@@ -583,33 +619,34 @@ def _load_flattened_sft_dataset(
     rank: int,
     *,
     expected_split: str,
+    loss_contract: str,
+    dataset_id: str | None = None,
 ):
     """Build one homogeneous Arrow cache, then share it across local TP ranks."""
 
     source = Path(path).resolve()
     stat = source.stat()
-    features = Features({
-        "system": Value("string"),
-        "question": Value("string"),
-        "input_json": Value("string"),
-        "tools_json": Value("string"),
-        "assistant_tool_call_json": Value("string"),
-        "assistant_thinking": Value("string"),
-        "tool_result_json": Value("string"),
-        "assistant_final": Value("string"),
+    common_features = {
         "metadata_json": Value("string"),
         "question_family": Value("string"),
         "record_id": Value("string"),
         "fact_id": Value("string"),
         "prompt_form_id": Value("string"),
         "split": Value("string"),
-    })
+    }
+    if loss_contract not in S0_LOSS_CONTRACTS:
+        raise ValueError(f"Unknown loss contract: {loss_contract!r}")
+    features = Features(
+        {"trace_json": Value("string"), **common_features}
+    )
     # These source attributes force a new cache after a local file change.
     generator_kwargs = {
         "path": str(source),
         "source_size": stat.st_size,
         "source_mtime_ns": stat.st_mtime_ns,
         "expected_split": expected_split,
+        "loss_contract": loss_contract,
+        "dataset_id": dataset_id,
     }
 
     # All ranks must use one shared Hugging Face cache directory.
@@ -631,6 +668,7 @@ def _tokenization_cache_fingerprint(
     source_fingerprint: str,
     max_length: int,
     tokenizer_identity_sha256: str,
+    loss_contract: str,
 ) -> str:
     """Return the cache identity for one tokenization contract."""
 
@@ -640,7 +678,7 @@ def _tokenization_cache_fingerprint(
                 "source_fingerprint": source_fingerprint,
                 "max_length": max_length,
                 "tokenizer_identity_sha256": tokenizer_identity_sha256,
-                "loss_contract": S0_TOOL_TRAJECTORY_LOSS_CONTRACT,
+                "loss_contract": loss_contract,
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -656,16 +694,19 @@ def load_tokenized_dataset(
     max_length: int,
     label: str,
     tokenizer_identity_sha256: str,
-    loss_contract: str = S0_TOOL_TRAJECTORY_LOSS_CONTRACT,
+    loss_contract: str,
     answer_key_path: str | None = None,
+    dataset_id: str | None = None,
 ):
-    if loss_contract != S0_TOOL_TRAJECTORY_LOSS_CONTRACT:
+    if loss_contract not in S0_LOSS_CONTRACTS:
         raise ValueError(f"Unknown loss contract: {loss_contract!r}")
-    expected_split = "val" if answer_key_path else "train"
+    expected_split = "validation" if answer_key_path else "train"
     dataset = _load_flattened_sft_dataset(
         path,
         rank,
         expected_split=expected_split,
+        loss_contract=loss_contract,
+        dataset_id=dataset_id,
     )
     if len(dataset) == 0:
         raise RuntimeError(f"{label} dataset is empty")
@@ -682,10 +723,13 @@ def load_tokenized_dataset(
         tokenizer_identity_sha256: str,
     ) -> dict[str, list[int]]:
         del tokenizer_identity_sha256
-        return _tokenize_tool_trajectory(
+        return _tokenize_v3_trace(
             record,
             tokenizer,
             max_length,
+            priority_weights=(
+                loss_contract == S0_V4_PRIORITY_LOSS_CONTRACT
+            ),
         )
 
     # Rank 0 builds the token cache once. The other TP ranks use that cache.
@@ -696,6 +740,7 @@ def load_tokenized_dataset(
         source_fingerprint=dataset._fingerprint,
         max_length=max_length,
         tokenizer_identity_sha256=tokenizer_identity_sha256,
+        loss_contract=loss_contract,
     )
     # Remove source columns after token conversion. Keep only IDs and masks.
     tokenized = dataset.map(
@@ -712,8 +757,54 @@ def load_tokenized_dataset(
     return tokenized, question_families, identities
 
 
+def pad_loss_weights(
+    examples: list[dict[str, Any]],
+    *,
+    padded_length: int,
+    padding_side: str,
+) -> torch.Tensor:
+    """Pad row-normalized token weights with the tokenizer's alignment."""
+
+    if padding_side not in {"left", "right"}:
+        raise RuntimeError(f"Unsupported tokenizer padding side: {padding_side!r}")
+    weights = torch.zeros(
+        (len(examples), padded_length), dtype=torch.float32
+    )
+    for row_index, example in enumerate(examples):
+        row_weights = torch.tensor(
+            example["loss_weights"], dtype=torch.float32
+        )
+        row_length = len(example["input_ids"])
+        if row_weights.numel() != row_length or row_length > padded_length:
+            raise RuntimeError(
+                "A priority loss mask differs from its token sequence"
+            )
+        start = 0 if padding_side == "right" else padded_length - row_length
+        weights[row_index, start : start + row_length] = row_weights
+    return weights
+
+
 class S0DataCollator(DataCollatorForLanguageModeling):
     """Collate S0 trajectories with completion-only labels."""
+
+    def torch_call(self, examples):
+        """Pad optional per-token weights alongside the standard SFT batch."""
+
+        batch = super().torch_call(examples)
+        weighted = ["loss_weights" in example for example in examples]
+        if any(weighted) and not all(weighted):
+            raise RuntimeError(
+                "A batch cannot mix weighted and uniform SFT rows"
+            )
+        if all(weighted):
+            batch["loss_weights"] = pad_loss_weights(
+                examples,
+                padded_length=int(batch["input_ids"].shape[1]),
+                # TRL's DataCollatorForLanguageModeling pads every field on
+                # the right, independently of the tokenizer configuration.
+                padding_side="right",
+            )
+        return batch
 
 
 def assert_s0_supervision(
@@ -725,7 +816,8 @@ def assert_s0_supervision(
     # Inspect a small sample before the model allocates its weights.
     checked_prompt = 0
     checked_completion = 0
-    if loss_contract != S0_TOOL_TRAJECTORY_LOSS_CONTRACT:
+    checked_priority_rows = 0
+    if loss_contract not in S0_LOSS_CONTRACTS:
         raise ValueError(f"Unknown loss contract: {loss_contract!r}")
     for index in range(min(max_examples, len(dataset))):
         example = dataset[index]
@@ -748,6 +840,54 @@ def assert_s0_supervision(
                         f"Prompt token receives loss at row {index}, position {position}"
                     )
                 checked_prompt += 1
+        weights = example.get("loss_weights")
+        if loss_contract == S0_V4_PRIORITY_LOSS_CONTRACT:
+            if not isinstance(weights, list) or len(weights) != len(mask):
+                raise RuntimeError(
+                    f"S0 priority row {index} lacks one weight per token"
+                )
+            positive = []
+            for position, (is_completion, weight) in enumerate(
+                zip(mask, weights, strict=True)
+            ):
+                if not math.isfinite(float(weight)) or float(weight) < 0.0:
+                    raise RuntimeError(
+                        f"S0 priority row {index} has an invalid weight at "
+                        f"position {position}"
+                    )
+                if is_completion:
+                    if float(weight) <= 0.0:
+                        raise RuntimeError(
+                            f"S0 priority row {index} masks a completion "
+                            f"weight at position {position}"
+                        )
+                    positive.append(float(weight))
+                elif float(weight) != 0.0:
+                    raise RuntimeError(
+                        f"S0 priority row {index} weights a prompt token at "
+                        f"position {position}"
+                    )
+            if not math.isclose(
+                sum(positive) / len(positive), 1.0, rel_tol=1e-6, abs_tol=1e-6
+            ):
+                raise RuntimeError(
+                    f"S0 priority row {index} weights are not mean-normalized"
+                )
+            collated_weights = batch["loss_weights"][0, : len(mask)].tolist()
+            if any(
+                not math.isclose(actual, expected, rel_tol=1e-6, abs_tol=1e-6)
+                for actual, expected in zip(
+                    collated_weights, weights, strict=True
+                )
+            ):
+                raise RuntimeError(
+                    f"S0 priority row {index} weights changed during collation"
+                )
+            checked_priority_rows += 1
+        elif weights is not None or "loss_weights" in batch:
+            raise RuntimeError(
+                "A uniform loss contract contains priority token weights"
+            )
         if "mapping_target_mask" in example or "mapping_target_mask" in batch:
             raise RuntimeError("A trajectory row has a mapping target mask")
     if checked_prompt == 0 or checked_completion == 0:
@@ -756,6 +896,7 @@ def assert_s0_supervision(
         "examples_checked": min(max_examples, len(dataset)),
         "prompt_tokens_masked": checked_prompt,
         "completion_tokens_trainable": checked_completion,
+        "priority_rows_checked": checked_priority_rows,
     }
 
 
@@ -1007,20 +1148,18 @@ def save_adapter(model, output_dir: Path, args: argparse.Namespace, topology: Wo
             **required_run_identity(),
             "tokenizer_artifacts_sha256": args.tokenizer_artifacts_sha256,
         }
-        _write_json(
-            output_dir / TP_MANIFEST_NAME,
-            {
-                "format": "mentor-rl-s0-tp-lora-v1",
-                "topology": asdict(topology),
-                "base_model": stable_model_path,
-                "lora": asdict(LoraSpec(args.lora_r, args.lora_alpha, args.lora_dropout)),
-                "objective": loss_contract_config(args.loss_contract),
-                "logical_trainable_parameters": logical_trainable_parameters,
-                "rank_shards": topology.world_size,
-                "consolidated_peft_adapter": ADAPTER_WEIGHTS_NAME,
-                "identity": adapter_identity,
-            },
-        )
+        tp_manifest = {
+            "format": "mentor-rl-s0-tp-lora-v1",
+            "topology": asdict(topology),
+            "base_model": stable_model_path,
+            "lora": asdict(LoraSpec(args.lora_r, args.lora_alpha, args.lora_dropout)),
+            "objective": loss_contract_config(args.loss_contract),
+            "logical_trainable_parameters": logical_trainable_parameters,
+            "rank_shards": topology.world_size,
+            "consolidated_peft_adapter": ADAPTER_WEIGHTS_NAME,
+            "identity": adapter_identity,
+        }
+        _write_json(output_dir / TP_MANIFEST_NAME, tp_manifest)
         # Reload the consolidated adapter and require exact tensor equality.
         reloaded = load_file(output_dir / ADAPTER_WEIGHTS_NAME, device="cpu")
         if set(reloaded) != set(full_state) or any(
@@ -1033,6 +1172,24 @@ def save_adapter(model, output_dir: Path, args: argparse.Namespace, topology: Wo
         if set(parsed.target_modules or ()) != set(ATTENTION_LORA_TARGETS):
             raise RuntimeError("Consolidated adapter_config.json is not PEFT-compatible")
     dist.barrier()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def load_adapter_shard(
@@ -1078,6 +1235,12 @@ def load_adapter_shard(
                 raise RuntimeError(f"Adapter shard shape mismatch for {name}")
             local.copy_(state[name].to(local.device, dtype=local.dtype))
     dist.barrier()
+
+
+
+
+
+
 
 
 def _optimizer_parameters(optimizer) -> list[torch.Tensor]:
@@ -1268,7 +1431,15 @@ def assert_identical_tp_batch(
     # Each TP rank must receive identical IDs, masks, and sequence lengths.
     checksum = torch.zeros(4, dtype=torch.int64, device=torch.cuda.current_device())
     for key_index, key in enumerate(sorted(batch)):
-        tensor = batch[key].detach().to(torch.int64).reshape(-1)
+        source = batch[key].detach()
+        if source.is_floating_point():
+            if not torch.isfinite(source).all():
+                raise RuntimeError(
+                    f"TP batch field {key!r} contains a non-finite value"
+                )
+            tensor = source.mul(1_000_000).round().to(torch.int64).reshape(-1)
+        else:
+            tensor = source.to(torch.int64).reshape(-1)
         positions = torch.arange(1, tensor.numel() + 1, device=tensor.device, dtype=torch.int64)
         checksum[0] += tensor.numel()
         checksum[1] += tensor.sum()
@@ -1395,7 +1566,6 @@ def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
         handle.write(json.dumps(payload, sort_keys=True) + "\n")
 
 
-# Block 6 applies the S0 loss and synchronizes model replicas.
 def compute_loss_objective(
     model,
     batch: dict[str, torch.Tensor],
@@ -1403,12 +1573,16 @@ def compute_loss_objective(
 ) -> dict[str, Any]:
     """Compute one forward pass and the fixed S0 loss contract."""
 
-    if loss_contract != S0_TOOL_TRAJECTORY_LOSS_CONTRACT:
+    if loss_contract not in S0_LOSS_CONTRACTS:
         raise ValueError(f"Unknown loss contract: {loss_contract!r}")
 
     if "mapping_target_mask" in batch:
         raise RuntimeError("The trajectory batch has a mapping target mask")
-    model_batch = {key: value for key, value in batch.items() if key != "labels"}
+    model_batch = {
+        key: value
+        for key, value in batch.items()
+        if key not in {"labels", "loss_weights"}
+    }
     labels = batch["labels"]
     outputs = model(**model_batch)
     logits = outputs.logits.float()
@@ -1428,8 +1602,33 @@ def compute_loss_objective(
         raise RuntimeError("The batch has no completion target token")
     completion_loss = token_loss[completion_positions].mean()
 
+    objective_loss = completion_loss
+    if loss_contract == S0_V4_PRIORITY_LOSS_CONTRACT:
+        weights = batch.get("loss_weights")
+        if weights is None or weights.shape != labels.shape:
+            raise RuntimeError(
+                "The priority loss contract requires one weight per label"
+            )
+        shift_weights = nn.functional.pad(
+            weights, (0, 1), value=0.0
+        )[..., 1:].contiguous().to(logits.device, dtype=token_loss.dtype)
+        if not torch.isfinite(shift_weights).all() or (shift_weights < 0).any():
+            raise RuntimeError("The priority loss weights must be finite and nonnegative")
+        if (shift_weights[~completion_positions] != 0).any():
+            raise RuntimeError("The priority loss weights include a masked token")
+        supervised_weights = shift_weights[completion_positions]
+        if (supervised_weights <= 0).any():
+            raise RuntimeError("A priority completion token has no positive weight")
+        objective_loss = (
+            token_loss[completion_positions] * supervised_weights
+        ).sum() / supervised_weights.sum()
+    elif "loss_weights" in batch:
+        raise RuntimeError(
+            "A uniform loss contract received priority loss weights"
+        )
+
     return {
-        "loss": completion_loss,
+        "loss": objective_loss,
         "completion_loss": completion_loss,
         "completion_tokens": completion_tokens,
     }
@@ -1843,16 +2042,20 @@ def main() -> None:
     validate_cli(args)
     # Validate the launch identity before any distributed resource starts.
     run_identity = required_run_identity()
+    exposure_corpus_identity = s0_exposure_corpus_identity(
+        args.loss_contract,
+        os.environ.get("S0_DATASET_ID", "").strip(),
+    )
+    selected_dataset_id = exposure_corpus_identity["dataset_id"]
     method_match = re.fullmatch(
-        r"(oss20b|oss120b)-"
-        r"plain-base-tokenizer-lora-r(32|128|1024)",
+        r"oss120b-plain-base-tokenizer-lora-r(32|128)",
         run_identity["method_id"],
     )
     if method_match is None:
         raise RuntimeError(
             "The S0 method ID must select one supported LoRA configuration"
         )
-    if int(method_match.group(2)) != args.lora_r:
+    if int(method_match.group(1)) != args.lora_r:
         raise RuntimeError(
             "The S0 method ID differs from the selected LoRA rank"
         )
@@ -1983,16 +2186,20 @@ def main() -> None:
         label="training",
         tokenizer_identity_sha256=tokenizer_identity_sha256,
         loss_contract=args.loss_contract,
+        dataset_id=selected_dataset_id,
     )
-    validation_dataset, _, validation_identities = load_tokenized_dataset(
-        args.validation_dataset_path,
-        tokenizer,
-        rank,
-        max_length=args.max_length,
-        label="validation",
-        tokenizer_identity_sha256=tokenizer_identity_sha256,
-        loss_contract=args.loss_contract,
-        answer_key_path=args.validation_answer_key_path,
+    validation_dataset, validation_question_families, validation_identities = (
+        load_tokenized_dataset(
+            args.validation_dataset_path,
+            tokenizer,
+            rank,
+            max_length=args.max_length,
+            label="validation",
+            tokenizer_identity_sha256=tokenizer_identity_sha256,
+            loss_contract=args.loss_contract,
+            answer_key_path=args.validation_answer_key_path,
+            dataset_id=selected_dataset_id,
+        )
     )
     schedule = derive_optimizer_step_schedule(
         len(dataset),
@@ -2004,13 +2211,11 @@ def main() -> None:
     batches_per_epoch = schedule["batches_per_epoch"]
     updates_per_epoch = schedule["updates_per_epoch"]
     total_steps = schedule["total_steps"]
-    validation_families = {
-        str(value) for value in validation_identities["question_families"]
-    }
-    if validation_families != set(S0_FAMILIES):
-        raise RuntimeError(
-            "The S0 validation set must contain all three S0 families only"
-        )
+    validate_dataset_question_families(
+        selected_dataset_id,
+        validation_question_families,
+        label="validation",
+    )
     if set(validation_identities["prompt_form_ids"]) != {"validation"}:
         raise RuntimeError(
             "The S0 validation set must use the validation prompt form"
@@ -2027,9 +2232,6 @@ def main() -> None:
         preserve_order=args.preserve_dataset_order,
     )
     consumed_indices = list(padding_plan["logical_indices"])
-    exposure_corpus_identity = s0_exposure_corpus_identity(
-        args.loss_contract
-    )
     exposure_manifest_args = {
         "run_id": run_identity["run_id"],
         "method_id": run_identity["method_id"],

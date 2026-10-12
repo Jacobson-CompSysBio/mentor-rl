@@ -1,0 +1,1073 @@
+schema_version: mentor-rl-world-model-contract-v1
+
+runtime:
+  row_schema_version: multiplex_sft_v3
+  tool_contract_version: mentor-rl-world-model-s0-identifier-tools-v3
+  system_prompt: >-
+    Use the provided local tools only when the task needs a fact that the
+    prompt does not supply. Treat a labeled registry block as authoritative.
+    Before each call, explain the applicable rule and next action. After the
+    last call, use its result. In the final action, explain the result rule
+    and claim limit. Return one JSON object with status, provenance, result,
+    continuation_decision, blocked_reason, and summary in that order. Do not
+    invent identifiers or graph facts.
+
+coordinate_system:
+  ensembl_release: "116"
+  identifier_registry_id: ensembl_homo_sapiens_116_v3
+  identifier_registry:
+    source_path: data/world_model_v2/sources/Homo_sapiens.GRCh38.116.gtf.gz
+    source_sha256: ed992f0eac7197d9627bda618f8f831ba355c95bd5d0796af785387d462828b6
+    gene_count: 78941
+    named_gene_count: 43458
+    unnamed_gene_count: 35483
+    symbol_count: 41828
+    ambiguous_symbol_count: 484
+    largest_candidate_count: 758
+    chromosome_count: 70
+    biotype_count: 38
+    casefold_collision_count: 0
+    stable_id_history:
+      source_path: data/world_model_v3/sources/ensembl_116_homo_sapiens_stable_id_event.txt.gz
+      source_url: https://ftp.ensembl.org/pub/release-116/mysql/homo_sapiens_core_116_38/stable_id_event.txt.gz
+      source_sha256: 2f89533fba4d1acadf7e991641c5288a6bb35d5d0417a62c20d81400fd1cb654
+      retired_gene_count: 86256
+      linked_retired_gene_count: 5124
+    hgnc_history:
+      source_path: data/world_model_v2/sources/hgnc_complete_set_2026-07-28.txt
+      source_sha256: 84ddffcbdb7761b065c8c45e4fc7f626c3bf055b3ab054dbf039ac738a935170
+      symbol_count: 58014
+      symbol_key_count: 57726
+      linked_symbol_count: 55692
+  out_of_scope_species:
+    mouse:
+      identifier_registry_id: ensembl_mus_musculus_116
+      ensembl_release: "116"
+      assembly: GRCm39
+      source_path: data/world_model_v2/sources/Mus_musculus.GRCm39.116.gtf.gz
+      source_sha256: 5c29fd9e3157cf40fdbbf76ab25bfe7f79aa61313e0b672664ddb0cb251c02e1
+      gene_id_pattern: "^ENSMUSG[0-9]{11}$"
+  multiplex_id: full_brain_multiplex_v1
+  source_flist_path: /lustre/orion/syb111/proj-shared/Data/H_sap/mentor-ev_multiplexes/brain_multiplexes/full_brain/full_brain_flist.tsv
+  layer_count: 353
+  layer_counts: {HumanNetV3: 7, TFs: 1, bulkPEN: 14, scPEN: 331}
+  source_flist_sha256: e9f5871341b4e5b18d651b486967db39e9513ff071c2338557048216edce9b95
+  graph_gene_count: 47017
+  registry_graph_intersection_count: 45408
+  mentor_ev:
+    source_directory: /lustre/orion/syb111/proj-shared/Projects/mentor-ev/brain/full_brain
+    source: full_brain_all_genes_dendrogram.txt
+    source_path: /lustre/orion/syb111/proj-shared/Projects/mentor-ev/brain/full_brain/dendrograms/full_brain_all_genes_dendrogram.txt
+    sha256: ecf1684eca4fffdd725bdc59e11b8748f5bb9c88f49b1ba802fadb405785b1b5
+    node_count: 94033
+    leaf_count: 47017
+    eligible_clade_count: 15679
+    eligible_leaf_count: {min: 5, max: 30}
+    module_id_pattern: "^mentor_ev:full_brain_all_genes_v1:clade_[0-9]{6}$"
+    dendrogram_id: full_brain_all_genes_v1
+    construction_rule: mentor_ev_dendrogram_clade
+
+source_index:
+  schema_version: mentor-rl-world-model-source-index-v1
+  output_directory: data/world_model_v3/source_indexes
+  content_sha256: 08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e
+
+answer:
+  keys: [status, provenance, result, continuation_decision, blocked_reason, summary]
+
+vocabularies:
+  status: [resolved, not_found, ambiguous, invalid_input, error]
+  continuation_decision: [continue, stop, defer]
+  loop_control: [continue, revise, stop]
+  blocked_reason_code:
+    [ambiguous_symbol, ambiguous_metric, not_found, invalid_input,
+     wrong_input_type, no_multiplex_supplied, no_multiplex_membership,
+     unknown_multiplex, out_of_scope_species, unrecognized_metric, tool_error]
+  layer_family: [ppi, coexpression, tf_target, bulk_pen, scpen, other]
+  layer_claims:
+    [context_predictive_expression, physical_interaction_recorded,
+     regulatory_link_recorded, regulation_direction, global_coexpression,
+     cofunctional_association, holds_in_other_contexts, causal_effect]
+  input_request_phrases: ["to continue", "Give ", "Retry ", "Choose ", "Say which "]
+  anchor_type: [GENE, LAYER, MULTIPLEX]
+  expected: [human_gene_symbol, human_gene_id, layer_tag]
+  error_code: [BACKEND_UNAVAILABLE]
+  s1_4_item: [typed_seed_list, seed_gene_set, module, abstract, query_mygene]
+  meaning: [proximity, similarity, evidence]
+  found_input_type: [module_id, context_id, transcript_id, protein_id]
+  input_species: [mouse]
+
+rows:
+  row_keys: [row_id, messages, tools, metadata]
+  roles: [system, harness, user, assistant, tool]
+  metadata:
+    required:
+      [book_mode, step, question_family, form, source_trace, split_unit,
+       blocked_reason_code, schema_version, system_prompt_sha256,
+       tool_contract_version, ensembl_release, identifier_registry_id]
+    optional: [found_input_type, input_species]
+  names_never_visible:
+    [book_mode, question_family, blocked_reason_code, source_trace, split_unit,
+     found_input_type, input_species]
+  values_never_visible: [book_mode, step, question_family, source_trace]
+
+provenance:
+  key_always_present: true
+  channels: [registry, graph]
+  registry_block:
+    keys: [registry, release, evidence_id]
+    registry: ensembl
+    release: "116"
+    evidence_id_pattern: "^ev_reg_[a-z0-9]{6}$"
+  graph_block:
+    keys: [multiplex_id, graph_version, layer_scope, evidence_id]
+    multiplex_id_pattern: "^[A-Za-z0-9_.-]+$"
+    graph_version_pattern: "^[a-f0-9]{64}$"
+    layer_scope: all
+    evidence_id_pattern: "^ev_mem_[a-z0-9]{6}$"
+  producer_channel:
+    lookup_human_gene_symbol: registry
+    lookup_human_ensembl_gene_id: registry
+    check_multiplex_membership: graph
+    harness_registry_block: registry
+  lookup_tools: [lookup_human_gene_symbol, lookup_human_ensembl_gene_id]
+  error_results_are_not_evidence: true
+  evidence_id_unique_across_rows: true
+  harness_registry_block:
+    header: "Registry entries, Ensembl release 116:"
+    keys: [provenance, entries]
+    resolved_entry: [gene_id, gene_symbol]
+    ambiguous_entry: [status, gene_symbol, candidate_gene_ids, candidate_details]
+
+tools:
+  callable:
+    [lookup_human_gene_symbol, lookup_human_ensembl_gene_id,
+     check_multiplex_membership]
+  error_result:
+    keys: [status, provenance, error_code, message]
+    status: error
+    provenance: null
+  definitions:
+    lookup_human_gene_symbol:
+      args: {gene_symbol: str}
+      normalizes: [trim_spaces, ignore_case]
+      returns:
+        resolved: [status, provenance, gene_id, gene_symbol]
+        ambiguous: [status, provenance, gene_symbol, candidate_gene_ids, candidate_details]
+        not_found: [status, provenance, gene_symbol, candidate_gene_ids]
+      candidate_details: {chromosome: str, biotype: str}
+      provenance_channel: registry
+    lookup_human_ensembl_gene_id:
+      args: {gene_id: str}
+      normalizes: [trim_spaces, ignore_case, strip_numeric_version_suffix]
+      canonical_format: "^ENSG[0-9]{11}$"
+      returns:
+        resolved: [status, provenance, gene_id, gene_symbol]
+        not_found: [status, provenance, gene_id, gene_symbol]
+        invalid_input: [status, provenance, input, expected]
+      provenance_channel: registry
+    check_multiplex_membership:
+      args: {multiplex_id: str, gene_ids: list}
+      returns:
+        resolved: [status, provenance, multiplex_id, present_gene_ids, absent_gene_ids]
+        not_found: [status, provenance, multiplex_id]
+      provenance_channel: graph
+    resolve_context_ontology:
+      available_from: S1.5
+      args: {context_id: str}
+      returns: [anatomy, cell_type, developmental_stage, pen_layers, ontology_versions]
+    query_mygene:
+      harness_only: true
+      args: {query: str, fields: list}
+      returns: [query, requested_fields, results, result_count]
+
+layer_grammars:
+  normalized_keys:
+    [layer_id, layer_family, source, network, organ, region_path, cell_type_path]
+  sep: ":"
+  source: coordinate_system.source_flist_path
+  policy: preserve_native_layer_id
+  families:
+    humannet:
+      match_prefix: HumanNetV3
+      arity: [2]
+      fields: [source, network]
+      nulls: [organ, region_path, cell_type_path]
+      family_from: network
+      network_family: {string_ppi: ppi, biogrid_ppi: ppi, coexpression: coexpression}
+      unrecognized_network_family: other
+    bulk_pen:
+      match_prefix: bulkPEN
+      arity: [3, 4]
+      fields: [prefix, organ, "region_path..."]
+      variadic_field: {name: region_path, start: 2, min_items: 1, max_items: 2}
+      nulls: [source, network, cell_type_path]
+      family_from: prefix
+      family: bulk_pen
+    scpen:
+      match_prefix: scPEN
+      arity: [4, 5]
+      fields: [prefix, organ, "region_path[0]", "cell_type_path..."]
+      fixed_fields: {organ: 1}
+      path_field: {name: region_path, start: 2, items: 1}
+      variadic_field: {name: cell_type_path, start: 3, min_items: 1, max_items: 2}
+      nulls: [source, network]
+      family_from: prefix
+      family: scpen
+    tf_target:
+      match_prefix: TFs
+      arity: [2]
+      fields: [prefix, organ]
+      nulls: [source, network, region_path, cell_type_path]
+      family_from: prefix
+      family: tf_target
+  other_namespaces:
+    context_id:
+      first_field_in: [brain, global]
+      arity: [5, 6]
+      found_input_type: context_id
+    module_id:
+      first_field_in: [rwr_loe, mentor_ev]
+      found_input_type: module_id
+
+blocked_reasons:
+  labels:
+    expected:
+      {human_gene_symbol: human gene symbol, human_gene_id: human gene ID,
+       layer_tag: layer tag}
+    found:
+      {module_id: module ID, context_id: context ID, transcript_id: transcript ID,
+       protein_id: protein ID}
+    species: {mouse: mouse}
+    kind: {human_gene_symbol: symbol, human_gene_id: ID}
+  codes:
+    ambiguous_symbol:
+      - id: ambiguous_symbol.lookup
+        status: ambiguous
+        template: "The symbol {symbol} matches {n} genes in Ensembl release 116, and nothing in the task chooses one."
+        slots:
+          symbol: {kind: value, from: [result.gene_symbol, result.<side>.input]}
+          n: {kind: count, from: [result.candidate_gene_ids, result.<side>.candidate_gene_ids]}
+      - id: ambiguous_symbol.multiplex
+        status: ambiguous
+        template: "The symbol {symbol} matches {n} genes, and {k} of them are nodes in {multiplex_id}, so the multiplex does not choose one."
+        slots:
+          symbol: {kind: value, from: [result.gene_symbol]}
+          n: {kind: count, from: [result.candidate_gene_ids]}
+          k: {kind: count, from: [result.present_gene_ids]}
+          multiplex_id: {kind: value, from: [result.multiplex_id]}
+      - id: ambiguous_symbol.reply
+        status: ambiguous
+        template: "The reply does not choose one of the {n} candidates for {symbol}."
+        slots:
+          n: {kind: count, from: [result.candidate_gene_ids]}
+          symbol: {kind: value, from: [result.gene_symbol]}
+    ambiguous_metric:
+      - id: ambiguous_metric.name
+        status: ambiguous
+        template: 'The name "{input}" can mean {c1} or {c2}, and the two have opposite directions.'
+        slots:
+          input: {kind: value, from: [result.input]}
+          c1: {kind: value, from: [result.candidate_metrics.0]}
+          c2: {kind: value, from: [result.candidate_metrics.1]}
+    not_found:
+      - id: not_found.symbol
+        status: not_found
+        template: "The registry has no gene with the symbol {input} in Ensembl release 116."
+        slots: {input: {kind: value, from: [result.gene_symbol, result.<side>.input]}}
+      - id: not_found.gene_id
+        status: not_found
+        template: "The registry has no gene with the ID {input} in Ensembl release 116."
+        slots: {input: {kind: value, from: [result.gene_id, result.<side>.input]}}
+    invalid_input:
+      - id: invalid_input.malformed
+        status: invalid_input
+        template: "The input {input} is not a well-formed {expected}."
+        slots:
+          input: {kind: value, from: [result.input]}
+          expected: {kind: label, from: [result.expected]}
+    wrong_input_type:
+      - id: wrong_input_type
+        status: invalid_input
+        template: "The input {input} is a {found}, not a {expected}."
+        slots:
+          input: {kind: value, from: [result.input]}
+          found: {kind: label, from: [metadata.found_input_type]}
+          expected: {kind: label, from: [result.expected]}
+    no_multiplex_supplied:
+      - id: no_multiplex_supplied
+        status: planned
+        template: "The task asks about multiplex membership, but it names no multiplex."
+        slots: {}
+    no_multiplex_membership:
+      - id: no_multiplex_membership.candidates
+        status: not_found
+        template: "No candidate for {symbol} is a node in {multiplex_id}."
+        slots:
+          symbol: {kind: value, from: [result.gene_symbol]}
+          multiplex_id: {kind: value, from: [result.multiplex_id]}
+      - id: no_multiplex_membership.resolved
+        status: not_found
+        template: "The gene {gene_id} is not a node in {multiplex_id}."
+        slots:
+          gene_id: {kind: value, from: [result.gene_id]}
+          multiplex_id: {kind: value, from: [result.multiplex_id]}
+    unknown_multiplex:
+      - id: unknown_multiplex
+        status: not_found
+        template: "The multiplex {multiplex_id} is not registered."
+        slots: {multiplex_id: {kind: value, from: [result.multiplex_id]}}
+    out_of_scope_species:
+      - id: out_of_scope_species
+        status: invalid_input
+        template: "The input {input} is a {species} gene {kind}, and the registry holds human genes only."
+        slots:
+          input: {kind: value, from: [result.input]}
+          species: {kind: label, from: [metadata.input_species]}
+          kind: {kind: label, from: [result.expected]}
+    unrecognized_metric:
+      - id: unrecognized_metric.unknown
+        status: not_found
+        template: 'The metric "{input}" is not in the direction conventions.'
+        slots: {input: {kind: value, from: [result.input]}}
+    tool_error:
+      - id: tool_error.all_failed
+        status: error
+        template: "The call to {failed_tool} failed with {error_code}, so there is no registry result for {input}."
+        slots:
+          failed_tool: {kind: value, from: [result.failed_tool]}
+          error_code: {kind: value, from: [result.error_code]}
+          input: {kind: value, from: [result.gene_symbol, result.gene_id]}
+      - id: tool_error.partial
+        status: lookup
+        template: "The lookup found {n} candidates, but the call to {failed_tool} failed with {error_code}, so no candidate is checked in {multiplex_id}."
+        slots:
+          n: {kind: count, from: [result.candidate_gene_ids]}
+          failed_tool: {kind: value, from: [result.failed_tool]}
+          error_code: {kind: value, from: [result.error_code]}
+          multiplex_id: {kind: value, from: [result.multiplex_id]}
+
+curriculum:
+  split_fractions: {train: 0.8, validation: 0.1, test: 0.1}
+  framing: {direct: 0.5, step: 0.5}
+  identity_case_perturbation: 0.1
+  tool_failure_share: 0.05
+  s0_replay_share: 0.005
+  pilot_rows_per_form: 200
+  families:
+    S0:
+      dataset_id: world_model_v3_s0_human_identifiers
+      book_mode: tool_call
+      forms: [S0.1, S0.2, S0.3, S0.4, S0.5, S0.6, S0.7]
+      rows: {train: 4096, validation: 622, test: 600}
+      output_directory: data/world_model_v3/corpora/s0
+      assignment_seed: 1729
+      maximum_train_ambiguous_candidates: 20
+      train:
+        registry_symbol_rows: 1638
+        ambiguous_symbol_rows: 381
+        named_gene_id_rows: 1741
+        unnamed_gene_id_rows: 307
+        historical_symbol_rows: 205
+        retired_gene_id_rows: 205
+      evaluation:
+        validation:
+          unambiguous_component_count: 256
+          ambiguous_component_count: 48
+          registry_rows: 558
+          historical_symbol_rows: 32
+          retired_gene_id_rows: 32
+        test:
+          unambiguous_component_count: 256
+          ambiguous_component_count: 48
+          registry_rows: 536
+          historical_symbol_rows: 32
+          retired_gene_id_rows: 32
+    S1.1:
+      dataset_id: world_model_v3_s1_1_symbol_to_ensembl
+      question_family: human_symbol_to_ensembl
+      book_mode: tool_call
+      output_directory: data/world_model_v3/corpora/s1/s1_1
+      assignment_seed: 1729
+      train_rows: 10000
+      failure_injection:
+        source_form: direct
+        allocation: replace
+        call_stage: first
+      unknown_multiplex_id: retired_brain_multiplex_v0
+      shares:
+        direct: 0.16
+        inside_task: 0.16
+        absent_symbol: 0.12
+        harness_exact: 0.12
+        harness_near_miss: 0.08
+        ensembl_input: 0.08
+        other_species: 0.08
+        membership_present: 0.10
+        membership_absent: 0.07
+        unknown_multiplex: 0.03
+    S1.2:
+      dataset_id: world_model_v3_s1_2_ensembl_to_symbol
+      question_family: human_ensembl_to_symbol
+      book_mode: tool_call
+      output_directory: data/world_model_v3/corpora/s1/s1_2
+      assignment_seed: 1729
+      train_rows: 11000
+      base_train_rows: 10000
+      failure_injection:
+        source_form: direct
+        allocation: replace
+        call_stage: first
+      shares:
+        direct: 0.20
+        inside_task: 0.15
+        version_suffix: 0.10
+        no_symbol: 0.10
+        not_in_release: 0.10
+        malformed: 0.05
+        harness_exact: 0.10
+        harness_near_miss: 0.05
+        symbol_input: 0.05
+        other_species: 0.10
+      added_form_rows:
+        transcript_wrong_type: 1000
+    S1.3:
+      dataset_id: world_model_v3_s1_3_ambiguous_symbol
+      question_family: human_ambiguous_symbol
+      book_mode: tool_call
+      output_directory: data/world_model_v3/corpora/s1/s1_3
+      assignment_seed: 1729
+      train_rows: 9000
+      allocations:
+        direct: 1000
+        inside_task: 1000
+        already_marked: 1000
+        harness_near_miss: 1000
+        membership_keeps_one: 2070
+        membership_keeps_several: 218
+        membership_keeps_none: 412
+        user_chooses: 1000
+        reply_does_not_choose: 1000
+        membership_backend_unavailable: 300
+      membership_outcome_counts: {keeps_one: 371, keeps_several: 39, keeps_none: 74}
+      maximum_candidate_gene_ids: 49
+      failure_injection:
+        source_forms: [membership_keeps_one, membership_keeps_several, membership_keeps_none]
+        allocation: replace
+        call_stage: membership
+    S1.4:
+      dataset_id: world_model_v3_s1_4_cross_context_alignment
+      question_family: cross_context_alignment
+      book_mode: tool_call
+      output_directory: data/world_model_v3/corpora/s1/s1_4
+      assignment_seed: 1729
+      train_rows: 8000
+      allocations:
+        symbol_id_match: 750
+        symbol_id_mismatch: 1000
+        id_notation_match: 1000
+        id_near_miss: 1000
+        historical_symbol_unresolved: 1000
+        ambiguous_symbol: 1000
+        registry_block_match: 1000
+        mygene_id_match: 1000
+        backend_unavailable: 250
+      ambiguous_outcome_counts: {candidate: 500, noncandidate: 500}
+      maximum_candidate_gene_ids: 49
+      mygene_source:
+        snapshot_id: mygene_query_cache_2026_04_15
+        source_path: data/runtime/alias_registry/mygene_query_cache.json
+        source_url: https://mygene.info/v3/query
+        source_sha256: 44f2fbcea56595caea5f59651532cfea50ce033296ce441e3b539a9f5859740c
+        query_count: 33086
+        usable_mapping_count: 4596
+      failure_injection:
+        source_form: symbol_id_match
+        allocation: replace
+        call_stage: first
+    S1.5:
+      question_family: context_id_resolution
+      enabled: false
+      blocked_on: context_ontology
+    S1.6:
+      dataset_id: world_model_v3_s1_6_layer_tag_parsing
+      question_family: layer_tag_parsing
+      book_mode: closed_book
+      output_directory: data/world_model_v3/corpora/s1/s1_6
+      assignment_seed: 1729
+      train_rows: 5000
+      allocations:
+        bulk_pen_direct: 1250
+        scpen_one_field: 1250
+        humannet_direct: 625
+        list_filter: 750
+        wrong_input_type: 500
+        malformed_tag: 500
+        tf_target_direct: 125
+      evaluation_allocations:
+        bulk_pen_direct: 167
+        scpen_one_field: 156
+        humannet_direct: 83
+        list_filter: 94
+        wrong_input_type: 63
+        malformed_tag: 62
+        tf_target_direct: 0
+      semantic_buckets:
+        direct_parse: [bulk_pen_direct, humannet_direct, tf_target_direct]
+        one_field: [scpen_one_field]
+        list_filter: [list_filter]
+        wrong_input_type: [wrong_input_type]
+        malformed_tag: [malformed_tag]
+      one_field_names:
+        [layer_family, source, network, organ, region_path, cell_type_path]
+      list_filter:
+        list_length: 3
+        fields:
+          [layer_family, source, network, organ, region_path, cell_type_path]
+        path_match: exact_component
+        training_outcome_counts: {match: 375, no_match: 375}
+      wrong_input_type:
+        found_input_type: module_id
+        module_namespace_counts: {rwr_loe: 250, mentor_ev: 250}
+      malformed_subtype_counts:
+        unrecognized_prefix: 84
+        wrong_arity: 84
+        missing_path: 83
+        excess_path: 83
+        synthetic_field: 83
+        mixed_separator: 83
+      context_split:
+        unit: exact_organ_and_region_path_or_network
+        counts: {train: 27, validation: 4, test: 4}
+        strata:
+          train:
+            {humannet: 5, bulk_only: 9, scpen_only: 11, shared_pen: 1,
+             tf_target: 1}
+          validation:
+            {humannet: 1, bulk_only: 1, scpen_only: 1, shared_pen: 1,
+             tf_target: 0}
+          test:
+            {humannet: 1, bulk_only: 1, scpen_only: 1, shared_pen: 1,
+             tf_target: 0}
+        singleton_policy: train_only
+    S1.7:
+      dataset_id: world_model_v3_s1_7_layer_family_claims
+      question_family: layer_family_claims
+      book_mode: closed_book
+      output_directory: data/world_model_v3/corpora/s1/s1_7
+      assignment_seed: 1729
+      train_rows: 6000
+      allocations:
+        scpen_family: 1500
+        list_filter: 900
+        coexpression_claims: 375
+        claim_check: 1500
+        wrong_input_type: 300
+        ppi_claims: 375
+        bulk_pen_claims: 375
+        other_claims: 300
+        tf_target_claims: 375
+      evaluation_allocations:
+        scpen_family: 188
+        list_filter: 113
+        coexpression_claims: 47
+        claim_check: 187
+        wrong_input_type: 37
+        ppi_claims: 47
+        bulk_pen_claims: 47
+        other_claims: 37
+        tf_target_claims: 47
+      semantic_buckets:
+        family_of_layer: [scpen_family]
+        list_filter: [list_filter]
+        claims_card:
+          [coexpression_claims, ppi_claims, bulk_pen_claims,
+           tf_target_claims]
+        claim_check: [claim_check]
+        wrong_input_type: [wrong_input_type]
+        native_nonmapped_network: [other_claims]
+      claim_vocabulary:
+        [context_predictive_expression, physical_interaction_recorded,
+         regulatory_link_recorded, regulation_direction,
+         global_coexpression, cofunctional_association,
+         holds_in_other_contexts, causal_effect]
+      family_cards:
+        ppi:
+          {evidence_type: physical_interaction_recorded,
+           supported_claims: [physical_interaction_recorded]}
+        coexpression:
+          {evidence_type: global_coexpression,
+           supported_claims: [global_coexpression]}
+        tf_target:
+          {evidence_type: regulatory_link_recorded,
+           supported_claims: [regulatory_link_recorded]}
+        bulk_pen:
+          {evidence_type: context_predictive_expression,
+           supported_claims: [context_predictive_expression]}
+        scpen:
+          {evidence_type: context_predictive_expression,
+           supported_claims: [context_predictive_expression]}
+        other: {evidence_type: null, supported_claims: []}
+      family_name_policy:
+        shared_closed_vocabulary: true
+        result_layer_id: null
+      list_filter:
+        list_length: 3
+        training_family_counts:
+          {ppi: 150, coexpression: 150, tf_target: 150, bulk_pen: 150,
+           scpen: 150, other: 150}
+        evaluation_family_counts:
+          {ppi: 0, coexpression: 0, tf_target: 0, bulk_pen: 38,
+           scpen: 38, other: 37}
+        training_outcome_counts: {match: 450, no_match: 450}
+        evaluation_outcome_counts: {match: 57, no_match: 56}
+      claim_cards:
+        training_family_name_counts:
+          {coexpression: 75, ppi: 75, bulk_pen: 75, tf_target: 75}
+        evaluation_family_name_counts:
+          {coexpression: 47, ppi: 47, bulk_pen: 0, tf_target: 47}
+      claim_check:
+        scope_policy: broad_claim_only
+        excluded_scoped_negative: bulk_pen_single_cell
+        unsupported_allocation: largest_remainder_in_claim_order
+        required_unsupported_pairs:
+          coexpression: [physical_interaction_recorded]
+          ppi: [regulatory_link_recorded]
+          tf_target: [regulation_direction]
+          bulk_pen: [holds_in_other_contexts]
+          scpen: [holds_in_other_contexts]
+          every_family: [causal_effect]
+        training_family_counts:
+          {ppi: 250, coexpression: 250, tf_target: 250, bulk_pen: 250,
+           scpen: 250, other: 250}
+        training_family_name_counts:
+          {ppi: 50, coexpression: 50, tf_target: 50, bulk_pen: 50,
+           scpen: 50, other: 50}
+        training_supported_counts:
+          {ppi: 120, coexpression: 120, tf_target: 120, bulk_pen: 120,
+           scpen: 120, other: 0}
+        training_outcome_counts: {supported: 600, unsupported: 900}
+        evaluation_family_counts:
+          {ppi: 32, coexpression: 31, tf_target: 31, bulk_pen: 31,
+           scpen: 31, other: 31}
+        evaluation_family_name_counts:
+          {ppi: 32, coexpression: 31, tf_target: 31, bulk_pen: 0,
+           scpen: 0, other: 0}
+        evaluation_supported_counts:
+          {ppi: 15, coexpression: 15, tf_target: 15, bulk_pen: 15,
+           scpen: 15, other: 0}
+        evaluation_outcome_counts: {supported: 75, unsupported: 112}
+      wrong_input_type:
+        found_input_type: module_id
+        module_namespace: mentor_ev
+        training_count: 300
+        evaluation_count: 37
+      other_network:
+        family: other
+        native_only: true
+        continuation_decision: by_framing
+        source_counts: {train: 3, validation: 1, test: 1}
+      context_split:
+        unit: exact_organ_and_region_path_or_network
+        counts: {train: 27, validation: 4, test: 4}
+        strata:
+          train:
+            {humannet: 5, bulk_only: 9, scpen_only: 11, shared_pen: 1,
+             tf_target: 1}
+          validation:
+            {humannet: 1, bulk_only: 1, scpen_only: 1, shared_pen: 1,
+             tf_target: 0}
+          test:
+            {humannet: 1, bulk_only: 1, scpen_only: 1, shared_pen: 1,
+             tf_target: 0}
+        singleton_tag_policy: train_only
+    S1.8:
+      dataset_id: world_model_v3_s1_8_direction_conventions
+      question_family: direction_conventions
+      book_mode: closed_book
+      output_directory: data/world_model_v3/corpora/s1/s1_8
+      assignment_seed: 1729
+      train_rows: 4000
+      allocations:
+        direction_lookup: 1200
+        true_false_distance_style: 667
+        true_false_similarity_style: 667
+        true_false_workflow_style: 666
+        ambiguous_percentile: 400
+        unrecognized_metric: 400
+      evaluation_allocations:
+        direction_lookup: 150
+        true_false_distance_style: 84
+        true_false_similarity_style: 83
+        true_false_workflow_style: 83
+        ambiguous_percentile: 50
+        unrecognized_metric: 50
+      semantic_buckets:
+        direction_lookup: [direction_lookup]
+        true_false:
+          [true_false_distance_style, true_false_similarity_style,
+           true_false_workflow_style]
+        ambiguous_metric: [ambiguous_percentile]
+        unrecognized_metric: [unrecognized_metric]
+      source_trace_by_allocation:
+        direction_lookup: S1.8.1
+        true_false_distance_style: S1.8.2
+        true_false_similarity_style: S1.8.3
+        true_false_workflow_style: S1.8.4
+        ambiguous_percentile: S1.8.5
+        unrecognized_metric: S1.8.6
+      result_shape:
+        base_keys:
+          [metric, input, lower_is_stronger, meaning, rule, statement_true]
+        candidate_metrics_position: append
+        single_metric:
+          {metric: canonical_metric, candidate_metrics: absent}
+        shared_alias:
+          {metric: null, candidate_metrics: ordered_candidates,
+           direction_fields: shared_non_null}
+        ambiguous_metric:
+          {metric: null, candidate_metrics: ordered_candidates,
+           direction_fields: null}
+        unrecognized_metric:
+          {metric: null, candidate_metrics: absent, direction_fields: null}
+      metric_conventions:
+        rank:
+          {lower_is_stronger: true, meaning: proximity,
+           rule: lower_rank_closer}
+        score:
+          {lower_is_stronger: false, meaning: proximity,
+           rule: higher_score_closer}
+        spearman_distance:
+          {lower_is_stronger: true, meaning: proximity,
+           rule: lower_distance_closer}
+        pearson_distance:
+          {lower_is_stronger: true, meaning: proximity,
+           rule: lower_distance_closer}
+        spearman_correlation:
+          {lower_is_stronger: false, meaning: similarity,
+           rule: higher_correlation_more_similar}
+        pearson_correlation:
+          {lower_is_stronger: false, meaning: similarity,
+           rule: higher_correlation_more_similar}
+        dot_similarity:
+          {lower_is_stronger: false, meaning: similarity,
+           rule: higher_similarity_more_similar}
+        distance_percentile:
+          {lower_is_stronger: true, meaning: proximity,
+           rule: lower_distance_percentile_closer}
+        score_percentile:
+          {lower_is_stronger: false, meaning: proximity,
+           rule: higher_score_percentile_closer}
+        hop_count:
+          {lower_is_stronger: true, meaning: proximity,
+           rule: fewer_hops_closer}
+        empirical_p_value:
+          {lower_is_stronger: true, meaning: evidence,
+           rule: lower_p_stronger_evidence}
+        q:
+          {lower_is_stronger: true, meaning: evidence,
+           rule: lower_p_stronger_evidence}
+        enrichment_score:
+          {lower_is_stronger: false, meaning: evidence,
+           rule: higher_enrichment_stronger_evidence}
+      name_variants:
+        train:
+          rank: [RWR rank, random walk with restart rank, RWR-LOE rank]
+          score: [RWR score, restart score, visiting probability]
+          spearman_distance:
+            [Spearman distance, 1 minus Spearman correlation,
+             Spearman rho distance]
+          pearson_distance:
+            [Pearson distance, 1 minus Pearson correlation,
+             Pearson r distance]
+          spearman_correlation:
+            [Spearman correlation, Spearman rho,
+             rank correlation coefficient]
+          pearson_correlation:
+            [Pearson correlation, Pearson r,
+             linear correlation coefficient]
+          dot_similarity:
+            [dot similarity, RWR dot product, vector dot similarity]
+          distance_percentile:
+            [distance percentile, distance-based percentile,
+             percentile of distance]
+          score_percentile:
+            [score percentile, score-based percentile, percentile of score]
+          hop_count: [path length, number of hops, graph hop count]
+          empirical_p_value:
+            [p-value, empirical p value, permutation p-value]
+          q: [FDR q-value, q-value, false discovery rate q value]
+          enrichment_score:
+            [enrichment score, pathway enrichment score,
+             set enrichment score]
+        validation:
+          rank: [restart-walk rank, rank from RWR, seed-proximity rank]
+          score:
+            [restart-walk score, RWR visiting score, walk visit probability]
+          spearman_distance:
+            [rank-correlation distance, one minus Spearman rho,
+             Spearman dissimilarity]
+          pearson_distance:
+            [linear-correlation distance, one minus Pearson r,
+             Pearson dissimilarity]
+          spearman_correlation:
+            [Spearman association coefficient, rho rank correlation,
+             monotonic correlation coefficient]
+          pearson_correlation:
+            [Pearson association coefficient, r linear correlation,
+             product-moment correlation]
+          dot_similarity:
+            [dot-product similarity, inner-product similarity,
+             RWR vector dot product]
+          distance_percentile:
+            [percentile by distance, distance rank percentile,
+             distance distribution percentile]
+          score_percentile:
+            [percentile by score, score rank percentile,
+             score distribution percentile]
+          hop_count:
+            [edge count along the path, shortest-path hop count,
+             path hop total]
+          empirical_p_value:
+            [empirical significance probability, randomization p-value,
+             permutation-tail probability]
+          q:
+            [FDR-adjusted p-value, false-discovery q-value,
+             adjusted q statistic]
+          enrichment_score:
+            [gene-set enrichment score, overrepresentation enrichment score,
+             enrichment strength score]
+        test:
+          rank:
+            [random-walk rank, restart proximity rank, RWR ordering rank]
+          score:
+            [random-walk restart score, seed-relative visit probability,
+             walk arrival score]
+          spearman_distance:
+            [Spearman rank distance, one minus rank correlation,
+             rho-based distance]
+          pearson_distance:
+            [Pearson linear distance, one minus linear correlation,
+             r-based distance]
+          spearman_correlation:
+            [Spearman rank correlation, rho similarity coefficient,
+             ordinal correlation coefficient]
+          pearson_correlation:
+            [Pearson linear correlation, r similarity coefficient,
+             product moment coefficient]
+          dot_similarity:
+            [dot-product score, vector inner product, RWR inner product]
+          distance_percentile:
+            [percentile-ranked distance, distance value percentile,
+             relative distance percentile]
+          score_percentile:
+            [percentile-ranked score, score value percentile,
+             relative score percentile]
+          hop_count:
+            [hop distance, path edge count, shortest-path length]
+          empirical_p_value:
+            [empirical probability value, null-sample p-value,
+             simulation p-value]
+          q:
+            [false-discovery-rate value, multiple-test q-value,
+             FDR-adjusted significance]
+          enrichment_score:
+            [functional enrichment score, set-overlap enrichment score,
+             overrepresentation score]
+      shared_aliases:
+        train:
+          distance:
+            {candidate_metrics: [spearman_distance, pearson_distance],
+             lower_is_stronger: true, meaning: proximity,
+             rule: lower_distance_closer}
+          correlation:
+            {candidate_metrics:
+               [spearman_correlation, pearson_correlation],
+             lower_is_stronger: false, meaning: similarity,
+             rule: higher_correlation_more_similar}
+        validation:
+          correlation-derived distance:
+            {candidate_metrics: [spearman_distance, pearson_distance],
+             lower_is_stronger: true, meaning: proximity,
+             rule: lower_distance_closer}
+          correlation coefficient:
+            {candidate_metrics:
+               [spearman_correlation, pearson_correlation],
+             lower_is_stronger: false, meaning: similarity,
+             rule: higher_correlation_more_similar}
+        test:
+          correlation-based dissimilarity:
+            {candidate_metrics: [spearman_distance, pearson_distance],
+             lower_is_stronger: true, meaning: proximity,
+             rule: lower_distance_closer}
+          vector correlation:
+            {candidate_metrics:
+               [spearman_correlation, pearson_correlation],
+             lower_is_stronger: false, meaning: similarity,
+             rule: higher_correlation_more_similar}
+      name_policy:
+        canonical_input: metric_key
+        noncanonical_split_policy: disjoint
+        variant_share_of_resolved: 0.30
+        train_counts:
+          {canonical: 2240, metric_variant: 640, shared_alias: 320}
+        evaluation_counts:
+          {canonical: 280, metric_variant: 80, shared_alias: 40}
+        train_form_counts:
+          direction_lookup:
+            {canonical: 840, metric_variant: 240, shared_alias: 120}
+          true_false_distance_style:
+            {canonical: 467, metric_variant: 133, shared_alias: 67}
+          true_false_similarity_style:
+            {canonical: 467, metric_variant: 133, shared_alias: 67}
+          true_false_workflow_style:
+            {canonical: 466, metric_variant: 134, shared_alias: 66}
+        evaluation_form_counts:
+          direction_lookup:
+            {canonical: 105, metric_variant: 30, shared_alias: 15}
+          true_false_distance_style:
+            {canonical: 59, metric_variant: 17, shared_alias: 8}
+          true_false_similarity_style:
+            {canonical: 58, metric_variant: 17, shared_alias: 8}
+          true_false_workflow_style:
+            {canonical: 58, metric_variant: 16, shared_alias: 9}
+      true_false:
+        polarity_order:
+          [lower_stronger, lower_weaker, higher_stronger, higher_weaker]
+        single_metric_coverage: every_metric_each_polarity
+        allocation_policy: round_robin_metric_then_polarity
+        train_truth_counts: {"true": 1000, "false": 1000}
+        evaluation_truth_counts: {"true": 125, "false": 125}
+        train_form_truth_counts:
+          true_false_distance_style: {"true": 334, "false": 333}
+          true_false_similarity_style: {"true": 333, "false": 334}
+          true_false_workflow_style: {"true": 333, "false": 333}
+        evaluation_form_truth_counts:
+          true_false_distance_style: {"true": 42, "false": 42}
+          true_false_similarity_style: {"true": 41, "false": 42}
+          true_false_workflow_style: {"true": 42, "false": 41}
+      ambiguous_metric:
+        candidate_metrics: [distance_percentile, score_percentile]
+        train_inputs:
+          [percentile, relative percentile, percentile value, percentile rank,
+           percentile measure, percentile metric, percentile result,
+           reported percentile]
+        validation_inputs:
+          [percentile statistic, percentile reading, percentile output,
+           percentile indicator]
+        test_inputs:
+          [percentile quantity, percentile field, percentile number,
+           percentile estimate]
+        continuation_decision: defer
+        blocked_reason_code: ambiguous_metric
+      unrecognized_metric:
+        train_inputs:
+          [diffusion state distance, cosine distance, cosine similarity,
+           Jaccard distance, Jaccard similarity, Euclidean distance,
+           Manhattan distance, Mahalanobis distance, Kendall tau,
+           mutual information, graph resistance distance, commute time,
+           heat kernel distance, node2vec similarity,
+           betweenness centrality, closeness centrality, degree centrality,
+           eigenvector centrality, resource allocation index,
+           Adamic-Adar index]
+        validation_inputs:
+          [Hellinger distance, Wasserstein distance, Canberra distance,
+           Bray-Curtis dissimilarity, Kulczynski similarity, Katz index,
+           SimRank similarity, preferential attachment index]
+        test_inputs:
+          [Chebyshev distance, Minkowski distance, Bhattacharyya distance,
+           Jensen-Shannon distance, Sorensen-Dice similarity,
+           Tanimoto coefficient, harmonic centrality,
+           neighborhood overlap]
+        continuation_decision: defer
+        blocked_reason_code: unrecognized_metric
+      status_counts:
+        train: {resolved: 3200, ambiguous: 400, not_found: 400}
+        evaluation: {resolved: 400, ambiguous: 50, not_found: 50}
+      framing_counts:
+        train: {direct: 2000, step: 2000}
+        evaluation: {direct: 250, step: 250}
+        resolved_decision: {direct: stop, step: continue}
+        deferred_decision: defer
+    S1.9:
+      dataset_id: world_model_v3_s1_9_module_id_parsing
+      question_family: module_id_parsing
+      book_mode: closed_book
+      output_directory: data/world_model_v3/corpora/s1/s1_9
+      assignment_seed: 1729
+      train_rows: 2000
+      allocations: {rwr_loe_parse: 1000, mentor_ev_parse: 1000}
+      evaluation_allocations: {rwr_loe_parse: 125, mentor_ev_parse: 125}
+      semantic_buckets:
+        rwr_loe: [rwr_loe_parse]
+        mentor_ev: [mentor_ev_parse]
+      source_trace_by_allocation:
+        {rwr_loe_parse: S1.9.1, mentor_ev_parse: S1.9.2}
+      grammars:
+        rwr_loe:
+          pattern: '^rwr_loe:full_brain_multiplex_v1:seed_(ENSG[0-9]{11}):geometric_elbow_v1$'
+          field_count: 4
+          multiplex_id: full_brain_multiplex_v1
+          threshold_recipe: geometric_elbow_v1
+        mentor_ev:
+          pattern: '^mentor_ev:full_brain_all_genes_v1:clade_[0-9]{6}$'
+          field_count: 3
+          dendrogram_id: full_brain_all_genes_v1
+          clade_digits: 6
+      result_shapes:
+        rwr_loe:
+          keys:
+            [module_id, module_family, multiplex_id, seed_gene_id,
+             threshold_recipe, existence_asserted]
+          module_family: rwr_loe
+          multiplex_id: full_brain_multiplex_v1
+          threshold_recipe: geometric_elbow_v1
+          existence_asserted: false
+        mentor_ev:
+          keys:
+            [module_id, module_family, dendrogram_id, clade_id,
+             existence_asserted]
+          module_family: mentor_ev
+          dendrogram_id: full_brain_all_genes_v1
+          existence_asserted: false
+      source_pools:
+        rwr_loe:
+          source_index_field: multiplex_gene_ids
+          record_count: 47017
+          split_counts: {train: 37613, validation: 4702, test: 4702}
+        mentor_ev:
+          source_index_field: mentor_clades
+          record_count: 15679
+          eligible_leaf_count: {min: 5, max: 30}
+          split_counts: {train: 12543, validation: 1568, test: 1568}
+      split_policy:
+        reuse: S1.6.module_facts
+        unit: exact_module_id
+        order: seeded_sha256
+        modulus: 10
+        residues:
+          train: [2, 3, 4, 5, 6, 7, 8, 9]
+          validation: [0]
+          test: [1]
+        namespace_labels:
+          {rwr_loe: 'module:rwr_loe', mentor_ev: 'module:mentor_ev'}
+        ids_disjoint: true
+      nonpositive_policy:
+        included: false
+        invalid: excluded
+        ambiguous: excluded
+        unrecognized: excluded
+        syntactically_valid_unobserved: excluded
+      status_counts:
+        train: {resolved: 2000}
+        evaluation: {resolved: 250}
+      framing_counts:
+        train: {direct: 1000, step: 1000}
+        evaluation: {direct: 125, step: 125}
+        train_form_counts:
+          rwr_loe_parse: {direct: 500, step: 500}
+          mentor_ev_parse: {direct: 500, step: 500}
+        evaluation_form_counts:
+          rwr_loe_parse: {direct: 63, step: 62}
+          mentor_ev_parse: {direct: 62, step: 63}
+        resolved_decision: {direct: stop, step: continue}

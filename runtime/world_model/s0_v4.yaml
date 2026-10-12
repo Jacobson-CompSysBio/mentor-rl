@@ -1,0 +1,30 @@
+schema_version: mentor-rl-world-model-s0-overlay-v1
+base_contract:
+  path: runtime/world_model/contract.yaml
+  sha256: f629c28de87a0440b40130d78614d4c5f65d55cd32e68b7bd144d09df81d9f0f
+metadata_optional_additions:
+  [fact_kind, framing, prompt_template_id, rendering_index, input_variant]
+family_overrides:
+  dataset_id: world_model_v4_s0_human_identifiers
+  rows: {train: 16384, validation: 622, test: 600}
+  output_directory: data/world_model_v4/corpora/s0
+  input_casefold_share: 0.125
+  max_length: 4096
+  train_prompt_template_families: 8
+  validation_prompt_template_families: 4
+  maximum_train_ambiguous_candidates: 49
+  train:
+    registry_symbol_rows: 5952
+    resolved_symbol_rows: 5120
+    ambiguous_symbol_rows: 832
+    named_gene_id_rows: 4608
+    unnamed_gene_id_rows: 5056
+    historical_symbol_rows: 384
+    retired_gene_id_rows: 384
+    unique_fact_counts:
+      resolved_symbol: 2560
+      ambiguous_symbol: 385
+      named_gene_id: 2304
+      unnamed_gene_id: 2528
+      historical_symbol: 192
+      retired_gene_id: 192

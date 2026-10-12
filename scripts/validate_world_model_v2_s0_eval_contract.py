@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Validate one canonical S0 trajectory test contract."""
+"""Validate one S0 final-checkpoint test contract and export its values.
+
+The launcher runs this check before any test work. It verifies the config, the
+base model, the corpus, the frozen full-registry panel, the tokenizer, and the
+final checkpoint of one training run. It then prints shell assignments for the
+launcher to source.
+"""
 
 from __future__ import annotations
 
@@ -11,25 +17,88 @@ import sys
 from typing import Any
 
 
-TEST_SCHEMA_VERSION = (
-    "mentor-rl-world-model-s0-full-tool-trajectory-test-v6"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from runtime.world_model.contract import load_contract  # noqa: E402
+from runtime.world_model.source_index import (  # noqa: E402
+    check_source_index,
+    content_sha256,
 )
-EVALUATOR_SCHEMA_VERSION = (
-    "mentor-rl-world-model-s0-full-tool-trajectory-evaluator-manifest-v6"
-)
+
+
+TEST_SCHEMA_VERSION = "mentor-rl-world-model-s0-full-registry-final-test-v4"
 EXPOSURE_SCHEMA_VERSION = "mentor-rl-s0-training-exposure-v2"
-EVALUATION_CONTRACT = "full_registry_tool_trajectory_v1"
-CORPUS_DATASET_ID = (
-    "world_model_v2_s0_human_identifier_trajectories_v6"
-)
-EVALUATOR_DATASET_ID = (
-    "world_model_v2_s0_human_identifier_trajectories_full_registry_v6"
-)
-CORPUS_EVALUATION_CONTRACT = (
-    "unseen_component_tool_trajectory_v1"
-)
 CHECKPOINT_FORMAT = "mentor-rl-s0-tp-lora-v1"
-LOSS_CONTRACT = "s0_tool_trajectory_v1"
+CORPUS_DATASET_ID = "world_model_v4_s0_human_identifiers"
+LOSS_CONTRACTS = frozenset({"multiplex_sft_v3", "multiplex_sft_v4_priority"})
+LORA_CONFIGURATIONS = frozenset({"lora_r32", "lora_r128"})
+# The v4 test reuses the frozen v3 full-registry panel. The panel labels use
+# the v4 answer rules; see the "Test" section of the S0 curriculum document.
+FULL_REGISTRY_V3_EVALUATOR_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-full-registry-evaluator-v3"
+)
+FULL_REGISTRY_V3_EVALUATION_CONTRACT = "full_registry_multiplex_sft_v3"
+FULL_REGISTRY_V3_DATASET_ID = (
+    "world_model_v3_s0_human_identifiers_full_registry"
+)
+FULL_REGISTRY_V3_SOURCE_DATASET_ID = "world_model_v3_s0_human_identifiers"
+FROZEN_FULL_REGISTRY_V3_SHA256 = {
+    "evaluator_manifest": (
+        "dbca23382f0881aba83a6100ea54004031337bef53415236e8f1042970c53beb"
+    ),
+    "questions": (
+        "c9714921c9bd348051ad05452dade6bd32166102a3ae3c9fb12e118c04e41320"
+    ),
+    "answer_key": (
+        "bc8d4c9b83781d69f8e4f0457ec9d84ddf4eefe9b3be76b940c45a5d1598b65d"
+    ),
+}
+FULL_REGISTRY_V3_MAXIMUM_AMBIGUOUS_CANDIDATES = 49
+FULL_REGISTRY_V3_LARGEST_INCLUDED_AMBIGUITY = 37
+# These three ambiguous symbols each have more than 49 candidate gene IDs.
+FULL_REGISTRY_V3_EXCLUDED_RECORDS = [
+    {
+        "candidate_gene_id_count": 170,
+        "fact_id": "fact_1544b1236c875b2ad88138d0",
+        "family": "human_ambiguous_symbol",
+        "gene_symbol": "Metazoa_SRP",
+        "record_id": "wm3_s0_417b9df7d77e7cc389a35da8",
+    },
+    {
+        "candidate_gene_id_count": 50,
+        "fact_id": "fact_39c1052bc4d239a961544728",
+        "family": "human_ambiguous_symbol",
+        "gene_symbol": "U3",
+        "record_id": "wm3_s0_67c5581aede6c0a14a336c64",
+    },
+    {
+        "candidate_gene_id_count": 758,
+        "fact_id": "fact_fd3fc526542e105e08c060b9",
+        "family": "human_ambiguous_symbol",
+        "gene_symbol": "Y_RNA",
+        "record_id": "wm3_s0_fc487fbf26ebafc414e677d0",
+    },
+]
+
+GATE_FLOORS = (
+    "minimum_valid_tool_trajectory",
+    "minimum_reasoning_present",
+    "minimum_exact_reasoning",
+    "minimum_valid_single_tool_call",
+    "minimum_exact_tool_argument",
+    "minimum_family_payload_accuracy",
+    "minimum_family_final_answer_accuracy",
+    "minimum_ambiguous_defer_accuracy",
+    "maximum_direct_answer_rate",
+    "minimum_structured_json_valid",
+    "minimum_status_exact",
+    "minimum_result_exact",
+    "minimum_continuation_decision_exact",
+    "minimum_not_found_defer_accuracy",
+    "minimum_unnamed_id_resolved_accuracy",
+)
 
 
 def canonical_json(value: Any) -> str:
@@ -160,8 +229,10 @@ def validate_internal_manifest(
     return claimed
 
 
+
+
 def main() -> int:
-    """Validate and export one S0 trajectory test contract."""
+    """Validate and export one S0 final-checkpoint test contract."""
 
     if len(sys.argv) != 5:
         raise SystemExit(
@@ -178,7 +249,8 @@ def main() -> int:
     config = read_json(config_path, "the S0 test config")
     if (
         config.get("schema_version") != TEST_SCHEMA_VERSION
-        or config.get("evaluation_contract") != EVALUATION_CONTRACT
+        or config.get("evaluation_contract")
+        != FULL_REGISTRY_V3_EVALUATION_CONTRACT
     ):
         raise SystemExit("The S0 test config contract changed")
     methods = config.get("methods")
@@ -199,13 +271,13 @@ def main() -> int:
         raise SystemExit(
             "The trajectory test requires the base tokenizer"
         )
+    fine_tune_configuration = method.get("fine_tune_configuration")
     if (
         method.get("checkpoint_kind") != "lora"
-        or method.get("fine_tune_configuration") != "lora_r32"
+        or fine_tune_configuration not in LORA_CONFIGURATIONS
     ):
-        raise SystemExit(
-            "The trajectory test requires one LoRA-r32 checkpoint"
-        )
+        raise SystemExit("The trajectory test LoRA configuration changed")
+    expected_lora_rank = int(str(fine_tune_configuration).removeprefix("lora_r"))
 
     sections = (
         config.get("model"),
@@ -219,6 +291,7 @@ def main() -> int:
         raise SystemExit("The S0 test config has an invalid section")
     model, corpus, panel, generation, gate, tracking = sections
 
+    # Base model: the identity covers the metadata files that define it.
     model_path = resolve_model_path(root, model.get("path"))
     model_identity = require_sha256(
         model.get("model_identity_sha256"), "model identity"
@@ -247,6 +320,7 @@ def main() -> int:
     if model_metadata_identity != model_identity:
         raise SystemExit("The base-model metadata identity changed")
 
+    # Training corpus: the checkpoint must come from this exact v4 corpus.
     corpus_root = resolve_repo_path(
         root, corpus.get("root"), "corpus root"
     )
@@ -268,19 +342,20 @@ def main() -> int:
     )
     if (
         corpus_manifest.get("dataset_id") != CORPUS_DATASET_ID
-        or corpus_manifest.get("evaluation_contract")
-        != CORPUS_EVALUATION_CONTRACT
-        or corpus_manifest.get("training_contract")
-        != "tool_trajectory_v1"
-        or corpus_manifest.get("train_population", {}).get(
-            "eligible_train_rows"
-        )
+        or corpus_manifest.get("schema_version")
+        != "mentor-rl-world-model-s0-manifest-v2"
+        or corpus_manifest.get("corpus_schema_version")
+        != "mentor-rl-world-model-s0-corpus-v2"
+        or corpus_manifest.get("row_counts", {}).get("train")
         != eligible_train_rows
-        or corpus_manifest.get("file_hashes", {}).get("train.jsonl")
+        or corpus_manifest.get("files", {})
+        .get("train.jsonl", {})
+        .get("sha256")
         != train_sha256
     ):
         raise SystemExit("The corpus test contract changed")
 
+    # Test panel: the byte-frozen full-registry panel.
     panel_row_count = require_int(
         panel.get("row_count"), "test row count"
     )
@@ -304,10 +379,13 @@ def main() -> int:
     )
     test = evaluator.get("test")
     if (
-        evaluator.get("schema_version") != EVALUATOR_SCHEMA_VERSION
-        or evaluator.get("dataset_id") != EVALUATOR_DATASET_ID
-        or evaluator.get("source_dataset_id") != CORPUS_DATASET_ID
-        or evaluator.get("evaluation_contract") != EVALUATION_CONTRACT
+        evaluator.get("schema_version")
+        != FULL_REGISTRY_V3_EVALUATOR_SCHEMA_VERSION
+        or evaluator.get("dataset_id") != FULL_REGISTRY_V3_DATASET_ID
+        or evaluator.get("source_dataset_id")
+        != FULL_REGISTRY_V3_SOURCE_DATASET_ID
+        or evaluator.get("evaluation_contract")
+        != FULL_REGISTRY_V3_EVALUATION_CONTRACT
         or not isinstance(test, dict)
     ):
         raise SystemExit("The evaluator manifest contract changed")
@@ -324,6 +402,12 @@ def main() -> int:
     answer_key_sha256 = require_sha256(
         panel.get("answer_key_sha256"), "test answer key"
     )
+    if {
+        "evaluator_manifest": evaluator_manifest_hash,
+        "questions": questions_sha256,
+        "answer_key": answer_key_sha256,
+    } != FROZEN_FULL_REGISTRY_V3_SHA256:
+        raise SystemExit("The byte-frozen full-registry gate identity changed")
     verify_file(questions_path, questions_sha256, "test questions")
     verify_file(answer_key_path, answer_key_sha256, "test answer key")
     test_panel_id = require_sha256(
@@ -360,6 +444,7 @@ def main() -> int:
     ):
         raise SystemExit("The tokenizer contract changed")
 
+    # Checkpoint: the final adapter of one complete v4 training run.
     adapter_manifest = read_json(
         checkpoint_path / "tp_adapter_manifest.json",
         "the adapter manifest",
@@ -380,17 +465,16 @@ def main() -> int:
         raise SystemExit("The selected checkpoint contract changed")
     if (
         adapter_manifest.get("objective", {}).get("loss_contract")
-        != LOSS_CONTRACT
+        not in LOSS_CONTRACTS
+        or adapter_manifest.get("lora", {}).get("r") != expected_lora_rank
     ):
         raise SystemExit("The checkpoint loss contract changed")
     train_run_id = require_string(
         adapter_identity.get("run_id"), "train run ID"
     )
-    exposure_path = (
-        checkpoint_path / "run_contract" / "training_exposure.json"
-    )
     exposure = read_json(
-        exposure_path, "the training exposure receipt"
+        checkpoint_path / "run_contract" / "training_exposure.json",
+        "the training exposure receipt",
     )
     validate_internal_manifest(exposure, "training exposure receipt")
     logical = exposure.get("logical_exposure")
@@ -443,7 +527,20 @@ def main() -> int:
     max_total_tokens = require_int(
         generation.get("max_total_tokens"), "maximum total tokens"
     )
-    if max_total_tokens <= max_new_tokens or max_new_tokens < 256:
+    max_tool_call_tokens = require_int(
+        generation.get("max_tool_call_tokens"),
+        "maximum tool-call tokens",
+    )
+    max_final_prompt_tokens = require_int(
+        generation.get("max_final_prompt_tokens"),
+        "maximum final prompt tokens",
+    )
+    if (
+        max_total_tokens <= max_new_tokens
+        or max_new_tokens < 256
+        or max_tool_call_tokens > max_new_tokens
+        or max_final_prompt_tokens >= max_total_tokens
+    ):
         raise SystemExit(
             "The trajectory token limits are invalid"
         )
@@ -455,42 +552,11 @@ def main() -> int:
             "The trajectory test requires low reasoning effort"
         )
 
-    minimum_valid_trajectory = require_number(
-        gate.get("minimum_valid_tool_trajectory"),
-        "valid tool trajectory floor",
-    )
-    minimum_reasoning_present = require_number(
-        gate.get("minimum_reasoning_present"),
-        "reasoning presence floor",
-    )
-    minimum_exact_reasoning = require_number(
-        gate.get("minimum_exact_reasoning"),
-        "exact reasoning floor",
-    )
-    minimum_valid_call = require_number(
-        gate.get("minimum_valid_single_tool_call"),
-        "valid tool-call floor",
-    )
-    minimum_exact_argument = require_number(
-        gate.get("minimum_exact_tool_argument"),
-        "exact tool argument floor",
-    )
-    minimum_payload_accuracy = require_number(
-        gate.get("minimum_family_payload_accuracy"),
-        "family payload floor",
-    )
-    minimum_final_answer_accuracy = require_number(
-        gate.get("minimum_family_final_answer_accuracy"),
-        "family final-answer floor",
-    )
-    minimum_defer_accuracy = require_number(
-        gate.get("minimum_ambiguous_defer_accuracy"),
-        "ambiguous defer floor",
-    )
-    maximum_direct_answer = require_number(
-        gate.get("maximum_direct_answer_rate"),
-        "direct answer limit",
-    )
+    # Gate: the config must set every floor; see the S0 document.
+    gate_floors = {
+        name: require_number(gate.get(name), name)
+        for name in GATE_FLOORS
+    }
     if gate.get("require_network_used_false") is not True:
         raise SystemExit(
             "The trajectory test must disable network access"
@@ -510,116 +576,86 @@ def main() -> int:
     registry_sha256 = require_sha256(
         registry.get("sha256"), "identifier registry"
     )
-    verify_file(
-        registry_path, registry_sha256, "identifier registry"
-    )
+    source_index = check_source_index(registry_path, load_contract())
+    if content_sha256(source_index) != registry_sha256:
+        raise SystemExit("The v3 source index identity changed")
     if (
         evaluator_registry.get("path") != registry.get("path")
         or evaluator_registry.get("sha256") != registry_sha256
     ):
         raise SystemExit("The evaluator registry identity changed")
 
-    registry_payload = read_json(
-        registry_path, "the identifier registry"
-    )
-    registry_counts = registry_payload.get("counts")
+    # The panel covers every registry ID and symbol, except the long
+    # ambiguities, so its counts follow from the source index.
+    counts = source_index.get("counts")
     population = evaluator.get("population")
-    if not isinstance(registry_counts, dict) or not isinstance(
-        population, dict
-    ):
-        raise SystemExit("The full registry counts are absent")
-    named_gene_ids = require_int(
-        registry_counts.get("named_gene_ids"),
-        "named gene ID count",
+    if not isinstance(counts, dict) or not isinstance(population, dict):
+        raise SystemExit("The full-registry v3 counts are absent")
+    gene_count = require_int(
+        counts.get("registry_gene_count"), "registry gene count"
     )
-    unique_gene_names = require_int(
-        registry_counts.get("unique_gene_names"),
-        "unique gene symbol count",
+    symbol_count = require_int(
+        counts.get("registry_symbol_count"), "registry symbol count"
     )
-    ambiguous_gene_names = require_int(
-        registry_counts.get("ambiguous_gene_names"),
-        "ambiguous gene symbol count",
+    ambiguous_count = require_int(
+        counts.get("registry_ambiguous_symbol_count"),
+        "registry ambiguous-symbol count",
     )
-    panel_filter = panel.get("population_filter")
-    if not isinstance(panel_filter, dict):
-        raise SystemExit(
-            "The panel population filter must be one object"
-        )
-    maximum_candidates = require_int(
-        panel_filter.get("maximum_ambiguous_candidate_gene_ids"),
-        "maximum ambiguous candidate count",
+    unnamed_count = require_int(
+        counts.get("registry_unnamed_gene_count"),
+        "registry unnamed-gene count",
     )
-    excluded_records = panel_filter.get("excluded_records")
-    if (
-        not isinstance(excluded_records, list)
-        or not excluded_records
-        or any(not isinstance(item, dict) for item in excluded_records)
-    ):
-        raise SystemExit(
-            "The panel exclusions must contain record objects"
-        )
-    excluded_ids = [
-        item.get("record_id") for item in excluded_records
-    ]
-    required_exclusion_fields = {
-        "record_id",
-        "fact_id",
-        "family",
-        "gene_symbol",
-        "candidate_gene_id_count",
+    largest_candidates = require_int(
+        counts.get("registry_largest_candidate_count"),
+        "largest registry candidate count",
+    )
+    excluded_records = FULL_REGISTRY_V3_EXCLUDED_RECORDS
+    excluded_count = len(excluded_records)
+    maximum_candidates = FULL_REGISTRY_V3_MAXIMUM_AMBIGUOUS_CANDIDATES
+    expected_rows = gene_count + symbol_count - excluded_count
+    expected_family_counts = {
+        "human_ambiguous_symbol": ambiguous_count - excluded_count,
+        "human_ensembl_to_symbol": gene_count,
+        "human_symbol_to_ensembl": symbol_count - ambiguous_count,
     }
-    if (
-        any(
-            not isinstance(record_id, str) or not record_id
-            for record_id in excluded_ids
-        )
-        or len(set(excluded_ids)) != len(excluded_ids)
-        or any(
-            set(item) != required_exclusion_fields
-            or item.get("family") != "human_ambiguous_symbol"
-            or not isinstance(item.get("fact_id"), str)
-            or not item["fact_id"]
-            or not isinstance(item.get("gene_symbol"), str)
-            or not item["gene_symbol"]
-            or type(item.get("candidate_gene_id_count")) is not int
-            or item["candidate_gene_id_count"] <= maximum_candidates
-            for item in excluded_records
-        )
-    ):
-        raise SystemExit("The panel exclusion contract is invalid")
+    expected_status_counts = {
+        "ambiguous": ambiguous_count - excluded_count,
+        "resolved": expected_rows - ambiguous_count + excluded_count,
+    }
     expected_population_filter = {
-        "maximum_ambiguous_candidate_gene_ids": maximum_candidates
+        "maximum_ambiguous_candidate_gene_ids": maximum_candidates,
+    }
+    expected_panel_filter = {
+        **expected_population_filter,
+        "excluded_records": excluded_records,
     }
     if (
-        population.get("population_filter")
+        panel_row_count != expected_rows
+        or test.get("population_filter") != expected_panel_filter
+        or population.get("scope")
+        != (
+            "all_ensembl_registry_gene_ids_and_symbols_except_declared_"
+            "long_ambiguities"
+        )
+        or population.get("row_count") != expected_rows
+        or population.get("family_counts") != expected_family_counts
+        or population.get("status_counts") != expected_status_counts
+        or population.get("registry_gene_id_count") != gene_count
+        or population.get("registry_symbol_count") != symbol_count
+        or population.get("registry_ambiguous_symbol_count")
+        != ambiguous_count
+        or population.get("registry_unnamed_gene_id_count")
+        != unnamed_count
+        or population.get("registry_largest_ambiguous_candidate_count")
+        != largest_candidates
+        or population.get("largest_included_ambiguous_candidate_count")
+        != FULL_REGISTRY_V3_LARGEST_INCLUDED_AMBIGUITY
+        or population.get("population_filter")
         != expected_population_filter
+        or population.get("excluded_row_count") != excluded_count
         or population.get("excluded_records") != excluded_records
     ):
-        raise SystemExit(
-            "The evaluator population filter changed"
-        )
-    excluded_ambiguous = len(excluded_records)
-    expected_family_counts = {
-        "human_ambiguous_symbol": (
-            ambiguous_gene_names - excluded_ambiguous
-        ),
-        "human_ensembl_to_symbol": named_gene_ids,
-        "human_symbol_to_ensembl": (
-            unique_gene_names - ambiguous_gene_names
-        ),
-    }
-    if (
-        population.get("scope")
-        != (
-            "all_named_gene_ids_and_all_gene_symbols_"
-            "except_declared_long_ambiguities"
-        )
-        or population.get("row_count")
-        != named_gene_ids + unique_gene_names - excluded_ambiguous
-        or population.get("row_count") != panel_row_count
-        or population.get("family_counts") != expected_family_counts
-    ):
-        raise SystemExit("The full registry population changed")
+        raise SystemExit("The full-registry v3 panel scope changed")
 
     if (
         tracking.get("entity") != "jail-ai"
@@ -634,7 +670,7 @@ def main() -> int:
         "S0_EVALUATION_ID": require_string(
             config.get("evaluation_id"), "evaluation ID"
         ),
-        "S0_EVALUATION_CONTRACT": EVALUATION_CONTRACT,
+        "S0_EVALUATION_CONTRACT": FULL_REGISTRY_V3_EVALUATION_CONTRACT,
         "S0_METHOD_ID": method_id,
         "S0_TOKENIZER_METHOD": tokenizer_method,
         "TOKENIZER_PATH": str(tokenizer_path),
@@ -669,39 +705,18 @@ def main() -> int:
         "S0_EVAL_GPUS_PER_NODE": str(gpus_per_node),
         "S0_MAX_NEW_TOKENS": str(max_new_tokens),
         "S0_MAX_TOTAL_TOKENS": str(max_total_tokens),
+        "S0_MAX_TOOL_CALL_TOKENS": str(max_tool_call_tokens),
+        "S0_MAX_FINAL_PROMPT_TOKENS": str(max_final_prompt_tokens),
         "S0_REASONING_EFFORT": reasoning_effort,
         "S0_ENABLE_THINKING": "1",
         "S0_EVAL_SEED": str(
             require_int(generation.get("seed"), "seed")
         ),
         "S0_EVAL_BATCH_SIZE": str(batch_size),
-        "S0_MINIMUM_VALID_TOOL_TRAJECTORY": str(
-            minimum_valid_trajectory
-        ),
-        "S0_MINIMUM_REASONING_PRESENT": str(
-            minimum_reasoning_present
-        ),
-        "S0_MINIMUM_EXACT_REASONING": str(
-            minimum_exact_reasoning
-        ),
-        "S0_MINIMUM_VALID_SINGLE_TOOL_CALL": str(
-            minimum_valid_call
-        ),
-        "S0_MINIMUM_EXACT_TOOL_ARGUMENT": str(
-            minimum_exact_argument
-        ),
-        "S0_MINIMUM_FAMILY_PAYLOAD_ACCURACY": str(
-            minimum_payload_accuracy
-        ),
-        "S0_MINIMUM_FAMILY_FINAL_ANSWER_ACCURACY": str(
-            minimum_final_answer_accuracy
-        ),
-        "S0_MINIMUM_AMBIGUOUS_DEFER_ACCURACY": str(
-            minimum_defer_accuracy
-        ),
-        "S0_MAXIMUM_DIRECT_ANSWER_RATE": str(
-            maximum_direct_answer
-        ),
+        **{
+            f"S0_{name.upper()}": str(value)
+            for name, value in gate_floors.items()
+        },
         "S0_IDENTIFIER_REGISTRY": str(registry_path),
         "S0_IDENTIFIER_REGISTRY_SHA256": registry_sha256,
         "S0_WANDB_ENTITY": "jail-ai",
