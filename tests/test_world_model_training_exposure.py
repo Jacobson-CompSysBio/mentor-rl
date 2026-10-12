@@ -1,4 +1,4 @@
-"""Test unrestricted S0 train exposure receipts."""
+"""Test S0 train exposure receipts."""
 
 from __future__ import annotations
 
@@ -118,50 +118,14 @@ def exposure_args(*, total_steps: int, run_scope: str) -> dict:
 
 
 class TrainingExposureTest(unittest.TestCase):
-    """Check that exposure receipts do not restrict data length."""
+    """Check that a receipt records the full exposure of the train rows."""
 
-    def test_qualification_records_partial_exposure(self) -> None:
-        """A qualification plan accepts and reports a row subset."""
-
-        manifest = build_training_exposure_manifest(
-            **exposure_args(
-                total_steps=1,
-                run_scope="qualification",
-            )
-        )
+    def test_only_the_production_run_scope_is_supported(self) -> None:
         self.assertEqual(
-            manifest["schema_version"],
-            "mentor-rl-s0-training-exposure-v2",
+            s0_exposure_scope("production"), "all_eligible_train_rows"
         )
-        self.assertEqual(
-            manifest["exposure_contract"]["scope"],
-            "unrestricted",
-        )
-        self.assertFalse(
-            manifest["logical_exposure"][
-                "all_eligible_train_rows_exposed"
-            ]
-        )
-
-    def test_qualification_reports_complete_exposure(self) -> None:
-        """A qualification can report all rows without a requirement."""
-
-        manifest = build_training_exposure_manifest(
-            **exposure_args(
-                total_steps=4,
-                run_scope="qualification",
-            )
-        )
-        self.assertTrue(
-            manifest["logical_exposure"][
-                "all_eligible_train_rows_exposed"
-            ]
-        )
-        self.assertFalse(
-            manifest["exposure_contract"][
-                "all_eligible_train_rows_required"
-            ]
-        )
+        with self.assertRaisesRegex(ValueError, "run scope is invalid"):
+            s0_exposure_scope("qualification")
 
     def test_production_scope_requires_complete_exposure(self) -> None:
         """A production plan rejects a partial eligible row set."""

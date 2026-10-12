@@ -53,10 +53,8 @@ S0_LOSS_CONTRACTS = frozenset(
     {S0_V3_TRACE_LOSS_CONTRACT, S0_V4_PRIORITY_LOSS_CONTRACT}
 )
 S0_V4_DATASET_ID = "world_model_v4_s0_human_identifiers"
-S0_EXPOSURE_SCOPE_BY_RUN_SCOPE = {
-    "qualification": "unrestricted",
-    "production": "all_eligible_train_rows",
-}
+# Each S0 run is a production run that must expose every eligible train row.
+S0_EXPOSURE_SCOPE_BY_RUN_SCOPE = {"production": "all_eligible_train_rows"}
 V3_TOOL_DESCRIPTIONS = {
     "lookup_human_gene_symbol": (
         "Look up one human gene symbol in Ensembl release 116."
@@ -969,9 +967,7 @@ def build_training_exposure_manifest(
     if not consumed_indices:
         raise ValueError("consumed_indices must reference S0 train rows")
     all_eligible_rows_exposed = set(consumed_indices) == set(range(row_count))
-    full_exposure_required = exposure_scope == "all_eligible_train_rows"
-    exposure_satisfied = not full_exposure_required or all_eligible_rows_exposed
-    if not exposure_satisfied:
+    if not all_eligible_rows_exposed:
         raise ValueError(
             "The S0 production row plan must expose every eligible train row"
         )
@@ -1032,8 +1028,8 @@ def build_training_exposure_manifest(
         },
         "exposure_contract": {
             "scope": exposure_scope,
-            "all_eligible_train_rows_required": full_exposure_required,
-            "satisfied": exposure_satisfied,
+            "all_eligible_train_rows_required": True,
+            "satisfied": True,
         },
         "logical_exposure": {
             "record_occurrences": len(consumed_record_ids),
