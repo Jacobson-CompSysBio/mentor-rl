@@ -1,33 +1,23 @@
 # S0: Human Gene Identifier Traces
 
-Current cross-stage note (2026-10-20): the selected S0 v4 corpus and parent
-checkpoint remain frozen. The [S1 v7 prompt experiment](S1-prompt-v7.md)
-applies the new prompt to its 276 selected S0 replay rows only. Its S0
-retention evaluation keeps the original frozen S0 panel and prompt. Changing
-the null-symbol marker across S0 and S1 remains a separate future improvement.
+This document defines the current S0 contract (v4), how to build, train, and
+test it, and its status. The answer envelope, the tools, and the trace rules
+are shared with S1. They are in `runtime/world_model/contract.yaml`.
 
-This document defines the current S0 contract (v4) and records its status.
-The answer envelope, the tools, and the trace rules are shared with S1. They
-are in `runtime/world_model/contract.yaml` and `S1-coordinate-system.md`.
-
-The legacy v7 contract is at the end of this document, for reproducibility.
-Do not extend the legacy path.
-
-## Status (2026-10-08)
+## Status (2026-10-12)
 
 - The v4 corpus is built.
 - The four arms of the v4 training sweep are complete.
-- The full-registry tests of the four final checkpoints are running.
-- Next step: select one arm with the gate in this document. S1 starts from
-  the selected checkpoint (see `S1-coordinate-system.md`, "Start from the S0
-  checkpoint").
+- The full-registry tests of the four final checkpoints are complete. Each arm
+  passes the strict tier and the target tier of the gate (see "Results").
+- Next step: select one arm. S1 starts from the selected checkpoint.
 
-| Arm | Training config | Training run | Test job |
-|---|---|---|---|
-| LoRA r32, uniform loss | `config/world_model_s0_120b_training_v4_r32_uniform.json` | `slurm-5631883` | 5637834 |
-| LoRA r32, priority loss | `config/world_model_s0_120b_training_v4_r32_priority.json` | `slurm-5631884` | 5637835 |
-| LoRA r128, uniform loss | `config/world_model_s0_120b_training_v4_r128_uniform.json` | `slurm-5631885` | 5637836 |
-| LoRA r128, priority loss | `config/world_model_s0_120b_training_v4_r128_priority.json` | `slurm-5631886` | 5637837 |
+| Arm | Training config | Training run | Test job | Gate |
+|---|---|---|---|---|
+| LoRA r32, uniform loss | `config/world_model_s0_120b_training_v4_r32_uniform.json` | `slurm-5631883` | 5637834 | passed |
+| LoRA r32, priority loss | `config/world_model_s0_120b_training_v4_r32_priority.json` | `slurm-5631884` | 5637835 | passed |
+| LoRA r128, uniform loss | `config/world_model_s0_120b_training_v4_r128_uniform.json` | `slurm-5631885` | 5637836 | passed |
+| LoRA r128, priority loss | `config/world_model_s0_120b_training_v4_r128_priority.json` | `slurm-5631886` | 5637837 | passed |
 
 The training runs are under `data/world_model_v4/checkpoints/s0_120b/<arm>/`.
 
@@ -49,7 +39,7 @@ Use these sources, in this order:
    counts, the mix, and the added row metadata (`fact_kind`, `framing`,
    `prompt_template_id`, `rendering_index`, `input_variant`).
 3. The golden traces S0.1 to S0.7 in `runtime/world_model/golden_traces.jsonl`.
-   These JSONL fixtures remain separate from the current S1 question catalog.
+   `python -m runtime.world_model.contract render` prints them for review.
 4. This document.
 
 If this document and the runtime contract disagree, the runtime contract wins.
@@ -73,18 +63,40 @@ Each answer also sets `continuation_decision` from the request framing:
 - An ambiguous, absent, or retired input gets `defer`, with a
   `blocked_reason` sentence.
 
+## Code
+
+| Step | Files |
+|---|---|
+| Contract and its checks | `runtime/world_model/contract.py`, `contract.yaml`, `golden_traces.jsonl`, `agents/world_model_v3_curriculum/s1_kit/` |
+| Source index and tools | `runtime/world_model/sources.py`, `source_index.py`, `tools.py` |
+| Corpus | `runtime/world_model/s0_corpus.py`, `s0_v4.yaml` |
+| Validation panels | `scripts/build_world_model_s0_validation_panels.py` |
+| Training | `world_model_v2_s0.slurm`, `scripts/validate_world_model_v2_s0_train_contract.py`, `scripts/train_sft_dp_tp_ep.py`, `runtime/world_model_training.py` |
+| Test | `world_model_v2_s0.slurm`, `scripts/validate_world_model_v2_s0_eval_contract.py`, `scripts/build_world_model_v2_s0_generation_bundle.py`, `scripts/run_world_model_v2_s0_exact_generation.py`, `scripts/merge_world_model_v2_s0_generation_shards.py`, `scripts/evaluate_world_model_v2_s0.py` |
+
+The `v2` in the script names is historical. The scripts implement only the v4
+path. The row schema of the shared contract is `multiplex_sft_v3`, so the code
+calls the rows "v3 rows".
+
 ## Corpus (v4)
 
 - Dataset ID: `world_model_v4_s0_human_identifiers`.
 - Location: `data/world_model_v4/corpora/s0/`.
 - Rows: 16,384 train, 622 validation, and 600 test.
-- Build it from the pinned source index:
+- Build the source index first (see `s1_kit/README.md`). Then build the
+  corpus from the pinned source index:
 
   ```bash
   python -m runtime.world_model.s0_corpus --overlay runtime/world_model/s0_v4.yaml
   ```
 
-- Do not commit the generated corpus.
+- Build the validation panels from the corpus:
+
+  ```bash
+  python scripts/build_world_model_s0_validation_panels.py
+  ```
+
+- Do not commit the generated corpus or panels.
 
 The v4 mix:
 
@@ -95,6 +107,31 @@ The v4 mix:
 - **Splits.** Each identifier graph component stays in one split.
 - **Long candidate lists.** Train facts have at most 49 ambiguous candidates.
 - **Maximum length.** 4,096 tokens.
+
+### Reproducibility
+
+The training configs pin the corpus manifest and the validation panel
+manifest by SHA-256 value. The corpus manifest in turn pins the SHA-256 values
+of `s0_corpus.py`, `tools.py`, `contract.yaml`, and `s0_v4.yaml`. Any change
+to these four files, including a comment, gives a new corpus manifest. Make
+such a change only with a new corpus version.
+
+From the current code, both builds give the pinned files:
+
+| Artifact | SHA-256 |
+|---|---|
+| `data/world_model_v4/corpora/s0/manifest.json` | `20cbea3bb7e1f1bf9a54e9686b31a29abea992938a07aac58866b24c9832d638` |
+| `data/world_model_v4/eval/s0_validation/manifest.json` | `ffc2eb62de88fc851a3a32d6768a6e0fb35e8c4dc5a0ce04bbabbcb071706af3` |
+
+The trainer reads only the `teacher_forced_validation` panel of the validation
+manifest. The manifest also holds the `behavioral_validation` and
+`snapshot_validation` panels of the removed snapshot pipeline. They stay in
+the build so that the manifest keeps its pinned SHA-256 value.
+
+The plain base tokenizer arm at
+`data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer`
+is a pinned artifact of an earlier tokenizer study. Its directory name
+contains `v4` for artifact compatibility. Do not move it.
 
 ### Why the mix changed from v3
 
@@ -124,9 +161,8 @@ these settings:
 - Learning rate 1e-4, cosine schedule, 3% warmup. Maximum length 4,096.
 - LoRA alpha is two times the rank.
 - A checkpoint every 512 steps, and the final checkpoint.
-- **No inference snapshots.** `snapshot_steps` is `0` in each config. A
-  value of `128` turns the snapshot pipeline on again. That pipeline submits
-  12 snapshot tests and 1 finalizer job for each run.
+
+The train contract validator pins each of these settings.
 
 The **uniform** arms (`multiplex_sft_v3`) give the same weight to each
 supervised token. The **priority** arms (`multiplex_sft_v4_priority`) use
@@ -140,6 +176,12 @@ these token weights:
 | Final JSON | 4 |
 | `status`, `result`, `continuation_decision`, `blocked_reason` | 8 |
 
+The four sweep runs also ran the inference snapshot pipeline
+(`snapshot_steps` 128). It saved an inference copy of the adapter 12 times in
+each run. That pipeline is removed, and the configs no longer have a
+`snapshot_steps` key. The exact config of each run is in its
+`run_contract/run_config.json`.
+
 Check a training contract before you submit it:
 
 ```bash
@@ -147,6 +189,14 @@ CONTRACT_ONLY=1 JOB_MODE=train \
 RUN_CONFIG=config/world_model_s0_120b_training_v4_r32_uniform.json \
 S0_METHOD_ID=oss120b-plain-base-tokenizer-lora-r32 \
 bash world_model_v2_s0.slurm
+```
+
+Submit a training run with the same values. The `#SBATCH` defaults of the
+launcher match one arm (16 nodes):
+
+```bash
+sbatch --export=ALL,JOB_MODE=train,RUN_CONFIG=config/world_model_s0_120b_training_v4_r32_uniform.json,S0_METHOD_ID=oss120b-plain-base-tokenizer-lora-r32 \
+  world_model_v2_s0.slurm
 ```
 
 **Teacher-forced validation loss does not separate the arms.** Each arm
@@ -167,17 +217,16 @@ The test uses the frozen v3 full-registry panel:
   same as in v4 training.
 - The panel has no absent or retired inputs. It does not test the
   `not_found` deferral.
+- The v3 builder made the panel. The current builder writes v4 rows, so it
+  cannot rebuild the panel. The test contract pins the panel manifest, the
+  questions, and the answer key by SHA-256 value.
 
 ### Final-checkpoint test
 
-Test the final checkpoint of each training run directly. Use
+Test the final checkpoint of each training run. Use
 `config/world_model_s0_120b_test_v4_final_512n.json`. Set `CHECKPOINT_PATH`
 to the training output directory, for example
 `data/world_model_v4/checkpoints/s0_120b/r32_uniform/slurm-5631883`.
-
-`config/world_model_s0_120b_test_v4.json` is the promotion variant. It
-accepts only a snapshot that won the full snapshot and behavioral selection.
-That selection is not used now.
 
 Check the test contract:
 
@@ -209,14 +258,27 @@ Why these resources:
 - `EVAL_MODEL_STAGE_WAVE_SIZE=256` copies the base model to the nodes in 2
   waves. The default of 8 nodes for each wave takes hours on 512 nodes.
 
+The test runs in four stages:
+
+1. The bundle builder writes the public questions. It does not copy the
+   answer key.
+2. Each of the 512 model processes generates one shard. For each question, it
+   generates the thinking and one tool call, replays the call on the pinned
+   source index, and then generates the final thinking and the JSON answer. A
+   failed process resumes from its last completed batch.
+3. The merge step joins the shards in the bundle order.
+4. The scorer replays each call again, scores the answers against the answer
+   key, and applies the gate.
+
 The test writes its report to
 `data/world_model_v4/eval_runs/s0_120b_full_registry_final/<method>/slurm-<job>/report/`.
-`test_metrics.json` has the metrics and the gate. The test also adds its
-metrics to the W&B run of the training job.
+`test_metrics.json` has the metrics and the gate. `exact_tool_report.json` has
+the score of each row. The test also adds its metrics to the W&B run of the
+training job, with the prefix `test/`.
 
 ## Gate
 
-The gate has two tiers.
+The test config must set each floor. The gate has two tiers.
 
 **Strict tier: at least 99.5%.** The model uses the tool correctly and reports
 exactly what the tool returned.
@@ -255,7 +317,27 @@ before the answer (`minimum_reasoning_present`).
 **The summary is not evaluated.** The summary is a prose form of the JSON
 answer. Review a sample of summaries by hand.
 
-Configs without the new floor keys keep the earlier exact-match gate.
+## Results (v4)
+
+Each arm passes every check of the gate. The table gives the number of
+failed rows out of 120,766.
+
+| Check | r32 uniform | r32 priority | r128 uniform | r128 priority |
+|---|---|---|---|---|
+| One well-formed tool call | 0 | 3 | 1 | 1 |
+| Correct tool and exact identifier | 16 | 46 | 20 | 41 |
+| Exact tool result | 15 | 46 | 20 | 41 |
+| Answer without a tool call | 0 | 0 | 0 | 0 |
+| Valid answer JSON | 0 | 10 | 6 | 12 |
+| `status` exact | 15 | 45 | 20 | 41 |
+| `result` exact | 31 | 49 | 20 | 41 |
+| `continuation_decision` exact | 15 | 46 | 20 | 41 |
+| Ambiguous symbol gets `defer` (481 rows) | 0 | 0 | 0 | 0 |
+| Whole answer exact (reported only) | 44 | 59 | 31 | 63 |
+
+Almost all strict-tier failures are in the symbol-to-ID family. For every
+ID-to-symbol row and every ambiguous symbol, each arm calls the right tool and
+gets the exact tool result, `status`, and `continuation_decision`.
 
 ## v3 baseline
 
@@ -285,280 +367,25 @@ most failures:
 - **Incomplete deferral.** In 730 rows, the model gave `defer` without a
   `blocked_reason`. The schema rejects this answer.
 
-Compare each v4 arm with these numbers.
-
-## Changes to the test pipeline (2026-10-08)
-
-- **Snapshot generation.** The generator prompted the snapshot test
-  (`held_out_multiplex_sft_v4`) for a JSON answer without thinking. The scorer
-  requires thinking before the answer, so each snapshot test scored 0. The
-  generator now uses the scorer's list of contracts with a thinking step.
-- **Final-checkpoint test.** The test contract accepts the final checkpoint of
-  a v4 training run.
-- **Gate.** The test config sets each floor. The scorer reports
-  `result_exact`, and the W&B run gets `test/result_exact_rate` and
-  `test/gate_passed`.
-- **Snapshots.** The training contract accepts `snapshot_steps: 0`.
-- **S1 forgetting test.** The same test also runs on a final S1 checkpoint
-  that started from an S0 checkpoint
-  (`config/world_model_s1_120b_s0_forgetting_test_512n.json`). It logs to the
-  S1 W&B run with the prefix `s0_forgetting/`. The S0 test keeps the prefix
-  `test/`.
-
 ## Open items
 
+- **Arm selection.** Each arm passes the gate. Select one arm for S1.
 - **Absent inputs.** The full-registry panel has no absent or retired inputs.
-  Test the `not_found` deferral on the v4 test split.
-- **`continuation_decision`.** If v4 still gives `stop` for step requests,
-  compare the step phrasing in the test prompts with the train templates.
-  Then add phrasings to the S0 and S1 corpora.
-
-## Legacy v7 contract (frozen)
-
-The v7 corpus, configs, and gate below stay frozen for reproducibility.
-
-### Scope
-
-S0 teaches the model to resolve human gene identifiers with one local tool.
-The model must use Ensembl release 116.
-
-S0 does not teach graph facts, context structure, module identifiers, or
-biological operators. Do not use a direct-answer format.
-
-### Shared trace contract
-
-The v7 corpus uses the shared supervised trace from the S1 plan. Each trace
-has one tool action and one final assistant action.
-
-Each assistant action has a deterministic explanation and an exact receipt.
-The final action also has one structured JSON answer.
-
-The trainer applies loss to both explanations, the tool call, and the final
-JSON answer. It masks the system, user, and tool messages.
-
-The shared row builder covers these result paths:
-
-- A symbol resolves to one Ensembl gene ID.
-- A symbol maps to multiple candidate IDs.
-- A symbol has no registry match.
-- An Ensembl gene ID has one symbol.
-- An Ensembl gene ID has no symbol.
-- An Ensembl gene ID has no registry entry.
-
-The shared path uses three reviewed explanation templates for each action
-path. It selects one template from the row ID and action index.
-
-Each explanation has no more than two sentences and 40 words. The explanation
-audit checks both prompt forms and all reachable action paths.
-
-### Pinned sources and tools
-
-Use this Ensembl registry:
-
-```text
-data/world_model_v2/sources/ensembl_116_human_gene_ids_and_symbols_v2.json
-```
-
-Its SHA-256 value is:
-
-```text
-7a2f71fdfe9db21a96dcbc3775d099ec1691443041ac5639abe3dab7f21ffbaf
-```
-
-Registry v2 contains all 78,941 valid gene IDs in the release 116 GTF. It
-uses an empty symbol list for each gene ID without a `gene_name`.
-
-The registry has 43,458 named IDs and 35,483 unnamed IDs. It has 41,828
-unique symbols, including 484 ambiguous symbols.
-
-Use the pinned HGNC file for absent symbols:
-
-```text
-data/world_model_v2/sources/hgnc_complete_set_2026-07-28.txt
-```
-
-Its SHA-256 value is:
-
-```text
-84ddffcbdb7761b065c8c45e4fc7f626c3bf055b3ab054dbf039ac738a935170
-```
-
-Use only these tools:
-
-- `lookup_human_gene_symbol` resolves one gene symbol.
-- `lookup_human_ensembl_gene_id` resolves one Ensembl gene ID.
-
-Tool contract v2 returns `gene_symbol` as one string or `null`. It returns
-`resolved` for a known gene ID without a symbol.
-
-Tool contract v2 returns `not_found` only for an identifier outside the
-registry. It does not return the continuation decision.
-
-`runtime/world_model_s0_tools.py` runs both tools without network access. The
-runtime rejects a changed registry or a noncanonical argument.
-
-### Canonical configuration files
-
-Use these five v7 configuration files:
-
-- `config/world_model_v2_s0_shared_traces_v7.json`
-- `config/world_model_v2_s0_20b_shared_trace_qualification_v7.json`
-- `config/world_model_v2_s0_120b_shared_trace_training_v7.json`
-- `config/world_model_v2_s0_full_shared_eval_build_v7.json`
-- `config/world_model_v2_s0_120b_full_shared_trace_test_v7_64n_bs4_sans_3_long_rows.json`
-
-### Corpus contract
-
-The corpus ID is
-`world_model_v2_s0_human_identifier_supervised_traces_v7`.
-
-The train corpus has 4,096 rows:
-
-- 1,638 registry symbol rows
-- 1,741 named gene ID rows
-- 307 unnamed gene ID rows
-- 410 absent HGNC symbol rows
-
-The validation panel has 622 rows. The split test panel has 600 rows.
-
-Keep each identifier graph component in one split. Validation and test facts
-must not occur in the train corpus.
-
-The corpus has these three families:
-
-- `human_symbol_to_ensembl`
-- `human_ensembl_to_symbol`
-- `human_ambiguous_symbol`
-
-An ambiguous symbol must return all candidate IDs and the `defer` decision.
-The model must not select one candidate.
-
-An absent symbol must return `not_found` and the `defer` decision. A known
-unnamed gene ID must return `resolved`, `null`, and the `continue` decision.
-
-Exclude these seven long ambiguous facts from the train corpus. Their traces
-exceed the 1,024-token training limit:
-
-- `Metazoa_SRP`: `fact_1544b1236c875b2ad88138d0`
-- `U3`: `fact_39c1052bc4d239a961544728`
-- `U8`: `fact_8cbb53717cd0060ee0c71600`
-- `U2`: `fact_99053f9453bab00167f25957`
-- `U6`: `fact_a8b5a2d0eb05a25c3900ac94`
-- `SNORA70`: `fact_f1d551226c17ab0a816e96a6`
-- `Y_RNA`: `fact_fd3fc526542e105e08c060b9`
-
-Also exclude `Metazoa_SRP`, `U3`, and `Y_RNA` from the full panel. Each symbol
-has more than 49 candidate gene IDs.
-
-The full v7 panel has 120,830 rows after these exclusions. This count includes
-all registry IDs, all registry symbols, and 64 fixed absent symbols.
-
-### Tokenizer contract
-
-Use only the unchanged GPT-OSS tokenizer with method
-`plain_base_tokenizer`.
-
-The passed gate pins this directory:
-
-```text
-data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer
-```
-
-The directory name contains `v4` for artifact compatibility. Do not move it.
-
-The tokenizer arm manifest has this SHA-256 value:
-
-```text
-b1379f9a1a751ce7bdc2a99389717ba3095c64e3fbfa608ef77eee181bb8cb6e
-```
-
-The token manifest has this internal SHA-256 value:
-
-```text
-245163b5189a64afb8e5b061585f90d4c15bcf94599b68307e9ff008880fe3c0
-```
-
-### Build the data
-
-Build registry v2 from the pinned GTF:
-
-```bash
-python scripts/grab_human_gene_ids.py \
-  --gtf-path data/world_model_v2/sources/Homo_sapiens.GRCh38.116.gtf.gz \
-  --out-path data/world_model_v2/sources/ensembl_116_human_gene_ids_and_symbols_v2.json
-```
-
-Build the v7 corpus and split panels:
-
-```bash
-python scripts/build_world_model_v2_s0_shared_sft.py \
-  --config config/world_model_v2_s0_shared_traces_v7.json
-```
-
-Build the filtered full panel:
-
-```bash
-python scripts/build_world_model_v2_s0_full_shared_eval.py \
-  --config config/world_model_v2_s0_full_shared_eval_build_v7.json
-```
-
-Do not commit the generated corpus, panel, checkpoint, or report files.
-
-### Check the train contracts
-
-Check the 20B qualification contract:
-
-```bash
-CONTRACT_ONLY=1 JOB_MODE=train \
-RUN_CONFIG=config/world_model_v2_s0_20b_shared_trace_qualification_v7.json \
-S0_METHOD_ID=oss20b-plain-base-tokenizer-lora-r32 \
-bash world_model_v2_s0.slurm
-```
-
-Check the 120B production contract:
-
-```bash
-CONTRACT_ONLY=1 JOB_MODE=train \
-RUN_CONFIG=config/world_model_v2_s0_120b_shared_trace_training_v7.json \
-S0_METHOD_ID=oss120b-plain-base-tokenizer-lora-r32 \
-bash world_model_v2_s0.slurm
-```
-
-If the contract check fails, do not submit the job.
-
-### Check the production test contract
-
-Set `CHECKPOINT_PATH` to one complete 120B LoRA checkpoint.
-
-```bash
-CONTRACT_ONLY=1 JOB_MODE=test \
-RUN_CONFIG=config/world_model_v2_s0_120b_full_shared_trace_test_v7_64n_bs4_sans_3_long_rows.json \
-S0_METHOD_ID=oss120b-plain-base-tokenizer-lora-r32 \
-CHECKPOINT_PATH=/absolute/path/to/completed/checkpoint \
-bash world_model_v2_s0.slurm
-```
-
-The production gate requires these results:
-
-- At least 99 percent of rows have valid tool traces.
-- At least 99 percent of rows contain explanations.
-- At least 99 percent of tool arguments are exact.
-- Each family has at least 99 percent exact tool results.
-- Each family has at least 99 percent exact final answers.
-- All structured JSON answers are valid.
-- All status values and continuation decisions are exact.
-- All ambiguous and absent inputs defer.
-- All known unnamed IDs resolve.
-- At most 1 percent of rows give a direct answer.
-- No row uses the network.
-
-The exact explanation floor is zero. Exact explanation remains a diagnostic
-metric.
-
-### Frozen v6 contract
-
-The v6 files stay frozen for reproducibility. The runtime, trainer, bundle
-builder, generator, evaluator, and validators still accept the v6 contracts.
-
-Use `--registry-schema-version` with the v1 schema to reproduce registry v1.
-Do not change a v6 config to use a v7 artifact.
+  Test the `not_found` deferral on the v4 test split. No test config or panel
+  exists for that split yet.
+- **Pinned HPC source.** On 2026-10-09, the MENTOR-EV dendrogram was not at
+  the path that `contract.yaml` pins. `python -m runtime.world_model.contract
+  check` and a new source-index build fail until it is back. The corpus build
+  reads the existing source index and is not affected.
+
+## Removed paths
+
+Only the v4 path is supported. These paths are removed:
+
+- **v6 tool trajectories** (`world_model_v2_s0_human_identifier_trajectories_v6`),
+  the v2 identifier registry, and the tokenizer-arm builder. They are in the
+  history of `main` before this change.
+- **v7 shared traces** and the v3 S0 training and test configs. They were not
+  merged to `main`.
+- **The snapshot and behavioral promotion pipeline**, including the
+  promotion test config. The final-checkpoint test replaces it.

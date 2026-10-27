@@ -28,6 +28,23 @@ from scripts.train_sft_dp_tp_ep import (
 )
 
 
+TRAINER_ARGV = [
+    "train_sft_dp_tp_ep.py",
+    "--model_path",
+    "model",
+    "--tokenizer_path",
+    "tokenizer",
+    "--dataset_path",
+    "train.jsonl",
+    "--validation_dataset_path",
+    "val.jsonl",
+    "--validation_answer_key_path",
+    "val_answers.jsonl",
+    "--output_dir",
+    "output",
+]
+
+
 class _TinyModel:
     """Return fixed CPU logits for one small batch."""
 
@@ -61,34 +78,22 @@ class _PositionModel(_TinyModel):
 class SharedTraceLossContractTests(unittest.TestCase):
     """Test the shared trace loss contract at both trainer gates."""
 
-    def test_parser_accepts_shared_trace_loss_contract(self) -> None:
-        """Accept the v7 loss contract as a trainer argument."""
-
-        argv = [
-            "train_sft_dp_tp_ep.py",
-            "--model_path",
-            "model",
-            "--tokenizer_path",
-            "tokenizer",
-            "--dataset_path",
-            "train.jsonl",
-            "--validation_dataset_path",
-            "val.jsonl",
-            "--validation_answer_key_path",
-            "val_answers.jsonl",
-            "--output_dir",
-            "output",
-            "--loss_contract",
-            SUPERVISED_EXPLANATION_LOSS_CONTRACT,
-        ]
-
-        with patch.object(sys, "argv", argv):
-            args = parse_args()
-
-        self.assertEqual(
-            args.loss_contract,
-            SUPERVISED_EXPLANATION_LOSS_CONTRACT,
-        )
+    def test_parser_accepts_only_the_v4_loss_contracts(self) -> None:
+        for loss_contract in (
+            S0_V3_TRACE_LOSS_CONTRACT,
+            S0_V4_PRIORITY_LOSS_CONTRACT,
+        ):
+            argv = [*TRAINER_ARGV, "--loss_contract", loss_contract]
+            with patch.object(sys, "argv", argv):
+                self.assertEqual(parse_args().loss_contract, loss_contract)
+        for argv in (
+            TRAINER_ARGV,
+            [*TRAINER_ARGV, "--loss_contract", "s0_tool_trajectory_v1"],
+        ):
+            with patch.object(sys, "argv", argv):
+                with patch("sys.stderr"):
+                    with self.assertRaises(SystemExit):
+                        parse_args()
 
     def test_loss_accepts_shared_trace_loss_contract(self) -> None:
         """Compute a CPU loss with the v7 loss contract."""

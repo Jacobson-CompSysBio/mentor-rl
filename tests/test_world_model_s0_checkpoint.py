@@ -1,14 +1,20 @@
-"""Test flexible S0 checkpoint validation."""
+"""Test the checkpoint check of the S0 test generator."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
+import pytest
+
 from scripts.run_world_model_v2_s0_exact_generation import (
+    S0GenerationError,
     stable_sha256,
     validate_checkpoint,
 )
+
+
+METHOD_ID = "oss120b-plain-base-tokenizer-lora-r32"
 
 
 def write_json(path: Path, value: dict) -> None:
@@ -17,50 +23,70 @@ def write_json(path: Path, value: dict) -> None:
     path.write_text(json.dumps(value), encoding="utf-8")
 
 
-def test_test_path_accepts_partial_train_exposure(tmp_path: Path) -> None:
-    """The test path accepts a complete partial-data checkpoint."""
+def write_checkpoint(path: Path, *, exposure_status: str) -> None:
+    """Write the files that the generator checks in one final checkpoint."""
 
-    method_id = "oss20b-plain-base-tokenizer-lora-r32"
     identity = {
-        "run_id": "subset-run",
-        "method_id": method_id,
-        "corpus_manifest_sha256": "ignored-corpus-value",
-        "tokenizer_manifest_sha256": "ignored-tokenizer-value",
+        "run_id": "train-run",
+        "method_id": METHOD_ID,
+        "corpus_manifest_sha256": "corpus-value",
+        "tokenizer_manifest_sha256": "tokenizer-value",
         "model_identity_sha256": "model-value",
     }
     write_json(
-        tmp_path / "tp_adapter_manifest.json",
+        path / "tp_adapter_manifest.json",
         {"format": "mentor-rl-s0-tp-lora-v1", "identity": identity},
     )
-    (tmp_path / "adapter_config.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "adapter_model.safetensors").write_bytes(b"adapter")
+    (path / "adapter_config.json").write_text("{}", encoding="utf-8")
+    (path / "adapter_model.safetensors").write_bytes(b"adapter")
 
-    contract_dir = tmp_path / "run_contract"
+    contract_dir = path / "run_contract"
     contract_dir.mkdir()
     exposure = {
         "schema_version": "mentor-rl-s0-training-exposure-v2",
-        "status": "complete",
-        "method_id": method_id,
+        "status": exposure_status,
+        "method_id": METHOD_ID,
         "exposure_contract": {
             "scope": "all_eligible_train_rows",
-            "all_eligible_train_rows_required": False,
+            "all_eligible_train_rows_required": True,
             "satisfied": True,
         },
         "logical_exposure": {
-            "all_eligible_train_rows_exposed": False,
-            "unique_record_count": 1_000,
+            "all_eligible_train_rows_exposed": True,
+            "unique_record_count": 16_384,
         },
     }
     exposure["manifest_sha256"] = stable_sha256(exposure)
     write_json(contract_dir / "training_exposure.json", exposure)
 
-    artifact, run_id = validate_checkpoint(
-        tmp_path,
-        method_id=method_id,
-        corpus_manifest_sha256="ignored-corpus-value",
-        tokenizer_manifest_sha256="ignored-tokenizer-value",
+
+def check(path: Path):
+    return validate_checkpoint(
+        path,
+        method_id=METHOD_ID,
+        corpus_manifest_sha256="corpus-value",
+        tokenizer_manifest_sha256="tokenizer-value",
         model_identity_sha256="model-value",
     )
 
-    assert run_id == "subset-run"
+
+def test_test_path_accepts_a_complete_final_checkpoint(tmp_path: Path) -> None:
+    write_checkpoint(tmp_path, exposure_status="complete")
+
+    artifact, run_id = check(tmp_path)
+
+    assert run_id == "train-run"
     assert len(artifact["checkpoint_identity_sha256"]) == 64
+    assert set(artifact["files"]) == {
+        "adapter_config.json",
+        "adapter_model.safetensors",
+        "tp_adapter_manifest.json",
+        "run_contract/training_exposure.json",
+    }
+
+
+def test_test_path_rejects_an_unfinished_run(tmp_path: Path) -> None:
+    write_checkpoint(tmp_path, exposure_status="planned")
+
+    with pytest.raises(S0GenerationError, match="one complete checkpoint"):
+        check(tmp_path)

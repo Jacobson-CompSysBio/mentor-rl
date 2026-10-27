@@ -156,7 +156,8 @@ def test_summary_rejects_corrupt_counts():
 def test_cli_telemetry_is_opt_in_and_restricted_to_v3(tmp_path, monkeypatch):
     source = tmp_path / "fixture.jsonl"
     source.write_text("{}\n")
-    argv = ["train_sft_dp_tp_ep.py", "--bf16"]
+    argv = ["train_sft_dp_tp_ep.py", "--bf16", "--loss_contract",
+            trainer.S0_V3_TRACE_LOSS_CONTRACT]
     for name in (
         "model_path", "tokenizer_path", "dataset_path", "validation_dataset_path",
         "validation_answer_key_path", "output_dir",
@@ -164,9 +165,11 @@ def test_cli_telemetry_is_opt_in_and_restricted_to_v3(tmp_path, monkeypatch):
         argv.extend([f"--{name}", str(source)])
     monkeypatch.setattr(sys, "argv", argv)
     assert trainer.parse_args().segment_loss_telemetry is False
-    monkeypatch.setattr(sys, "argv", argv + ["--segment_loss_telemetry"])
-    with pytest.raises(ValueError, match="requires a v3"):
-        trainer.validate_cli(trainer.parse_args())
+    monkeypatch.setattr(sys, "argv", argv + [
+        "--segment_loss_telemetry", "--loss_contract", "s0_tool_trajectory_v1",
+    ])
+    with pytest.raises(SystemExit):
+        trainer.parse_args()
     monkeypatch.setattr(sys, "argv", argv + [
         "--segment_loss_telemetry", "--loss_contract", trainer.S0_V3_TRACE_LOSS_CONTRACT,
     ])
@@ -244,7 +247,8 @@ def test_snapshot_cli_rejects_steps_that_cannot_be_saved(steps, tmp_path, monkey
     """Selected diagnostic adapters must correspond to completed step saves."""
     source = tmp_path / "fixture.jsonl"
     source.write_text("{}\n")
-    argv = ["trainer", "--bf16", "--diagnostic_snapshot_steps", steps]
+    argv = ["trainer", "--bf16", "--loss_contract", trainer.S0_V3_TRACE_LOSS_CONTRACT,
+            "--diagnostic_snapshot_steps", steps]
     for name in ("model_path", "tokenizer_path", "dataset_path", "validation_dataset_path", "validation_answer_key_path", "output_dir"):
         argv.extend([f"--{name}", str(source)])
     monkeypatch.setattr(sys, "argv", argv)

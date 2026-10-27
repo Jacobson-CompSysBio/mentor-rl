@@ -128,6 +128,38 @@ Cluster runs typically go through:
 sbatch train_grpo.slurm
 ```
 
+### 5. World model S0: gene identifier tool calls
+
+S0 trains GPT-OSS-120B LoRA adapters to resolve human gene identifiers with one
+local tool call against Ensembl release 116. `runtime/world_model/` holds the
+shared S0/S1 contract and the S0 corpus builder. `world_model_v2_s0.slurm`
+trains one adapter (`JOB_MODE=train`) or runs the full-registry test of a
+final checkpoint (`JOB_MODE=test`).
+
+```bash
+python -m runtime.world_model.s0_corpus --overlay runtime/world_model/s0_v4.yaml
+CONTRACT_ONLY=1 JOB_MODE=train \
+RUN_CONFIG=config/world_model_s0_120b_training_v4_r32_uniform.json \
+S0_METHOD_ID=oss120b-plain-base-tokenizer-lora-r32 \
+bash world_model_v2_s0.slurm
+```
+
+See `agents/world_model_v3_curriculum/S0-human-gene-identifiers.md` for the
+contract, the build, the training sweep, the test, the gate, and the results.
+
+### 6. World model S1: coordinate system and conventions
+
+S1 continues the S0 adapter with gene identity, multiplex membership, layer
+and module parsing, and metric conventions. The v10 corpus contains 55,276
+training rows and uses the frozen 6,875-row evaluation panel. Its completed
+S1 evaluation passes the 95% structured-answer gate at 95.156%; S0 retention
+is still queued as of 2026-10-27.
+
+See [the S1 stage record](agents/world_model_v3_curriculum/S1-coordinate-system.md)
+for build commands, versioned configs, evaluation evidence, and launch recipes.
+The [question catalog](agents/world_model_v3_curriculum/S1-question-classes.md)
+contains the 66 active types and full example traces.
+
 ## Testing
 
 Run the test suite with:

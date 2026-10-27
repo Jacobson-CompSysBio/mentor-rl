@@ -1,0 +1,50 @@
+{
+  "verified_on": "2026-10-27",
+  "environment": "pytorch-rocm, Python 3.12; ROCm 6.3.1 for trainer CPU tests",
+  "base_commit": "70045ef",
+  "s1_snapshot_commit": "bf29ef8",
+  "checks": {
+    "evaluation_regressions": {
+      "passed": 216,
+      "skipped": 1,
+      "network_guard_run_separately": true
+    },
+    "training_telemetry": {
+      "passed": 33
+    },
+    "corpus_contract_and_retry": {
+      "passed": 265,
+      "skipped": 1,
+      "known_live_flist_test_deselected": 1,
+      "historical_robustness_setup_errors": 22
+    },
+    "offline_network_guard": {
+      "passed": 1,
+      "execution": "outside socket-restricting sandbox; application blocks DNS and connect"
+    },
+    "semantic_validator_selftest": {
+      "known_bad_rejected": 53,
+      "false_positives": 0
+    },
+    "python_syntax": true,
+    "slurm_shell_syntax": true,
+    "git_diff_check": true
+  },
+  "limitations": [
+    "The full suite is not green: 22 historical robustness scorer cases share a frozen panel whose implementation hashes no longer match the v10 builder. The first run lacked that diagnostic artifact; after making it available, the pinned-identity rejection was reproduced in both the PR checkout and original s1 checkout. Historical pins were not changed.",
+    "The live-flist native-grammar test is excluded, matching the documented v10 build limitation.",
+    "S0 retention job 5768598 remains pending for priority; its model gate has not passed yet."
+  ],
+  "integration_notes": [
+    "Current main S0 v4 configs, S0 stage documentation, canonical CLI loss-contract requirement, and canonical S0 test fixtures are retained.",
+    "Historical compatibility helpers remain because the S1 trainers, evaluators, and historical builders import them.",
+    "Original s1 checkout source was not modified; artifacts are excluded from Git."
+  ],
+  "log_sha256": {
+    "evaluation_regressions": "4447660e247210c24f814a7f7aca1683be9b339f53d25f785136b4df65bec794",
+    "training_telemetry": "c08be05010e1426e711528d2676e9b80505f689529fe2f0f91a5391236f359b7",
+    "corpus_contract_and_retry": "33b8c1848f48db52d21353f5d70018a93671f210e50f5b76cff2c3dd69335ecf",
+    "historical_robustness": "716adeeb01e92477fbfb1eeff83eccf70e1da9393715d729a17a65a46ee8a8f9",
+    "original_s1_robustness": "2f19039a51b8eea758fa5302eb03954cc5e4afb5160bbbd93a825d3acd88d404"
+  }
+}

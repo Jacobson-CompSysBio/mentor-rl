@@ -8,28 +8,44 @@ from pathlib import Path
 import pytest
 
 from scripts.build_world_model_v2_s0_generation_bundle import (
-    BUNDLE_FULL_TOOL_TRAJECTORY_SCHEMA_VERSION,
-    FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT,
+    FULL_REGISTRY_BUNDLE_V3_SCHEMA_VERSION,
+    FULL_REGISTRY_V3_EVALUATION_CONTRACT,
     SNAPSHOT_VALIDATION_EVALUATION_CONTRACT,
 )
-from scripts import evaluate_world_model_v2_s0 as scorer
 from scripts import run_world_model_v2_s0_exact_generation as generator
+from scripts import evaluate_world_model_v2_s0 as scorer
 from scripts.run_world_model_v2_s0_exact_generation import (
     ALLOWED_SHARED_FINAL_SPECIAL_TOKENS,
     INFERENCE_DEVICE_MAP,
+    final_generation_allowed_special_tokens,
     SHARD_PREDICTION_SCHEMA_VERSION,
     SHARD_STRATEGY,
     S0GenerationError,
     _load_resume_shard,
     _write_partial_checkpoint,
     merge_prediction_shards,
-    final_generation_allowed_special_tokens,
     select_shard_rows,
     sha256_file,
     stable_sha256,
     write_json,
     write_jsonl,
 )
+
+
+SOURCE_INDEX_SHA256 = "f" * 64
+# Any file in the repository passes the path check; the fixture below stands
+# in for the source-index check, so these tests need no generated data.
+SOURCE_INDEX_PATH = "runtime/world_model/contract.yaml"
+
+
+@pytest.fixture(autouse=True)
+def _accept_the_bundle_source_index(monkeypatch) -> None:
+    monkeypatch.setattr(
+        generator, "check_source_index", lambda path, contract: {}
+    )
+    monkeypatch.setattr(
+        generator, "content_sha256", lambda payload: SOURCE_INDEX_SHA256
+    )
 
 
 def _resume_plan(rows: list[dict], *, shard_count: int = 1) -> dict:
@@ -66,23 +82,13 @@ def _write_bundle(path: Path, row_count: int = 10) -> list[dict]:
     write_jsonl(questions_path, rows)
     record_ids = [row["record_id"] for row in rows]
     manifest = {
-        "schema_version": BUNDLE_FULL_TOOL_TRAJECTORY_SCHEMA_VERSION,
-        "evaluation_contract": FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT,
+        "schema_version": FULL_REGISTRY_BUNDLE_V3_SCHEMA_VERSION,
+        "evaluation_contract": FULL_REGISTRY_V3_EVALUATION_CONTRACT,
         "test_panel_id": "a" * 64,
         "identifier_registry": {
-            "path": (
-                "data/world_model_v2/sources/"
-                "ensembl_116_human_gene_ids_and_symbols.json"
-            ),
-            "id": (
-                "sha256:"
-                "e67a4a1d8839c7f8ea568c3040c18941"
-                "a189f65afeed66dfeedb03c6e305c4ab"
-            ),
-            "sha256": (
-                "e67a4a1d8839c7f8ea568c3040c18941"
-                "a189f65afeed66dfeedb03c6e305c4ab"
-            ),
+            "path": SOURCE_INDEX_PATH,
+            "id": f"sha256:{SOURCE_INDEX_SHA256}",
+            "sha256": SOURCE_INDEX_SHA256,
         },
         "record_count": len(rows),
         "record_ids_sha256": stable_sha256(record_ids),
@@ -104,7 +110,7 @@ def _write_shards(
 
     generation_config = {"do_sample": False, "batch_size": 4}
     common = {
-        "evaluation_contract": FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT,
+        "evaluation_contract": FULL_REGISTRY_V3_EVALUATION_CONTRACT,
         "test_panel_id": "a" * 64,
         "method_id": "test-method",
         "train_run_id": "test-run",
@@ -209,28 +215,8 @@ def test_inference_reserves_gpu_zero_memory() -> None:
     assert INFERENCE_DEVICE_MAP == "balanced_low_0"
 
 
-def test_generator_and_scorer_share_final_explanation_contracts() -> None:
-    """Prompt for a final explanation wherever the scorer requires one."""
-
-    assert (
-        generator.SHARED_TRACE_EVALUATION_CONTRACTS
-        is scorer.SHARED_TRACE_EVALUATION_CONTRACTS
-    )
 
 
-def test_snapshot_validation_generates_a_final_explanation() -> None:
-    """Let v4 snapshot validation write analysis before its final answer."""
-
-    assert (
-        SNAPSHOT_VALIDATION_EVALUATION_CONTRACT
-        in generator.SHARED_TRACE_EVALUATION_CONTRACTS
-    )
-    assert (
-        final_generation_allowed_special_tokens(
-            SNAPSHOT_VALIDATION_EVALUATION_CONTRACT
-        )
-        == ALLOWED_SHARED_FINAL_SPECIAL_TOKENS
-    )
 
 
 def test_partial_checkpoint_resumes_an_ordered_batch_prefix(
@@ -367,3 +353,27 @@ def test_merge_rejects_the_wrong_shard_records(tmp_path: Path) -> None:
             output_dir=tmp_path / "merged",
             expected_shard_count=3,
         )
+
+
+def test_generator_and_scorer_share_final_explanation_contracts() -> None:
+    """Prompt for a final explanation wherever the scorer requires one."""
+
+    assert (
+        generator.SHARED_TRACE_EVALUATION_CONTRACTS
+        is scorer.SHARED_TRACE_EVALUATION_CONTRACTS
+    )
+
+
+def test_snapshot_validation_generates_a_final_explanation() -> None:
+    """Let v4 snapshot validation write analysis before its final answer."""
+
+    assert (
+        SNAPSHOT_VALIDATION_EVALUATION_CONTRACT
+        in generator.SHARED_TRACE_EVALUATION_CONTRACTS
+    )
+    assert (
+        final_generation_allowed_special_tokens(
+            SNAPSHOT_VALIDATION_EVALUATION_CONTRACT
+        )
+        == ALLOWED_SHARED_FINAL_SPECIAL_TOKENS
+    )

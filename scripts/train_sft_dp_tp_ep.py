@@ -498,8 +498,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup_ratio", type=float, default=0.03)
     parser.add_argument(
         "--loss_contract",
-        choices=tuple(sorted(S0_LOSS_CONTRACTS)),
-        default=S0_TOOL_TRAJECTORY_LOSS_CONTRACT,
+        choices=tuple(sorted(S0_V3_TRACE_LOSS_CONTRACTS)),
+        required=True,
     )
     parser.add_argument("--weight_decay", type=float, default=0.0)
     parser.add_argument("--max_grad_norm", type=float, default=1.0)

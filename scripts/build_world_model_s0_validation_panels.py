@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Build fixed 4,096/512 held-out behavioral panels for S0 v4."""
+"""Build the S0 v4 validation panels from the published v4 corpus.
+
+The trainer scores teacher-forced validation loss on the 622-row
+teacher_forced_validation panel. The manifest also holds the 4,096-row
+behavioral and 512-row snapshot panels of the retired snapshot pipeline. They
+stay in the build so that the manifest keeps the SHA-256 value that the v4
+training configs pin.
+"""
 
 from __future__ import annotations
 
@@ -36,7 +43,6 @@ from runtime.world_model.s0_corpus import (  # noqa: E402
 )
 from runtime.world_model.source_index import check_source_index  # noqa: E402
 from runtime.world_model.tools import WorldModelToolRuntime  # noqa: E402
-from scripts.build_world_model_s0_eval import project_row  # noqa: E402
 
 
 CORPUS_ROOT = REPO_ROOT / "data/world_model_v4/corpora/s0"
@@ -59,6 +65,9 @@ MICRO_COUNTS = {
     HISTORICAL_SYMBOL: 32,
     RETIRED_GENE_ID: 32,
 }
+
+
+CORPUS_SPLITS = ("train", "validation", "test")
 
 
 def canonical_json(value: Any) -> str:
@@ -106,6 +115,92 @@ def write_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
         for row in rows:
             destination.write(canonical_json(row) + "\n")
     temporary.replace(path)
+
+
+def project_row(
+    row: Mapping[str, Any], split: str, *, fact_role: str = "unseen"
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Separate one canonical row into a public prompt and private answer."""
+
+    row_id = row.get("row_id")
+    messages = row.get("messages")
+    tools = row.get("tools")
+    metadata = row.get("metadata")
+    if not isinstance(row_id, str) or not row_id:
+        raise ValueError("An S0 row has no row_id")
+    if not isinstance(messages, list) or len(messages) != 5:
+        raise ValueError(f"{row_id} is not a five-message S0 trace")
+    if not isinstance(tools, list) or not isinstance(metadata, Mapping):
+        raise ValueError(f"{row_id} lacks tools or metadata")
+    system, user, assistant_call, tool_result, assistant_final = messages
+    roles = [message.get("role") for message in messages]
+    if roles != ["system", "user", "assistant", "tool", "assistant"]:
+        raise ValueError(f"{row_id} has an invalid S0 role sequence")
+    call = assistant_call.get("tool_call")
+    if not isinstance(call, Mapping):
+        raise ValueError(f"{row_id} lacks one tool call")
+    arguments = call.get("arguments")
+    if not isinstance(arguments, Mapping):
+        raise ValueError(f"{row_id} has invalid tool arguments")
+    payload = tool_result.get("content")
+    final = assistant_final.get("content")
+    if not isinstance(payload, Mapping) or not isinstance(final, Mapping):
+        raise ValueError(f"{row_id} lacks a tool payload or final action")
+    split_unit = metadata.get("split_unit")
+    family = metadata.get("question_family")
+    if not isinstance(split_unit, str) or not isinstance(family, str):
+        raise ValueError(f"{row_id} lacks split metadata")
+    if split not in CORPUS_SPLITS or not isinstance(fact_role, str) or not fact_role:
+        raise ValueError(f"{row_id} has invalid evaluation provenance")
+    provenance = {
+        "fact_group_id": split_unit,
+        "fact_id": split_unit,
+        "fact_role": fact_role,
+        "prompt_form_id": split,
+        "rendering_index": 0,
+    }
+    question = {
+        "input": dict(arguments),
+        "metadata": dict(metadata),
+        "provenance": provenance,
+        "question": user["content"],
+        "record_id": row_id,
+        "split": split,
+        "system": system["content"],
+        "tools": tools,
+    }
+    answer = {
+        "expected_assistant_thinking": assistant_call.get("thinking"),
+        "expected_final_answer": json.dumps(
+            final,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ),
+        "expected_final_explanation": assistant_final.get("thinking"),
+        "expected_status": final.get("status"),
+        "expected_continuation_decision": final.get("continuation_decision"),
+        "expected_tool_call": {
+            "name": call.get("name"),
+            "arguments": dict(arguments),
+        },
+        "expected_tool_payload": dict(payload),
+        "fact_group_id": split_unit,
+        "fact_id": split_unit,
+        "family": family,
+        "record_id": row_id,
+    }
+    if any(
+        not isinstance(answer[key], str) or not answer[key]
+        for key in (
+            "expected_assistant_thinking",
+            "expected_final_answer",
+            "expected_final_explanation",
+            "expected_status",
+            "expected_continuation_decision",
+        )
+    ):
+        raise ValueError(f"{row_id} has an incomplete expected action")
+    return question, answer
 
 
 def _validation_facts(

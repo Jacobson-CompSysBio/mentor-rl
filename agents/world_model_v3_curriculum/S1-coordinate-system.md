@@ -3,7 +3,7 @@
 This document explains the S1 design. The executable contract is versioned
 separately so prose cannot silently change the training wire format.
 
-## Current files (2026-10-26)
+## Current files (2026-10-27)
 
 S1 v10 is the built training corpus. Its overlay is
 `runtime/world_model/s1_v10.yaml`; its corpus and evaluator are under
@@ -12,7 +12,9 @@ It changes only S1.1.6, S1.3.8, and S1.8.4 training text. The original
 system prompt, 4,096-token budget, allocations, S0 replay, and held-out panel
 remain fixed. V10 training `5768596` and dependent S1 gate `5768597` and
 S0 retention `5768598` were submitted on 2026-10-26; their launch is recorded
-below. No v10 model result is available yet.
+below. Training and S1 evaluation completed. V10 passes `structured_95_v1`
+with 6,542/6,875 correct structured answers (95.156%). S0 retention remains
+queued for priority; no v10 S0 retention result is available yet.
 V9 remains the trained baseline (`5733083`, 1,728 updates). Its completed
 S1 rerun `5742784` scores 6,526/6,875 (94.924%) and fails the 95% gate.
 S0 retention passed. The earlier incomplete S1 result and parser repair
@@ -38,6 +40,31 @@ not-yet-submitted prompt experiment in `../mentor-rl-s1-prompt-v7/`, with an
 
 The dated entries below preserve the review history. Earlier plans and
 examples do not override the current overlay, published rows, or this catalog.
+
+## V10 evaluation results (2026-10-27)
+
+Training `5768596` and frozen S1 evaluation `5768597` both completed with
+exit code 0. The selected final checkpoint passes `structured_95_v1`:
+6,542 of 6,875 structured answers are correct (95.156%), above the 95%
+point-estimate threshold. The completed v9 rerun scored 6,526/6,875
+(94.924%); v10 gains 16 correct answers on the same frozen panel.
+
+All 6,875 record IDs are present exactly once, and every row reports no
+network use. The report, metrics, checkpoint identity, and panel identity
+agree. This headline scores structured answers; free-text summary wording
+is not part of the promotion criterion. Per-type results remain diagnostics.
+
+S0 retention job `5768598` is still pending for priority as of this check.
+The S1 pass does not establish v10 S0 retention. No additional jobs were
+submitted while preparing this PR.
+
+The compact evidence receipt is
+[`evaluation_summary.json`](../../diagnostics/s1_v10_results/evaluation_summary.json).
+It records source-report SHA-256 values, coverage, the gate, and per-type
+structured counts. Full predictions and reports remain under
+`data/world_model_v4/eval_runs/s1_v10_120b_32n_test_structured95/oss120b-plain-base-tokenizer-lora-r32/slurm-5768597/`.
+The [training and evaluation run](https://wandb.ai/jail-ai/mentor-sft/runs/oss120b-plain-base-tokenizer-lora-r32-slurm-5768596)
+contains the logged metrics.
 
 ## V10 targeted scope fixes (2026-10-26)
 

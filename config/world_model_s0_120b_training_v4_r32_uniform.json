@@ -57,7 +57,6 @@
     "save_strategy": "steps",
     "save_steps": 512,
     "save_total_limit": 3,
-    "snapshot_steps": 0,
     "seed": 900913,
     "preserve_dataset_order": false,
     "autograd_multithreading": true,
@@ -81,7 +80,6 @@
     "checkpoint_set": "each_saved_checkpoint_and_final",
     "selection_metric": "validation/hard_failure_count_then_accuracy",
     "required_method_count": 1,
-    "full_registry_access": false,
-    "snapshot_steps": 0
+    "full_registry_access": false
   }
 }
