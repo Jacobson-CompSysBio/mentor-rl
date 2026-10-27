@@ -1,0 +1,19 @@
+{
+  "schema_version": "mentor-rl-s1-id-lookup-retries-v1",
+  "max_retries": 1,
+  "case_counts": {
+    "no_retry": 400,
+    "recovered": 200,
+    "exhausted": 200
+  },
+  "thinking": {
+    "retry": "The registry reports BACKEND_UNAVAILABLE and explicitly allows one remaining retry. Repeat lookup_human_ensembl_gene_id once with the identical gene_id argument.",
+    "no_retry": "The lookup for {input} failed with BACKEND_UNAVAILABLE; no retry allowance was provided. Return error/defer with exactly gene_id, failed_tool, and error_code, no evidence, and a blocked reason; do not infer absence.",
+    "exhausted": "The retry for {input} also failed with BACKEND_UNAVAILABLE, exhausting the permitted attempt. Return error/defer with exactly gene_id, failed_tool, and error_code, no evidence, and a blocked reason; do not infer absence.",
+    "recovered": "The retry resolves {input} to {symbol}, returning canonical ID {gene_id}. Because the user requested only this lookup, return the mapping with registry evidence and stop."
+  },
+  "summaries": {
+    "no_retry": "The registry lookup for {input} failed, and no retry was authorized. Registry access must be restored to continue.",
+    "exhausted": "Both permitted lookup attempts for {input} failed. Registry access must be restored to continue."
+  }
+}

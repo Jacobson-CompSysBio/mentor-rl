@@ -31,6 +31,8 @@ from runtime.world_model.source_index import (  # noqa: E402
 TEST_SCHEMA_VERSION = "mentor-rl-world-model-s0-full-registry-final-test-v4"
 EXPOSURE_SCHEMA_VERSION = "mentor-rl-s0-training-exposure-v2"
 CHECKPOINT_FORMAT = "mentor-rl-s0-tp-lora-v1"
+S1_PINNED_FORGETTING_TEST_SCHEMA_VERSION = "mentor-rl-world-model-s0-full-registry-s1-forgetting-test-v2"
+S1_CORPUS_DATASET_ID = "world_model_v3_s1_coordinate_system"
 CORPUS_DATASET_ID = "world_model_v4_s0_human_identifiers"
 LOSS_CONTRACTS = frozenset({"multiplex_sft_v3", "multiplex_sft_v4_priority"})
 LORA_CONFIGURATIONS = frozenset({"lora_r32", "lora_r128"})
@@ -204,6 +206,50 @@ def resolve_model_path(root: Path, value: Any) -> Path:
     return path
 
 
+def validate_training_link(
+    root: Path, config: dict[str, Any], method: dict[str, Any],
+    checkpoint_path: Path, adapter_identity: dict[str, Any],
+) -> None:
+    """Bind a new forgetting run to its production config and final output root."""
+
+    link = config.get("training")
+    if not isinstance(link, dict):
+        raise SystemExit("The forgetting test requires a pinned training config")
+    training_path = resolve_repo_path(root, link.get("config"), "training config")
+    training_sha256 = require_sha256(link.get("config_sha256"), "training config SHA-256")
+    verify_file(training_path, training_sha256, "training config")
+    training = read_json(training_path, "training config")
+    selected = [
+        item for item in training.get("methods", [])
+        if isinstance(item, dict) and item.get("method_id") == method["method_id"]
+    ]
+    if (
+        training.get("schema_version") != "mentor-rl-world-model-s1-120b-training-v10"
+        or training.get("training_id") != link.get("training_id")
+        or training.get("run_scope") != "production"
+        or training.get("promotion_eligible") is not True
+        or training.get("production_matrix_cell") is not True
+        or training.get("validation_gate", {}).get("checkpoint_set") != "final"
+        or training.get("validation_gate", {}).get("test_panel_access") is not False
+        or training.get("model") != config.get("model")
+        or any(training.get("corpus", {}).get(key) != config["corpus"].get(key)
+               for key in ("root", "manifest_sha256", "train_sha256"))
+        or len(selected) != 1
+    ):
+        raise SystemExit("The forgetting test and training identities disagree")
+    checkpoint_root = resolve_repo_path(root, link.get("checkpoint_root"), "checkpoint root")
+    expected_root = resolve_repo_path(root, selected[0].get("output_root"), "training output root")
+    if (
+        checkpoint_root != expected_root
+        or not checkpoint_path.is_relative_to(checkpoint_root)
+        or selected[0].get("tokenizer_path") != method.get("tokenizer_path")
+        or selected[0].get("tokenizer_manifest_sha256") != method.get("tokenizer_manifest_sha256")
+        or adapter_identity.get("run_config_sha256") != training_sha256
+    ):
+        raise SystemExit("The forgetting checkpoint differs from the linked training run")
+    verify_file(checkpoint_path / "run_contract/run_config.json", training_sha256, "checkpoint training config")
+
+
 def verify_file(path: Path, expected_sha256: str, label: str) -> None:
     """Verify one required file identity."""
 
@@ -247,8 +293,9 @@ def main() -> int:
         raise SystemExit("The completed checkpoint directory is absent")
 
     config = read_json(config_path, "the S0 test config")
+    is_s1_retention = config.get("schema_version") == S1_PINNED_FORGETTING_TEST_SCHEMA_VERSION
     if (
-        config.get("schema_version") != TEST_SCHEMA_VERSION
+        config.get("schema_version") not in {TEST_SCHEMA_VERSION, S1_PINNED_FORGETTING_TEST_SCHEMA_VERSION}
         or config.get("evaluation_contract")
         != FULL_REGISTRY_V3_EVALUATION_CONTRACT
     ):
@@ -320,7 +367,7 @@ def main() -> int:
     if model_metadata_identity != model_identity:
         raise SystemExit("The base-model metadata identity changed")
 
-    # Training corpus: the checkpoint must come from this exact v4 corpus.
+    # Bind the checkpoint to its training corpus; the retention panel stays frozen.
     corpus_root = resolve_repo_path(
         root, corpus.get("root"), "corpus root"
     )
@@ -341,11 +388,11 @@ def main() -> int:
         corpus.get("train_sha256"), "train file"
     )
     if (
-        corpus_manifest.get("dataset_id") != CORPUS_DATASET_ID
+        corpus_manifest.get("dataset_id") != (S1_CORPUS_DATASET_ID if is_s1_retention else CORPUS_DATASET_ID)
         or corpus_manifest.get("schema_version")
-        != "mentor-rl-world-model-s0-manifest-v2"
+        != ("mentor-rl-world-model-s1-manifest-v1" if is_s1_retention else "mentor-rl-world-model-s0-manifest-v2")
         or corpus_manifest.get("corpus_schema_version")
-        != "mentor-rl-world-model-s0-corpus-v2"
+        != ("mentor-rl-world-model-s1-corpus-v1" if is_s1_retention else "mentor-rl-world-model-s0-corpus-v2")
         or corpus_manifest.get("row_counts", {}).get("train")
         != eligible_train_rows
         or corpus_manifest.get("files", {})
@@ -469,6 +516,16 @@ def main() -> int:
         or adapter_manifest.get("lora", {}).get("r") != expected_lora_rank
     ):
         raise SystemExit("The checkpoint loss contract changed")
+    if is_s1_retention:
+        validate_training_link(root, config, method, checkpoint_path, adapter_identity)
+        initialization = adapter_manifest.get("initialization")
+        if (
+            not isinstance(initialization, dict)
+            or initialization.get("parent") != "s0_checkpoint"
+            or not isinstance(initialization.get("run_id"), str)
+            or adapter_manifest.get("objective", {}).get("loss_contract") != "multiplex_sft_v3"
+        ):
+            raise SystemExit("The forgetting test requires an S1 checkpoint that started from S0")
     train_run_id = require_string(
         adapter_identity.get("run_id"), "train run ID"
     )
@@ -665,6 +722,7 @@ def main() -> int:
         raise SystemExit("The W&B test contract changed")
 
     values = {
+        "S0_WANDB_METRIC_PREFIX": "s0_forgetting_test" if is_s1_retention else "test",
         "S0_EVAL_CONFIG": str(config_path),
         "S0_EVAL_CONFIG_SHA256": sha256_file(config_path),
         "S0_EVALUATION_ID": require_string(

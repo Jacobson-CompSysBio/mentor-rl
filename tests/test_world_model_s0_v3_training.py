@@ -631,21 +631,16 @@ def test_s0_training_adapter_rejects_s1_families():
 
     row = _s1_4_row()
 
-    for dataset_id in (None, S0_V4_DATASET_ID):
+    for dataset_id in (S0_V4_DATASET_ID,):
         try:
             flatten_v3_trace_for_arrow(row, dataset_id=dataset_id)
         except ValueError as error:
             assert str(error) == "The v3 row has an unsupported question family"
         else:
             raise AssertionError("The S0 adapter accepted an S1-only family")
-    try:
-        flatten_v3_trace_for_arrow(
-            _row(), dataset_id="world_model_v3_s1_coordinate_system"
-        )
-    except ValueError as error:
-        assert "not supported" in str(error)
-    else:
-        raise AssertionError("The S0 adapter accepted the S1 dataset ID")
+    assert flatten_v3_trace_for_arrow(
+        _s1_4_row(), dataset_id="world_model_v3_s1_coordinate_system"
+    )["question_family"] == "cross_context_alignment"
 
 
 def test_v3_eval_projection_separates_the_answer():

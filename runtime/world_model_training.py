@@ -1,4 +1,4 @@
-"""Prepare S0 SFT data and exposure receipts.
+"""Prepare S0 and S1 SFT data and exposure receipts.
 
 The trainer reads canonical rows of the shared world-model contract
 (`runtime/world_model/contract.yaml`, row schema `multiplex_sft_v3`). This
@@ -55,6 +55,25 @@ S0_LOSS_CONTRACTS = frozenset(
 S0_V4_DATASET_ID = "world_model_v4_s0_human_identifiers"
 # Each S0 run is a production run that must expose every eligible train row.
 S0_EXPOSURE_SCOPE_BY_RUN_SCOPE = {"production": "all_eligible_train_rows"}
+S1_V3_DATASET_ID = "world_model_v3_s1_coordinate_system"
+S1_V3_TRACE_FAMILIES = frozenset({
+    "human_symbol_to_ensembl", "human_ensembl_to_symbol", "human_ambiguous_symbol",
+    "cross_context_alignment", "layer_tag_parsing", "layer_family_claims",
+    "direction_conventions", "module_id_parsing",
+})
+V3_TRACE_FAMILIES_BY_DATASET_ID = {
+    S0_V4_DATASET_ID: S0_FAMILIES, S1_V3_DATASET_ID: S1_V3_TRACE_FAMILIES,
+}
+V3_TRACE_FAMILIES = S1_V3_TRACE_FAMILIES
+QUESTION_FAMILIES_BY_DATASET_ID = V3_TRACE_FAMILIES_BY_DATASET_ID
+S0_EXPOSURE_CORPUS_BY_DATASET_ID = {
+    dataset_id: {"dataset_id": dataset_id, "system_prompt_sha256": _V3_SYSTEM_PROMPT_SHA256}
+    for dataset_id in V3_TRACE_FAMILIES_BY_DATASET_ID
+}
+LOSS_SEGMENT_SCHEMA_VERSION = "mentor-rl-v3-loss-segments-v1"
+LOSS_SEGMENT_NAMES = {1: "reasoning", 2: "tool_call", 3: "structured_final", 4: "free_text", 5: "formatting"}
+LOSS_FIELD_NAMES = {1: "status", 2: "result", 4: "continuation_decision", 8: "provenance"}
+
 V3_TOOL_DESCRIPTIONS = {
     "lookup_human_gene_symbol": (
         "Look up one human gene symbol in Ensembl release 116."
@@ -100,9 +119,12 @@ def stable_sha256(value: Any) -> str:
 def question_families_for_dataset(dataset_id: str) -> frozenset[str]:
     """Return the exact question-family contract for one training corpus."""
 
-    if dataset_id != S0_V4_DATASET_ID:
-        raise ValueError(f"The S0 dataset ID is not supported: {dataset_id!r}")
-    return S0_FAMILIES
+    try:
+        return QUESTION_FAMILIES_BY_DATASET_ID[dataset_id]
+    except KeyError as error:
+        raise ValueError(
+            f"The S0 dataset ID is not supported: {dataset_id!r}"
+        ) from error
 
 
 def renderable_v3_tools(tools: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -299,9 +321,18 @@ def flatten_v3_trace_for_arrow(
         raise ValueError("The v3 row does not match the canonical contract")
     family = metadata.get("question_family")
     split_unit = metadata.get("split_unit")
-    if dataset_id is not None:
-        question_families_for_dataset(dataset_id)
-    if family not in S0_FAMILIES:
+    allowed_families = (
+        V3_TRACE_FAMILIES
+        if dataset_id is None
+        else question_families_for_dataset(dataset_id)
+    )
+    if dataset_id is not None and dataset_id not in (
+        V3_TRACE_FAMILIES_BY_DATASET_ID
+    ):
+        raise ValueError(
+            f"The dataset does not use canonical v3 rows: {dataset_id!r}"
+        )
+    if family not in allowed_families:
         raise ValueError("The v3 row has an unsupported question family")
     if not isinstance(split_unit, str) or not split_unit:
         raise ValueError("The v3 row requires one split_unit")
@@ -351,6 +382,7 @@ def tokenize_v3_trace_for_sft(
     max_length: int,
     *,
     priority_weights: bool = False,
+    segment_telemetry: bool = False,
 ) -> dict[str, list[int] | list[float]]:
     """Tokenize one canonical S0/S1 row and mask non-assistant turns."""
 
@@ -634,6 +666,10 @@ def tokenize_v3_trace_for_sft(
             weight / mean_weight if weight > 0.0 else 0.0
             for weight in raw_loss_weights
         ]
+    if segment_telemetry:
+        result["loss_segments"], result["loss_field_masks"] = _v3_assistant_loss_annotations(
+            record, tokenizer, full_ids, completion_mask
+        )
     return result
 
 
@@ -852,7 +888,9 @@ def s0_exposure_corpus_identity(
     """Return the corpus identity for one dataset and loss contract."""
 
     question_families_for_dataset(dataset_id)
-    if loss_contract not in S0_LOSS_CONTRACTS:
+    if loss_contract not in (
+        {S0_V3_TRACE_LOSS_CONTRACT} if dataset_id == S1_V3_DATASET_ID else S0_LOSS_CONTRACTS
+    ):
         raise ValueError(
             f"Dataset {dataset_id!r} requires one of the loss contracts "
             f"{sorted(S0_LOSS_CONTRACTS)!r}, got {loss_contract!r}"
@@ -938,22 +976,32 @@ def build_training_exposure_manifest(
         raise ValueError("seed must be an integer")
     if not isinstance(preserve_order, bool):
         raise ValueError("preserve_order must be a Boolean")
-    if status not in {"planned", "complete"}:
-        raise ValueError("status must be 'planned' or 'complete'")
+    if status not in {"planned", "snapshot", "complete"}:
+        raise ValueError("status must be 'planned', 'snapshot', or 'complete'")
     if status == "planned" and completed_global_step is not None:
         raise ValueError("A planned receipt cannot have a completed step")
+    if status == "snapshot" and (
+        not isinstance(completed_global_step, int)
+        or isinstance(completed_global_step, bool)
+        or completed_global_step < 1
+        or completed_global_step > total_steps
+    ):
+        raise ValueError(
+            "A snapshot receipt requires a completed step within total_steps"
+        )
     if status == "complete" and completed_global_step != total_steps:
         raise ValueError("A complete receipt must match total_steps")
     if not isinstance(padding_policy, str) or not padding_policy:
         raise ValueError("padding_policy must be a nonempty string")
     if exposure_scope not in set(S0_EXPOSURE_SCOPE_BY_RUN_SCOPE.values()):
         raise ValueError("The S0 exposure scope is invalid")
+    expected_corpus = S0_EXPOSURE_CORPUS_BY_DATASET_ID
     prompt_sha256 = _require_sha256(
         system_prompt_sha256,
         "S0 system prompt SHA-256",
     )
-    if prompt_sha256 != _V3_SYSTEM_PROMPT_SHA256:
-        raise ValueError("The S0 system prompt identity changed")
+    if prompt_sha256 != expected_corpus[dataset_id]["system_prompt_sha256"]:
+        raise ValueError("The world-model system prompt identity changed")
 
     for label, indices in (
         ("consumed_indices", consumed_indices),
@@ -967,7 +1015,9 @@ def build_training_exposure_manifest(
     if not consumed_indices:
         raise ValueError("consumed_indices must reference S0 train rows")
     all_eligible_rows_exposed = set(consumed_indices) == set(range(row_count))
-    if not all_eligible_rows_exposed:
+    full_exposure_required = exposure_scope == "all_eligible_train_rows"
+    exposure_satisfied = not full_exposure_required or all_eligible_rows_exposed
+    if status != "snapshot" and not exposure_satisfied:
         raise ValueError(
             "The S0 production row plan must expose every eligible train row"
         )
@@ -1028,8 +1078,8 @@ def build_training_exposure_manifest(
         },
         "exposure_contract": {
             "scope": exposure_scope,
-            "all_eligible_train_rows_required": True,
-            "satisfied": True,
+            "all_eligible_train_rows_required": full_exposure_required,
+            "satisfied": exposure_satisfied,
         },
         "logical_exposure": {
             "record_occurrences": len(consumed_record_ids),
@@ -1067,3 +1117,167 @@ def build_training_exposure_manifest(
     }
     payload["manifest_sha256"] = stable_sha256(payload)
     return payload
+
+
+def _segment_token_offsets(
+    tokenizer: Any, text: str, expected_ids: list[int]
+) -> list[tuple[int, int]]:
+    """Require offsets from exactly the tokens in the rendered assistant block."""
+
+    encoded = tokenizer(text, add_special_tokens=False, return_offsets_mapping=True)
+    offsets = encoded.get("offset_mapping")
+    if hasattr(offsets, "tolist"):
+        offsets = offsets.tolist()
+    if (
+        normalize_token_ids(encoded) != expected_ids
+        or not isinstance(offsets, (list, tuple))
+        or len(offsets) != len(expected_ids)
+        or any(
+            not isinstance(offset, (list, tuple))
+            or len(offset) != 2
+            or not 0 <= int(offset[0]) <= int(offset[1]) <= len(text)
+            for offset in offsets
+        )
+    ):
+        raise RuntimeError("Loss segment offsets do not match rendered token IDs")
+    return [(int(start), int(end)) for start, end in offsets]
+
+
+def _v3_assistant_loss_annotations(
+    record: Mapping[str, Any],
+    tokenizer: Any,
+    input_ids: list[int],
+    completion_mask: list[int],
+) -> tuple[list[int], list[int]]:
+    """Partition supervised S0/S1 tokens without changing their training weights.
+
+    Code 0 masks non-assistant context. Reasoning covers analysis bodies; tool
+    calls cover the function name and argument JSON. Final JSON is structured
+    except top-level summary/blocked_reason string contents, which are free
+    text. Their keys, null values, and quote-only tokens remain structured.
+    A BPE token touching any prose character belongs wholly to free text.
+    Chat headers and terminators are formatting, except the tool name.
+    """
+
+    if len(input_ids) != len(completion_mask) or set(completion_mask) != {0, 1}:
+        raise RuntimeError("Loss segmentation requires the complete supervision mask")
+    special = {
+        name: tokenizer.convert_tokens_to_ids(name)
+        for name in ("<|start|>", "<|message|>", "<|end|>", "<|call|>", "<|return|>")
+    }
+    if any(not isinstance(value, int) for value in special.values()) or len(
+        set(special.values())
+    ) != len(special):
+        raise RuntimeError("Loss segmentation requires distinct GPT-OSS control tokens")
+    starts = [
+        index for index, token in enumerate(input_ids) if token == special["<|start|>"]
+    ]
+    blocks = []
+    for start, end in zip(starts, starts[1:] + [len(input_ids)], strict=True):
+        active = completion_mask[start]
+        if any(value != active for value in completion_mask[start:end]):
+            raise RuntimeError("An assistant block has mixed supervision")
+        if active:
+            separator = input_ids.index(special["<|message|>"], start, end)
+            blocks.append((start, separator, end))
+
+    messages = record["messages"]
+    last_user = max(
+        index for index, message in enumerate(messages) if message["role"] == "user"
+    )
+    expected = []
+    for message in messages[last_user + 1 :]:
+        if message["role"] != "assistant":
+            continue
+        thought = message.get("thinking", "")
+        if thought or "tool_call" not in message:
+            expected.append(("reasoning", thought))
+        if "tool_call" in message:
+            expected.append(("tool_call", message["tool_call"]))
+        else:
+            expected.append(("structured_final", message["content"]))
+    if len(blocks) != len(expected):
+        raise RuntimeError("Loss segment blocks differ from the source assistant actions")
+
+    segments = [5 if active else 0 for active in completion_mask]
+    fields = [0] * len(input_ids)
+    for (start, separator, end), (kind, value) in zip(blocks, expected, strict=True):
+        body_start, body_end = separator + 1, end - 1
+        body_ids = input_ids[body_start:body_end]
+        if kind == "reasoning":
+            header = "assistant<|channel|>analysis"
+            terminal = "<|end|>"
+            if normalize_token_ids(
+                tokenizer(value, add_special_tokens=False)
+            ) != body_ids:
+                raise RuntimeError("Reasoning segment differs from the rendered body")
+            segments[body_start:body_end] = [1] * len(body_ids)
+        elif kind == "tool_call":
+            name = value["name"]
+            name_start = len("assistant to=functions.")
+            header = f"assistant to=functions.{name}<|channel|>commentary json"
+            terminal = "<|call|>"
+            offsets = _segment_token_offsets(
+                tokenizer, header, input_ids[start + 1 : separator]
+            )
+            for index, (left, right) in enumerate(offsets):
+                if right > name_start and left < name_start + len(name):
+                    segments[start + 1 + index] = 2
+            segments[body_start:body_end] = [2] * len(body_ids)
+        else:
+            header = "assistant<|channel|>final"
+            terminal = "<|return|>"
+            final_json = ordered_json(value)
+            offsets = _segment_token_offsets(tokenizer, final_json, body_ids)
+            prose_spans = []
+            field_spans = []
+            cursor = 1
+            items = list(value.items())
+            for item_index, (key, field_value) in enumerate(items):
+                encoded_key = ordered_json(str(key))
+                encoded_value = ordered_json(field_value)
+                value_start = cursor + len(encoded_key) + 1
+                value_end = value_start + len(encoded_value)
+                if key in LOSS_FIELD_NAMES.values():
+                    field_spans.append((key, value_start, value_end))
+                if key in {"summary", "blocked_reason"} and isinstance(field_value, str):
+                    prose_spans.append((value_start + 1, value_end - 1))
+                cursor = value_end + (1 if item_index + 1 < len(items) else 0)
+            if cursor != len(final_json) - 1:
+                raise RuntimeError("Loss segment field spans differ from final JSON")
+            for index, (left, right) in enumerate(offsets):
+                fields[body_start + index] = sum(
+                    bit for bit, name in LOSS_FIELD_NAMES.items()
+                    if any(key == name and right > begin and left < finish
+                           for key, begin, finish in field_spans)
+                )
+                segments[body_start + index] = (
+                    4 if any(
+                        prose_start < prose_end
+                        and right > prose_start and left < prose_end
+                        for prose_start, prose_end in prose_spans
+                    ) else 3
+                )
+                # Field diagnostics are subordinate to the structured segment;
+                # a boundary token assigned to prose stays solely free text.
+                if segments[body_start + index] != 3:
+                    fields[body_start + index] = 0
+        if (
+            normalize_token_ids(tokenizer(header, add_special_tokens=False))
+            != input_ids[start + 1 : separator]
+            or input_ids[body_end] != special[terminal]
+        ):
+            raise RuntimeError("Loss segment header or terminator differs from the source")
+    if any(bool(segment) != bool(active) for segment, active in zip(
+        segments, completion_mask, strict=True
+    )):
+        raise RuntimeError("Loss segments do not partition all supervised tokens")
+    return segments, fields
+
+
+def v3_assistant_loss_segments(
+    record: Mapping[str, Any], tokenizer: Any,
+    input_ids: list[int], completion_mask: list[int],
+) -> list[int]:
+    """Return the five-category partition used by frozen context diagnostics."""
+    return _v3_assistant_loss_annotations(record, tokenizer, input_ids, completion_mask)[0]

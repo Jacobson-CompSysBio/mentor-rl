@@ -1,0 +1,61 @@
+{
+  "verified_on": "2026-10-27",
+  "training_job": "5768596",
+  "evaluation_job": "5768597",
+  "training_state": "COMPLETED",
+  "evaluation_state": "COMPLETED",
+  "train_run_id": "oss120b-plain-base-tokenizer-lora-r32-slurm-5768596",
+  "test_panel_id": "eff174050b8d82ee2702cad2e4efebb8fa0938785e2ec6266640c23363ee7904",
+  "checkpoint_identity_sha256": "1d56251c3b6adfa62c82611d425598f3775f07e5531f5b711995e1c0b84bd8b3",
+  "gate": {
+    "checks": {
+      "network_used_false": true,
+      "structured_answer_accuracy": true
+    },
+    "details": {
+      "structured_answer_accuracy": {
+        "comparison": "point_estimate",
+        "correct": 6542,
+        "passed": true,
+        "rate": 0.9515636363636364,
+        "scope": "all_panel_rows",
+        "target": 0.95,
+        "total": 6875
+      }
+    },
+    "minimum_strict_rate": 1.0,
+    "minimum_target_rate": 0.95,
+    "observed_minimum_family_accuracy": 0.754,
+    "observed_minimum_source_trace_envelope_accuracy": 0.32432432432432434,
+    "passed": true,
+    "profile": "structured_95_v1",
+    "thresholds": {
+      "minimum_structured_answer_accuracy": 0.95
+    }
+  },
+  "structured_answer_accuracy": {
+    "count": 6542,
+    "total": 6875,
+    "rate": 0.9515636363636364
+  },
+  "coverage": {
+    "records": 6875,
+    "unique_record_ids": 6875,
+    "offline_rows": 6875
+  },
+  "s0_retention": {
+    "job": "5768598",
+    "state": "PENDING",
+    "reason": "Priority",
+    "result_available": false
+  },
+  "artifacts": {
+    "data/world_model_v4/eval_runs/s1_v10_120b_32n_test_structured95/oss120b-plain-base-tokenizer-lora-r32/slurm-5768597/report/test_metrics.json": {
+      "sha256": "8ab00574ebb30557986daa8591d67a60ce5768ca3e2d83e5b279c6dee0a5c5f9"
+    },
+    "data/world_model_v4/eval_runs/s1_v10_120b_32n_test_structured95/oss120b-plain-base-tokenizer-lora-r32/slurm-5768597/report/exact_s1_report.json": {
+      "sha256": "7de92711a21569825419ca14b309fc62df338626355254056a7a8398878c099a"
+    }
+  },
+  "wandb_url": "https://wandb.ai/jail-ai/mentor-sft/runs/oss120b-plain-base-tokenizer-lora-r32-slurm-5768596"
+}
