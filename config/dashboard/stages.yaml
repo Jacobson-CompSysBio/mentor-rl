@@ -1,0 +1,26 @@
+# stage registry for the curriculum data dashboard
+# families, forms, and target shares come from each stage's contract
+
+stages:
+  - stage: s0
+    title: Human Gene Identifier Mapping Traces
+    status: built
+    question_doc: agents/world_model_v3_curriculum/S0-question-classes.md
+    generator: scripts/build_world_model_v2_s0_tool_sft.py
+    notes: dashboard/notes/S0.md
+    # adapter, corpus root, and contract will be filled in step 6
+
+  - stage: S1
+    title: Lattice coordinate system
+    status: gated   # v10 passed structured_95_v1, 2026-10-26
+    adapter: s1_contract_v1
+    corpus_root: data/world_model_v4/corpora/s1_v10
+    evaluator_root: null   # test.jsonl lives in the corpus
+    contract: runtime/world_model/contract.yaml
+    golden_traces: runtime/world_model/golden_traces.jsonl
+    question_doc: agents/world_model_v3_curriculum/S1-question-classes.md
+    generator: scripts/build_world_model_s1_bundle.py
+    validator: agents/world_model_v3_curriculum/s1_kit/validate.py
+    gate_report: data/world_model_v4/eval_runs/s1_v10_120b_32n_test_structured95/oss120b-plain-base-tokenizer-lora-r32/slurm-5768597/report/test_metrics.json
+    notes: dashboard/notes/S1.md
+    sample_seed: 0
