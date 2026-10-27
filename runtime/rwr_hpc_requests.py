@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 _ALLOWED_REDUCTION_METHODS = {"geometric", "arithmetic", "sum", "none"}
-_ALLOWED_DISTANCE_METRICS = {"spearman", "pearson", "dot"}
+_ALLOWED_DISTANCE_METRICS = {"spearman", "pearson"}
 _ALLOWED_ABLATION_DISTANCE_METRICS = {"spearman", "pearson", "cos"}
 _ALLOWED_PERTURBATION_DISTANCE_METRICS = {"spearman", "pearson", "dot", "cos"}
 _ALLOWED_SHORTEST_PATH_MERGE_METHODS = {"max", "min", "all", "sum", "mean"}

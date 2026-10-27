@@ -1,0 +1,85 @@
+{
+  "schema_version": "mentor-rl-world-model-s1-robustness-test-v1",
+  "evaluation_id": "world_model_s1_120b_32n_robustness_v6_32n",
+  "evaluation_contract": "held_out_s1_multiplex_sft_v3",
+  "training": {
+    "config": "config/world_model_s1_120b_training_v6_32n.json",
+    "config_sha256": "34dae5bf60775890321f7e9198f1a9cc5b55b9f59e3008722740dbc42113b638",
+    "training_id": "world_model_s1_120b_training_v6_32n",
+    "checkpoint_root": "data/world_model_v4/checkpoints/s1_v6_120b_32n/oss120b-plain-base-tokenizer-lora-r32"
+  },
+  "model": {
+    "model_id": "gpt-oss-120b-bf16",
+    "path": "../models/gpt-oss-120b-bf16",
+    "model_identity_sha256": "905e86330e48859268f5e51fd569acf619e6030e1508b37e6a82e61dcf0c7889",
+    "base_model_artifact_schema": "mentor-rl-base-model-artifact-v2",
+    "base_model_artifact_sha256": "b1713d10cbba7c69498037d7712c5988db95804dc62c614111e1f470d16449bc",
+    "weight_shard_count": 36
+  },
+  "corpus": {
+    "root": "data/world_model_v4/corpora/s1_v6",
+    "manifest_sha256": "efe70ce238cc4db14aecf7e2801ead6c3947de5d3a2f6b6911d726dda9917d9d",
+    "train_sha256": "4cd93d601e42f5e158fb76be734db44e2f4ada77c16b7cb0cd7ff7d3f9590d5f",
+    "train_rows": 55276
+  },
+  "test_panel": {
+    "evaluator_root": "data/world_model_v4/eval/s1_v6",
+    "evaluator_manifest": "manifest.json",
+    "evaluator_manifest_sha256": "c6eeea2bd9dc269e6d723f1423afba8992896b874fdada42cd0bb32c0673f0a7",
+    "questions_file": "test_questions.jsonl",
+    "questions_sha256": "eff174050b8d82ee2702cad2e4efebb8fa0938785e2ec6266640c23363ee7904",
+    "answer_key_file": "test_answer_key.jsonl",
+    "answer_key_sha256": "a9db0351781c504ef7811e318ec09ca2becf233fa119a05c4221f9dd6783e28e",
+    "test_panel_id": "eff174050b8d82ee2702cad2e4efebb8fa0938785e2ec6266640c23363ee7904",
+    "row_count": 6875,
+    "required_family_count": 8
+  },
+  "source_index": {
+    "path": "data/world_model_v3/source_indexes/world_model_source_index_08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e.json.gz",
+    "sha256": "08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e"
+  },
+  "generation": {
+    "num_nodes": 32,
+    "tasks_per_node": 1,
+    "gpus_per_node": 8,
+    "batch_size": 4,
+    "max_tool_call_tokens": 1024,
+    "max_final_prompt_tokens": 6144,
+    "max_new_tokens": 4096,
+    "max_total_tokens": 8192,
+    "maximum_tool_calls": 2,
+    "do_sample": false,
+    "enable_thinking": true,
+    "reasoning_effort": "low",
+    "seed": 900913,
+    "local_files_only": true,
+    "history_policy": "retain_current_turn"
+  },
+  "gate": {
+    "profile": "diagnostic_only",
+    "require_network_used_false": true
+  },
+  "tracking": {
+    "entity": "jail-ai",
+    "project": "mentor-sft",
+    "resume_training_run": false
+  },
+  "methods": [
+    {
+      "method_id": "oss120b-plain-base-tokenizer-lora-r32",
+      "tokenizer_method": "plain_base_tokenizer",
+      "tokenizer_path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
+      "tokenizer_manifest": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer_manifest.json",
+      "tokenizer_manifest_sha256": "245163b5189a64afb8e5b061585f90d4c15bcf94599b68307e9ff008880fe3c0",
+      "tokenizer_artifacts_sha256": "be21ce55523f893dc49e5ec7433f627372eebc1b9ac39dcdca5af8c7561e8d2f",
+      "checkpoint_kind": "lora",
+      "fine_tune_configuration": "lora_r32",
+      "output_root": "data/world_model_v4/eval_runs/s1_v6_120b_32n_robustness/oss120b-plain-base-tokenizer-lora-r32"
+    }
+  ],
+  "diagnostic_panel": {
+    "kind": "robustness_v1",
+    "manifest": "data/world_model_v4/diagnostics/s1_robustness_v1/manifest.json",
+    "manifest_sha256": "98b40a8292527826fe0af3a1ec4982671d53cb7ada850b0753a6d39837f6cda5"
+  }
+}

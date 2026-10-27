@@ -1,0 +1,102 @@
+{
+  "schema_version": "mentor-rl-s1-v10-corpus-change-audit-v1",
+  "passed": true,
+  "baseline_files_verified": 287,
+  "baseline_pins_sha256": "a8de629e04748d0b4c29bc883975052a33d63840ce6dcf8949ccd653ff47f151",
+  "component_training": {
+    "s1_1": {
+      "rows": 10000,
+      "changed_rows": {
+        "S1.1.6": 800
+      },
+      "unchanged_rows": 9200,
+      "changed_user_messages": {}
+    },
+    "s1_2": {
+      "rows": 11000,
+      "changed_rows": {},
+      "unchanged_rows": 11000,
+      "changed_user_messages": {}
+    },
+    "s1_3": {
+      "rows": 9000,
+      "changed_rows": {
+        "S1.3.8": 1000
+      },
+      "unchanged_rows": 8000,
+      "changed_user_messages": {
+        "S1.3.8": 750
+      }
+    },
+    "s1_4": {
+      "rows": 8000,
+      "changed_rows": {},
+      "unchanged_rows": 8000,
+      "changed_user_messages": {}
+    },
+    "s1_6": {
+      "rows": 5000,
+      "changed_rows": {},
+      "unchanged_rows": 5000,
+      "changed_user_messages": {}
+    },
+    "s1_7": {
+      "rows": 6000,
+      "changed_rows": {},
+      "unchanged_rows": 6000,
+      "changed_user_messages": {}
+    },
+    "s1_8": {
+      "rows": 4000,
+      "changed_rows": {
+        "S1.8.4": 666
+      },
+      "unchanged_rows": 3334,
+      "changed_user_messages": {}
+    },
+    "s1_9": {
+      "rows": 2000,
+      "changed_rows": {},
+      "unchanged_rows": 2000,
+      "changed_user_messages": {}
+    }
+  },
+  "aggregate_training": {
+    "rows": 55276,
+    "changed_rows": {
+      "S1.1.6": 800,
+      "S1.3.8": 1000,
+      "S1.8.4": 666
+    },
+    "unchanged_rows": 52810,
+    "changed_user_messages": {
+      "S1.3.8": 750
+    }
+  },
+  "identical_heldout_files": {
+    "corpus/validation.jsonl": "9a252408b5d6886d9758d7491aac9fe5e889e5ee41bf13f61d3e683725ae4548",
+    "corpus/test.jsonl": "f297626fc07b220f1a9d133ee04af07079e2fd0da84446e6026ef465981ade25",
+    "corpus/s1_1/validation.jsonl": "2842fdbe23470566279abdcaf4baf0b9756f932382bd64b405651612d1b48072",
+    "corpus/s1_1/test.jsonl": "1d923dd3f4e99bc7c89427056118734b15e0262acffe43ddbdb9fc94e0e9345e",
+    "corpus/s1_2/validation.jsonl": "d3383998568e661e0cd6e2c434561b90171212cee36643af34769730cc0c5fd7",
+    "corpus/s1_2/test.jsonl": "85d8b536528a792d9c159a7eca9498a47f3cf2bf4906a39888be70e64eab567a",
+    "corpus/s1_3/validation.jsonl": "365fd9bd57afe116f7e1f3b9cee35f87ff65653e9c911f845eb8b29cd3f55aec",
+    "corpus/s1_3/test.jsonl": "f76c6c17ea9b4aed2adf96ececc37ae2b274cbd3998841b050b75eccc0b567e3",
+    "corpus/s1_4/validation.jsonl": "018d9f9868395dce59a1dff6cf739d151946ccd4f33a9fbf73d81b334c7e12ae",
+    "corpus/s1_4/test.jsonl": "4a494bb83fd1299eead66714c4be1caa6589ae6db69cecae24377102fe8dc7a9",
+    "corpus/s1_6/validation.jsonl": "520b060b6e1e4f2fd9549077b8714918a443bcd7387dfb4e0a2651f7bd045602",
+    "corpus/s1_6/test.jsonl": "e2fbeaf4f70ed27a41ff984c6e63e48f8de876822278b9d36adbf87984a62db2",
+    "corpus/s1_7/validation.jsonl": "f81df312d9fb68cd703cd9a3d662470d962bb9a585e3e679cd3d8557b0706e8f",
+    "corpus/s1_7/test.jsonl": "9dcc36586ca9a28384fa65a2a275b405a6434082ea87702d52501f8a7c578f77",
+    "corpus/s1_8/validation.jsonl": "373afb9b1f4c9913c1f6824c3abc24487a34b1d8a4ca6d81b9385429463d5f3f",
+    "corpus/s1_8/test.jsonl": "4a13f3b8c1122f7dc53e016b50d47b07d3c601e7752bd610ea0d48e8d246b933",
+    "corpus/s1_9/validation.jsonl": "afff9c6aa07e8e3cd9a4fea2a2a59bf6b0ddf0fca792f3c6b459951c9cef8b80",
+    "corpus/s1_9/test.jsonl": "c678aa4a38c7faec86edd0d07b668495ac8b679f3df4e6c4fd9011db3d776e10",
+    "evaluator/validation_questions.jsonl": "5e7814806cc60e18962aca24b21462e0e13fdac9d72e2ed6d6b57852f1b0435b",
+    "evaluator/validation_answer_key.jsonl": "032bf8c087a6791b0673fcda7170ce27719b71822666ba4fa19172d7481ca36a",
+    "evaluator/test_questions.jsonl": "eff174050b8d82ee2702cad2e4efebb8fa0938785e2ec6266640c23363ee7904",
+    "evaluator/test_answer_key.jsonl": "a9db0351781c504ef7811e318ec09ca2becf233fa119a05c4221f9dd6783e28e"
+  },
+  "protected_fields": "All row IDs/order, metadata, tools, assistant actions, tool results, answers, evidence, and S0 replay remain unchanged. Only final reasoning and 750 fixed standalone prefixes in S1.3.8 user messages change.",
+  "audit_script_sha256": "7932bfde682ffbcb288b3df532d7c35380ce3c35d3597e7295cdf0612aaf1dc0"
+}

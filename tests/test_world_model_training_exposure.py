@@ -5,9 +5,14 @@ from __future__ import annotations
 import unittest
 
 from runtime.world_model_training import (
+    S0_V4_DATASET_ID,
+    S0_V4_PRIORITY_LOSS_CONTRACT,
+    S1_V3_DATASET_ID,
+    S1_V3_TRACE_FAMILIES,
     build_training_exposure_manifest,
     consumed_training_index_plan,
     derive_optimizer_step_schedule,
+    question_families_for_dataset,
     s0_exposure_corpus_identity,
     s0_exposure_scope,
 )
@@ -220,6 +225,69 @@ class TrainingExposureTest(unittest.TestCase):
         self.assertEqual(
             manifest["corpus"]["system_prompt_sha256"],
             "064a8fc8f103d9dc021ebbe124614342f4a52fd8123a4e4ba1b8bf88588e6dbf",
+        )
+
+    def test_s1_v3_receipt_uses_dataset_aware_identity_and_families(self) -> None:
+        """The shared v3 loss can select and receipt the aggregate S1 corpus."""
+
+        expected_families = {
+            "human_symbol_to_ensembl",
+            "human_ensembl_to_symbol",
+            "human_ambiguous_symbol",
+            "cross_context_alignment",
+            "layer_tag_parsing",
+            "layer_family_claims",
+            "direction_conventions",
+            "module_id_parsing",
+        }
+        self.assertEqual(set(S1_V3_TRACE_FAMILIES), expected_families)
+        self.assertEqual(
+            set(question_families_for_dataset(S1_V3_DATASET_ID)),
+            expected_families,
+        )
+        arguments = exposure_args(
+            total_steps=4,
+            run_scope="qualification",
+        )
+        arguments["question_families"] = [
+            "cross_context_alignment",
+            "layer_tag_parsing",
+            "direction_conventions",
+            "module_id_parsing",
+        ]
+        arguments.update(
+            s0_exposure_corpus_identity(
+                "multiplex_sft_v3",
+                S1_V3_DATASET_ID,
+            )
+        )
+
+        manifest = build_training_exposure_manifest(**arguments)
+
+        self.assertEqual(
+            manifest["corpus"]["dataset_id"],
+            S1_V3_DATASET_ID,
+        )
+        self.assertEqual(
+            set(manifest["corpus"]["question_family_counts"]),
+            set(arguments["question_families"]),
+        )
+
+    def test_v4_dataset_accepts_uniform_and_priority_loss_receipts(self) -> None:
+        identities = [
+            s0_exposure_corpus_identity(
+                loss_contract,
+                S0_V4_DATASET_ID,
+            )
+            for loss_contract in (
+                "multiplex_sft_v3",
+                S0_V4_PRIORITY_LOSS_CONTRACT,
+            )
+        ]
+
+        self.assertEqual(identities[0], identities[1])
+        self.assertEqual(
+            identities[0]["dataset_id"], S0_V4_DATASET_ID
         )
 
 

@@ -1,0 +1,10 @@
+{
+  "validation": {
+    "exit_code": 1,
+    "byte_identical_to_v9_report": true
+  },
+  "test": {
+    "exit_code": 1,
+    "byte_identical_to_v9_report": true
+  }
+}

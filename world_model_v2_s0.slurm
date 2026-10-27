@@ -43,9 +43,16 @@ export REPO_ROOT PYTHONDONTWRITEBYTECODE=1
 
 # Read one mode, one config, and one method from the submission.
 JOB_MODE="${JOB_MODE:-train}"
+export JOB_MODE
 RUN_CONFIG="${RUN_CONFIG:?RUN_CONFIG is required}"
 S0_METHOD_ID="${S0_METHOD_ID:?S0_METHOD_ID is required}"
 CONTRACT_ONLY="${CONTRACT_ONLY:-0}"
+S0_RESUME_SHARDS_ROOT="${S0_RESUME_SHARDS_ROOT:-}"
+S0_GENERATION_ATTEMPTS="${S0_GENERATION_ATTEMPTS:-2}"
+SEGMENT_LOSS_TELEMETRY="${SEGMENT_LOSS_TELEMETRY:-0}"
+DIAGNOSTIC_SNAPSHOT_STEPS="${DIAGNOSTIC_SNAPSHOT_STEPS:-}"
+[[ "${SEGMENT_LOSS_TELEMETRY}" == "0" || "${SEGMENT_LOSS_TELEMETRY}" == "1" ]] ||
+  die "SEGMENT_LOSS_TELEMETRY must be zero or one."
 
 # Train mode includes teacher-forced validation loss.
 # Test mode generates answers and then measures exact mapping accuracy.
@@ -54,7 +61,7 @@ case "${JOB_MODE}" in
   validation)
     die "Validation loss runs during train. Use JOB_MODE=test for exact evaluation."
     ;;
-  *) die "JOB_MODE must be train, validation, or test." ;;
+  *) die "JOB_MODE must be train or test." ;;
 esac
 [[ "${CONTRACT_ONLY}" == "0" || "${CONTRACT_ONLY}" == "1" ]] || \
   die "CONTRACT_ONLY must be zero or one."
@@ -105,6 +112,7 @@ if [[ "${JOB_MODE}" == "test" ]]; then
   export S0_EVAL_OUTPUT_ROOT S0_EVAL_NUM_NODES S0_EVAL_TASKS_PER_NODE
   export S0_EVAL_WORLD_SIZE S0_EVAL_GPUS_PER_NODE
   export S0_MAX_NEW_TOKENS S0_MAX_TOTAL_TOKENS
+  export S0_MAX_TOOL_CALL_TOKENS S0_MAX_FINAL_PROMPT_TOKENS
   export S0_REASONING_EFFORT S0_EVAL_SEED S0_EVAL_BATCH_SIZE
   export S0_MINIMUM_VALID_TOOL_TRAJECTORY
   export S0_MINIMUM_REASONING_PRESENT S0_MINIMUM_EXACT_REASONING
@@ -114,8 +122,17 @@ if [[ "${JOB_MODE}" == "test" ]]; then
   export S0_MINIMUM_FAMILY_FINAL_ANSWER_ACCURACY
   export S0_MINIMUM_AMBIGUOUS_DEFER_ACCURACY
   export S0_MAXIMUM_DIRECT_ANSWER_RATE
+  export S0_MINIMUM_STRUCTURED_JSON_VALID S0_MINIMUM_STATUS_EXACT
+  export S0_MINIMUM_RESULT_EXACT S0_MINIMUM_CONTINUATION_DECISION_EXACT
+  export S0_MINIMUM_NOT_FOUND_DEFER_ACCURACY
+  export S0_MINIMUM_UNNAMED_ID_RESOLVED_ACCURACY
   export S0_IDENTIFIER_REGISTRY S0_IDENTIFIER_REGISTRY_SHA256
   export S0_WANDB_ENTITY S0_WANDB_PROJECT
+  : "${S0_WANDB_METRIC_PREFIX:=test}"
+  export S0_WANDB_METRIC_PREFIX
+  require_positive_integer S0_GENERATION_ATTEMPTS \
+    "${S0_GENERATION_ATTEMPTS}"
+  export S0_GENERATION_ATTEMPTS
 
   # Use the Slurm job ID for one unique and immutable result path.
   if [[ "${CONTRACT_ONLY}" == "1" ]]; then
@@ -125,9 +142,16 @@ if [[ "${JOB_MODE}" == "test" ]]; then
     require_positive_integer SLURM_JOB_ID "${SLURM_JOB_ID}"
     execution_id="${SLURM_JOB_ID}"
   fi
-  S0_EVAL_RUN_ID="${S0_METHOD_ID}-test-slurm-${execution_id}"
+  S0_EVAL_RUN_ID="${S0_METHOD_ID}-${JOB_MODE}-slurm-${execution_id}"
   OUTPUT_DIR="${S0_EVAL_OUTPUT_ROOT}/slurm-${execution_id}"
-  export S0_EVAL_RUN_ID OUTPUT_DIR
+  if [[ -n "${S0_RESUME_SHARDS_ROOT}" ]]; then
+    [[ -d "${S0_RESUME_SHARDS_ROOT}" ]] || \
+      die "The resume shards root is absent: ${S0_RESUME_SHARDS_ROOT}"
+    S0_RESUME_SHARDS_ROOT="$(realpath "${S0_RESUME_SHARDS_ROOT}")"
+    [[ "${S0_RESUME_SHARDS_ROOT}" == "${S0_EVAL_OUTPUT_ROOT}/"* ]] || \
+      die "The resume shards root must belong to this evaluation output root."
+  fi
+  export S0_EVAL_RUN_ID OUTPUT_DIR S0_RESUME_SHARDS_ROOT
 
   # Print the selected identities before any costly work starts.
   echo "Test: ${S0_EVAL_RUN_ID}"
@@ -158,6 +182,10 @@ if [[ "${JOB_MODE}" == "test" ]]; then
     runtime/world_model_schemas.py
     runtime/world_model_training.py
     runtime/world_model_s0_tools.py
+    runtime/world_model/contract.py
+    runtime/world_model/source_index.py
+    runtime/world_model/sources.py
+    runtime/world_model/tools.py
     scripts/build_world_model_v2_s0_generation_bundle.py
     scripts/evaluate_world_model_v2_s0.py
     scripts/merge_world_model_v2_s0_generation_shards.py
@@ -216,8 +244,10 @@ if [[ "${JOB_MODE}" == "test" ]]; then
     "nodes=${S0_EVAL_NUM_NODES}" \
     "tasks_per_node=${S0_EVAL_TASKS_PER_NODE}" \
     "world_size=${S0_EVAL_WORLD_SIZE}" \
-    "wandb_entity=${S0_WANDB_ENTITY}" \
-    "wandb_project=${S0_WANDB_PROJECT}" \
+    "generation_attempts=${S0_GENERATION_ATTEMPTS}" \
+    "resume_shards_root=${S0_RESUME_SHARDS_ROOT:-none}" \
+    "wandb_entity=${S0_WANDB_ENTITY:-disabled}" \
+    "wandb_project=${S0_WANDB_PROJECT:-disabled}" \
     "output_dir=${OUTPUT_DIR}" \
     > "${RUN_CONTRACT_DIR}/launch.env"
 
@@ -270,7 +300,7 @@ if [[ "${JOB_MODE}" == "test" ]]; then
   # Keep all model libraries offline and use node-local caches.
   export CC=cc CXX=CC CMAKE_C_COMPILER=cc CMAKE_CXX_COMPILER=CC
   export ROCM_HOME=/opt/rocm-6.3.1 PYTORCH_ROCM_ARCH=gfx90a HSA_XNACK=0
-  export PYTORCH_ALLOC_CONF="expandable_segments:False"
+  export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
   export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
   export TOKENIZERS_PARALLELISM=false
   export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-56}"
@@ -401,8 +431,11 @@ print(
   export GENERATION_SHARDS_DIR
 
   # Give each model process only the public bundle and verified model inputs.
-  # Remove the answer-key path and W&B key from its environment.
-  srun --nodes="${S0_EVAL_NUM_NODES}" \
+  # Remove the answer-key path and W&B key from its environment. A failed
+  # process reloads the model in a clean HIP context and resumes its own last
+  # batch-complete checkpoint; successful shards do not rerun.
+  srun --label --kill-on-bad-exit=0 \
+    --nodes="${S0_EVAL_NUM_NODES}" \
     --ntasks="${S0_EVAL_WORLD_SIZE}" --ntasks-per-node=1 \
     --gpus-per-task="${S0_EVAL_GPUS_PER_NODE}" --cpu-bind=none \
     --accel-bind=none bash -c '
@@ -411,35 +444,58 @@ print(
     thinking_args=()
     [[ "${S0_ENABLE_THINKING}" != "1" ]] || \
       thinking_args+=(--enable-thinking)
-    env \
-      -u WANDB_API_KEY \
-      -u S0_TEST_ANSWER_KEY \
-      -u S0_TEST_ANSWER_KEY_SHA256 \
-      -u S0_EVALUATOR_MANIFEST \
-      -u S0_IDENTIFIER_REGISTRY \
-      -u S0_IDENTIFIER_REGISTRY_SHA256 \
-      WANDB_MODE=disabled \
-      python scripts/run_world_model_v2_s0_exact_generation.py \
-        --generation-bundle "${GENERATION_BUNDLE_DIR}" \
-        --base-model-path "${LOCAL_MODEL_DIR}" \
-        --checkpoint-path "${CHECKPOINT_PATH}" \
-        --tokenizer-path "${TOKENIZER_PATH}" \
-        --tokenizer-manifest "${TOKENIZER_MANIFEST}" \
-        --output-dir "${GENERATION_SHARDS_DIR}/${shard_name}" \
-        --method-id "${S0_METHOD_ID}" \
-        --corpus-manifest-sha256 "${S0_CORPUS_MANIFEST_SHA256}" \
-        --tokenizer-manifest-sha256 \
-          "${S0_TOKENIZER_MANIFEST_SHA256}" \
-        --model-identity-sha256 "${MODEL_IDENTITY_SHA256}" \
-        --max-new-tokens "${S0_MAX_NEW_TOKENS}" \
-        --max-total-tokens "${S0_MAX_TOTAL_TOKENS}" \
-        --reasoning-effort "${S0_REASONING_EFFORT}" \
-        --seed "${S0_EVAL_SEED}" \
-        --batch-size "${S0_EVAL_BATCH_SIZE}" \
-        --shard-index "${SLURM_PROCID}" \
-        --shard-count "${S0_EVAL_WORLD_SIZE}" \
-        --shard-output \
-        "${thinking_args[@]}"
+    shard_dir="${GENERATION_SHARDS_DIR}/${shard_name}"
+    for ((attempt = 1; attempt <= S0_GENERATION_ATTEMPTS; attempt++)); do
+      resume_args=()
+      if (( attempt > 1 )) && [[ -d "${shard_dir}" ]]; then
+        resume_args+=(--resume-shard-dir "${shard_dir}")
+      elif [[ -n "${S0_RESUME_SHARDS_ROOT}" && \
+              -d "${S0_RESUME_SHARDS_ROOT}/${shard_name}" ]]; then
+        resume_args+=(
+          --resume-shard-dir "${S0_RESUME_SHARDS_ROOT}/${shard_name}"
+        )
+      fi
+      if env \
+        -u WANDB_API_KEY \
+        -u S0_TEST_ANSWER_KEY \
+        -u S0_TEST_ANSWER_KEY_SHA256 \
+        -u S0_EVALUATOR_MANIFEST \
+        -u S0_IDENTIFIER_REGISTRY \
+        -u S0_IDENTIFIER_REGISTRY_SHA256 \
+        WANDB_MODE=disabled \
+        python scripts/run_world_model_v2_s0_exact_generation.py \
+          --generation-bundle "${GENERATION_BUNDLE_DIR}" \
+          --base-model-path "${LOCAL_MODEL_DIR}" \
+          --checkpoint-path "${CHECKPOINT_PATH}" \
+          --tokenizer-path "${TOKENIZER_PATH}" \
+          --tokenizer-manifest "${TOKENIZER_MANIFEST}" \
+          --output-dir "${shard_dir}" \
+          --method-id "${S0_METHOD_ID}" \
+          --corpus-manifest-sha256 "${S0_CORPUS_MANIFEST_SHA256}" \
+          --tokenizer-manifest-sha256 \
+            "${S0_TOKENIZER_MANIFEST_SHA256}" \
+          --model-identity-sha256 "${MODEL_IDENTITY_SHA256}" \
+          --max-new-tokens "${S0_MAX_NEW_TOKENS}" \
+          --max-total-tokens "${S0_MAX_TOTAL_TOKENS}" \
+          --max-tool-call-tokens "${S0_MAX_TOOL_CALL_TOKENS}" \
+          --max-final-prompt-tokens "${S0_MAX_FINAL_PROMPT_TOKENS}" \
+          --reasoning-effort "${S0_REASONING_EFFORT}" \
+          --seed "${S0_EVAL_SEED}" \
+          --batch-size "${S0_EVAL_BATCH_SIZE}" \
+          --shard-index "${SLURM_PROCID}" \
+          --shard-count "${S0_EVAL_WORLD_SIZE}" \
+          --shard-output \
+          "${resume_args[@]}" \
+          "${thinking_args[@]}"; then
+        exit 0
+      else
+        status=$?
+      fi
+      if (( attempt == S0_GENERATION_ATTEMPTS )); then
+        exit "${status}"
+      fi
+      echo "Retry ${shard_name} after generation attempt ${attempt} failed."
+    done
   '
 
   # After all model processes produce complete shards, merge them.
@@ -453,8 +509,8 @@ print(
       --output-dir "${GENERATION_OUTPUT_DIR}" \
       --expected-shard-count "${S0_EVAL_WORLD_SIZE}"
 
-  # The model processes exit before the scorer reads the private answer key.
-  # Append exact metrics to the W&B run from the checkpoint receipt.
+  # The model processes exit before a scorer reads the private answer key.
+  # The scorer appends its metrics to the W&B run of the training job.
   python scripts/evaluate_world_model_v2_s0.py \
     --evaluator-manifest "${S0_EVALUATOR_MANIFEST}" \
     --evaluator-manifest-sha256 "${S0_EVALUATOR_MANIFEST_SHA256}" \
@@ -480,6 +536,17 @@ print(
       "${S0_MINIMUM_AMBIGUOUS_DEFER_ACCURACY}" \
     --maximum-direct-answer-rate \
       "${S0_MAXIMUM_DIRECT_ANSWER_RATE}" \
+    --minimum-structured-json-valid \
+      "${S0_MINIMUM_STRUCTURED_JSON_VALID}" \
+    --minimum-status-exact "${S0_MINIMUM_STATUS_EXACT}" \
+    --minimum-result-exact "${S0_MINIMUM_RESULT_EXACT}" \
+    --minimum-continuation-decision-exact \
+      "${S0_MINIMUM_CONTINUATION_DECISION_EXACT}" \
+    --minimum-not-found-defer-accuracy \
+      "${S0_MINIMUM_NOT_FOUND_DEFER_ACCURACY}" \
+    --minimum-unnamed-id-resolved-accuracy \
+      "${S0_MINIMUM_UNNAMED_ID_RESOLVED_ACCURACY}" \
+    --wandb-metric-prefix "${S0_WANDB_METRIC_PREFIX}" \
     --publish-wandb
 
   # Require the answer-free bundle, raw outputs, exact report, and W&B receipt.
@@ -501,13 +568,20 @@ print(
 fi
 
 # Resolve one method. The run contract owns all train values.
+S0_PREFLIGHT_ATTEMPTS="${S0_PREFLIGHT_ATTEMPTS:-3}"
+require_positive_integer S0_PREFLIGHT_ATTEMPTS "${S0_PREFLIGHT_ATTEMPTS}"
 CONTRACT_CHECKER="${REPO_ROOT}/scripts/validate_world_model_v2_s0_train_contract.py"
 [[ -f "${CONTRACT_CHECKER}" ]] || die "The train contract checker is absent."
 python "${CONTRACT_CHECKER}" "${REPO_ROOT}" "${RUN_CONFIG}" "${S0_METHOD_ID}" > "${contract_env}"
 
 # shellcheck disable=SC1090
 source "${contract_env}"
+: "${INIT_ADAPTER_DIR:=}"
+: "${INIT_ADAPTER_SHA256:=}"
+: "${INIT_ADAPTER_RUN_ID:=}"
 export S0_RUN_CONFIG S0_RUN_CONFIG_SHA256 S0_CONFIG_ID S0_RUN_SCOPE
+export INIT_ADAPTER_DIR INIT_ADAPTER_SHA256 INIT_ADAPTER_RUN_ID
+export S0_DATASET_ID
 export S0_METHOD_ID S0_TRAIN_MODE S0_TOKENIZER_METHOD
 export S0_TOKENIZER_ARM_ROOT S0_TOKENIZER_ARM_MANIFEST_SHA256
 export S0_TOKENIZER_MANIFEST_SHA256 TOKENIZER_PATH
@@ -518,6 +592,7 @@ export S0_CORPUS_MANIFEST_SHA256 S0_TRAIN_PATH S0_TRAIN_SHA256
 export S0_TRAIN_ROWS S0_VALIDATION_PATH S0_VALIDATION_SHA256
 export S0_VALIDATION_ROWS S0_VALIDATION_ANSWER_KEY_PATH
 export S0_VALIDATION_ANSWER_KEY_SHA256 S0_EVALUATOR_MANIFEST
+export S0_EVALUATOR_MANIFEST_SHA256
 export TRAINER_PATH OUTPUT_ROOT
 export NUM_NODES GPUS_PER_NODE RANKS_PER_NODE WORLD_SIZE_EXPECTED
 export TP_SIZE EP_SIZE DATA_PARALLEL_SIZE MAX_LENGTH
@@ -604,12 +679,17 @@ training_code_files=(
   runtime/world_model_prompts.py
   runtime/world_model_schemas.py
   runtime/world_model_training.py
+  runtime/world_model_loss_metrics.py
+  runtime/world_model/contract.py
   scripts/validate_world_model_v2_s0_train_contract.py
   scripts/train_sft_dp_tp_ep.py
   scripts/world_model_dp_tp_ep.py
   scripts/tp_ep_autograd.py
   world_model_v2_s0.slurm
 )
+if [[ -n "${DIAGNOSTIC_SNAPSHOT_STEPS}" ]]; then
+  training_code_files+=(runtime/world_model_checkpoint_diagnostics.py)
+fi
 S0_TRAINING_CODE_SHA256="$({
   for path in "${training_code_files[@]}"; do
     [[ -f "${path}" ]] || die "A train code file is absent: ${path}"
@@ -641,6 +721,7 @@ printf '%s\n' \
   "method_id=${S0_METHOD_ID}" \
   "train_mode=${S0_TRAIN_MODE}" \
   "run_config_sha256=${S0_RUN_CONFIG_SHA256}" \
+  "dataset_id=${S0_DATASET_ID}" \
   "corpus_manifest_sha256=${S0_CORPUS_MANIFEST_SHA256}" \
   "train_sha256=${S0_TRAIN_SHA256}" \
   "validation_sha256=${S0_VALIDATION_SHA256}" \
@@ -651,6 +732,8 @@ printf '%s\n' \
   "model_identity_sha256=${MODEL_IDENTITY_SHA256}" \
   "base_model_artifact_sha256=${BASE_MODEL_ARTIFACT_SHA256}" \
   "training_code_sha256=${S0_TRAINING_CODE_SHA256}" \
+  "segment_loss_telemetry=${SEGMENT_LOSS_TELEMETRY}" \
+  "diagnostic_snapshot_steps=${DIAGNOSTIC_SNAPSHOT_STEPS}" \
   "nodes=${NUM_NODES}" \
   "ranks_per_node=${RANKS_PER_NODE}" \
   "world_size=${WORLD_SIZE_EXPECTED}" \
@@ -662,8 +745,11 @@ printf '%s\n' \
   "eval_strategy=${EVAL_STRATEGY}" \
   "eval_on_start=${EVAL_ON_START}" \
   "per_device_eval_batch_size=${EVAL_BATCH_SIZE}" \
+  "rank_preflight_attempts=${S0_PREFLIGHT_ATTEMPTS}" \
   "wandb_mode=${S0_TRACKING_MODE}" \
   "wandb_entity=${S0_WANDB_ENTITY}" \
+  "init_adapter_run_id=${INIT_ADAPTER_RUN_ID:-none}" \
+  "init_adapter_sha256=${INIT_ADAPTER_SHA256:-none}" \
   "output_dir=${OUTPUT_DIR}" \
   > "${RUN_CONTRACT_DIR}/launch.env"
 
@@ -711,7 +797,7 @@ fi
 # Set the Frontier network, cache, and train environment.
 export CC=cc CXX=CC CMAKE_C_COMPILER=cc CMAKE_CXX_COMPILER=CC
 export ROCM_HOME=/opt/rocm-6.3.1 PYTORCH_ROCM_ARCH=gfx90a HSA_XNACK=0
-export DS_ACCELERATOR=cuda PYTORCH_ALLOC_CONF="expandable_segments:False"
+export DS_ACCELERATOR=cuda PYTORCH_CUDA_ALLOC_CONF="expandable_segments:False"
 export AWS_OFI_RCCL_ROOT="${AWS_OFI_RCCL_ROOT:-/lustre/orion/syb111/proj-shared/Personal/krusepi/packages/aws-ofi-rccl}"
 [[ -d "${AWS_OFI_RCCL_ROOT}/lib" ]] || die "aws-ofi-rccl is absent."
 export LD_LIBRARY_PATH="${AWS_OFI_RCCL_ROOT}/lib:${LD_LIBRARY_PATH:-}"
@@ -862,18 +948,41 @@ rank_receipt_dir="${RUN_CONTRACT_DIR}/rank_preflight"
 mkdir -p "${rank_receipt_dir}"
 export rank_receipt_dir
 echo "Check all allocated ranks."
-srun --nodes="${NUM_NODES}" --ntasks="${WORLD_SIZE_EXPECTED}" \
-  --ntasks-per-node="${RANKS_PER_NODE}" --gpus-per-task=1 \
-  --cpu-bind=none --gpu-bind=closest --kill-on-bad-exit=1 bash -c '
-  set -euo pipefail
-  gpu_count="$(python -c "import torch; assert torch.cuda.is_available(); print(torch.cuda.device_count())")"
-  printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
-    "${SLURM_PROCID}" "${SLURM_LOCALID}" "$(hostname)" "${gpu_count}" \
-    "${ROCR_VISIBLE_DEVICES:-<unset>}" \
-    "${HIP_VISIBLE_DEVICES:-<unset>}" \
-    "${CUDA_VISIBLE_DEVICES:-<unset>}" \
-    > "${rank_receipt_dir}/rank-${SLURM_PROCID}.tsv"
-'
+run_rank_preflight() {
+  srun --nodes="${NUM_NODES}" --ntasks="${WORLD_SIZE_EXPECTED}" \
+    --ntasks-per-node="${RANKS_PER_NODE}" --gpus-per-task=1 \
+    --cpu-bind=none --gpu-bind=closest --kill-on-bad-exit=1 bash -c '
+    set -euo pipefail
+    gpu_count="$(python -c "import torch; assert torch.cuda.is_available(); print(torch.cuda.device_count())")"
+    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
+      "${SLURM_PROCID}" "${SLURM_LOCALID}" "$(hostname)" "${gpu_count}" \
+      "${ROCR_VISIBLE_DEVICES:-<unset>}" \
+      "${HIP_VISIBLE_DEVICES:-<unset>}" \
+      "${CUDA_VISIBLE_DEVICES:-<unset>}" \
+      > "${rank_receipt_dir}/rank-${SLURM_PROCID}.tsv"
+  '
+}
+
+# A Slurm controller timeout can reject a step before any rank starts. Retry
+# this read-only check and discard partial receipts between attempts.
+preflight_status=1
+for ((preflight_attempt = 1; \
+      preflight_attempt <= S0_PREFLIGHT_ATTEMPTS; \
+      preflight_attempt++)); do
+  rm -f -- "${rank_receipt_dir}"/rank-*.tsv
+  if run_rank_preflight; then
+    preflight_status=0
+    break
+  else
+    preflight_status=$?
+  fi
+  if (( preflight_attempt < S0_PREFLIGHT_ATTEMPTS )); then
+    echo "[WARN] Rank preflight attempt ${preflight_attempt} failed with status ${preflight_status}; retrying." >&2
+    sleep "$((5 * preflight_attempt))"
+  fi
+done
+[[ "${preflight_status}" -eq 0 ]] || \
+  die "The rank preflight failed with status ${preflight_status}."
 python - "${rank_receipt_dir}" "${WORLD_SIZE_EXPECTED}" \
   "${RANKS_PER_NODE}" "${NUM_NODES}" <<'PY'
 from collections import defaultdict
@@ -946,6 +1055,20 @@ train_args=(
   --max_length "${MAX_LENGTH}"
   --seed "${SEED}"
 )
+if [[ "${SEGMENT_LOSS_TELEMETRY}" == "1" ]]; then
+  train_args+=(--segment_loss_telemetry)
+fi
+if [[ -n "${DIAGNOSTIC_SNAPSHOT_STEPS}" ]]; then
+  train_args+=(--diagnostic_snapshot_steps "${DIAGNOSTIC_SNAPSHOT_STEPS}")
+fi
+# Start from the validated parent adapter when the contract names one.
+if [[ -n "${INIT_ADAPTER_DIR}" ]]; then
+  train_args+=(
+    --init_adapter_dir "${INIT_ADAPTER_DIR}"
+    --init_adapter_sha256 "${INIT_ADAPTER_SHA256}"
+    --init_adapter_run_id "${INIT_ADAPTER_RUN_ID}"
+  )
+fi
 # Add the method values.
 train_args+=(
   --tp_size "${TP_SIZE}"

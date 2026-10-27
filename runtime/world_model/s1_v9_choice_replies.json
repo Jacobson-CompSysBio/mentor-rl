@@ -1,0 +1,21 @@
+{
+  "schema_version": "mentor-rl-world-model-s1-choice-replies-v1",
+  "replies": [
+    "My selection is {gene_id}.",
+    "I am selecting {gene_id}.",
+    "I pick {gene_id} from the candidates.",
+    "The ID I want is {gene_id}.",
+    "Select {gene_id} for this gene.",
+    "I meant the entry labeled {gene_id}.",
+    "Treat {gene_id} as my chosen gene.",
+    "The candidate I am choosing is {gene_id}.",
+    "Please take {gene_id} as the intended entry.",
+    "Of those entries, my pick is {gene_id}.",
+    "I am naming {gene_id} as the desired gene.",
+    "The human identifier I intend is {gene_id}.",
+    "Assign my selection to {gene_id}.",
+    "Please accept my choice of {gene_id}.",
+    "The listed identifier I choose is {gene_id}.",
+    "I confirm the candidate labeled {gene_id}."
+  ]
+}

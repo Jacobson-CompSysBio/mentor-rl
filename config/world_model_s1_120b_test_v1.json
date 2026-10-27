@@ -1,0 +1,96 @@
+{
+  "schema_version": "mentor-rl-world-model-s1-test-v1",
+  "evaluation_id": "world_model_s1_120b_test_v1",
+  "evaluation_contract": "held_out_s1_multiplex_sft_v3",
+  "training": {
+    "config": "config/world_model_s1_120b_training_v1.json",
+    "config_sha256": "e36961d3b05ea939489f5f7c973fb32576955143309e74fd9ffdd9b62bd7e33f",
+    "training_id": "world_model_s1_120b_training_v1",
+    "checkpoint_root": "data/world_model_v3/checkpoints/s1_120b_training_v1/oss120b-plain-base-tokenizer-lora-r32"
+  },
+  "model": {
+    "model_id": "gpt-oss-120b-bf16",
+    "path": "../models/gpt-oss-120b-bf16",
+    "model_identity_sha256": "905e86330e48859268f5e51fd569acf619e6030e1508b37e6a82e61dcf0c7889",
+    "base_model_artifact_schema": "mentor-rl-base-model-artifact-v2",
+    "base_model_artifact_sha256": "b1713d10cbba7c69498037d7712c5988db95804dc62c614111e1f470d16449bc",
+    "weight_shard_count": 36
+  },
+  "corpus": {
+    "root": "data/world_model_v3/corpora/s1",
+    "manifest_sha256": "31f45488d9c41b49d96428ec10d5950cd5fc0ce3e9844c46b066cd2e2bf39e82",
+    "train_sha256": "df45bd267327340fb0395f7d22862406077560a409bb28e519a176cb2bd461d7",
+    "train_rows": 55276
+  },
+  "test_panel": {
+    "evaluator_root": "data/world_model_v3/eval/s1",
+    "evaluator_manifest": "manifest.json",
+    "evaluator_manifest_sha256": "80f681830c5a222a0be9f21adaaf38621544362a8a34e47caa7bf04de54c5373",
+    "questions_file": "test_questions.jsonl",
+    "questions_sha256": "7a10ecd24fddace51207fbc38b5092bb6bdc344df7c9dbeb855a67a0f25f701c",
+    "answer_key_file": "test_answer_key.jsonl",
+    "answer_key_sha256": "678c06e3094caf003fdd130f5e897db3faa56f8243528965211ed3fcab004c8d",
+    "test_panel_id": "7a10ecd24fddace51207fbc38b5092bb6bdc344df7c9dbeb855a67a0f25f701c",
+    "row_count": 6875,
+    "required_family_count": 8
+  },
+  "source_index": {
+    "path": "data/world_model_v3/source_indexes/world_model_source_index_08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e.json.gz",
+    "sha256": "08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e"
+  },
+  "generation": {
+    "num_nodes": 8,
+    "tasks_per_node": 1,
+    "gpus_per_node": 8,
+    "batch_size": 4,
+    "max_tool_call_tokens": 1024,
+    "max_final_prompt_tokens": 6144,
+    "max_new_tokens": 4096,
+    "max_total_tokens": 8192,
+    "maximum_tool_calls": 2,
+    "do_sample": false,
+    "enable_thinking": true,
+    "reasoning_effort": "low",
+    "seed": 900913,
+    "local_files_only": true
+  },
+  "gate": {
+    "minimum_valid_trajectory": 0.99,
+    "minimum_reasoning_present": 0.99,
+    "minimum_tool_followup_thinking_present": 0.99,
+    "minimum_exact_tool_selection": 0.99,
+    "minimum_exact_tool_arguments": 0.99,
+    "minimum_tool_payload_consistency": 0.99,
+    "minimum_final_answer_accuracy": 0.99,
+    "minimum_source_trace_envelope_accuracy": 0.99,
+    "minimum_family_accuracy": 0.99,
+    "maximum_unexpected_direct_answer_rate": 0.01,
+    "require_closed_book_zero_calls": true,
+    "require_failure_harness_consistency": true,
+    "require_network_used_false": true,
+    "require_ambiguous_deferral_consistency": true,
+    "require_blocked_reason_consistency": true,
+    "require_evidence_consistency": true,
+    "require_summary_consistency": true,
+    "require_structured_final_json": true,
+    "require_family_contract_consistency": true
+  },
+  "tracking": {
+    "entity": "jail-ai",
+    "project": "mentor-sft",
+    "resume_training_run": true
+  },
+  "methods": [
+    {
+      "method_id": "oss120b-plain-base-tokenizer-lora-r32",
+      "tokenizer_method": "plain_base_tokenizer",
+      "tokenizer_path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
+      "tokenizer_manifest": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer_manifest.json",
+      "tokenizer_manifest_sha256": "245163b5189a64afb8e5b061585f90d4c15bcf94599b68307e9ff008880fe3c0",
+      "tokenizer_artifacts_sha256": "be21ce55523f893dc49e5ec7433f627372eebc1b9ac39dcdca5af8c7561e8d2f",
+      "checkpoint_kind": "lora",
+      "fine_tune_configuration": "lora_r32",
+      "output_root": "data/world_model_v3/eval_runs/s1_120b_test_v1/oss120b-plain-base-tokenizer-lora-r32"
+    }
+  ]
+}

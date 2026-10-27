@@ -448,7 +448,7 @@ Allowed tools:
 - rwr: {"seed_genes": [str], "layers": [real layer name] optional, "top_k": int optional}
 - rwr_loe: {"seed_genes": [str], "query_genes": [str] optional, "top_k": int optional}
 - get_rank: {"source_gene": str, "target_gene": str, "layers": [real layer name] optional}
-- get_distance: {"gene_a": str, "gene_b": str, "layers": [real layer name] optional, "distance_metric": "spearman", "pearson", or "dot" optional}
+- get_distance: {"gene_a": str, "gene_b": str, "layers": [real layer name] optional, "distance_metric": "spearman" or "pearson" optional}
 - get_spearman: {"gene_a": str, "gene_b": str, "layers": [real layer name] optional}
 - get_pearson: {"gene_a": str, "gene_b": str, "layers": [real layer name] optional}
 - get_dot_similarity: {"gene_a": str, "gene_b": str, "layers": [real layer name] optional}
@@ -1267,7 +1267,7 @@ def _tool_argument_reference_payload(
                 "gene_a": "string",
                 "gene_b": "string",
                 "layers": "optional non-empty layer-name array",
-                "distance_metric": "optional spearman, pearson, or dot",
+                "distance_metric": "optional spearman or pearson",
             },
             "get_spearman": {"gene_a": "string", "gene_b": "string", "layers": "optional non-empty layer-name array"},
             "get_pearson": {"gene_a": "string", "gene_b": "string", "layers": "optional non-empty layer-name array"},
@@ -2313,8 +2313,8 @@ def _runtime_tool_parameters(tool_name: str) -> dict[str, Any]:
                 },
                 "distance_metric": {
                     "type": "string",
-                    "enum": ["spearman", "pearson", "dot"],
-                    "description": "RWR++ metric. Spearman/Pearson are distances; dot is a similarity matrix value.",
+                    "enum": ["spearman", "pearson"],
+                    "description": "RWR++ distance metric.",
                 },
                 "restart": {"type": "number", "minimum": 0, "maximum": 1},
                 "delta": {"type": "number", "minimum": 0, "maximum": 1},

@@ -10,6 +10,7 @@ from scripts.build_world_model_v2_s0_generation_bundle import (
     build_generation_bundle,
 )
 from scripts.evaluate_world_model_v2_s0 import (
+    FULL_REGISTRY_V3_EVALUATION_CONTRACT,
     build_tool_trajectory_report,
 )
 
@@ -188,3 +189,100 @@ def test_wrong_final_answer_fails_the_family_gate() -> None:
         metrics["gate"]["checks"]["family_final_answer_accuracy"]
         is False
     )
+
+
+def _shared_answer_rows(count: int) -> list[dict[str, object]]:
+    """Return exact shared-answer rows split across all three families."""
+
+    families = (
+        "human_symbol_to_ensembl",
+        "human_ensembl_to_symbol",
+        "human_ambiguous_symbol",
+    )
+    rows = []
+    for index in range(count):
+        row = _score_row(families[index % len(families)])
+        row["record_id"] = f"record-{index}"
+        row.update(
+            {
+                "structured_json_valid": True,
+                "status_exact": True,
+                "result_exact": True,
+                "continuation_decision_exact": True,
+                "final_explanation_present": True,
+                "final_explanation_exact": True,
+                "not_found_defer_correct": True,
+                "unnamed_id_resolved_correct": True,
+            }
+        )
+        rows.append(row)
+    return rows
+
+
+def _shared_answer_gate(
+    rows: list[dict[str, object]], **floors: float
+) -> dict[str, object]:
+    """Score shared-answer rows with lenient base floors plus overrides."""
+
+    _, metrics = build_tool_trajectory_report(
+        rows,
+        evaluation_contract=FULL_REGISTRY_V3_EVALUATION_CONTRACT,
+        generation={
+            "test_panel_id": "a" * 64,
+            "train_run_id": "train-run",
+            "method_id": "test-method",
+            "checkpoint_identity_sha256": "b" * 64,
+            "manifest_sha256": "c" * 64,
+        },
+        evaluator_manifest_sha256="d" * 64,
+        tokenizer_manifest_sha256="e" * 64,
+        registry_sha256="f" * 64,
+        minimum_valid_tool_trajectory=0.0,
+        minimum_reasoning_present=0.0,
+        minimum_exact_reasoning=0.0,
+        minimum_valid_single_tool_call=0.0,
+        minimum_exact_tool_argument=0.0,
+        minimum_family_payload_accuracy=0.0,
+        minimum_family_final_answer_accuracy=0.0,
+        minimum_ambiguous_defer_accuracy=0.0,
+        maximum_direct_answer_rate=1.0,
+        **floors,
+    )
+    return metrics["gate"]
+
+
+def test_shared_answer_gate_defaults_require_exact_matches() -> None:
+    """Keep the exact-match gate for configs without answer floors."""
+
+    rows = _shared_answer_rows(20)
+    rows[0]["continuation_decision_exact"] = False
+
+    gate = _shared_answer_gate(rows)
+
+    assert gate["checks"]["continuation_decision_exact"] is False
+    assert gate["checks"]["result_exact"] is True
+    assert gate["passed"] is False
+
+
+def test_shared_answer_gate_applies_tiered_floors() -> None:
+    """Allow a target-tier miss but fail a strict result mismatch."""
+
+    rows = _shared_answer_rows(20)
+    rows[0]["continuation_decision_exact"] = False
+    tiered = {
+        "minimum_structured_json_valid": 0.995,
+        "minimum_status_exact": 0.995,
+        "minimum_result_exact": 0.995,
+        "minimum_continuation_decision_exact": 0.9,
+        "minimum_not_found_defer_accuracy": 0.995,
+        "minimum_unnamed_id_resolved_accuracy": 0.0,
+    }
+
+    assert _shared_answer_gate(rows, **tiered)["passed"] is True
+
+    rows[1]["result_exact"] = False
+    gate = _shared_answer_gate(rows, **tiered)
+
+    assert gate["checks"]["result_exact"] is False
+    assert gate["checks"]["continuation_decision_exact"] is True
+    assert gate["passed"] is False

@@ -1,0 +1,117 @@
+{
+  "max_length": 4096,
+  "frozen": {
+    "baseline_files_verified": 287,
+    "identical_heldout_files": {
+      "validation.jsonl": "9a252408b5d6886d9758d7491aac9fe5e889e5ee41bf13f61d3e683725ae4548",
+      "test.jsonl": "f297626fc07b220f1a9d133ee04af07079e2fd0da84446e6026ef465981ade25",
+      "s1_1/validation.jsonl": "2842fdbe23470566279abdcaf4baf0b9756f932382bd64b405651612d1b48072",
+      "s1_1/test.jsonl": "1d923dd3f4e99bc7c89427056118734b15e0262acffe43ddbdb9fc94e0e9345e",
+      "s1_2/validation.jsonl": "d3383998568e661e0cd6e2c434561b90171212cee36643af34769730cc0c5fd7",
+      "s1_2/test.jsonl": "85d8b536528a792d9c159a7eca9498a47f3cf2bf4906a39888be70e64eab567a",
+      "s1_3/validation.jsonl": "365fd9bd57afe116f7e1f3b9cee35f87ff65653e9c911f845eb8b29cd3f55aec",
+      "s1_3/test.jsonl": "f76c6c17ea9b4aed2adf96ececc37ae2b274cbd3998841b050b75eccc0b567e3",
+      "s1_4/validation.jsonl": "018d9f9868395dce59a1dff6cf739d151946ccd4f33a9fbf73d81b334c7e12ae",
+      "s1_4/test.jsonl": "4a494bb83fd1299eead66714c4be1caa6589ae6db69cecae24377102fe8dc7a9",
+      "s1_6/validation.jsonl": "520b060b6e1e4f2fd9549077b8714918a443bcd7387dfb4e0a2651f7bd045602",
+      "s1_6/test.jsonl": "e2fbeaf4f70ed27a41ff984c6e63e48f8de876822278b9d36adbf87984a62db2",
+      "s1_7/validation.jsonl": "f81df312d9fb68cd703cd9a3d662470d962bb9a585e3e679cd3d8557b0706e8f",
+      "s1_7/test.jsonl": "9dcc36586ca9a28384fa65a2a275b405a6434082ea87702d52501f8a7c578f77",
+      "s1_8/validation.jsonl": "373afb9b1f4c9913c1f6824c3abc24487a34b1d8a4ca6d81b9385429463d5f3f",
+      "s1_8/test.jsonl": "4a13f3b8c1122f7dc53e016b50d47b07d3c601e7752bd610ea0d48e8d246b933",
+      "s1_9/validation.jsonl": "afff9c6aa07e8e3cd9a4fea2a2a59bf6b0ddf0fca792f3c6b459951c9cef8b80",
+      "s1_9/test.jsonl": "c678aa4a38c7faec86edd0d07b668495ac8b679f3df4e6c4fd9011db3d776e10",
+      "validation_questions.jsonl": "5e7814806cc60e18962aca24b21462e0e13fdac9d72e2ed6d6b57852f1b0435b",
+      "validation_answer_key.jsonl": "032bf8c087a6791b0673fcda7170ce27719b71822666ba4fa19172d7481ca36a",
+      "test_questions.jsonl": "eff174050b8d82ee2702cad2e4efebb8fa0938785e2ec6266640c23363ee7904",
+      "test_answer_key.jsonl": "a9db0351781c504ef7811e318ec09ca2becf233fa119a05c4221f9dd6783e28e"
+    }
+  },
+  "segment_loss_telemetry": true,
+  "splits": {
+    "train": {
+      "rows": 55276,
+      "maximum_tokens": 4025,
+      "supervised_tokens": 16675541,
+      "segment_tokens": {
+        "reasoning": 6671481,
+        "tool_call": 733078,
+        "structured_final": 5621500,
+        "free_text": 2400078,
+        "formatting": 1249404
+      },
+      "field_tokens": {
+        "status": 180415,
+        "result": 2923500,
+        "continuation_decision": 181565,
+        "provenance": 1304579
+      },
+      "maximum_row_id": "wm3_s1_3_8032afc36a88f4bde5047a5e"
+    },
+    "validation": {
+      "rows": 6875,
+      "maximum_tokens": 1640,
+      "supervised_tokens": 1512757,
+      "segment_tokens": {
+        "reasoning": 291147,
+        "tool_call": 83520,
+        "structured_final": 690472,
+        "free_text": 297118,
+        "formatting": 150500
+      },
+      "field_tokens": {
+        "status": 22540,
+        "result": 358129,
+        "continuation_decision": 22671,
+        "provenance": 158905
+      },
+      "maximum_row_id": "wm3_s1_3_4e57cfb25b2870bbc86f5f17"
+    },
+    "test": {
+      "rows": 6875,
+      "maximum_tokens": 1372,
+      "supervised_tokens": 1513188,
+      "segment_tokens": {
+        "reasoning": 292568,
+        "tool_call": 83162,
+        "structured_final": 685715,
+        "free_text": 301243,
+        "formatting": 150500
+      },
+      "field_tokens": {
+        "status": 22540,
+        "result": 353477,
+        "continuation_decision": 22671,
+        "provenance": 158780
+      },
+      "maximum_row_id": "wm3_s1_3_378579cf7370ef67fc6bc5fd"
+    }
+  },
+  "files": {
+    "data/world_model_v4/corpora/s1_v10/train.jsonl": "af7097e1780a91f7c82207483e344107a9c8ce6142d53fc85a4e76149b989d6c",
+    "data/world_model_v4/corpora/s1_v10/validation.jsonl": "9a252408b5d6886d9758d7491aac9fe5e889e5ee41bf13f61d3e683725ae4548",
+    "data/world_model_v4/corpora/s1_v10/test.jsonl": "f297626fc07b220f1a9d133ee04af07079e2fd0da84446e6026ef465981ade25"
+  },
+  "tokenizer_files": {
+    "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer/chat_template.jinja": "9ad8adf1324b8eb902d6e70087f3184b1b9b345c453bbd3d38949c2f13205c1d",
+    "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer/special_tokens_map.json": "8464cabd6eda239fe46ebf8ae63b46c417721784a961a022f6b59174a2cda0e2",
+    "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer/tokenizer.json": "0614fe83cadab421296e664e1f48f4261fa8fef6e03e63bb75c20f38e37d07d3",
+    "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer/tokenizer_config.json": "9279e942392b742d633c7adbb89ebe002c98399db8926a7af5125c726f404070"
+  },
+  "serializer_sha256": "636e9d25e2f948552dd4ce450b536d3bb7e26b119622798b9e9ed19edf5ee894",
+  "overlay_sha256": "4963d864250012bc9bd972a269104f5fac6e97f2f4b5d7681ed5b48b7925b87e",
+  "implementation_files": {
+    "runtime/world_model/s1_1_corpus.py": "1474cc66fffddc8f0390e651a625cba3df6189ebae84f6921eeccc8e7149e90a",
+    "runtime/world_model/s1_2_corpus.py": "37ff20041857eea876d9314dd600d343d4fbb524d522127248207930a930e24c",
+    "runtime/world_model/s1_3_corpus.py": "8d2e8081d3ae84c132505b17bc707b1a2feca64c8302eeaca0da031d41c7b37d",
+    "runtime/world_model/s1_4_corpus.py": "cefed77070e789955ca76aaf8868e4f7563728a68a64ca6bec045e0f0478213c",
+    "runtime/world_model/s1_6_corpus.py": "c06108bd654be10fdf97baee93af3dd108fc90474e271ad0225826ff2199b19d",
+    "runtime/world_model/s1_7_corpus.py": "5c675d003fc247b5be575b84aa440344a159c1e11398e145e2b54b51b7057282",
+    "runtime/world_model/s1_8_corpus.py": "ab947bdc667364bbf45ccb3e3ec93150a0e506afff9736e8e45470dc648bbb77",
+    "runtime/world_model/s1_9_corpus.py": "e88578789844e357bb4115d9976c3ac6988b8c0049c9bd97332ac367fd6d70e9",
+    "runtime/world_model/s1_overlay.py": "1f19ead8e20f2499c3e76da74504aba975f361e5b852591c59d792cbd9688a4a",
+    "runtime/world_model/s1_prompt_banks.py": "0059c050bf02913b3417e6cc965950994728d85cf995857bc58d6d6dcbb14ac4",
+    "scripts/build_world_model_s1_bundle.py": "1eedf54237f12d6be332fa5012cc8dcbf4efdfb252ddbb7f632d388fae6b63cb"
+  },
+  "passed": true
+}

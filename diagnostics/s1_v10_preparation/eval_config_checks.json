@@ -1,0 +1,16 @@
+{
+  "command": "USE_TORCH=0 USE_TF=0 PYTHONPATH=. /lustre/orion/syb111/world-shared/environments/pytorch-rocm/bin/python -m pytest -q tests/test_world_model_s1_v10_eval_configs.py",
+  "exit_code": 0,
+  "summary": "5 passed in 5.43s",
+  "stdout": "diagnostics/s1_v10_preparation/eval_config_tests.log",
+  "checks": [
+    "Both configs differ from v9 only in v10 output and artifact identity; frozen panels, model/tokenizer, generation, gates, and training-run tracking remain unchanged.",
+    "Both configs pin actual v10 training config SHA125fefe6c5be0260979adffc7054c79734fe51ea283f7a676556981f7b1eb677 and actual corpus manifest/train hashes.",
+    "S1 readiness validates real data and configs with _validate_checkpoint explicitly stubbed for the unavailable future adapter; roots may be absent.",
+    "S0 readiness validates real retention inputs with a temporary checkpoint fixture and test-only output-root mapping; an incomplete receipt is rejected.",
+    "Existing pinned-forgetting v2 evaluator supports v10 without version-specific changes."
+  ],
+  "future_completed_checkpoint_validated": false,
+  "production_checkpoint_validation": "Unmodified world_model_s1_eval.slurm invokes validate_world_model_s1_eval_contract.py with CHECKPOINT_PATH before generation; world_model_v2_s0.slurm JOB_MODE=test invokes validate_world_model_v2_s0_eval_contract.py with CHECKPOINT_PATH before evaluation.",
+  "jobs_submitted_by_this_agent": false
+}

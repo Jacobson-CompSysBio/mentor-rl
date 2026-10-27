@@ -1,0 +1,93 @@
+{
+  "schema_version": "mentor-rl-world-model-s1-20b-smoke-v1",
+  "qualification_id": "world_model_s1_20b_smoke_v1",
+  "run_scope": "qualification",
+  "promotion_eligible": false,
+  "production_matrix_cell": false,
+  "smoke_test": {
+    "purpose": "one_node_end_to_end_training_by_behavior_signature",
+    "selection_algorithm": "longest_plus_sha256_rank_per_behavior_signature_v1",
+    "train_behavior_signatures": 124,
+    "validation_behavior_signatures": 111,
+    "all_eight_s1_question_families_required": true,
+    "s0_replay_branches_included_in_train": true
+  },
+  "model": {
+    "model_id": "gpt-oss-20b-bf16",
+    "path": "../models/gpt-oss-20b-bf16",
+    "model_identity_sha256": "6a12325c805095b24645cd987d418f24e6bcf38073113823477fd1de460fb643",
+    "base_model_artifact_schema": "mentor-rl-base-model-artifact-v2",
+    "base_model_artifact_sha256": "ae91ebfc47acef7fa3a1bd49a9d6707c0a62cb67feea84ace7e2fd626a7f61eb",
+    "weight_shard_count": 5
+  },
+  "corpus": {
+    "root": "data/world_model_v3/corpora/s1_smoke",
+    "manifest_sha256": "4225a1281355356ce6df817144dfd5256bbd80f945785838b8cdba266eff428c",
+    "train_file": "train.jsonl",
+    "train_sha256": "a1fe9fd1fde046c279ae24bbb0fb4548cfead676c921c1cd71f008d88dc141e8",
+    "train_rows": 248,
+    "validation_file": "validation.jsonl",
+    "validation_sha256": "4f44ecfa6b8249ad077ae557611544f57a4a66b2b2bde05d789830b20558d237",
+    "validation_rows": 111,
+    "evaluator_manifest": "data/world_model_v3/eval/s1_smoke/manifest.json",
+    "evaluator_manifest_sha256": "91d847360f4e3374806f3073cd4019179dead73dd003548d2d1b897e7faa3b12"
+  },
+  "trainer": {
+    "path": "scripts/train_sft_dp_tp_ep.py",
+    "fine_tune_configuration": "lora_r32",
+    "loader_identity": "peft_adapter_loader",
+    "lora_rank": 32,
+    "lora_alpha": 64,
+    "lora_dropout": 0,
+    "loss_contract": "multiplex_sft_v3",
+    "completion_loss_weight": 1
+  },
+  "run_settings": {
+    "num_nodes": 1,
+    "gpus_per_node": 8,
+    "tp_size": 8,
+    "ep_size": 8,
+    "data_parallel_size": 1,
+    "num_train_epochs": 1,
+    "per_device_train_batch_size": 1,
+    "gradient_accumulation_steps": 2,
+    "global_batch_size": 2,
+    "learning_rate": 0.0001,
+    "lr_scheduler_type": "cosine",
+    "warmup_ratio": 0.03,
+    "weight_decay": 0,
+    "max_grad_norm": 1,
+    "max_length": 4096,
+    "logging_steps": 5,
+    "eval_strategy": "epoch",
+    "eval_on_start": true,
+    "per_device_eval_batch_size": 1,
+    "save_strategy": "no",
+    "save_steps": 200,
+    "save_total_limit": 1,
+    "seed": 900913,
+    "preserve_dataset_order": false,
+    "autograd_multithreading": true,
+    "local_files_only": true,
+    "strict_tested_stack": true,
+    "bf16": true
+  },
+  "methods": [
+    {
+      "method_id": "oss20b-plain-base-tokenizer-lora-r32",
+      "tokenizer_method": "plain_base_tokenizer",
+      "arm_root": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer",
+      "arm_manifest_sha256": "b1379f9a1a751ce7bdc2a99389717ba3095c64e3fbfa608ef77eee181bb8cb6e",
+      "tokenizer_path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
+      "token_adapter_manifest": null,
+      "tokenizer_manifest_sha256": "245163b5189a64afb8e5b061585f90d4c15bcf94599b68307e9ff008880fe3c0",
+      "output_root": "data/world_model_v3/checkpoints/s1_20b_smoke_v1/oss20b-plain-base-tokenizer-lora-r32"
+    }
+  ],
+  "validation_gate": {
+    "checkpoint_set": "final",
+    "selection_metric": "eval/completion_loss",
+    "required_method_count": 1,
+    "test_panel_access": false
+  }
+}

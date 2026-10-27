@@ -7,6 +7,8 @@ from pathlib import Path
 import sys
 import types
 
+import pytest
+
 import scripts.run_world_model_v2_s0_exact_generation as generation_module
 from scripts.build_world_model_v2_s0_generation_bundle import (
     BUNDLE_FULL_TOOL_TRAJECTORY_SCHEMA_VERSION,
@@ -21,6 +23,8 @@ from scripts.evaluate_world_model_v2_s0 import (
 from scripts.run_world_model_v2_s0_exact_generation import (
     SHARD_PREDICTION_SCHEMA_VERSION,
     SHARD_STRATEGY,
+    S0GenerationError,
+    generate_prompt_batch_with_oom_backoff,
     generate_predictions,
     merge_prediction_shards,
     sha256_file,
@@ -445,6 +449,41 @@ class _FakeModel:
         return _FakeTensor([list(row) + [token] for row in input_ids.data])
 
 
+class _FakeOOM(RuntimeError):
+    """Stand in for torch.OutOfMemoryError."""
+
+
+class _OOMBackoffModel:
+    """OOM above one row and record each adaptive attempt."""
+
+    def __init__(self, *, always_oom: bool = False) -> None:
+        self.always_oom = always_oom
+        self.batch_sizes: list[int] = []
+        self.max_new_tokens: list[int] = []
+        self.generation_config = types.SimpleNamespace(eos_token_id=999)
+
+    def generate(self, **inputs: object) -> _FakeTensor:
+        """Generate only after the caller reaches a safe microbatch."""
+
+        input_ids = inputs["input_ids"]
+        assert isinstance(input_ids, _FakeTensor)
+        assert isinstance(input_ids.data, list)
+        batch_size = len(input_ids.data)
+        self.batch_sizes.append(batch_size)
+        self.max_new_tokens.append(int(inputs["max_new_tokens"]))
+        if self.always_oom or batch_size > 1:
+            raise _FakeOOM("HIP out of memory")
+        return _FakeTensor([list(input_ids.data[0]) + [101]])
+
+
+class _NonOOMFailureModel(_OOMBackoffModel):
+    """Raise a generation error that adaptive backoff must not hide."""
+
+    def generate(self, **inputs: object) -> _FakeTensor:
+        del inputs
+        raise RuntimeError("invalid generation configuration")
+
+
 class _NoGrad:
     """Provide the no-gradient context protocol."""
 
@@ -454,6 +493,93 @@ class _NoGrad:
     def __exit__(self, *exc: object) -> bool:
         del exc
         return False
+
+
+def test_generation_bisects_an_oom_batch_and_preserves_order(capsys) -> None:
+    """Retry a failed HIP batch as deterministic singleton microbatches."""
+
+    model = _OOMBackoffModel()
+    tokenizer = _FakeTokenizer()
+    empty_cache_calls: list[None] = []
+    fake_torch = types.SimpleNamespace(
+        OutOfMemoryError=_FakeOOM,
+        no_grad=lambda: _NoGrad(),
+        cuda=types.SimpleNamespace(
+            empty_cache=lambda: empty_cache_calls.append(None)
+        ),
+    )
+
+    results = generate_prompt_batch_with_oom_backoff(
+        model=model,
+        tokenizer=tokenizer,
+        device="cpu",
+        torch_module=fake_torch,
+        prompts=["a", "b", "c", "d"],
+        record_ids=["a", "b", "c", "d"],
+        max_new_tokens=8,
+        max_total_tokens=10,
+        stage="final_answer",
+        shard_index=7,
+    )
+
+    assert model.batch_sizes == [4, 2, 1, 1, 2, 1, 1]
+    assert model.max_new_tokens == [7] * 7
+    assert [result["raw_generation"] for result in results] == [
+        ENCODED_CALL
+    ] * 4
+    assert len(empty_cache_calls) == len(model.batch_sizes)
+    assert '"event": "test_generation_oom_backoff"' in capsys.readouterr().out
+
+
+def test_generation_reports_a_persistent_singleton_oom() -> None:
+    """Bound OOM retries when even one prompt cannot fit."""
+
+    model = _OOMBackoffModel(always_oom=True)
+    fake_torch = types.SimpleNamespace(
+        OutOfMemoryError=_FakeOOM,
+        no_grad=lambda: _NoGrad(),
+    )
+
+    with pytest.raises(S0GenerationError, match="persisted for singleton"):
+        generate_prompt_batch_with_oom_backoff(
+            model=model,
+            tokenizer=_FakeTokenizer(),
+            device="cpu",
+            torch_module=fake_torch,
+            prompts=["a"],
+            record_ids=["record-a"],
+            max_new_tokens=8,
+            max_total_tokens=10,
+            stage="final_answer",
+            shard_index=7,
+        )
+
+    assert model.batch_sizes == [1, 1]
+
+
+def test_generation_does_not_retry_a_non_oom_runtime_error(capsys) -> None:
+    """Propagate unrelated model failures without changing the workload."""
+
+    fake_torch = types.SimpleNamespace(
+        OutOfMemoryError=_FakeOOM,
+        no_grad=lambda: _NoGrad(),
+    )
+
+    with pytest.raises(RuntimeError, match="invalid generation configuration"):
+        generate_prompt_batch_with_oom_backoff(
+            model=_NonOOMFailureModel(),
+            tokenizer=_FakeTokenizer(),
+            device="cpu",
+            torch_module=fake_torch,
+            prompts=["a", "b"],
+            record_ids=["record-a", "record-b"],
+            max_new_tokens=8,
+            max_total_tokens=10,
+            stage="final_answer",
+            shard_index=7,
+        )
+
+    assert "test_generation_oom" not in capsys.readouterr().out
 
 
 def test_generate_predictions_runs_both_trajectory_passes(

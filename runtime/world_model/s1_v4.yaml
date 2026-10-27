@@ -1,0 +1,55 @@
+schema_version: mentor-rl-world-model-s1-overlay-v3
+base_contract:
+  path: runtime/world_model/contract.yaml
+  sha256: f629c28de87a0440b40130d78614d4c5f65d55cd32e68b7bd144d09df81d9f0f
+corpus_root: data/world_model_v4/corpora/s1_v4
+evaluator_root: data/world_model_v4/eval/s1_v4
+family_overrides:
+  # S1 v4 keeps the v3 data. Only the S1.1.10 training reasoning changes, but
+  # every stage moves to its own directory so no v3 corpus is overwritten.
+  S1.1:
+    output_directory: data/world_model_v4/corpora/s1_v4/s1_1
+  S1.2:
+    output_directory: data/world_model_v4/corpora/s1_v4/s1_2
+    # S1 starts from the S0 v4 checkpoint. Keep genes without a symbol near
+    # their registry share so S1 does not undo the S0 v4 null-symbol behavior.
+    shares:
+      direct: 0.09
+      inside_task: 0.05
+      version_suffix: 0.10
+      no_symbol: 0.31
+      not_in_release: 0.10
+      malformed: 0.05
+      harness_exact: 0.10
+      harness_near_miss: 0.05
+      symbol_input: 0.05
+      other_species: 0.10
+  S1.3:
+    output_directory: data/world_model_v4/corpora/s1_v4/s1_3
+  S1.4:
+    output_directory: data/world_model_v4/corpora/s1_v4/s1_4
+  S1.6:
+    output_directory: data/world_model_v4/corpora/s1_v4/s1_6
+  S1.7:
+    output_directory: data/world_model_v4/corpora/s1_v4/s1_7
+  S1.8:
+    output_directory: data/world_model_v4/corpora/s1_v4/s1_8
+  S1.9:
+    output_directory: data/world_model_v4/corpora/s1_v4/s1_9
+# The S1 v3 banks plus one training reasoning sentence: S1.1.10 rows state
+# that a gene absent from the named multiplex gives status not_found.
+# Validation and test keep the inline text, so the S1 test panel is unchanged.
+prompt_banks:
+  path: runtime/world_model/s1_v4_prompt_banks.json
+  sha256: 2150c426b146fa1fb5ebb91e361098579a62521e087edf023c25bf8f67acea73
+train_normalization:
+  # Stage builders allocate evidence IDs independently. Rekey only the
+  # aggregate train copy so IDs stay unique without changing held-out panels.
+  evidence_id_policy: aggregate_sequence_v1
+  # S0 v4 uses five private builder fields that are not in the shared row form.
+  strip_s0_metadata_additions: true
+s0_replay:
+  dataset_id: world_model_v4_s0_human_identifiers
+  output_directory: data/world_model_v4/corpora/s0
+  manifest_schema_version: mentor-rl-world-model-s0-manifest-v2
+  corpus_schema_version: mentor-rl-world-model-s0-corpus-v2

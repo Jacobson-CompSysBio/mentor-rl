@@ -1,0 +1,139 @@
+schema_version: mentor-rl-world-model-s1-overlay-v4
+base_contract:
+  path: runtime/world_model/contract.yaml
+  sha256: f629c28de87a0440b40130d78614d4c5f65d55cd32e68b7bd144d09df81d9f0f
+corpus_root: data/world_model_v4/corpora/s1_v5
+evaluator_root: data/world_model_v4/eval/s1_v5
+family_overrides:
+  # S1 v5 changes the S1.1 membership answers in every split, so the S1.1
+  # validation and test answer keys change. The questions, and so the test
+  # panel ID, do not. Every stage moves to its own directory so no v4 corpus
+  # is overwritten.
+  S1.1:
+    output_directory: data/world_model_v4/corpora/s1_v5/s1_1
+    membership_answers:
+      # S1.1.10: a gene absent from the named multiplex answers the question,
+      # so the status is resolved, as the membership tool reports, with
+      # present false. not_found now always means a blocked answer.
+      absent_status: resolved
+      # S1.1.11: keep the forms 9-10 result shape. An unknown multiplex gives
+      # no membership answer, so present is null.
+      unknown_multiplex_present: null
+  S1.2:
+    output_directory: data/world_model_v4/corpora/s1_v5/s1_2
+    # S1 starts from the S0 v4 checkpoint. Keep genes without a symbol near
+    # their registry share so S1 does not undo the S0 v4 null-symbol behavior.
+    shares:
+      direct: 0.09
+      inside_task: 0.05
+      version_suffix: 0.10
+      no_symbol: 0.31
+      not_in_release: 0.10
+      malformed: 0.05
+      harness_exact: 0.10
+      harness_near_miss: 0.05
+      symbol_input: 0.05
+      other_species: 0.10
+    # Train only: twice the tool-failure rows (S1.2.11; v4 got the result
+    # shape right on 14 of 50 test rows). Each failure copies its own
+    # retained direct row (S1.2.1), so S1.2.1 grows too. S1.2.10 and S1.2.12,
+    # right on every v2-v4 test row, give up the rows, so the S1.2 train total
+    # stays 11,000. Validation and test keep the shared allocation.
+    train_form_counts:
+      1: 800    # S1.2.1 direct, was 500
+      10: 650   # S1.2.10 other species, was 1,000
+      11: 800   # S1.2.11 tool error, was 400
+      12: 650   # S1.2.12 transcript ID, was 1,000
+  S1.3:
+    output_directory: data/world_model_v4/corpora/s1_v5/s1_3
+    membership_answers:
+      # S1.3.5 to S1.3.7 keep every field of both tool results: the
+      # candidate details from the lookup and both membership lists. v4
+      # copied them anyway on 107 of 259 S1.3.5 and 34 of 52 S1.3.7 rows.
+      keep_tool_fields: true
+      # S1.3.7: no candidate is a node, so nothing chooses one. The answer is
+      # ambiguous, like S1.3.6 and S1.3.10; the blocked_reason code stays
+      # no_multiplex_membership. v4 said ambiguous on 40 of 52 rows.
+      none_present_status: ambiguous
+    # Train only: the thinking names the multiplex and its source before the
+    # membership check, and says that no multiplex is named before a
+    # deferral. Selected-candidate replies also bind their exact three result
+    # fields and preserve the earlier candidate-ID list.
+    # v4 skipped the check on 42 of 188 rows whose harness named
+    # the multiplex (16 of 187 when the task named it).
+    train_multiplex_reasoning: true
+    # Train only: twice the partial-failure rows (S1.3.10; v4 right on 17 of
+    # 37). Each failure copies a kept S1.3.5 to S1.3.7 row. S1.3.3 and
+    # S1.3.9, right on 124 or 125 of 125 test rows in every v2-v4 run, give
+    # up the rows, so the S1.3 train total stays 9,000.
+    train_form_counts:
+      3: 850    # S1.3.3 harness marks the symbol, was 1,000
+      9: 850    # S1.3.9 reply does not choose, was 1,000
+      10: 600   # S1.3.10 membership check fails, was 300
+  S1.4:
+    output_directory: data/world_model_v4/corpora/s1_v5/s1_4
+    # Train only: the S1.4.6 thinking names the other ID, says whether it is
+    # a candidate and what follows, and says the module is not a multiplex to
+    # check. v4 got 28 of 125 S1.4.6 test rows right; 57 called the
+    # membership tool with the module ID as the multiplex.
+    train_candidate_reasoning: true
+  S1.6:
+    output_directory: data/world_model_v4/corpora/s1_v5/s1_6
+    # Train only: balance list companions across families and native tags.
+    # Prefer a HumanNet companion on alternate rows when the filter permits
+    # it, with family "other" weighted twice. v4 lists repeated two scPEN
+    # tags in 730 and 683 of 750 rows; 10 test lists got HumanNet's family wrong.
+    train_diverse_lists: true
+    # Explain full list parses, exact copying, and the framing decision.
+    # v4 dropped the list on 13 test rows and mistook a later-use cue on 38.
+    train_layer_reasoning: true
+  S1.7:
+    output_directory: data/world_model_v4/corpora/s1_v5/s1_7
+    # Train only: other cards grow from 300 to 600 rows. The scPEN family
+    # form gives up 300 rows, keeping S1.7 at 6,000. v4 got 21 of 37 other
+    # cards right, but 188 of 188 scPEN family rows.
+    train_form_counts:
+      1: 1200
+      8: 600
+    # Explain HumanNet's closed family mapping, normalize the requested
+    # claim before checking support, and partition list items by family.
+    train_claim_reasoning: true
+  S1.8:
+    output_directory: data/world_model_v4/corpora/s1_v5/s1_8
+    # Train only: double name variants from 640 to 1,280, using canonical
+    # repeats. Each name covers all four truth polarities and both frames.
+    # v4 got all 280 canonical results right, but only 48 of 80 variants.
+    train_variant_coverage: true
+    # State the exact metric and fixed rule, preserve the input, compare
+    # the claim's direction and outcome, and explain the framing decision.
+    train_metric_reasoning: true
+  S1.9:
+    output_directory: data/world_model_v4/corpora/s1_v5/s1_9
+    # Train only: bind each colon component to its exact result field,
+    # close the field set, preserve clade digits, and state existence false.
+    # All 12 v4 failures used the same held-out grammar wording and invented
+    # a schema. The ID pools, form counts, and framing quotas stay fixed.
+    train_module_reasoning: true
+    # Every parse-request wording must occur in both framings. Previously
+    # its index parity alone predicted stop versus continue perfectly.
+    train_balanced_requests: true
+# The S1 v4 banks with the revised S1.1.10 and S1.2.4 reasoning, eight
+# identity wrappers expanded to all 64 matched pairs, and 32 paired layer wrappers per
+# framing. S1.7 adds 32 phrases for each of the eight claims. S1.8 adds
+# paired metric wrappers and 12 names per metric. S1.9 adds paired module
+# wrappers with grammar wording. Validation and test keep the inline text.
+# Re-pin after any further wording changes.
+prompt_banks:
+  path: runtime/world_model/s1_v5_prompt_banks.json
+  sha256: 046795f979dee48c07824e2e03294c093597a45637451aca2fa473b4592a2e6f
+train_normalization:
+  # Stage builders allocate evidence IDs independently. Rekey only the
+  # aggregate train copy so IDs stay unique without changing held-out panels.
+  evidence_id_policy: aggregate_sequence_v1
+  # S0 v4 uses five private builder fields that are not in the shared row form.
+  strip_s0_metadata_additions: true
+s0_replay:
+  dataset_id: world_model_v4_s0_human_identifiers
+  output_directory: data/world_model_v4/corpora/s0
+  manifest_schema_version: mentor-rl-world-model-s0-manifest-v2
+  corpus_schema_version: mentor-rl-world-model-s0-corpus-v2

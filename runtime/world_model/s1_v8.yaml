@@ -1,0 +1,764 @@
+# Training-only decorrelation sweep. Same system prompt, facts, reasoning rules, and recipe as v6.
+# The independent v7 system-prompt experiment remains separate.
+schema_version: mentor-rl-world-model-s1-overlay-v7
+base_contract:
+  path: runtime/world_model/contract.yaml
+  sha256: f629c28de87a0440b40130d78614d4c5f65d55cd32e68b7bd144d09df81d9f0f
+corpus_root: data/world_model_v4/corpora/s1_v8
+evaluator_root: data/world_model_v4/eval/s1_v8
+family_overrides:
+  S1.1:
+    output_directory: data/world_model_v4/corpora/s1_v8/s1_1
+    membership_answers:
+      absent_status: resolved
+      unknown_multiplex_present: null
+    train_lookup_retries:
+      path: runtime/world_model/s1_v6_lookup_retries.json
+      sha256: b167802d0b0539b4890d8dbc9aef26b6cbbf52be16a3c9f2119d1da9fc15827c
+    train_membership_reasoning:
+      after_lookup: The lookup supplies {gene_id} for {symbol}, and the membership request remains unanswered.
+        Check this ID in the requested multiplex.
+      direct: The membership result lists {gene_id} as present, so return resolved with present:true and
+        both evidence channels. The request is complete, so stop.
+      step: The membership result lists {gene_id} as present, so return resolved with present:true and
+        both evidence channels. The next workflow step needs this membership result, so continue.
+    train_absent_membership_reasoning:
+      after_lookup: The lookup supplies {gene_id} for {symbol}, and the membership request remains unanswered.
+        Check this ID in the requested multiplex.
+      direct: The membership result lists {gene_id} as absent, so return resolved with present:false,
+        both evidence channels, and no blocked reason. The request is complete, so stop.
+      step: The membership result lists {gene_id} as absent, so return resolved with present:false, both
+        evidence channels, and no blocked reason. The next workflow step needs this membership result,
+        so continue.
+    train_unknown_multiplex_reasoning:
+      after_lookup: The lookup supplies {gene_id} for {symbol}, and the membership request remains unanswered.
+        Check this ID in the requested multiplex.
+      direct: The requested multiplex is unregistered, so the gene's membership is unknown; return not_found
+        with present:null. Preserve both evidence channels and defer with a blocked reason until a registered
+        multiplex is supplied.
+      step: The requested multiplex is unregistered, so the gene's membership is unknown; return not_found
+        with present:null. Preserve both evidence channels and defer with a blocked reason until a registered
+        multiplex is supplied.
+    train_final_reasoning:
+      2: The registry resolves {symbol} to {gene_id}, completing the requested lookup. Because the user
+        needs this mapping for a later workflow step, return it with registry evidence and continue.
+      3: The registry reports not_found for {symbol}; this release provides no mapping. Preserve the queried
+        symbol and registry evidence, then defer with a blocked reason.
+    train_decorrelate: true
+  S1.2:
+    output_directory: data/world_model_v4/corpora/s1_v8/s1_2
+    train_lookup_retries:
+      path: runtime/world_model/s1_v6_id_lookup_retries.json
+      sha256: bfff4e0bc955a7940bc2fdb12ff8141e32dde3b87aa75abd9430211498185e7a
+    train_final_reasoning:
+      1: The registry resolves {gene_id} to {symbol}, completing the requested lookup. Return this mapping
+        with registry evidence and stop.
+      5: The registry reports not_found for {gene_id} in release 116, so the requested symbol is unavailable.
+        Return only the queried gene_id with registry evidence and defer with a blocked reason until a
+        current ID is supplied. Do not retry this negative result, guess a successor, or invent a graph
+        lookup.
+      6: The registry rejects {input}; return invalid_input with exactly input and expected:human_gene_id,
+        preserving the original text. Keep registry evidence and set continuation_decision:defer with
+        a blocked reason; do not repair the input or call again.
+    train_version_suffix_reasoning:
+      direct: The registry ignores the numeric version suffix and returns {gene_id} with symbol {symbol},
+        completing the requested lookup. Return this mapping with registry evidence and stop.
+      step: The registry ignores the numeric version suffix and returns {gene_id} with symbol {symbol},
+        completing the requested lookup. Because the user needs this mapping for a later workflow step,
+        return it with registry evidence and continue.
+    train_no_symbol_reasoning:
+      direct: The registry reports resolved for {gene_id} with gene_symbol:null, completing the lookup
+        without an assigned symbol. Return the ID and null symbol with registry evidence, no blocked reason,
+        and stop.
+      step: The registry reports resolved for {gene_id} with gene_symbol:null, completing the lookup without
+        an assigned symbol. Because the user's workflow needs this result, return the ID and null symbol
+        with registry evidence, no blocked reason, and continue.
+    train_near_miss_reasoning:
+      direct: The registry resolves {gene_id} to {symbol}. Because the user requested only this lookup,
+        return the mapping with registry evidence and stop.
+      step: The registry resolves {gene_id} to {symbol}. Because the user needs this mapping for a later
+        workflow step, return it with registry evidence and continue.
+    train_symbol_input_reasoning:
+      direct: The registry confirms {symbol} as the symbol for {gene_id}; no membership check is requested.
+        Because the user requested only this lookup, return the mapping with registry evidence and stop.
+      step: The registry confirms {symbol} as the symbol for {gene_id}; no membership check is requested.
+        Because the user needs this mapping for a later workflow step, return it with registry evidence
+        and continue.
+    shares:
+      direct: 0.09
+      inside_task: 0.05
+      version_suffix: 0.1
+      no_symbol: 0.31
+      not_in_release: 0.1
+      malformed: 0.05
+      harness_exact: 0.1
+      harness_near_miss: 0.05
+      symbol_input: 0.05
+      other_species: 0.1
+    train_form_counts:
+      1: 800
+      10: 650
+      11: 800
+      12: 650
+    train_decorrelate: true
+  S1.3:
+    output_directory: data/world_model_v4/corpora/s1_v8/s1_3
+    train_membership_retries:
+      path: runtime/world_model/s1_v6_membership_retries.json
+      sha256: ce83f0e1338d2c1241f7342c3b7ac12026006b492dc7780cd5766cf7e1199c1e
+    train_final_reasoning:
+      1: '{symbol} matches {count} candidates; the user supplied no choice or multiplex to disambiguate
+        them. Return ambiguous/defer with all candidates and details, registry evidence, and a blocked
+        reason; omit gene_id because order alone cannot resolve ambiguity.'
+      4: The lookup returns {count} candidates for {symbol}; unrelated harness entries supply no choice
+        or multiplex. Keep only gene_symbol, candidate_gene_ids, and candidate_details in result; preserve
+        lookup evidence and return ambiguous/defer with a blocked reason.
+    membership_answers:
+      keep_tool_fields: true
+      none_present_status: ambiguous
+    train_multiplex_reasoning: true
+    train_single_membership_reasoning:
+      after_lookup: The lookup returns {count} candidates for {symbol}, and the {source} names {multiplex_id}.
+        Check all candidate_gene_ids in that multiplex before selecting an ID.
+      direct: Only {gene_id} is present in {multiplex_id}, resolving this request; the user requested
+        only this result, so stop. Return resolved with gene_id, gene_symbol, candidate_gene_ids, candidate_details,
+        multiplex_id, present_gene_ids, absent_gene_ids, both evidence channels, and no blocked reason.
+      step: Only {gene_id} is present in {multiplex_id}, resolving this request; the user needs this result
+        for a later workflow step, so continue. Return resolved with gene_id, gene_symbol, candidate_gene_ids,
+        candidate_details, multiplex_id, present_gene_ids, absent_gene_ids, both evidence channels, and
+        no blocked reason.
+    train_multiple_membership_reasoning:
+      after_lookup: The lookup returns {count} candidates for {symbol}, and the {source} names {multiplex_id}.
+        Check all candidate_gene_ids in that multiplex before selecting an ID.
+      final: The membership check leaves {present_count} of {count} candidates for {symbol} in {multiplex_id},
+        so it does not identify one gene. Return ambiguous/defer with a blocked reason asking the user
+        to choose one of the present IDs. Keep gene_symbol, candidate_gene_ids, candidate_details, multiplex_id,
+        present_gene_ids, and absent_gene_ids exactly as returned, retaining absent_gene_ids even when
+        empty and preserving both registry and graph evidence. Omit a singular gene_id, and wait for that
+        choice even when a later workflow step needs the result.
+    train_no_membership_reasoning:
+      after_lookup: The lookup returns {count} candidates for {symbol}, and the {source} names {multiplex_id}.
+        Check all candidate_gene_ids in that multiplex before selecting an ID.
+      final: The membership check finds no present candidates for {symbol} in {multiplex_id}; all {count}
+        registry candidates are absent from this multiplex. The lookup remains ambiguous, and choosing
+        one of these IDs cannot supply a usable node for the requested multiplex. Return ambiguous/defer
+        with a blocked reason explaining that another gene or multiplex is needed. Keep exactly gene_symbol,
+        candidate_gene_ids, candidate_details, multiplex_id, present_gene_ids, and absent_gene_ids, including
+        the empty present_gene_ids list and every returned absent ID. Preserve both registry and graph
+        evidence and omit a singular gene_id. Both direct and workflow requests remain blocked, so defer
+        until the request changes.
+    train_user_choice_reasoning:
+      direct: 'The reply selects {gene_id}, which appears in the earlier candidate_gene_ids list for {symbol},
+        so the user has resolved the choice. Build the result with exactly three fields: gene_id for the
+        selected ID, gene_symbol for the earlier canonical symbol, and candidate_gene_ids for the entire
+        earlier list in its original order. Keep the full list after selection; candidate_details and
+        other fields do not belong in this resolved result. Preserve the earlier registry evidence and
+        null graph provenance, and return resolved with no blocked reason. No new lookup or membership
+        check is needed. This completes the user''s standalone gene-ID request, so stop.'
+      step: 'The reply selects {gene_id}, which appears in the earlier candidate_gene_ids list for {symbol},
+        so the user has resolved the choice. Build the result with exactly three fields: gene_id for the
+        selected ID, gene_symbol for the earlier canonical symbol, and candidate_gene_ids for the entire
+        earlier list in its original order. Keep the full list after selection; candidate_details and
+        other fields do not belong in this resolved result. Preserve the earlier registry evidence and
+        null graph provenance, and return resolved with no blocked reason. No new lookup or membership
+        check is needed. The user''s later workflow step needs this selected mapping, so continue.'
+    train_form_counts:
+      3: 850
+      9: 850
+      10: 600
+    train_decorrelate: true
+  S1.4:
+    output_directory: data/world_model_v4/corpora/s1_v8/s1_4
+    train_candidate_reasoning: true
+    train_match_reasoning:
+      direct: "The registry maps {symbol} to {gene_id}, matching the ID supplied for the module entry,\
+        \ so both mentions name the same gene. Build first and second in the user\u2019s order, with exactly\
+        \ item, input, and gene_id in each. Use typed_seed_list for the seed\u2019s item and module for\
+        \ the module entry\u2019s item. Preserve both literal inputs, use {gene_id} for both gene_id values,\
+        \ and set same_gene to true. Preserve the lookup\u2019s registry evidence, with no graph evidence,\
+        \ and return resolved with no blocked reason. The supplied module context is sufficient for this\
+        \ comparison, so no further tool call is needed. The user asked only for this identity comparison.\
+        \ It is complete, so stop."
+      step: "The registry maps {symbol} to {gene_id}, matching the ID supplied for the module entry, so\
+        \ both mentions name the same gene. Build first and second in the user\u2019s order, with exactly\
+        \ item, input, and gene_id in each. Use typed_seed_list for the seed\u2019s item and module for\
+        \ the module entry\u2019s item. Preserve both literal inputs, use {gene_id} for both gene_id values,\
+        \ and set same_gene to true. Preserve the lookup\u2019s registry evidence, with no graph evidence,\
+        \ and return resolved with no blocked reason. The supplied module context is sufficient for this\
+        \ comparison, so no further tool call is needed. The user\u2019s later workflow step needs this\
+        \ identity comparison, so continue with the resolved result."
+    train_mismatch_reasoning:
+      direct: "The registry maps {symbol} to {gene_id}, which differs from the supplied seed ID {target_id}.\
+        \ The two mentions name different genes, so the identity comparison is resolved with same_gene\
+        \ set to false. Both IDs are available; no further lookup or multiplex membership check is needed.\
+        \ Build first and second in the user\u2019s order, with exactly item, input, and gene_id in each.\
+        \ Use abstract for the abstract mention\u2019s item and seed_gene_set for the seed\u2019s item.\
+        \ Preserve both literal inputs, use {gene_id} for the abstract mention\u2019s gene_id, and use\
+        \ {target_id} for the seed\u2019s gene_id. Preserve the lookup\u2019s registry evidence, with\
+        \ no graph evidence, and return resolved with no blocked reason. The user asked only for this\
+        \ identity comparison. It is complete, so stop."
+      step: "The registry maps {symbol} to {gene_id}, which differs from the supplied seed ID {target_id}.\
+        \ The two mentions name different genes, so the identity comparison is resolved with same_gene\
+        \ set to false. Both IDs are available; no further lookup or multiplex membership check is needed.\
+        \ Build first and second in the user\u2019s order, with exactly item, input, and gene_id in each.\
+        \ Use abstract for the abstract mention\u2019s item and seed_gene_set for the seed\u2019s item.\
+        \ Preserve both literal inputs, use {gene_id} for the abstract mention\u2019s gene_id, and use\
+        \ {target_id} for the seed\u2019s gene_id. Preserve the lookup\u2019s registry evidence, with\
+        \ no graph evidence, and return resolved with no blocked reason. The user\u2019s later workflow\
+        \ step needs this identity comparison, so continue with the resolved result."
+    train_unresolved_symbol_reasoning:
+      direct: "The registry returned not_found for {input}, with no candidate IDs. The abstract mention\u2019\
+        s identity remains unknown; an empty candidate list does not justify setting same_gene to false.\
+        \ I cannot infer a mapping from memory, the module context, or the literal input strings. Build\
+        \ result with exactly first, second, and same_gene. Put first and second in the user\u2019s order,\
+        \ with exactly item, input, and gene_id in each. Use abstract for the abstract mention\u2019s\
+        \ item and module for the module entry\u2019s item. Preserve both literal inputs, set the abstract\
+        \ mention\u2019s gene_id to null, and retain {target_id} as the module entry\u2019s gene_id. Set\
+        \ same_gene to null and return not_found with a nonempty blocked reason explaining the unresolved\
+        \ symbol. Preserve the lookup\u2019s registry evidence, with no graph evidence. Do not retry the\
+        \ lookup, reinterpret the symbol as an ID, or call membership. The user\u2019s identity comparison\
+        \ remains unanswered, so defer until they supply a current gene symbol or Ensembl gene ID for\
+        \ the abstract mention."
+      step: "The registry returned not_found for {input}, with no candidate IDs. The abstract mention\u2019\
+        s identity remains unknown; an empty candidate list does not justify setting same_gene to false.\
+        \ I cannot infer a mapping from memory, the module context, or the literal input strings. Build\
+        \ result with exactly first, second, and same_gene. Put first and second in the user\u2019s order,\
+        \ with exactly item, input, and gene_id in each. Use abstract for the abstract mention\u2019s\
+        \ item and module for the module entry\u2019s item. Preserve both literal inputs, set the abstract\
+        \ mention\u2019s gene_id to null, and retain {target_id} as the module entry\u2019s gene_id. Set\
+        \ same_gene to null and return not_found with a nonempty blocked reason explaining the unresolved\
+        \ symbol. Preserve the lookup\u2019s registry evidence, with no graph evidence. Do not retry the\
+        \ lookup, reinterpret the symbol as an ID, or call membership. The user\u2019s later workflow\
+        \ step needs this comparison, and the unresolved abstract mention blocks it. Defer until the user\
+        \ supplies a current gene symbol or Ensembl gene ID for that mention."
+    train_ambiguous_candidate_reasoning:
+      direct: "The registry maps {symbol} to {count} candidate IDs, and {target_id} is one of them. The\
+        \ module identifies the comparison target but does not select which candidate the typed seed means.\
+        \ The seed could refer to another candidate, so the comparison remains unknown. Build result with\
+        \ exactly first, second, and same_gene, keeping first and second in the user\u2019s mention order.\
+        \ For the typed seed, use exactly item, input, gene_id, candidate_gene_ids, and candidate_details,\
+        \ with item set to typed_seed_list and gene_id set to null. Preserve the full returned candidate_gene_ids\
+        \ list in its original order and candidate_details unchanged; the comparison does not filter them.\
+        \ For the module entry, use exactly item, input, and gene_id, with item set to module and gene_id\
+        \ set to {target_id}. Preserve both literal inputs and the lookup\u2019s registry evidence, with\
+        \ no graph evidence. No multiplex is named, and no further lookup or membership check is needed.\
+        \ Set same_gene to null and return ambiguous with a nonempty blocked reason explaining that the\
+        \ typed seed has multiple candidates. The user\u2019s identity comparison remains unanswered,\
+        \ so defer until they choose one Ensembl gene ID for the typed seed."
+      step: "The registry maps {symbol} to {count} candidate IDs, and {target_id} is one of them. The\
+        \ module identifies the comparison target but does not select which candidate the typed seed means.\
+        \ The seed could refer to another candidate, so the comparison remains unknown. Build result with\
+        \ exactly first, second, and same_gene, keeping first and second in the user\u2019s mention order.\
+        \ For the typed seed, use exactly item, input, gene_id, candidate_gene_ids, and candidate_details,\
+        \ with item set to typed_seed_list and gene_id set to null. Preserve the full returned candidate_gene_ids\
+        \ list in its original order and candidate_details unchanged; the comparison does not filter them.\
+        \ For the module entry, use exactly item, input, and gene_id, with item set to module and gene_id\
+        \ set to {target_id}. Preserve both literal inputs and the lookup\u2019s registry evidence, with\
+        \ no graph evidence. No multiplex is named, and no further lookup or membership check is needed.\
+        \ Set same_gene to null and return ambiguous with a nonempty blocked reason explaining that the\
+        \ typed seed has multiple candidates. The user\u2019s later workflow step needs this comparison,\
+        \ and the unselected seed identity blocks it. Defer until the user chooses one Ensembl gene ID\
+        \ for the typed seed."
+    train_ambiguous_noncandidate_reasoning:
+      direct: "The registry maps {symbol} to {count} candidate IDs, and {target_id} is not one of them.\
+        \ Every candidate in this nonempty list differs from the comparison target, so the two mentions\
+        \ name different genes. The comparison is resolved without selecting a single candidate for the\
+        \ typed seed. Build result with exactly first, second, and same_gene, keeping first and second\
+        \ in the user\u2019s mention order. For the typed seed, use exactly item, input, gene_id, candidate_gene_ids,\
+        \ and candidate_details, with item set to typed_seed_list and gene_id set to null. Preserve the\
+        \ full returned candidate_gene_ids list in its original order and candidate_details unchanged;\
+        \ the comparison does not filter them. For the module entry, use exactly item, input, and gene_id,\
+        \ with item set to module and gene_id set to {target_id}. Preserve both literal inputs and the\
+        \ lookup\u2019s registry evidence, with no graph evidence. No multiplex is named, and no further\
+        \ lookup or membership check is needed. Set same_gene to false and return resolved with no blocked\
+        \ reason. The user asked only for this identity comparison. It is complete, so stop."
+      step: "The registry maps {symbol} to {count} candidate IDs, and {target_id} is not one of them.\
+        \ Every candidate in this nonempty list differs from the comparison target, so the two mentions\
+        \ name different genes. The comparison is resolved without selecting a single candidate for the\
+        \ typed seed. Build result with exactly first, second, and same_gene, keeping first and second\
+        \ in the user\u2019s mention order. For the typed seed, use exactly item, input, gene_id, candidate_gene_ids,\
+        \ and candidate_details, with item set to typed_seed_list and gene_id set to null. Preserve the\
+        \ full returned candidate_gene_ids list in its original order and candidate_details unchanged;\
+        \ the comparison does not filter them. For the module entry, use exactly item, input, and gene_id,\
+        \ with item set to module and gene_id set to {target_id}. Preserve both literal inputs and the\
+        \ lookup\u2019s registry evidence, with no graph evidence. No multiplex is named, and no further\
+        \ lookup or membership check is needed. Set same_gene to false and return resolved with no blocked\
+        \ reason. The user\u2019s later workflow step needs this identity comparison, so continue with\
+        \ the resolved result."
+    train_mygene_match_reasoning:
+      direct: "The release 116 registry confirms {gene_id} with symbol {symbol}, matching the ID supplied\
+        \ by query_mygene for {query} and the module entry. Both mentions name the same gene. Build result\
+        \ with exactly first, second, and same_gene. Put first and second in the user\u2019s mention order,\
+        \ with exactly item, input, and gene_id in each. Use query_mygene for the external entry\u2019\
+        s item and module for the module entry\u2019s item. Keep {query} as the query_mygene input and\
+        \ preserve the module input exactly as supplied. Use {gene_id} for both gene_id values and set\
+        \ same_gene to true. Do not add gene_symbol to either item. Preserve the lookup\u2019s registry\
+        \ evidence, with no graph evidence, and return resolved with no blocked reason. The supplied module\
+        \ context is sufficient for this identity comparison, so no further lookup or membership check\
+        \ is needed. The user asked only for this identity comparison. It is complete, so stop."
+      step: "The release 116 registry confirms {gene_id} with symbol {symbol}, matching the ID supplied\
+        \ by query_mygene for {query} and the module entry. Both mentions name the same gene. Build result\
+        \ with exactly first, second, and same_gene. Put first and second in the user\u2019s mention order,\
+        \ with exactly item, input, and gene_id in each. Use query_mygene for the external entry\u2019\
+        s item and module for the module entry\u2019s item. Keep {query} as the query_mygene input and\
+        \ preserve the module input exactly as supplied. Use {gene_id} for both gene_id values and set\
+        \ same_gene to true. Do not add gene_symbol to either item. Preserve the lookup\u2019s registry\
+        \ evidence, with no graph evidence, and return resolved with no blocked reason. The supplied module\
+        \ context is sufficient for this identity comparison, so no further lookup or membership check\
+        \ is needed. The user\u2019s later workflow step needs this identity comparison, so continue with\
+        \ the resolved result."
+    train_decorrelate: true
+  S1.6:
+    output_directory: data/world_model_v4/corpora/s1_v8/s1_6
+    train_diverse_lists: true
+    train_layer_reasoning: true
+    train_bulk_pen_reasoning:
+      direct: "The supplied tag {layer_id} follows the bulkPEN grammar. The prefix sets layer_family to\
+        \ bulk_pen. The next component gives organ {organ}, and the remaining colon-separated components\
+        \ give region_path {region_path}. Copy layer_id exactly and preserve each region component\u2019\
+        s spelling and order, including underscores and hyphens. Return exactly layer_id, layer_family,\
+        \ source, network, organ, region_path, and cell_type_path. This grammar supplies no source, network,\
+        \ or cell-type path, so source, network, and cell_type_path remain null. These null values are\
+        \ expected for a valid bulkPEN tag. The supplied tag is sufficient to complete the parse. Return\
+        \ resolved with no blocked reason. The user asked only for this layer parse. The requested fields\
+        \ are complete, so stop."
+      step: "The supplied tag {layer_id} follows the bulkPEN grammar. The prefix sets layer_family to\
+        \ bulk_pen. The next component gives organ {organ}, and the remaining colon-separated components\
+        \ give region_path {region_path}. Copy layer_id exactly and preserve each region component\u2019\
+        s spelling and order, including underscores and hyphens. Return exactly layer_id, layer_family,\
+        \ source, network, organ, region_path, and cell_type_path. This grammar supplies no source, network,\
+        \ or cell-type path, so source, network, and cell_type_path remain null. These null values are\
+        \ expected for a valid bulkPEN tag. The supplied tag is sufficient to complete the parse. Return\
+        \ resolved with no blocked reason. The user needs these parsed layer fields for a later workflow\
+        \ step. Completing the parse supplies that step\u2019s input, so continue with the parsed result."
+    train_scpen_reasoning:
+      direct: The supplied tag {layer_id} follows the scPEN grammar. The prefix sets layer_family to scpen.
+        The second colon-separated component gives organ {organ}. The third component alone gives region_path
+        {region_path}; all remaining components give cell_type_path {cell_type_path}. Preserve the region
+        and cell-type paths as separate ordered lists, including a second cell-type component when present.
+        Copy layer_id exactly and preserve component spelling, underscores, and hyphens. The requested
+        field is {requested_field}, whose value is {requested_value}. Return the complete parse with exactly
+        layer_id, layer_family, source, network, organ, region_path, and cell_type_path. This grammar
+        supplies no source or network, so both remain null. These null values are expected for a valid
+        scPEN tag, including when source or network is the requested field. The supplied tag is sufficient
+        to answer the request. Return resolved with no blocked reason. The user asked only for this layer
+        field. The requested value is established, so stop.
+      step: "The supplied tag {layer_id} follows the scPEN grammar. The prefix sets layer_family to scpen.\
+        \ The second colon-separated component gives organ {organ}. The third component alone gives region_path\
+        \ {region_path}; all remaining components give cell_type_path {cell_type_path}. Preserve the region\
+        \ and cell-type paths as separate ordered lists, including a second cell-type component when present.\
+        \ Copy layer_id exactly and preserve component spelling, underscores, and hyphens. The requested\
+        \ field is {requested_field}, whose value is {requested_value}. Return the complete parse with\
+        \ exactly layer_id, layer_family, source, network, organ, region_path, and cell_type_path. This\
+        \ grammar supplies no source or network, so both remain null. These null values are expected for\
+        \ a valid scPEN tag, including when source or network is the requested field. The supplied tag\
+        \ is sufficient to answer the request. Return resolved with no blocked reason. The user needs\
+        \ this layer field for a later workflow step. Providing the requested value supplies that step\u2019\
+        s input, so continue with the parsed result."
+    train_humannet_reasoning:
+      direct: The supplied tag {layer_id} follows the two-component HumanNet grammar. The prefix sets
+        source to HumanNetV3. The second component gives network {network}. The family mapping assigns
+        string_ppi and biogrid_ppi to ppi, coexpression to coexpression, and every other network name
+        to other. For this network, set layer_family to {layer_family}. The family value other is a valid
+        classification for a well-formed HumanNet tag. Copy layer_id and the network spelling exactly,
+        including underscores. Return exactly layer_id, layer_family, source, network, organ, region_path,
+        and cell_type_path. This grammar supplies no organ, region path, or cell-type path, so organ,
+        region_path, and cell_type_path remain null. These null values are expected for a valid HumanNet
+        tag. The supplied tag is sufficient to complete the parse. Return resolved with no blocked reason.
+        The user asked only for this layer parse. The requested fields are complete, so stop.
+      step: "The supplied tag {layer_id} follows the two-component HumanNet grammar. The prefix sets source\
+        \ to HumanNetV3. The second component gives network {network}. The family mapping assigns string_ppi\
+        \ and biogrid_ppi to ppi, coexpression to coexpression, and every other network name to other.\
+        \ For this network, set layer_family to {layer_family}. The family value other is a valid classification\
+        \ for a well-formed HumanNet tag. Copy layer_id and the network spelling exactly, including underscores.\
+        \ Return exactly layer_id, layer_family, source, network, organ, region_path, and cell_type_path.\
+        \ This grammar supplies no organ, region path, or cell-type path, so organ, region_path, and cell_type_path\
+        \ remain null. These null values are expected for a valid HumanNet tag. The supplied tag is sufficient\
+        \ to complete the parse. Return resolved with no blocked reason. The user needs these parsed layer\
+        \ fields for a later workflow step. Completing the parse supplies that step\u2019s input, so continue\
+        \ with the parsed result."
+    train_final_reasoning:
+      4:
+        direct: The user asks to filter three supplied layer tags by exact {requested_field} equal to
+          {filter_value}. Parse each tag with its own prefix grammar and retain all three complete parses
+          in the supplied order. For scPEN, the third component alone is the region and the remaining
+          components are the cell-type path; bulkPEN uses all components after the organ as its region
+          path. HumanNetV3 supplies source and network; string_ppi and biogrid_ppi map to ppi, coexpression
+          maps to coexpression, and other network names map to other. {parse_steps} Compare scalar fields
+          by exact equality and path fields by exact component membership. Null fields contain no matching
+          component. Do not substitute a related anatomical term or infer a match from the other fields.
+          Return exactly layers, filter, and matching_layer_ids. Each item in layers retains exactly layer_id,
+          layer_family, source, network, organ, region_path, and cell_type_path, including null values.
+          The filter contains exactly field and value copied from the requested filter. Set matching_layer_ids
+          to {matching_layer_ids}, preserving input order. The matching list selects IDs without removing
+          any parsed layer from layers. An empty matching list completes the filter and is still resolved
+          with no blocked reason. The supplied tags and the literal comparison complete this request.
+          The user asked only for this filter result. Returning the complete parses and matching IDs finishes
+          the request, so stop.
+        step: "The user asks to filter three supplied layer tags by exact {requested_field} equal to {filter_value}.\
+          \ Parse each tag with its own prefix grammar and retain all three complete parses in the supplied\
+          \ order. For scPEN, the third component alone is the region and the remaining components are\
+          \ the cell-type path; bulkPEN uses all components after the organ as its region path. HumanNetV3\
+          \ supplies source and network; string_ppi and biogrid_ppi map to ppi, coexpression maps to coexpression,\
+          \ and other network names map to other. {parse_steps} Compare scalar fields by exact equality\
+          \ and path fields by exact component membership. Null fields contain no matching component.\
+          \ Do not substitute a related anatomical term or infer a match from the other fields. Return\
+          \ exactly layers, filter, and matching_layer_ids. Each item in layers retains exactly layer_id,\
+          \ layer_family, source, network, organ, region_path, and cell_type_path, including null values.\
+          \ The filter contains exactly field and value copied from the requested filter. Set matching_layer_ids\
+          \ to {matching_layer_ids}, preserving input order. The matching list selects IDs without removing\
+          \ any parsed layer from layers. An empty matching list completes the filter and is still resolved\
+          \ with no blocked reason. The supplied tags and the literal comparison complete this request.\
+          \ The user needs this filter result for a later workflow step. Returning the complete parses\
+          \ and matching IDs supplies that step\u2019s input, so continue with the result."
+      6:
+        direct: The supplied layer-tag input is {input}. {grammar_check} The input fails the native layer
+          grammar, so do not construct a partial LayerRef, repair separators, drop repeated components,
+          or guess missing values. Return exactly input and expected in result. Copy the tag literally
+          into input, preserving spelling and repeated or empty components; surrounding sentence punctuation
+          is not part of the tag. Set expected to layer_tag and status to invalid_input, with a nonempty
+          blocked reason explaining the failed grammar. A complete valid tag is needed to perform the
+          requested parse. The standalone parse is blocked by the invalid tag, so defer until the user
+          supplies a valid tag.
+        step: The supplied layer-tag input is {input}. {grammar_check} The input fails the native layer
+          grammar, so do not construct a partial LayerRef, repair separators, drop repeated components,
+          or guess missing values. Return exactly input and expected in result. Copy the tag literally
+          into input, preserving spelling and repeated or empty components; surrounding sentence punctuation
+          is not part of the tag. Set expected to layer_tag and status to invalid_input, with a nonempty
+          blocked reason explaining the failed grammar. A complete valid tag is needed to perform the
+          requested parse. The later workflow step cannot use an invalid tag. Its workflow cue does not
+          remove this missing prerequisite, so defer until the user supplies a valid tag.
+    train_decorrelate: true
+  S1.7:
+    output_directory: data/world_model_v4/corpora/s1_v8/s1_7
+    train_form_counts:
+      1: 1200
+      8: 600
+    train_claim_reasoning: true
+    train_final_reasoning:
+      2:
+        direct: 'The user requests a family filter, with requested family {requested_family}. The closed
+          family mapping assigns bulkPEN to bulk_pen, scPEN to scpen, and TFs to tf_target. For HumanNetV3,
+          compare the complete network component: string_ppi and biogrid_ppi map to ppi, coexpression
+          maps to coexpression, and every other network name maps to other. Classify each supplied tag
+          separately, in its supplied position. {layer_assignments} Compare each mapped family with the
+          requested family, retaining each exact tag in one list only. The matching_layer_ids list is
+          {matching_layer_ids}, and the other_layer_ids list is {other_layer_ids}. Preserve input order
+          within both lists; together they contain every supplied tag exactly once. Return exactly layer_family,
+          matching_layer_ids, and other_layer_ids. The layer_family field records the requested filter
+          family, even when no input belongs to it. An empty matching list is a complete answer, and the
+          other list then contains every input. The supplied tags and family mapping settle the filter,
+          so return resolved with no blocked reason. The user asked only for this family filter. The requested
+          result is complete, so stop.'
+        step: 'The user requests a family filter, with requested family {requested_family}. The closed
+          family mapping assigns bulkPEN to bulk_pen, scPEN to scpen, and TFs to tf_target. For HumanNetV3,
+          compare the complete network component: string_ppi and biogrid_ppi map to ppi, coexpression
+          maps to coexpression, and every other network name maps to other. Classify each supplied tag
+          separately, in its supplied position. {layer_assignments} Compare each mapped family with the
+          requested family, retaining each exact tag in one list only. The matching_layer_ids list is
+          {matching_layer_ids}, and the other_layer_ids list is {other_layer_ids}. Preserve input order
+          within both lists; together they contain every supplied tag exactly once. Return exactly layer_family,
+          matching_layer_ids, and other_layer_ids. The layer_family field records the requested filter
+          family, even when no input belongs to it. An empty matching list is a complete answer, and the
+          other list then contains every input. The supplied tags and family mapping settle the filter,
+          so return resolved with no blocked reason. The user needs this family filter for a later workflow
+          step. Providing the filtered lists supplies that step''s input, so continue with the result.'
+      4:
+        direct: 'The user asks whether the phrase "{claim_phrase}" is supported. Its canonical claim is
+          {claim}: {claim_definition}. Determine this meaning from the requested phrase before considering
+          what the family supports. Use only the eight canonical claim names, in this order: context_predictive_expression,
+          physical_interaction_recorded, regulatory_link_recorded, regulation_direction, global_coexpression,
+          cofunctional_association, holds_in_other_contexts, causal_effect. A recorded regulatory connection
+          differs from identifying regulator and target roles. Expression correlation across datasets
+          differs from shared function inferred by network integration. The closed family mapping assigns
+          bulkPEN to bulk_pen, scPEN to scpen, and TFs to tf_target. For HumanNetV3, compare the complete
+          network component: string_ppi and biogrid_ppi map to ppi, coexpression maps to coexpression,
+          and every other network name maps to other. {family_assignment} Copy the supplied layer tag
+          exactly; when the request names only a family, layer_id is null. Here layer_id is {layer_id},
+          layer_family is {layer_family}, and evidence_type is {evidence_type}. The fixed card gives supported_claims
+          {supported_claims} and unsupported_claims {unsupported_claims}. These ordered lists partition
+          all eight claims without overlap, omissions, or invented names. The requested claim belongs
+          to the supported list exactly when claim_supported is true; here claim_supported is {claim_supported}.
+          Keep the card fixed when judging the claim, including a claim the card does not support. Return
+          exactly layer_id, layer_family, evidence_type, supported_claims, unsupported_claims, claim,
+          and claim_supported. A false support verdict answers the question, so return resolved with no
+          blocked reason. The user asked only for this claim check. The requested result is complete,
+          so stop.'
+        step: 'The user asks whether the phrase "{claim_phrase}" is supported. Its canonical claim is
+          {claim}: {claim_definition}. Determine this meaning from the requested phrase before considering
+          what the family supports. Use only the eight canonical claim names, in this order: context_predictive_expression,
+          physical_interaction_recorded, regulatory_link_recorded, regulation_direction, global_coexpression,
+          cofunctional_association, holds_in_other_contexts, causal_effect. A recorded regulatory connection
+          differs from identifying regulator and target roles. Expression correlation across datasets
+          differs from shared function inferred by network integration. The closed family mapping assigns
+          bulkPEN to bulk_pen, scPEN to scpen, and TFs to tf_target. For HumanNetV3, compare the complete
+          network component: string_ppi and biogrid_ppi map to ppi, coexpression maps to coexpression,
+          and every other network name maps to other. {family_assignment} Copy the supplied layer tag
+          exactly; when the request names only a family, layer_id is null. Here layer_id is {layer_id},
+          layer_family is {layer_family}, and evidence_type is {evidence_type}. The fixed card gives supported_claims
+          {supported_claims} and unsupported_claims {unsupported_claims}. These ordered lists partition
+          all eight claims without overlap, omissions, or invented names. The requested claim belongs
+          to the supported list exactly when claim_supported is true; here claim_supported is {claim_supported}.
+          Keep the card fixed when judging the claim, including a claim the card does not support. Return
+          exactly layer_id, layer_family, evidence_type, supported_claims, unsupported_claims, claim,
+          and claim_supported. A false support verdict answers the question, so return resolved with no
+          blocked reason. The user needs this claim check for a later workflow step. Providing the claim
+          verdict and family card supplies that step''s input, so continue with the result.'
+      8:
+        direct: 'The supplied tag {layer_id} has HumanNetV3 source and complete network component {network}.
+          The family mapping assigns string_ppi and biogrid_ppi to ppi, coexpression to coexpression,
+          and every other network name to other. This network matches none of the named mappings, so its
+          family is other. The other family is a valid classification; the network''s wording does not
+          establish an additional family or evidence type. Its fixed card has evidence_type null and supported_claims
+          [], so no listed claim is supported. Its unsupported_claims contains all eight canonical names,
+          in order: context_predictive_expression, physical_interaction_recorded, regulatory_link_recorded,
+          regulation_direction, global_coexpression, cofunctional_association, holds_in_other_contexts,
+          causal_effect. Keep these names exact; do not infer new evidence or claims from what the network
+          name suggests. Return exactly layer_id, layer_family, evidence_type, supported_claims, and unsupported_claims.
+          Copy the supplied tag exactly, retain other as the family, and preserve the null and empty list.
+          The complete card answers the request, so return resolved with no blocked reason. The user asked
+          only for this family claim card. The requested result is complete, so stop.'
+        step: 'The supplied tag {layer_id} has HumanNetV3 source and complete network component {network}.
+          The family mapping assigns string_ppi and biogrid_ppi to ppi, coexpression to coexpression,
+          and every other network name to other. This network matches none of the named mappings, so its
+          family is other. The other family is a valid classification; the network''s wording does not
+          establish an additional family or evidence type. Its fixed card has evidence_type null and supported_claims
+          [], so no listed claim is supported. Its unsupported_claims contains all eight canonical names,
+          in order: context_predictive_expression, physical_interaction_recorded, regulatory_link_recorded,
+          regulation_direction, global_coexpression, cofunctional_association, holds_in_other_contexts,
+          causal_effect. Keep these names exact; do not infer new evidence or claims from what the network
+          name suggests. Return exactly layer_id, layer_family, evidence_type, supported_claims, and unsupported_claims.
+          Copy the supplied tag exactly, retain other as the family, and preserve the null and empty list.
+          The complete card answers the request, so return resolved with no blocked reason. The user needs
+          this family claim card for a later workflow step. Providing the complete family card supplies
+          that step''s input, so continue with the result.'
+    train_decorrelate: true
+  S1.8:
+    output_directory: data/world_model_v4/corpora/s1_v8/s1_8
+    train_variant_coverage: true
+    train_metric_reasoning: true
+    train_final_reasoning:
+      1:
+        direct: "The supplied name is {input_name}. {name_resolution} Copy that exact input into input\
+          \ and set metric to {metric}. The fixed convention sets lower_is_stronger to {lower_is_stronger},\
+          \ meaning to {meaning}, and rule to {rule}. {direction_explanation} Keep the convention\u2019\
+          s direction, meaning, and rule together; a metric\u2019s spelling or the question\u2019s phrasing\
+          \ does not change its convention. This is a direction lookup with no proposition to judge, so\
+          \ include statement_true as null. The result contains metric, input, lower_is_stronger, meaning,\
+          \ rule, and statement_true. {candidate_schema} These fields describe a metric convention, so\
+          \ do not replace them with gene, layer, score, or item fields. The supplied name and fixed convention\
+          \ are sufficient to answer without a lookup. Return resolved with no blocked reason. The enclosing\
+          \ request asks only for this metric answer. The requested convention and any truth verdict are\
+          \ complete, so stop."
+        step: "The supplied name is {input_name}. {name_resolution} Copy that exact input into input and\
+          \ set metric to {metric}. The fixed convention sets lower_is_stronger to {lower_is_stronger},\
+          \ meaning to {meaning}, and rule to {rule}. {direction_explanation} Keep the convention\u2019\
+          s direction, meaning, and rule together; a metric\u2019s spelling or the question\u2019s phrasing\
+          \ does not change its convention. This is a direction lookup with no proposition to judge, so\
+          \ include statement_true as null. The result contains metric, input, lower_is_stronger, meaning,\
+          \ rule, and statement_true. {candidate_schema} These fields describe a metric convention, so\
+          \ do not replace them with gene, layer, score, or item fields. The supplied name and fixed convention\
+          \ are sufficient to answer without a lookup. Return resolved with no blocked reason. The enclosing\
+          \ request says subsequent work needs this metric answer. The resolved convention and any truth\
+          \ verdict supply that later step\u2019s input, so continue."
+      2:
+        direct: "The supplied name is {input_name}. {name_resolution} Copy that exact input into input\
+          \ and set metric to {metric}. The fixed convention sets lower_is_stronger to {lower_is_stronger},\
+          \ meaning to {meaning}, and rule to {rule}. {direction_explanation} Keep the convention\u2019\
+          s direction, meaning, and rule together; a metric\u2019s spelling or the question\u2019s phrasing\
+          \ does not change its convention. The claim pairs {claim_direction} values with {claim_outcome}.\
+          \ For that same value direction, the convention gives {actual_outcome}. Comparing the claimed\
+          \ outcome with the convention makes statement_true {statement_true}. A false claim is still\
+          \ fully answered; it does not make the metric unknown or require deferral. The result contains\
+          \ metric, input, lower_is_stronger, meaning, rule, and statement_true. {candidate_schema} These\
+          \ fields describe a metric convention, so do not replace them with gene, layer, score, or item\
+          \ fields. The supplied name and fixed convention are sufficient to answer without a lookup.\
+          \ Return resolved with no blocked reason. The enclosing request asks only for this metric answer.\
+          \ The requested convention and any truth verdict are complete, so stop."
+        step: "The supplied name is {input_name}. {name_resolution} Copy that exact input into input and\
+          \ set metric to {metric}. The fixed convention sets lower_is_stronger to {lower_is_stronger},\
+          \ meaning to {meaning}, and rule to {rule}. {direction_explanation} Keep the convention\u2019\
+          s direction, meaning, and rule together; a metric\u2019s spelling or the question\u2019s phrasing\
+          \ does not change its convention. The claim pairs {claim_direction} values with {claim_outcome}.\
+          \ For that same value direction, the convention gives {actual_outcome}. Comparing the claimed\
+          \ outcome with the convention makes statement_true {statement_true}. A false claim is still\
+          \ fully answered; it does not make the metric unknown or require deferral. The result contains\
+          \ metric, input, lower_is_stronger, meaning, rule, and statement_true. {candidate_schema} These\
+          \ fields describe a metric convention, so do not replace them with gene, layer, score, or item\
+          \ fields. The supplied name and fixed convention are sufficient to answer without a lookup.\
+          \ Return resolved with no blocked reason. The enclosing request says subsequent work needs this\
+          \ metric answer. The resolved convention and any truth verdict supply that later step\u2019\
+          s input, so continue."
+      3:
+        direct: "The supplied name is {input_name}. {name_resolution} Copy that exact input into input\
+          \ and set metric to {metric}. The fixed convention sets lower_is_stronger to {lower_is_stronger},\
+          \ meaning to {meaning}, and rule to {rule}. {direction_explanation} Keep the convention\u2019\
+          s direction, meaning, and rule together; a metric\u2019s spelling or the question\u2019s phrasing\
+          \ does not change its convention. The claim pairs {claim_direction} values with {claim_outcome}.\
+          \ For that same value direction, the convention gives {actual_outcome}. Comparing the claimed\
+          \ outcome with the convention makes statement_true {statement_true}. A false claim is still\
+          \ fully answered; it does not make the metric unknown or require deferral. The result contains\
+          \ metric, input, lower_is_stronger, meaning, rule, and statement_true. {candidate_schema} These\
+          \ fields describe a metric convention, so do not replace them with gene, layer, score, or item\
+          \ fields. The supplied name and fixed convention are sufficient to answer without a lookup.\
+          \ Return resolved with no blocked reason. The enclosing request asks only for this metric answer.\
+          \ The requested convention and any truth verdict are complete, so stop."
+        step: "The supplied name is {input_name}. {name_resolution} Copy that exact input into input and\
+          \ set metric to {metric}. The fixed convention sets lower_is_stronger to {lower_is_stronger},\
+          \ meaning to {meaning}, and rule to {rule}. {direction_explanation} Keep the convention\u2019\
+          s direction, meaning, and rule together; a metric\u2019s spelling or the question\u2019s phrasing\
+          \ does not change its convention. The claim pairs {claim_direction} values with {claim_outcome}.\
+          \ For that same value direction, the convention gives {actual_outcome}. Comparing the claimed\
+          \ outcome with the convention makes statement_true {statement_true}. A false claim is still\
+          \ fully answered; it does not make the metric unknown or require deferral. The result contains\
+          \ metric, input, lower_is_stronger, meaning, rule, and statement_true. {candidate_schema} These\
+          \ fields describe a metric convention, so do not replace them with gene, layer, score, or item\
+          \ fields. The supplied name and fixed convention are sufficient to answer without a lookup.\
+          \ Return resolved with no blocked reason. The enclosing request says subsequent work needs this\
+          \ metric answer. The resolved convention and any truth verdict supply that later step\u2019\
+          s input, so continue."
+      4:
+        direct: "The supplied name is {input_name}. {name_resolution} Copy that exact input into input\
+          \ and set metric to {metric}. The fixed convention sets lower_is_stronger to {lower_is_stronger},\
+          \ meaning to {meaning}, and rule to {rule}. {direction_explanation} Keep the convention\u2019\
+          s direction, meaning, and rule together; a metric\u2019s spelling or the question\u2019s phrasing\
+          \ does not change its convention. The claim pairs {claim_direction} values with {claim_outcome}.\
+          \ For that same value direction, the convention gives {actual_outcome}. Comparing the claimed\
+          \ outcome with the convention makes statement_true {statement_true}. A false claim is still\
+          \ fully answered; it does not make the metric unknown or require deferral. The result contains\
+          \ metric, input, lower_is_stronger, meaning, rule, and statement_true. {candidate_schema} These\
+          \ fields describe a metric convention, so do not replace them with gene, layer, score, or item\
+          \ fields. The supplied name and fixed convention are sufficient to answer without a lookup.\
+          \ Return resolved with no blocked reason. The metric statement mentions later workflow use,\
+          \ but the enclosing request asks only for this convention check. That inner description does\
+          \ not add another requested action. The convention and truth verdict complete the enclosing\
+          \ request, so stop."
+        step: "The supplied name is {input_name}. {name_resolution} Copy that exact input into input and\
+          \ set metric to {metric}. The fixed convention sets lower_is_stronger to {lower_is_stronger},\
+          \ meaning to {meaning}, and rule to {rule}. {direction_explanation} Keep the convention\u2019\
+          s direction, meaning, and rule together; a metric\u2019s spelling or the question\u2019s phrasing\
+          \ does not change its convention. The claim pairs {claim_direction} values with {claim_outcome}.\
+          \ For that same value direction, the convention gives {actual_outcome}. Comparing the claimed\
+          \ outcome with the convention makes statement_true {statement_true}. A false claim is still\
+          \ fully answered; it does not make the metric unknown or require deferral. The result contains\
+          \ metric, input, lower_is_stronger, meaning, rule, and statement_true. {candidate_schema} These\
+          \ fields describe a metric convention, so do not replace them with gene, layer, score, or item\
+          \ fields. The supplied name and fixed convention are sufficient to answer without a lookup.\
+          \ Return resolved with no blocked reason. The enclosing request says subsequent work needs this\
+          \ metric answer. The resolved convention and any truth verdict supply that later step\u2019\
+          s input, so continue."
+      5:
+        direct: The supplied name {input_name} does not distinguish distance_percentile from score_percentile.
+          A lower distance percentile means closer, whereas a higher score percentile means closer. The
+          two candidate conventions disagree, so neither the direction nor the truth of the claim is determined.
+          Copy the supplied name exactly into input. Return exactly metric, input, lower_is_stronger,
+          meaning, rule, statement_true, and candidate_metrics. Keep metric, lower_is_stronger, meaning,
+          rule, and statement_true explicitly null; uncertainty does not remove these required fields.
+          Set candidate_metrics to the ordered list ["distance_percentile", "score_percentile"], retaining
+          that exact field name. Return ambiguous with a blocked reason explaining the opposing conventions.
+          Ask which candidate is intended; the request cannot be completed until that choice is supplied,
+          so defer.
+        step: The supplied name {input_name} does not distinguish distance_percentile from score_percentile.
+          A lower distance percentile means closer, whereas a higher score percentile means closer. The
+          two candidate conventions disagree, so neither the direction nor the truth of the claim is determined.
+          Copy the supplied name exactly into input. Return exactly metric, input, lower_is_stronger,
+          meaning, rule, statement_true, and candidate_metrics. Keep metric, lower_is_stronger, meaning,
+          rule, and statement_true explicitly null; uncertainty does not remove these required fields.
+          Set candidate_metrics to the ordered list ["distance_percentile", "score_percentile"], retaining
+          that exact field name. Return ambiguous with a blocked reason explaining the opposing conventions.
+          Ask which candidate is intended; the request cannot be completed until that choice is supplied,
+          so defer.
+      6:
+        direct: "The supplied name {input_name} has no matching metric in the fixed convention set. A\
+          \ familiar scientific name or a resemblance to a known distance, similarity, or evidence measure\
+          \ does not establish a convention here. No supported alias supplies a candidate convention for\
+          \ this name, so do not choose a nearby metric or invent candidate metrics. Copy the supplied\
+          \ name exactly into input. Return exactly metric, input, lower_is_stronger, meaning, rule, and\
+          \ statement_true. Keep metric, lower_is_stronger, meaning, rule, and statement_true explicitly\
+          \ null; unknown values do not remove these required fields. There is no candidate_metrics field\
+          \ for an unknown name. The direction and the claim\u2019s truth remain undetermined, so return\
+          \ not_found with a blocked reason requesting its convention. Without that convention the request\
+          \ cannot be completed, so defer."
+        step: "The supplied name {input_name} has no matching metric in the fixed convention set. A familiar\
+          \ scientific name or a resemblance to a known distance, similarity, or evidence measure does\
+          \ not establish a convention here. No supported alias supplies a candidate convention for this\
+          \ name, so do not choose a nearby metric or invent candidate metrics. Copy the supplied name\
+          \ exactly into input. Return exactly metric, input, lower_is_stronger, meaning, rule, and statement_true.\
+          \ Keep metric, lower_is_stronger, meaning, rule, and statement_true explicitly null; unknown\
+          \ values do not remove these required fields. There is no candidate_metrics field for an unknown\
+          \ name. The direction and the claim\u2019s truth remain undetermined, so return not_found with\
+          \ a blocked reason requesting its convention. Without that convention the request cannot be\
+          \ completed, so defer."
+    train_decorrelate: true
+  S1.9:
+    output_directory: data/world_model_v4/corpora/s1_v8/s1_9
+    train_module_reasoning: true
+    train_balanced_requests: true
+    train_final_reasoning:
+      1:
+        direct: The user asks to decode a module identifier, so apply the module grammar to the supplied
+          ID. A module ID is the expected input for this request. Parse {module_id} as four colon-separated
+          components. The prefix rwr_loe sets module_family to rwr_loe. The second component sets multiplex_id
+          to {multiplex_id}. The third component is {seed_component}; remove only seed_ to obtain seed_gene_id
+          {seed_gene_id}. The fourth component sets threshold_recipe to {threshold_recipe}. Preserve the
+          entire supplied identifier as module_id and copy every other component exactly. Return exactly
+          module_id, module_family, multiplex_id, seed_gene_id, threshold_recipe, and existence_asserted.
+          These are the fields encoded by this module grammar. This syntax task is complete from the identifier;
+          no lookup or existence check is needed. Parsing establishes the encoded fields and does not
+          establish module existence, so existence_asserted is false. The grammar matches, so status is
+          resolved and there is no blocked reason. The answer uses null provenance because the fields
+          come from the supplied identifier. The user asked only for the encoded module fields. Returning
+          the complete parse finishes that request, so stop.
+        step: "The user asks to decode a module identifier, so apply the module grammar to the supplied\
+          \ ID. A module ID is the expected input for this request. Parse {module_id} as four colon-separated\
+          \ components. The prefix rwr_loe sets module_family to rwr_loe. The second component sets multiplex_id\
+          \ to {multiplex_id}. The third component is {seed_component}; remove only seed_ to obtain seed_gene_id\
+          \ {seed_gene_id}. The fourth component sets threshold_recipe to {threshold_recipe}. Preserve\
+          \ the entire supplied identifier as module_id and copy every other component exactly. Return\
+          \ exactly module_id, module_family, multiplex_id, seed_gene_id, threshold_recipe, and existence_asserted.\
+          \ These are the fields encoded by this module grammar. This syntax task is complete from the\
+          \ identifier; no lookup or existence check is needed. Parsing establishes the encoded fields\
+          \ and does not establish module existence, so existence_asserted is false. The grammar matches,\
+          \ so status is resolved and there is no blocked reason. The answer uses null provenance because\
+          \ the fields come from the supplied identifier. The user needs the encoded module fields for\
+          \ a later workflow step. Returning the complete parse supplies that step\u2019s input, so continue\
+          \ with the parsed result."
+      2:
+        direct: The user asks to decode a module identifier, so apply the module grammar to the supplied
+          ID. A module ID is the expected input for this request. Parse {module_id} as three colon-separated
+          components. The prefix mentor_ev sets module_family to mentor_ev. The second component sets
+          dendrogram_id to {dendrogram_id}. The third component sets clade_id to {clade_id}; preserve
+          the clade_ prefix and all six digits, including leading zeros. Preserve the entire supplied
+          identifier as module_id and keep the clade identifier as a string. Return exactly module_id,
+          module_family, dendrogram_id, clade_id, and existence_asserted. These are the fields encoded
+          by this module grammar. This syntax task is complete from the identifier; no lookup or existence
+          check is needed. Parsing establishes the encoded fields and does not establish module existence,
+          so existence_asserted is false. The grammar matches, so status is resolved and there is no blocked
+          reason. The answer uses null provenance because the fields come from the supplied identifier.
+          The user asked only for the encoded module fields. Returning the complete parse finishes that
+          request, so stop.
+        step: "The user asks to decode a module identifier, so apply the module grammar to the supplied\
+          \ ID. A module ID is the expected input for this request. Parse {module_id} as three colon-separated\
+          \ components. The prefix mentor_ev sets module_family to mentor_ev. The second component sets\
+          \ dendrogram_id to {dendrogram_id}. The third component sets clade_id to {clade_id}; preserve\
+          \ the clade_ prefix and all six digits, including leading zeros. Preserve the entire supplied\
+          \ identifier as module_id and keep the clade identifier as a string. Return exactly module_id,\
+          \ module_family, dendrogram_id, clade_id, and existence_asserted. These are the fields encoded\
+          \ by this module grammar. This syntax task is complete from the identifier; no lookup or existence\
+          \ check is needed. Parsing establishes the encoded fields and does not establish module existence,\
+          \ so existence_asserted is false. The grammar matches, so status is resolved and there is no\
+          \ blocked reason. The answer uses null provenance because the fields come from the supplied\
+          \ identifier. The user needs the encoded module fields for a later workflow step. Returning\
+          \ the complete parse supplies that step\u2019s input, so continue with the parsed result."
+    train_decorrelate: true
+prompt_banks:
+  path: runtime/world_model/s1_v5_prompt_banks.json
+  sha256: 046795f979dee48c07824e2e03294c093597a45637451aca2fa473b4592a2e6f
+train_normalization:
+  evidence_id_policy: aggregate_sequence_v1
+  strip_s0_metadata_additions: true
+s0_replay:
+  dataset_id: world_model_v4_s0_human_identifiers
+  output_directory: data/world_model_v4/corpora/s0
+  manifest_schema_version: mentor-rl-world-model-s0-manifest-v2
+  corpus_schema_version: mentor-rl-world-model-s0-corpus-v2

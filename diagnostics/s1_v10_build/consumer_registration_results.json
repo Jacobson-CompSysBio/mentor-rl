@@ -1,0 +1,29 @@
+{
+  "scope": "Register v10 consumers while retaining v9 recipe and telemetry constraints; no persistent training/evaluation run configs created, no jobs submitted, no v10 training preflight performed.",
+  "tests": [
+    {
+      "command": "USE_TORCH=0 USE_TF=0 PYTHONPATH=. /lustre/orion/syb111/world-shared/environments/pytorch-rocm/bin/python -m pytest -q tests/test_world_model_s1_v10_consumers.py tests/test_world_model_s1_v8_train_contract.py tests/test_world_model_s1_v9_launch_contract.py -k 'not generation_and_panel_consumers'",
+      "exit_code": 1,
+      "summary": "1 failed, 42 passed, 1 deselected in 11.95s",
+      "stdout": "diagnostics/s1_v10_build/consumer_registration_tests.log",
+      "failure": "Frozen v9 robustness diagnostic detects changed s1_3_corpus.py implementation pin from the authorized v10 corpus fix; historical pins preserved."
+    },
+    {
+      "command": "USE_TORCH=0 USE_TF=0 PYTHONPATH=. /lustre/orion/syb111/world-shared/environments/pytorch-rocm/bin/python -m pytest -q tests/test_world_model_s1_eval_setup.py -k 'generation_bundle or eval_consumers_use'",
+      "exit_code": 0,
+      "summary": "6 passed, 47 deselected in 7.49s",
+      "stdout": "diagnostics/s1_v10_build/generation_registration_legacy_tests.log"
+    },
+    {
+      "command": "USE_TORCH=0 USE_TF=0 PYTHONPATH=. /lustre/orion/syb111/world-shared/environments/pytorch-rocm/bin/python -m pytest -q tests/test_world_model_s1_v10_consumers.py",
+      "exit_code": 0,
+      "summary": "9 passed in 3.59s",
+      "stdout": "diagnostics/s1_v10_build/consumer_registration_v10_tests.log"
+    }
+  ],
+  "snapshot_method": {
+    "validate_world_model_s1_eval_contract.py.before": "Copied before changes",
+    "build_world_model_s1_generation_bundle.py.before": "Reconstructed by reversing only this registration patch",
+    "validate_world_model_v2_s0_train_contract.py.before": "Reconstructed by reversing only this registration patch; existing user edits preserved"
+  }
+}

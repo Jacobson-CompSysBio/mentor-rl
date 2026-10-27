@@ -21,6 +21,15 @@ from runtime.world_model_s0_tools import (  # noqa: E402
     TOOL_CONTRACT_VERSION_V2,
     identifier_tool_definitions,
 )
+from runtime.world_model.contract import (  # noqa: E402
+    load_contract,
+    system_prompt_sha256,
+    tool_definitions,
+)
+from runtime.world_model.source_index import (  # noqa: E402
+    check_source_index,
+    content_sha256,
+)
 from runtime.world_model_schemas import (  # noqa: E402
     IdentifierToolSFTMetadata,
 )
@@ -38,6 +47,15 @@ BUNDLE_SHARED_TRACE_SCHEMA_VERSION = (
 BUNDLE_FULL_SHARED_TRACE_SCHEMA_VERSION = (
     "mentor-rl-world-model-s0-full-shared-trace-generation-bundle-v7"
 )
+BUNDLE_V3_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-generation-bundle-v3"
+)
+FULL_REGISTRY_BUNDLE_V3_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-full-registry-generation-bundle-v3"
+)
+SNAPSHOT_VALIDATION_BUNDLE_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-snapshot-validation-generation-bundle-v1"
+)
 EVALUATOR_TOOL_TRAJECTORY_SCHEMA_VERSION = (
     "mentor-rl-world-model-s0-evaluator-manifest-v6"
 )
@@ -49,6 +67,13 @@ EVALUATOR_SHARED_TRACE_SCHEMA_VERSION = (
 )
 EVALUATOR_FULL_SHARED_TRACE_SCHEMA_VERSION = (
     "mentor-rl-world-model-s0-full-shared-evaluator-manifest-v7"
+)
+EVALUATOR_V3_SCHEMA_VERSION = "mentor-rl-world-model-s0-evaluator-v3"
+FULL_REGISTRY_EVALUATOR_V3_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-full-registry-evaluator-v3"
+)
+SNAPSHOT_VALIDATION_EVALUATOR_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-evaluator-v4"
 )
 TOOL_TRAJECTORY_EVALUATION_CONTRACT = (
     "unseen_component_tool_trajectory_v1"
@@ -62,12 +87,27 @@ SHARED_TRACE_EVALUATION_CONTRACT = (
 FULL_SHARED_TRACE_EVALUATION_CONTRACT = (
     "full_registry_supervised_trace_v1"
 )
+V3_EVALUATION_CONTRACT = "held_out_multiplex_sft_v3"
+FULL_REGISTRY_V3_EVALUATION_CONTRACT = "full_registry_multiplex_sft_v3"
+SNAPSHOT_VALIDATION_EVALUATION_CONTRACT = (
+    "held_out_multiplex_sft_v4"
+)
+V3_EVALUATION_CONTRACTS = frozenset(
+    {
+        V3_EVALUATION_CONTRACT,
+        FULL_REGISTRY_V3_EVALUATION_CONTRACT,
+        SNAPSHOT_VALIDATION_EVALUATION_CONTRACT,
+    }
+)
 TOOL_TRAJECTORY_EVALUATION_CONTRACTS = frozenset(
     {
         TOOL_TRAJECTORY_EVALUATION_CONTRACT,
         FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT,
         SHARED_TRACE_EVALUATION_CONTRACT,
         FULL_SHARED_TRACE_EVALUATION_CONTRACT,
+        V3_EVALUATION_CONTRACT,
+        FULL_REGISTRY_V3_EVALUATION_CONTRACT,
+        SNAPSHOT_VALIDATION_EVALUATION_CONTRACT,
     }
 )
 TOOL_TRAJECTORY_DATASET_ID = (
@@ -82,6 +122,14 @@ SHARED_TRACE_DATASET_ID = (
 FULL_SHARED_TRACE_DATASET_ID = (
     "world_model_v2_s0_human_identifier_supervised_traces_full_registry_v7"
 )
+V3_DATASET_ID = "world_model_v3_s0_human_identifiers"
+FULL_REGISTRY_V3_DATASET_ID = (
+    "world_model_v3_s0_human_identifiers_full_registry"
+)
+SNAPSHOT_VALIDATION_DATASET_ID = (
+    "world_model_v4_s0_human_identifiers"
+)
+V3_TOOL_CONTRACT_VERSION = "mentor-rl-world-model-s0-identifier-tools-v3"
 QUESTION_KEYS = frozenset(
     {
         "input",
@@ -180,10 +228,9 @@ def write_jsonl(path: Path, rows: list[Mapping[str, Any]]) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(
-        "".join(canonical_json(row) + "\n" for row in rows),
-        encoding="utf-8",
-    )
+    with temporary.open("w", encoding="utf-8") as destination:
+        for row in rows:
+            destination.write(canonical_json(row) + "\n")
     temporary.replace(path)
 
 
@@ -209,6 +256,13 @@ def _validate_question(
     *,
     expected_fact_role: str,
     tool_contract_version: str = TOOL_CONTRACT_VERSION_V1,
+    expected_v3_system_prompt_sha256: str | None = None,
+    expected_v3_tools: list[dict[str, Any]] | None = None,
+    expected_split: str = "test",
+    expected_prompt_form_ids: frozenset[str] = frozenset({"test"}),
+    expected_metadata_schemas: frozenset[str] = frozenset(
+        {"multiplex_sft_v3"}
+    ),
 ) -> dict[str, Any]:
     """Return one valid answer-free test question."""
 
@@ -221,13 +275,15 @@ def _validate_question(
     metadata = row.get("metadata")
     if not isinstance(record_id, str) or not record_id:
         raise S0GenerationBundleError("A test record ID is invalid")
-    if row.get("split") != "test":
-        raise S0GenerationBundleError("A generation row is not a test row")
+    if row.get("split") != expected_split:
+        raise S0GenerationBundleError(
+            f"A generation row is not a {expected_split} row"
+        )
     if not isinstance(provenance, Mapping):
         raise S0GenerationBundleError("A test row has no provenance")
     if (
         provenance.get("fact_role") != expected_fact_role
-        or provenance.get("prompt_form_id") != "test"
+        or provenance.get("prompt_form_id") not in expected_prompt_form_ids
     ):
         raise S0GenerationBundleError("A test row has invalid provenance")
     if tool_contract_version == TOOL_CONTRACT_VERSION_V1:
@@ -237,8 +293,8 @@ def _validate_question(
             raise S0GenerationBundleError(
                 f"A test row has invalid trajectory metadata: {error}"
             ) from error
-        system_prompt_sha256 = parsed_metadata.system_prompt_sha256
-    else:
+        expected_system_prompt_sha256 = parsed_metadata.system_prompt_sha256
+    elif tool_contract_version == TOOL_CONTRACT_VERSION_V2:
         if (
             not isinstance(metadata, Mapping)
             or metadata.get("book_mode") != "tool_call"
@@ -254,17 +310,37 @@ def _validate_question(
             raise S0GenerationBundleError(
                 "A test row has invalid shared trace metadata"
             )
-        system_prompt_sha256 = metadata.get("system_prompt_sha256")
+        expected_system_prompt_sha256 = metadata.get("system_prompt_sha256")
+    else:
+        if (
+            tool_contract_version != V3_TOOL_CONTRACT_VERSION
+            or expected_v3_system_prompt_sha256 is None
+            or expected_v3_tools is None
+            or not isinstance(metadata, Mapping)
+            or metadata.get("book_mode") != "tool_call"
+            or metadata.get("schema_version") not in expected_metadata_schemas
+            or metadata.get("tool_contract_version")
+            != V3_TOOL_CONTRACT_VERSION
+        ):
+            raise S0GenerationBundleError(
+                "A test row has invalid v3 metadata"
+            )
+        expected_system_prompt_sha256 = expected_v3_system_prompt_sha256
     prompt_hash = hashlib.sha256(
         str(row.get("system", "")).encode("utf-8")
     ).hexdigest()
-    if prompt_hash != system_prompt_sha256:
+    if prompt_hash != expected_system_prompt_sha256:
         raise S0GenerationBundleError(
             "A test row has a changed trajectory system prompt"
         )
-    if row.get("tools") != identifier_tool_definitions(
-        contract_version=tool_contract_version
-    ):
+    expected_tools = (
+        expected_v3_tools
+        if tool_contract_version == V3_TOOL_CONTRACT_VERSION
+        else identifier_tool_definitions(
+            contract_version=tool_contract_version
+        )
+    )
+    if row.get("tools") != expected_tools:
         raise S0GenerationBundleError(
             "A test row has changed tool definitions"
         )
@@ -278,6 +354,7 @@ def build_generation_bundle(
     evaluator_manifest_path: Path,
     evaluator_manifest_sha256: str,
     output_dir: Path,
+    panel_name: str | None = None,
 ) -> dict[str, Any]:
     """Validate the test panel and write one answer-free bundle."""
 
@@ -288,6 +365,11 @@ def build_generation_bundle(
         )
     evaluator = read_json(evaluator_manifest_path)
     evaluation_contract = evaluator.get("evaluation_contract")
+    v3_contract = (
+        load_contract()
+        if evaluation_contract in V3_EVALUATION_CONTRACTS
+        else None
+    )
     if evaluation_contract == TOOL_TRAJECTORY_EVALUATION_CONTRACT:
         expected_contract = (
             EVALUATOR_TOOL_TRAJECTORY_SCHEMA_VERSION,
@@ -324,6 +406,33 @@ def build_generation_bundle(
             "registry_population",
             TOOL_CONTRACT_VERSION_V2,
         )
+    elif evaluation_contract == V3_EVALUATION_CONTRACT:
+        expected_contract = (
+            EVALUATOR_V3_SCHEMA_VERSION,
+            V3_DATASET_ID,
+            V3_EVALUATION_CONTRACT,
+            BUNDLE_V3_SCHEMA_VERSION,
+            "unseen",
+            V3_TOOL_CONTRACT_VERSION,
+        )
+    elif evaluation_contract == FULL_REGISTRY_V3_EVALUATION_CONTRACT:
+        expected_contract = (
+            FULL_REGISTRY_EVALUATOR_V3_SCHEMA_VERSION,
+            FULL_REGISTRY_V3_DATASET_ID,
+            FULL_REGISTRY_V3_EVALUATION_CONTRACT,
+            FULL_REGISTRY_BUNDLE_V3_SCHEMA_VERSION,
+            "registry_population",
+            V3_TOOL_CONTRACT_VERSION,
+        )
+    elif evaluation_contract == SNAPSHOT_VALIDATION_EVALUATION_CONTRACT:
+        expected_contract = (
+            SNAPSHOT_VALIDATION_EVALUATOR_SCHEMA_VERSION,
+            SNAPSHOT_VALIDATION_DATASET_ID,
+            SNAPSHOT_VALIDATION_EVALUATION_CONTRACT,
+            SNAPSHOT_VALIDATION_BUNDLE_SCHEMA_VERSION,
+            "unseen",
+            V3_TOOL_CONTRACT_VERSION,
+        )
     else:
         raise S0GenerationBundleError(
             "The evaluator does not use a supported trajectory contract"
@@ -356,7 +465,15 @@ def build_generation_bundle(
         registry.get("path"),
         "identifier registry path",
     )
-    if sha256_file(registry_path) != registry_sha256:
+    if evaluation_contract in V3_EVALUATION_CONTRACTS:
+        if v3_contract is None:
+            raise AssertionError("a v3 evaluator requires the v3 contract")
+        source_index = check_source_index(registry_path, v3_contract)
+        if content_sha256(source_index) != registry_sha256:
+            raise S0GenerationBundleError(
+                "The v3 source index identity changed"
+            )
+    elif sha256_file(registry_path) != registry_sha256:
         raise S0GenerationBundleError(
             "The trajectory evaluator registry file changed"
         )
@@ -365,9 +482,21 @@ def build_generation_bundle(
         "id": str(registry["id"]),
         "sha256": registry_sha256,
     }
-    test = evaluator.get("test")
+    if evaluation_contract == SNAPSHOT_VALIDATION_EVALUATION_CONTRACT:
+        panel_key = panel_name or "snapshot_validation"
+        if panel_key not in {"snapshot_validation", "behavioral_validation"}:
+            raise S0GenerationBundleError("The validation panel name changed")
+    else:
+        if panel_name is not None:
+            raise S0GenerationBundleError(
+                "A promotion test cannot override its panel"
+            )
+        panel_key = "test"
+    test = evaluator.get(panel_key)
     if not isinstance(test, Mapping):
-        raise S0GenerationBundleError("The evaluator has no test panel")
+        raise S0GenerationBundleError(
+            f"The evaluator has no {panel_key} panel"
+        )
     questions_path = _resolve_declared_path(
         evaluator_manifest_path.parent,
         test.get("questions_path"),
@@ -379,11 +508,45 @@ def build_generation_bundle(
         or sha256_file(questions_path) != expected_questions_hash
     ):
         raise S0GenerationBundleError("The test question identity changed")
+    expected_v3_prompt_hash = (
+        system_prompt_sha256(v3_contract)
+        if v3_contract is not None
+        else None
+    )
+    expected_v3_tool_definitions = (
+        tool_definitions(v3_contract) if v3_contract is not None else None
+    )
     rows = [
         _validate_question(
             row,
             expected_fact_role=expected_contract[4],
             tool_contract_version=expected_contract[5],
+            expected_v3_system_prompt_sha256=expected_v3_prompt_hash,
+            expected_v3_tools=expected_v3_tool_definitions,
+            expected_split=(
+                "validation"
+                if evaluation_contract
+                == SNAPSHOT_VALIDATION_EVALUATION_CONTRACT
+                else "test"
+            ),
+            expected_prompt_form_ids=(
+                frozenset(
+                    {
+                        "validation",
+                        "validation_direct",
+                        "validation_step",
+                    }
+                )
+                if evaluation_contract
+                == SNAPSHOT_VALIDATION_EVALUATION_CONTRACT
+                else frozenset({"test"})
+            ),
+            expected_metadata_schemas=(
+                frozenset({"multiplex_sft_v3", "multiplex_sft_v4"})
+                if evaluation_contract
+                == SNAPSHOT_VALIDATION_EVALUATION_CONTRACT
+                else frozenset({"multiplex_sft_v3"})
+            ),
         )
         for row in read_jsonl(questions_path)
     ]
@@ -402,7 +565,11 @@ def build_generation_bundle(
         "schema_version": expected_contract[3],
         "dataset_id": expected_contract[1],
         "evaluation_contract": expected_contract[2],
-        "test_panel_id": test.get("test_panel_id"),
+        # Keep this generic internal field for generation-manifest
+        # compatibility. Snapshot validation supplies validation_panel_id.
+        "test_panel_id": test.get(
+            "validation_panel_id", test.get("test_panel_id")
+        ),
         "record_count": len(rows),
         "record_ids_sha256": stable_sha256(record_ids),
         "source_evaluator_manifest_sha256": evaluator_manifest_sha256,
@@ -410,6 +577,8 @@ def build_generation_bundle(
         "questions_sha256": sha256_file(questions_output),
         "reads_private_answer_keys": False,
     }
+    if evaluation_contract == SNAPSHOT_VALIDATION_EVALUATION_CONTRACT:
+        bundle["source_panel_name"] = panel_key
     bundle["identifier_registry"] = public_registry
     bundle["bundle_sha256"] = stable_sha256(bundle)
     write_json(output_dir / "manifest.json", bundle)
@@ -423,6 +592,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--evaluator-manifest", type=Path, required=True)
     parser.add_argument("--evaluator-manifest-sha256", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--panel-name",
+        choices=("snapshot_validation", "behavioral_validation"),
+    )
     return parser.parse_args()
 
 
@@ -434,6 +607,7 @@ def main() -> int:
         evaluator_manifest_path=args.evaluator_manifest,
         evaluator_manifest_sha256=args.evaluator_manifest_sha256,
         output_dir=args.output_dir,
+        panel_name=args.panel_name,
     )
     print(json.dumps(result, sort_keys=True))
     return 0

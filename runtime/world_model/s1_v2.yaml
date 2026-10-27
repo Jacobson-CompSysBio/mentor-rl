@@ -1,0 +1,27 @@
+schema_version: mentor-rl-world-model-s1-overlay-v1
+base_contract:
+  path: runtime/world_model/contract.yaml
+  sha256: f629c28de87a0440b40130d78614d4c5f65d55cd32e68b7bd144d09df81d9f0f
+corpus_root: data/world_model_v4/corpora/s1
+evaluator_root: data/world_model_v4/eval/s1
+family_overrides:
+  S1.2:
+    output_directory: data/world_model_v4/corpora/s1/s1_2
+    # S1 starts from the S0 v4 checkpoint. Keep genes without a symbol near
+    # their registry share so S1 does not undo the S0 v4 null-symbol behavior.
+    shares:
+      direct: 0.09
+      inside_task: 0.05
+      version_suffix: 0.10
+      no_symbol: 0.31
+      not_in_release: 0.10
+      malformed: 0.05
+      harness_exact: 0.10
+      harness_near_miss: 0.05
+      symbol_input: 0.05
+      other_species: 0.10
+s0_replay:
+  dataset_id: world_model_v4_s0_human_identifiers
+  output_directory: data/world_model_v4/corpora/s0
+  manifest_schema_version: mentor-rl-world-model-s0-manifest-v2
+  corpus_schema_version: mentor-rl-world-model-s0-corpus-v2

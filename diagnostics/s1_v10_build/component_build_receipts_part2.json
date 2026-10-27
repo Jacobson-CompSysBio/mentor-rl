@@ -1,0 +1,24 @@
+[
+  {
+    "section": 1,
+    "command": [
+      "/lustre/orion/syb111/world-shared/environments/pytorch-rocm/bin/python",
+      "-m",
+      "runtime.world_model.s1_1_corpus",
+      "--overlay",
+      "runtime/world_model/s1_v10.yaml"
+    ],
+    "exit_code": 0
+  },
+  {
+    "section": 3,
+    "command": [
+      "/lustre/orion/syb111/world-shared/environments/pytorch-rocm/bin/python",
+      "-m",
+      "runtime.world_model.s1_3_corpus",
+      "--overlay",
+      "runtime/world_model/s1_v10.yaml"
+    ],
+    "exit_code": 0
+  }
+]

@@ -1,0 +1,26 @@
+{
+  "schema_version": "mentor-rl-s1-checkpoint-diagnostic-v1",
+  "diagnostic_only": true,
+  "promotion_eligible": false,
+  "test_panel_access": false,
+  "training_config": "config/world_model_s1_120b_training_v9_32n.json",
+  "training_config_sha256": "1473955e467d0a38dd0ae02f4a1f1be849f3afad339a5bbb01f4c7993a2dfbe4",
+  "selected_steps": [
+    400,
+    800,
+    1200,
+    1600,
+    1728
+  ],
+  "final_step": 1728,
+  "shard_count": 32,
+  "batch_size": 4,
+  "seed": 900913,
+  "output_root": "data/world_model_v4/eval_runs/s1_v9_checkpoint_diagnostics",
+  "s0_evaluator_manifest": "data/world_model_v4/eval/s0_validation/manifest.json",
+  "s0_evaluator_manifest_sha256": "ffc2eb62de88fc851a3a32d6768a6e0fb35e8c4dc5a0ce04bbabbcb071706af3",
+  "tracking": {
+    "wandb_entity": "jail-ai",
+    "wandb_project": "mentor-sft"
+  }
+}

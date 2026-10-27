@@ -1,0 +1,49 @@
+schema_version: mentor-rl-world-model-s1-overlay-v2
+base_contract:
+  path: runtime/world_model/contract.yaml
+  sha256: f629c28de87a0440b40130d78614d4c5f65d55cd32e68b7bd144d09df81d9f0f
+corpus_root: data/world_model_v4/corpora/s1_v3
+evaluator_root: data/world_model_v4/eval/s1_v3
+family_overrides:
+  # S1 v3 keeps the v2 allocation. Only the training wrappers (and the S1.8
+  # training names) change, so every stage moves to its own directory.
+  S1.1:
+    output_directory: data/world_model_v4/corpora/s1_v3/s1_1
+  S1.2:
+    output_directory: data/world_model_v4/corpora/s1_v3/s1_2
+    # S1 starts from the S0 v4 checkpoint. Keep genes without a symbol near
+    # their registry share so S1 does not undo the S0 v4 null-symbol behavior.
+    shares:
+      direct: 0.09
+      inside_task: 0.05
+      version_suffix: 0.10
+      no_symbol: 0.31
+      not_in_release: 0.10
+      malformed: 0.05
+      harness_exact: 0.10
+      harness_near_miss: 0.05
+      symbol_input: 0.05
+      other_species: 0.10
+  S1.3:
+    output_directory: data/world_model_v4/corpora/s1_v3/s1_3
+  S1.4:
+    output_directory: data/world_model_v4/corpora/s1_v3/s1_4
+  S1.6:
+    output_directory: data/world_model_v4/corpora/s1_v3/s1_6
+  S1.7:
+    output_directory: data/world_model_v4/corpora/s1_v3/s1_7
+  S1.8:
+    output_directory: data/world_model_v4/corpora/s1_v3/s1_8
+  S1.9:
+    output_directory: data/world_model_v4/corpora/s1_v3/s1_9
+# Larger training wrapper banks for every stage (64 + 64 for S1.1/S1.2,
+# 32 + 32 elsewhere) and more S1.8 training names. Validation and test keep
+# the inline lists, so the S1 test panel is unchanged.
+prompt_banks:
+  path: runtime/world_model/s1_v3_prompt_banks.json
+  sha256: 86ea8ec3c5e0530adfb569481bca60292a2f7178902f57a678a6ae710278fd41
+s0_replay:
+  dataset_id: world_model_v4_s0_human_identifiers
+  output_directory: data/world_model_v4/corpora/s0
+  manifest_schema_version: mentor-rl-world-model-s0-manifest-v2
+  corpus_schema_version: mentor-rl-world-model-s0-corpus-v2

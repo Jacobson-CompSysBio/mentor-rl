@@ -1,0 +1,68 @@
+[
+  {
+    "section": 2,
+    "command": [
+      "/lustre/orion/syb111/world-shared/environments/pytorch-rocm/bin/python",
+      "-m",
+      "runtime.world_model.s1_2_corpus",
+      "--overlay",
+      "runtime/world_model/s1_v10.yaml"
+    ],
+    "exit_code": 0
+  },
+  {
+    "section": 4,
+    "command": [
+      "/lustre/orion/syb111/world-shared/environments/pytorch-rocm/bin/python",
+      "-m",
+      "runtime.world_model.s1_4_corpus",
+      "--overlay",
+      "runtime/world_model/s1_v10.yaml"
+    ],
+    "exit_code": 0
+  },
+  {
+    "section": 6,
+    "command": [
+      "/lustre/orion/syb111/world-shared/environments/pytorch-rocm/bin/python",
+      "-m",
+      "runtime.world_model.s1_6_corpus",
+      "--overlay",
+      "runtime/world_model/s1_v10.yaml"
+    ],
+    "exit_code": 0
+  },
+  {
+    "section": 7,
+    "command": [
+      "/lustre/orion/syb111/world-shared/environments/pytorch-rocm/bin/python",
+      "-m",
+      "runtime.world_model.s1_7_corpus",
+      "--overlay",
+      "runtime/world_model/s1_v10.yaml"
+    ],
+    "exit_code": 0
+  },
+  {
+    "section": 8,
+    "command": [
+      "/lustre/orion/syb111/world-shared/environments/pytorch-rocm/bin/python",
+      "-m",
+      "runtime.world_model.s1_8_corpus",
+      "--overlay",
+      "runtime/world_model/s1_v10.yaml"
+    ],
+    "exit_code": 0
+  },
+  {
+    "section": 9,
+    "command": [
+      "/lustre/orion/syb111/world-shared/environments/pytorch-rocm/bin/python",
+      "-m",
+      "runtime.world_model.s1_9_corpus",
+      "--overlay",
+      "runtime/world_model/s1_v10.yaml"
+    ],
+    "exit_code": 0
+  }
+]

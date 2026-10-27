@@ -1150,7 +1150,10 @@ class GenerateTrajectoriesTests(unittest.TestCase):
         self.assertEqual(rank_schema["required"], ["source_gene", "target_gene"])
 
         distance_schema = _runtime_tool_parameters("get_distance")
-        self.assertEqual(distance_schema["properties"]["distance_metric"]["enum"], ["spearman", "pearson", "dot"])
+        self.assertEqual(
+            distance_schema["properties"]["distance_metric"]["enum"],
+            ["spearman", "pearson"],
+        )
 
         spearman_schema = _runtime_tool_parameters("get_spearman")
         self.assertEqual(spearman_schema["required"], ["gene_a", "gene_b"])

@@ -1,0 +1,7 @@
+{
+  "train_targeted_v10": true,
+  "train_user_choice_reasoning": {
+    "direct": "The reply selects {gene_id}, which is in the earlier candidate_gene_ids list for {symbol}; this choice resolves the identity. Return exactly three result keys: gene_id with the selected ID, gene_symbol with the earlier canonical symbol, and candidate_gene_ids with the full earlier list in its original order. Keep every earlier candidate after selection and omit candidate_details and other result keys. Reuse the earlier registry evidence and null graph provenance, with no blocked reason or new tool call. Set status to resolved because the supplied choice identifies a listed candidate. This completes the stated gene-ID request, so set the continuation decision to stop.",
+    "step": "The reply selects {gene_id}, which is in the earlier candidate_gene_ids list for {symbol}; this choice resolves the identity. Return exactly three result keys: gene_id with the selected ID, gene_symbol with the earlier canonical symbol, and candidate_gene_ids with the full earlier list in its original order. Keep every earlier candidate after selection and omit candidate_details and other result keys. Reuse the earlier registry evidence and null graph provenance, with no blocked reason or new tool call. Set status to resolved because the supplied choice identifies a listed candidate. The user's requested later step still needs this selected mapping, so set the continuation decision to continue."
+  }
+}

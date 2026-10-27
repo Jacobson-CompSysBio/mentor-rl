@@ -1,0 +1,16 @@
+{
+  "training_config": "config/world_model_s1_120b_training_v10_32n.json",
+  "training_config_sha256": "125fefe6c5be0260979adffc7054c79734fe51ea283f7a676556981f7b1eb677",
+  "evaluation_configs": [
+    {
+      "path": "config/world_model_s1_120b_32n_test_v10_structured95_512n.json",
+      "sha256": "e0c36a4e4600897155d20a42efafdf3e4a497c583dfab4e551f8ee0b546a33d8"
+    },
+    {
+      "path": "config/world_model_s1_120b_s0_forgetting_test_v10_512n.json",
+      "sha256": "4eeffa7a9a4fa1ccb7357ac431659ad98a8bf7f1775b10ea90d62c08f8710411"
+    }
+  ],
+  "future_checkpoint_validated": false,
+  "s0_retention_version_registration": "Existing pinned-forgetting v2 schema supports v10 via generic actual training config/artifact identity checks; no code change needed."
+}

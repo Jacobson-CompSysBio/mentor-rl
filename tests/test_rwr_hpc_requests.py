@@ -117,12 +117,15 @@ class RwrDerivedRequestTests(unittest.TestCase):
                 {"gene_a": "TP53", "gene_b": "ATM", "seed_file": "/tmp/seeds.txt"}
             )
 
-    def test_distance_request_accepts_dot_metric(self) -> None:
-        request = RwrDistanceRequest.from_tool_arguments(
-            {"gene_a": "TP53", "gene_b": "ATM", "distance_metric": "dot"}
-        )
-
-        self.assertEqual(request.distance_metric, "dot")
+    def test_distance_request_rejects_dot_similarity(self) -> None:
+        with self.assertRaises(ValueError):
+            RwrDistanceRequest.from_tool_arguments(
+                {
+                    "gene_a": "TP53",
+                    "gene_b": "ATM",
+                    "distance_metric": "dot",
+                }
+            )
 
     def test_distance_request_rejects_unknown_metric(self) -> None:
         with self.assertRaises(ValueError):

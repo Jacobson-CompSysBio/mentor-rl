@@ -1,0 +1,6 @@
+{
+  "train_id_confirmation_reasoning": {
+    "direct": "The registry confirms the supplied ID {gene_id} with symbol {symbol}. The user asks: \"{user_request}\" This request ends with the confirmed mapping, so return resolved with registry evidence and no blocked reason, then stop.",
+    "step": "The registry confirms the supplied ID {gene_id} with symbol {symbol}. The user asks: \"{user_request}\" This request needs the confirmed mapping for a later workflow step. Already having the ID does not complete that broader workflow. Return resolved with registry evidence and no blocked reason, then continue."
+  }
+}

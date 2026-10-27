@@ -1,0 +1,100 @@
+{
+  "version": "s1_v10",
+  "date": "2026-10-26",
+  "corpus_checks_passed": true,
+  "corpus_root": "data/world_model_v4/corpora/s1_v10",
+  "evaluator_root": "data/world_model_v4/eval/s1_v10",
+  "row_counts": {
+    "train": 55276,
+    "validation": 6875,
+    "test": 6875
+  },
+  "changed_training_rows": {
+    "S1.1.6": 800,
+    "S1.3.8": 1000,
+    "S1.8.4": 666
+  },
+  "unchanged_training_rows": 52810,
+  "changed_user_messages": {
+    "S1.3.8": 750
+  },
+  "heldout_files_byte_identical": 22,
+  "historical_files_unchanged": 287,
+  "aggregate_training_semantic_violations": 0,
+  "frozen_heldout_semantics": {
+    "validation_existing_evidence_id_collisions": 251,
+    "test_existing_evidence_id_collisions": 148,
+    "other_violations": 0,
+    "reports_byte_identical_to_v9": true,
+    "interpretation": "Frozen held-out aggregates retain their historical collisions; their semantic validator exit codes are 1, not a new pass."
+  },
+  "tokenizer_supervision_audit_rows": 69026,
+  "maximum_tokens": {
+    "train": 4025,
+    "validation": 1640,
+    "test": 1372
+  },
+  "max_length": 4096,
+  "segment_loss_telemetry_checked": true,
+  "deterministic_rebuild_files_byte_identical": 16,
+  "validator_selftest": {
+    "known_bad_rejected": 53,
+    "false_positives": 0
+  },
+  "test_evidence": {
+    "overlay_bundle_prompt_banks": {
+      "passed": 75,
+      "log": "integration_tests.log"
+    },
+    "shared_contract_catalog": {
+      "passed": 20,
+      "skipped": 1,
+      "deselected": 1,
+      "log": "contract_catalog_tests.log"
+    },
+    "S1.1": "s1_1_checks.json",
+    "S1.3": "s1_3_verification.json",
+    "S1.8": "s1_8_test_results.json",
+    "v10_consumers": "consumer_registration_results.json",
+    "note": "Suites overlap; counts must not be summed as unique checks. Initial test-harness/source-edit failures were corrected and rechecked; receipts preserve them."
+  },
+  "legacy_test_limitations": [
+    "The frozen v9 robustness diagnostic rejects the authorized revised S1.3 builder hash. Its historical implementation pins remain unchanged; a future v10 diagnostic needs new pins.",
+    "The known live-flist grammar check is deselected; production builds use the content-verified frozen source index. Historical raw-source limitations remain separate."
+  ],
+  "training_recipe": "Unchanged v9 32-node recipe: batch32, 1728 updates, one epoch, lr1e-4, r32 LoRA, original prompt and S0 parent; v10 consumers retain telemetry requirements.",
+  "training_submitted": false,
+  "evaluation_submitted": false,
+  "model_accuracy_gain_measured": false,
+  "launch_configs_created": false,
+  "real_training_preflight_performed": false,
+  "artifact_sha256": {
+    "runtime/world_model/s1_v10.yaml": "4963d864250012bc9bd972a269104f5fac6e97f2f4b5d7681ed5b48b7925b87e",
+    "data/world_model_v4/corpora/s1_v10/manifest.json": "c9ee2b1fe0e5673eed95ad0e99e2f405e58a41c51ef746eccc74a94d17af9146",
+    "data/world_model_v4/corpora/s1_v10/train.jsonl": "af7097e1780a91f7c82207483e344107a9c8ce6142d53fc85a4e76149b989d6c",
+    "data/world_model_v4/eval/s1_v10/manifest.json": "c482c38d0add259ee7d7d6d7cf1fe54e6a192c55495ef999eb20d42e2f87e42d"
+  },
+  "evidence_sha256": {
+    "final_audit.json": "3212a96fffba2519ce1a35d6397dfb02897655a7cb2c28ed55e683a34647de0a",
+    "corpus_change_audit.json": "05f5a98a68f85fc3c31be4470fc67c9459e17b5191e63aa35bb1b3951096c896",
+    "reproducibility.json": "3343e36e5d90416117b772be1e938aa8272747b8c2e01e5680fcd9fe0e517e04",
+    "heldout_semantics.json": "6950eefafc006e745e84174bc1179ec7c78f3f1785a8b7ddc367f3111fde8963",
+    "s1_1_checks.json": "0f683fc0131f4e711a907577d82b53b6ab5102e65b48a03647df1cb3c85f0eae",
+    "s1_3_verification.json": "337d0f24fba58e1a10b064f61ec6b2aa2a9d1d310d0e55901bc68268a89049ec",
+    "s1_8_test_results.json": "742f26c05ae202ba19c01c8380c0fe7e0507976289fb7b87a095770d8da739e4",
+    "consumer_registration_results.json": "9d9956334a6300d67c0a9ccb269bb1be7bdc69c63e5c5a709caedf7765fa869c"
+  },
+  "implementation_sha256": {
+    "runtime/world_model/s1_1_corpus.py": "1474cc66fffddc8f0390e651a625cba3df6189ebae84f6921eeccc8e7149e90a",
+    "runtime/world_model/s1_2_corpus.py": "37ff20041857eea876d9314dd600d343d4fbb524d522127248207930a930e24c",
+    "runtime/world_model/s1_3_corpus.py": "8d2e8081d3ae84c132505b17bc707b1a2feca64c8302eeaca0da031d41c7b37d",
+    "runtime/world_model/s1_4_corpus.py": "cefed77070e789955ca76aaf8868e4f7563728a68a64ca6bec045e0f0478213c",
+    "runtime/world_model/s1_6_corpus.py": "c06108bd654be10fdf97baee93af3dd108fc90474e271ad0225826ff2199b19d",
+    "runtime/world_model/s1_7_corpus.py": "5c675d003fc247b5be575b84aa440344a159c1e11398e145e2b54b51b7057282",
+    "runtime/world_model/s1_8_corpus.py": "ab947bdc667364bbf45ccb3e3ec93150a0e506afff9736e8e45470dc648bbb77",
+    "runtime/world_model/s1_9_corpus.py": "e88578789844e357bb4115d9976c3ac6988b8c0049c9bd97332ac367fd6d70e9",
+    "runtime/world_model/s1_overlay.py": "1f19ead8e20f2499c3e76da74504aba975f361e5b852591c59d792cbd9688a4a",
+    "runtime/world_model/s1_prompt_banks.py": "0059c050bf02913b3417e6cc965950994728d85cf995857bc58d6d6dcbb14ac4",
+    "scripts/build_world_model_s1_bundle.py": "1eedf54237f12d6be332fa5012cc8dcbf4efdfb252ddbb7f632d388fae6b63cb"
+  }
+}

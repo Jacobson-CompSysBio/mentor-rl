@@ -2,7 +2,7 @@
 # Verifies the validator against known-bad and known-good input.
 # Asserts WHICH check catches each known-bad fixture, not merely that one did.
 # Runs both input forms: the markdown traces (F fixtures) and the JSONL rows
-# of rows.yaml (J fixtures).
+# of the canonical row contract (J fixtures).
 # validate.py exit codes: 0 = clean, 1 = violations found, 2+ = could not run.
 cd "$(dirname "$0")" || exit 2
 PY=${PYTHON:-python3}

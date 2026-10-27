@@ -10,19 +10,40 @@ import pytest
 from scripts.build_world_model_v2_s0_generation_bundle import (
     BUNDLE_FULL_TOOL_TRAJECTORY_SCHEMA_VERSION,
     FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT,
+    SNAPSHOT_VALIDATION_EVALUATION_CONTRACT,
 )
+from scripts import evaluate_world_model_v2_s0 as scorer
+from scripts import run_world_model_v2_s0_exact_generation as generator
 from scripts.run_world_model_v2_s0_exact_generation import (
+    ALLOWED_SHARED_FINAL_SPECIAL_TOKENS,
     INFERENCE_DEVICE_MAP,
     SHARD_PREDICTION_SCHEMA_VERSION,
     SHARD_STRATEGY,
     S0GenerationError,
+    _load_resume_shard,
+    _write_partial_checkpoint,
     merge_prediction_shards,
+    final_generation_allowed_special_tokens,
     select_shard_rows,
     sha256_file,
     stable_sha256,
     write_json,
     write_jsonl,
 )
+
+
+def _resume_plan(rows: list[dict], *, shard_count: int = 1) -> dict:
+    """Return the identity fields needed by one partial checkpoint."""
+
+    return {
+        "schema_version": "mentor-rl-world-model-s0-generation-plan-v6",
+        "shard_index": 0,
+        "shard_count": shard_count,
+        "shard_strategy": SHARD_STRATEGY,
+        "full_record_count": len(rows),
+        "record_count": len(rows),
+        "reads_private_answer_keys": False,
+    }
 
 
 def _write_bundle(path: Path, row_count: int = 10) -> list[dict]:
@@ -186,6 +207,113 @@ def test_inference_reserves_gpu_zero_memory() -> None:
     """Use the placement policy that keeps more free memory on GPU zero."""
 
     assert INFERENCE_DEVICE_MAP == "balanced_low_0"
+
+
+def test_generator_and_scorer_share_final_explanation_contracts() -> None:
+    """Prompt for a final explanation wherever the scorer requires one."""
+
+    assert (
+        generator.SHARED_TRACE_EVALUATION_CONTRACTS
+        is scorer.SHARED_TRACE_EVALUATION_CONTRACTS
+    )
+
+
+def test_snapshot_validation_generates_a_final_explanation() -> None:
+    """Let v4 snapshot validation write analysis before its final answer."""
+
+    assert (
+        SNAPSHOT_VALIDATION_EVALUATION_CONTRACT
+        in generator.SHARED_TRACE_EVALUATION_CONTRACTS
+    )
+    assert (
+        final_generation_allowed_special_tokens(
+            SNAPSHOT_VALIDATION_EVALUATION_CONTRACT
+        )
+        == ALLOWED_SHARED_FINAL_SPECIAL_TOKENS
+    )
+
+
+def test_partial_checkpoint_resumes_an_ordered_batch_prefix(
+    tmp_path: Path,
+) -> None:
+    """Resume only the exact, batch-aligned prefix saved by a shard."""
+
+    rows = [{"record_id": f"record-{index}"} for index in range(4)]
+    predictions = [{"record_id": row["record_id"]} for row in rows[:2]]
+    plan = _resume_plan(rows)
+    write_json(tmp_path / "generation_plan.json", plan)
+    _write_partial_checkpoint(
+        tmp_path,
+        plan=plan,
+        rows=rows,
+        predictions=predictions,
+        elapsed_seconds=12.5,
+    )
+
+    status, manifest, resumed, elapsed = _load_resume_shard(
+        tmp_path,
+        plan=plan,
+        rows=rows,
+        batch_size=2,
+        shard_output=True,
+    )
+
+    assert status == "partial"
+    assert manifest is None
+    assert resumed == predictions
+    assert elapsed == 12.5
+
+
+def test_partial_checkpoint_rejects_a_nonprefix_record(
+    tmp_path: Path,
+) -> None:
+    """Do not resume a hash-valid checkpoint with the wrong record order."""
+
+    rows = [{"record_id": f"record-{index}"} for index in range(4)]
+    plan = _resume_plan(rows)
+    write_json(tmp_path / "generation_plan.json", plan)
+    _write_partial_checkpoint(
+        tmp_path,
+        plan=plan,
+        rows=rows,
+        predictions=[
+            {"record_id": "record-0"},
+            {"record_id": "record-2"},
+        ],
+        elapsed_seconds=1.0,
+    )
+
+    with pytest.raises(S0GenerationError, match="ordered batch prefix"):
+        _load_resume_shard(
+            tmp_path,
+            plan=plan,
+            rows=rows,
+            batch_size=2,
+            shard_output=True,
+        )
+
+
+def test_plan_only_resume_source_regenerates_from_zero(tmp_path: Path) -> None:
+    """A killed legacy shard with only a plan contains no reusable work."""
+
+    rows = [{"record_id": "record-0"}]
+    plan = _resume_plan(rows)
+    write_json(tmp_path / "generation_plan.json", {"old": "plan"})
+
+    status, manifest, predictions, elapsed = _load_resume_shard(
+        tmp_path,
+        plan=plan,
+        rows=rows,
+        batch_size=1,
+        shard_output=True,
+    )
+
+    assert (status, manifest, predictions, elapsed) == (
+        "empty",
+        None,
+        [],
+        0.0,
+    )
 
 
 def test_merge_rejects_one_missing_shard(tmp_path: Path) -> None:

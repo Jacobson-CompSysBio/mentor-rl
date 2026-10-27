@@ -1,0 +1,94 @@
+{
+  "builder": {
+    "path": "runtime/world_model/s1_3_corpus.py",
+    "sha256": "8d2e8081d3ae84c132505b17bc707b1a2feca64c8302eeaca0da031d41c7b37d"
+  },
+  "checks": {
+    "v10_focused": {
+      "command": "USE_TORCH=0 USE_TF=0 PYTHONPATH=. /lustre/orion/syb111/world-shared/environments/pytorch-rocm/bin/python -m pytest -q tests/test_world_model_s1_3_v10_corpus.py",
+      "passed": 14,
+      "seconds": 93.51,
+      "exit_code": 0
+    },
+    "existing_regressions": {
+      "command": "USE_TORCH=0 USE_TF=0 PYTHONPATH=. /lustre/orion/syb111/world-shared/environments/pytorch-rocm/bin/python -m pytest -q tests/test_world_model_s1_3_v10_corpus.py tests/test_world_model_s1_3_v9_corpus.py tests/test_world_model_s1_3_v6_corpus.py tests/test_world_model_s1_3_corpus.py tests/test_world_model_s1_3_shared.py",
+      "existing_test_count": 236,
+      "existing_tests_passed": 236,
+      "initial_combined_result": "249 passed; 1 v10 test assertion used a nonexistent metadata template_index. Replaced it with visible wrapper counting. The corrected complete v10 suite passed separately.",
+      "initial_log": "diagnostics/s1_v10_build/s1_3_initial_regression_result.log"
+    }
+  },
+  "training_delta_from_v9": {
+    "total_training_rows": 9000,
+    "changed_rows": 1000,
+    "changed_final_thoughts": 1000,
+    "changed_user_messages": 750,
+    "standalone_rows_without_fixed_marker": 500,
+    "workflow_rows": 500,
+    "unchanged_other_form_rows": 8000,
+    "unchanged_answers_tools_evidence_metadata_ordering": true,
+    "unchanged_16_replies_and_paired_scope_assignments": true
+  },
+  "historical_split_reproduction": {
+    "none": {
+      "all_split_bytes_identical": true,
+      "verified_by": "fresh temporary build comparison",
+      "baseline_directory": "data/world_model_v3/corpora/s1/s1_3",
+      "sha256": {
+        "train.jsonl": "e8525a5230ac66ce1698a435fbc05ae7e022d91948cf9f9764a6c73d2f17b46c",
+        "validation.jsonl": "7b57ebbb0fa88b6660aba3dcb97a6d60ca6101d2454d1e9291c2c3576b4e877b",
+        "test.jsonl": "43cb8028ca2320c461abf633fa5da5ff0ec9d8c64614305bd389d5f011f9fad2"
+      }
+    },
+    "v4": {
+      "all_split_bytes_identical": true,
+      "verified_by": "fresh temporary build comparison",
+      "baseline_directory": "data/world_model_v4/corpora/s1_v4/s1_3",
+      "sha256": {
+        "train.jsonl": "c4d47a0da132715a1b1644221f38bf34ce2ea1b7e66df7e6b3bbcc18e0fe47bc",
+        "validation.jsonl": "7b57ebbb0fa88b6660aba3dcb97a6d60ca6101d2454d1e9291c2c3576b4e877b",
+        "test.jsonl": "43cb8028ca2320c461abf633fa5da5ff0ec9d8c64614305bd389d5f011f9fad2"
+      }
+    },
+    "v5": {
+      "all_split_bytes_identical": true,
+      "verified_by": "fresh temporary build comparison",
+      "baseline_directory": "data/world_model_v4/corpora/s1_v5/s1_3",
+      "sha256": {
+        "train.jsonl": "7fa6e3ddc5c27e952de4fe55a17f8c08932b006d7835f594c6999ca0546c984d",
+        "validation.jsonl": "365fd9bd57afe116f7e1f3b9cee35f87ff65653e9c911f845eb8b29cd3f55aec",
+        "test.jsonl": "f76c6c17ea9b4aed2adf96ececc37ae2b274cbd3998841b050b75eccc0b567e3"
+      }
+    },
+    "v6": {
+      "all_split_bytes_identical": true,
+      "verified_by": "full-byte comparisons in v9/v10 regression fixtures",
+      "baseline_directory": "data/world_model_v4/corpora/s1_v6/s1_3",
+      "sha256": {
+        "train.jsonl": "5bff4cd10f8b008a5f13954e1955f1ceaccd52c5a54373b4332b5bf4c0eaa7fa",
+        "validation.jsonl": "365fd9bd57afe116f7e1f3b9cee35f87ff65653e9c911f845eb8b29cd3f55aec",
+        "test.jsonl": "f76c6c17ea9b4aed2adf96ececc37ae2b274cbd3998841b050b75eccc0b567e3"
+      }
+    },
+    "v8": {
+      "all_split_bytes_identical": true,
+      "verified_by": "fresh temporary build comparison",
+      "baseline_directory": "data/world_model_v4/corpora/s1_v8/s1_3",
+      "sha256": {
+        "train.jsonl": "e23d0923b434344a331d693beff4bccda75a8c4a9a4dc1f8d50442a29b264ace",
+        "validation.jsonl": "365fd9bd57afe116f7e1f3b9cee35f87ff65653e9c911f845eb8b29cd3f55aec",
+        "test.jsonl": "f76c6c17ea9b4aed2adf96ececc37ae2b274cbd3998841b050b75eccc0b567e3"
+      }
+    },
+    "v9": {
+      "all_split_bytes_identical": true,
+      "verified_by": "full-byte comparisons in v9/v10 regression fixtures",
+      "baseline_directory": "data/world_model_v4/corpora/s1_v9/s1_3",
+      "sha256": {
+        "train.jsonl": "e9f78cc4d3f96c19e6445465e29592d7afb1e4fa80062af0fb164c03def97b20",
+        "validation.jsonl": "365fd9bd57afe116f7e1f3b9cee35f87ff65653e9c911f845eb8b29cd3f55aec",
+        "test.jsonl": "f76c6c17ea9b4aed2adf96ececc37ae2b274cbd3998841b050b75eccc0b567e3"
+      }
+    }
+  }
+}

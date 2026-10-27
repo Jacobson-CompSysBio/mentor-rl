@@ -1,0 +1,52 @@
+{
+  "component": "S1.1",
+  "changed_training_rows": 800,
+  "changed_framings": {
+    "direct": 400,
+    "step": 400
+  },
+  "unchanged_other_training_rows": 9200,
+  "heldout_bytes_unchanged": true,
+  "reproduced_historical_split_bytes": [
+    "no-overlay",
+    "v4",
+    "v5",
+    "v6",
+    "v8",
+    "v9"
+  ],
+  "test_runs": [
+    {
+      "selection": "tests/test_world_model_s1_1_corpus.py tests/test_world_model_s1_1_v6_corpus.py",
+      "passed": 54,
+      "failed": 1,
+      "seconds": 169.96,
+      "failure": "Repeated-build manifest differed only at implementation.builder.sha256 because builder source was edited during test execution; stable-source rerun passed."
+    },
+    {
+      "selection": "tests/test_world_model_s1_1_v10_corpus.py",
+      "passed": 11,
+      "failed": 0,
+      "seconds": 95.47,
+      "note": "Ran before adding the fifth tamper case; all five tamper cases then passed on final source."
+    },
+    {
+      "selection": "tests/test_world_model_s1_1_v10_corpus.py -k audit_rejects",
+      "passed": 5,
+      "failed": 0,
+      "seconds": 32.17,
+      "log": "diagnostics/s1_v10_build/s1_1_final_audit_tests.log"
+    },
+    {
+      "selection": "tests/test_world_model_s1_1_v6_corpus.py::test_repeated_build_is_byte_identical",
+      "passed": 1,
+      "failed": 0,
+      "seconds": 62.81,
+      "log": "diagnostics/s1_v10_build/s1_1_determinism_tests.log"
+    }
+  ],
+  "implementation_sha256": {
+    "runtime/world_model/s1_1_corpus.py": "1474cc66fffddc8f0390e651a625cba3df6189ebae84f6921eeccc8e7149e90a",
+    "tests/test_world_model_s1_1_v10_corpus.py": "6b2b27dca658daa458f9e9bd2d16265bdb60b9e3163fa0accf2e6a3fca0996ac"
+  }
+}

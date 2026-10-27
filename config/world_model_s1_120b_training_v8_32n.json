@@ -1,0 +1,93 @@
+{
+  "schema_version": "mentor-rl-world-model-s1-120b-training-v8",
+  "training_id": "world_model_s1_120b_training_v8_32n",
+  "run_scope": "production",
+  "promotion_eligible": true,
+  "production_matrix_cell": true,
+  "model": {
+    "model_id": "gpt-oss-120b-bf16",
+    "path": "../models/gpt-oss-120b-bf16",
+    "model_identity_sha256": "905e86330e48859268f5e51fd569acf619e6030e1508b37e6a82e61dcf0c7889",
+    "base_model_artifact_schema": "mentor-rl-base-model-artifact-v2",
+    "base_model_artifact_sha256": "b1713d10cbba7c69498037d7712c5988db95804dc62c614111e1f470d16449bc",
+    "weight_shard_count": 36
+  },
+  "corpus": {
+    "root": "data/world_model_v4/corpora/s1_v8",
+    "manifest_sha256": "c1f41ec367c49397876474562c78ec27f3b69f7f3cff6f113b93ad75e883b75a",
+    "train_file": "train.jsonl",
+    "train_sha256": "28657fade29f2db810a3ae819ae1cd6b478c4a25fa3d911f4f1b25674cf368e4",
+    "train_rows": 55276,
+    "validation_file": "validation.jsonl",
+    "validation_sha256": "9a252408b5d6886d9758d7491aac9fe5e889e5ee41bf13f61d3e683725ae4548",
+    "validation_rows": 6875,
+    "evaluator_manifest": "data/world_model_v4/eval/s1_v8/manifest.json",
+    "evaluator_manifest_sha256": "3c03e2734ff2f3d27b801012d2c28a9ec91041cf7d2dadc04d2b22c9bd010ec8"
+  },
+  "trainer": {
+    "path": "scripts/train_sft_dp_tp_ep.py",
+    "fine_tune_configuration": "lora_r32",
+    "loader_identity": "peft_adapter_loader",
+    "lora_rank": 32,
+    "lora_alpha": 64,
+    "lora_dropout": 0,
+    "loss_contract": "multiplex_sft_v3",
+    "completion_loss_weight": 1
+  },
+  "initialization": {
+    "parent": "s0_checkpoint",
+    "checkpoint_path": "data/world_model_v4/checkpoints/s0_120b/r32_uniform/slurm-5631883",
+    "run_id": "oss120b-plain-base-tokenizer-lora-r32-slurm-5631883",
+    "adapter_sha256": "bf23f389a372f9d6e46f2f2bbcea2e9a0a7ee7d7c5d9d0141b75e5d9752b68de",
+    "lora_rank": 32,
+    "loss_contract": "multiplex_sft_v3"
+  },
+  "run_settings": {
+    "num_nodes": 32,
+    "gpus_per_node": 8,
+    "tp_size": 8,
+    "ep_size": 8,
+    "data_parallel_size": 32,
+    "num_train_epochs": 1,
+    "per_device_train_batch_size": 1,
+    "gradient_accumulation_steps": 1,
+    "global_batch_size": 32,
+    "learning_rate": 0.0001,
+    "lr_scheduler_type": "cosine",
+    "warmup_ratio": 0.03,
+    "weight_decay": 0,
+    "max_grad_norm": 1,
+    "max_length": 4096,
+    "logging_steps": 10,
+    "eval_strategy": "epoch",
+    "eval_on_start": true,
+    "per_device_eval_batch_size": 1,
+    "save_strategy": "steps",
+    "save_steps": 200,
+    "save_total_limit": 3,
+    "seed": 900913,
+    "preserve_dataset_order": false,
+    "autograd_multithreading": true,
+    "local_files_only": true,
+    "strict_tested_stack": true,
+    "bf16": true
+  },
+  "methods": [
+    {
+      "method_id": "oss120b-plain-base-tokenizer-lora-r32",
+      "tokenizer_method": "plain_base_tokenizer",
+      "arm_root": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer",
+      "arm_manifest_sha256": "b1379f9a1a751ce7bdc2a99389717ba3095c64e3fbfa608ef77eee181bb8cb6e",
+      "tokenizer_path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
+      "token_adapter_manifest": null,
+      "tokenizer_manifest_sha256": "245163b5189a64afb8e5b061585f90d4c15bcf94599b68307e9ff008880fe3c0",
+      "output_root": "data/world_model_v4/checkpoints/s1_v8_120b_32n/oss120b-plain-base-tokenizer-lora-r32"
+    }
+  ],
+  "validation_gate": {
+    "checkpoint_set": "final",
+    "selection_metric": "eval/completion_loss",
+    "required_method_count": 1,
+    "test_panel_access": false
+  }
+}

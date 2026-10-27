@@ -26,6 +26,11 @@ from runtime.world_model_contracts import (  # noqa: E402
     parse_world_model_answer,
 )
 from runtime.world_model_s0_tools import S0IdentifierToolRuntime  # noqa: E402
+from runtime.world_model.contract import load_contract  # noqa: E402
+from runtime.world_model.tools import (  # noqa: E402
+    ToolCallError,
+    WorldModelToolRuntime,
+)
 from runtime.world_model_schemas import S0_FAMILIES  # noqa: E402
 from runtime.world_model_training import (  # noqa: E402
     validated_tokenizer_manifest,
@@ -47,6 +52,13 @@ SHARED_TRACE_EVALUATOR_SCHEMA_VERSION = (
 FULL_SHARED_TRACE_EVALUATOR_SCHEMA_VERSION = (
     "mentor-rl-world-model-s0-full-shared-evaluator-manifest-v7"
 )
+V3_EVALUATOR_SCHEMA_VERSION = "mentor-rl-world-model-s0-evaluator-v3"
+FULL_REGISTRY_V3_EVALUATOR_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-full-registry-evaluator-v3"
+)
+SNAPSHOT_VALIDATION_EVALUATOR_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-evaluator-v4"
+)
 TOOL_TRAJECTORY_EVALUATION_CONTRACT = (
     "unseen_component_tool_trajectory_v1"
 )
@@ -59,12 +71,27 @@ SHARED_TRACE_EVALUATION_CONTRACT = (
 FULL_SHARED_TRACE_EVALUATION_CONTRACT = (
     "full_registry_supervised_trace_v1"
 )
+V3_EVALUATION_CONTRACT = "held_out_multiplex_sft_v3"
+FULL_REGISTRY_V3_EVALUATION_CONTRACT = "full_registry_multiplex_sft_v3"
+SNAPSHOT_VALIDATION_EVALUATION_CONTRACT = (
+    "held_out_multiplex_sft_v4"
+)
+V3_EVALUATION_CONTRACTS = frozenset(
+    {
+        V3_EVALUATION_CONTRACT,
+        FULL_REGISTRY_V3_EVALUATION_CONTRACT,
+        SNAPSHOT_VALIDATION_EVALUATION_CONTRACT,
+    }
+)
 TOOL_TRAJECTORY_EVALUATION_CONTRACTS = frozenset(
     {
         TOOL_TRAJECTORY_EVALUATION_CONTRACT,
         FULL_TOOL_TRAJECTORY_EVALUATION_CONTRACT,
         SHARED_TRACE_EVALUATION_CONTRACT,
         FULL_SHARED_TRACE_EVALUATION_CONTRACT,
+        V3_EVALUATION_CONTRACT,
+        FULL_REGISTRY_V3_EVALUATION_CONTRACT,
+        SNAPSHOT_VALIDATION_EVALUATION_CONTRACT,
     }
 )
 TOOL_TRAJECTORY_DATASET_ID = (
@@ -79,17 +106,36 @@ SHARED_TRACE_DATASET_ID = (
 FULL_SHARED_TRACE_DATASET_ID = (
     "world_model_v2_s0_human_identifier_supervised_traces_full_registry_v7"
 )
+V3_DATASET_ID = "world_model_v3_s0_human_identifiers"
+FULL_REGISTRY_V3_DATASET_ID = (
+    "world_model_v3_s0_human_identifiers_full_registry"
+)
+SNAPSHOT_VALIDATION_DATASET_ID = (
+    "world_model_v4_s0_human_identifiers"
+)
 SHARED_TRACE_EVALUATION_CONTRACTS = frozenset(
     {
         SHARED_TRACE_EVALUATION_CONTRACT,
         FULL_SHARED_TRACE_EVALUATION_CONTRACT,
+        V3_EVALUATION_CONTRACT,
+        FULL_REGISTRY_V3_EVALUATION_CONTRACT,
+        SNAPSHOT_VALIDATION_EVALUATION_CONTRACT,
     }
 )
 SHARED_TRACE_PREDICTION_SCHEMA_VERSION = (
     "mentor-rl-world-model-s0-shared-trace-predictions-v7"
 )
+V3_PREDICTION_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-predictions-v3"
+)
 AMBIGUOUS_SYMBOL_FAMILY = "human_ambiguous_symbol"
 WILSON_Z_95 = 1.959963984540054
+_V3_CONTRACT = load_contract()
+V3_ANSWER_KEYS = tuple(_V3_CONTRACT["answer"]["keys"])
+V3_ANSWER_STATUSES = frozenset(_V3_CONTRACT["vocabularies"]["status"])
+V3_CONTINUATION_DECISIONS = frozenset(
+    _V3_CONTRACT["vocabularies"]["continuation_decision"]
+)
 TOOL_TRAJECTORY_CALL_RE = re.compile(
     r"\s*(?:<\|start\|>assistant)?\s*"
     r"<\|channel\|>analysis<\|message\|>(.*?)<\|end\|>"
@@ -115,6 +161,132 @@ SHARED_FINAL_ACTION_RE = re.compile(
 
 class S0EvaluationError(RuntimeError):
     """Report one invalid S0 test input."""
+
+
+class V3Answer:
+    """The fields needed to score one canonical v3 final action."""
+
+    def __init__(self, payload: Mapping[str, Any]) -> None:
+        self.payload = dict(payload)
+        self.status = payload["status"]
+        self.result = payload["result"]
+        self.continuation_decision = payload["continuation_decision"]
+
+
+def _v3_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Build one JSON object while rejecting duplicate keys."""
+
+    payload: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in payload:
+            raise WorldModelContractError(
+                "answer_duplicate_key",
+                f"The v3 answer repeats the key {key!r}",
+            )
+        payload[key] = value
+    return payload
+
+
+def _reject_v3_json_constant(value: str) -> None:
+    """Reject NaN and infinities, which canonical JSON does not permit."""
+
+    raise WorldModelContractError(
+        "answer_json_constant",
+        f"The v3 answer contains the invalid JSON constant {value}",
+    )
+
+
+def parse_v3_answer(text: Any) -> V3Answer:
+    """Parse one strict six-field canonical v3 final action."""
+
+    if not isinstance(text, str):
+        raise WorldModelContractError("answer_not_text", "The answer must be text")
+    try:
+        payload = json.loads(
+            text,
+            object_pairs_hook=_v3_json_object,
+            parse_constant=_reject_v3_json_constant,
+        )
+    except WorldModelContractError:
+        raise
+    except json.JSONDecodeError as error:
+        raise WorldModelContractError("answer_json_invalid", str(error)) from error
+    if not isinstance(payload, dict) or set(payload) != set(V3_ANSWER_KEYS):
+        raise WorldModelContractError(
+            "answer_fields_invalid", "The v3 answer fields changed"
+        )
+    if tuple(payload) != V3_ANSWER_KEYS:
+        raise WorldModelContractError(
+            "answer_field_order_invalid", "The v3 answer field order changed"
+        )
+    if (
+        not isinstance(payload["status"], str)
+        or payload["status"] not in V3_ANSWER_STATUSES
+    ):
+        raise WorldModelContractError(
+            "answer_status_invalid", "The v3 answer status is invalid"
+        )
+    if payload["provenance"] is not None and not isinstance(
+        payload["provenance"], dict
+    ):
+        raise WorldModelContractError(
+            "answer_provenance_invalid",
+            "The v3 provenance must be an object or null",
+        )
+    if not isinstance(payload["result"], dict):
+        raise WorldModelContractError(
+            "answer_result_invalid", "The v3 result must be an object"
+        )
+    if (
+        not isinstance(payload["continuation_decision"], str)
+        or payload["continuation_decision"]
+        not in V3_CONTINUATION_DECISIONS
+    ):
+        raise WorldModelContractError(
+            "answer_continuation_decision_invalid",
+            "The v3 continuation decision is invalid",
+        )
+    blocked_reason = payload["blocked_reason"]
+    if blocked_reason is not None and (
+        not isinstance(blocked_reason, str) or not blocked_reason.strip()
+    ):
+        raise WorldModelContractError(
+            "answer_blocked_reason_invalid",
+            "The v3 blocked reason must be nonempty text or null",
+        )
+    if payload["continuation_decision"] == "defer":
+        if blocked_reason is None:
+            raise WorldModelContractError(
+                "answer_blocked_reason_invalid",
+                "A deferred v3 answer requires a blocked reason",
+            )
+    elif blocked_reason is not None:
+        raise WorldModelContractError(
+            "answer_blocked_reason_invalid",
+            "A non-deferred v3 answer cannot have a blocked reason",
+        )
+    if not isinstance(payload["summary"], str) or not payload["summary"].strip():
+        raise WorldModelContractError(
+            "answer_summary_invalid", "The v3 summary must be nonempty text"
+        )
+    return V3Answer(payload)
+
+
+def _normalize_evidence_ids(value: Any) -> Any:
+    """Remove per-call nonce values before semantic equality checks."""
+
+    if isinstance(value, Mapping):
+        return {
+            key: (
+                "<evidence_id>"
+                if key == "evidence_id"
+                else _normalize_evidence_ids(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_normalize_evidence_ids(item) for item in value]
+    return value
 
 
 def canonical_json(value: Any) -> str:
@@ -317,7 +489,7 @@ def score_tool_trajectory_record(
     answer_row: Mapping[str, Any],
     prediction_row: Mapping[str, Any],
     *,
-    runtime: S0IdentifierToolRuntime,
+    runtime: S0IdentifierToolRuntime | WorldModelToolRuntime,
 ) -> dict[str, Any]:
     """Parse, execute, and score one generated tool trajectory."""
 
@@ -336,6 +508,10 @@ def score_tool_trajectory_record(
         "expected_continuation_decision"
     )
     uses_shared_answer = isinstance(expected_status, str)
+    uses_v3_answer = (
+        isinstance(question.get("metadata"), Mapping)
+        and question["metadata"].get("schema_version") == "multiplex_sft_v3"
+    )
     expected_final_explanation = answer_row.get(
         "expected_final_explanation"
     )
@@ -384,12 +560,16 @@ def score_tool_trajectory_record(
     if parsed is not None:
         try:
             result = runtime.execute(parsed["name"], parsed["arguments"])
-        except ToolExecutionError as error:
+        except (ToolExecutionError, ToolCallError) as error:
             runtime_tool_error = str(error)
         else:
-            runtime_payload = dict(result.payload)
+            runtime_payload = dict(
+                result.output if uses_v3_answer else result.payload
+            )
             runtime_network_used_false = (
-                result.provenance.get("network_used") is False
+                True
+                if uses_v3_answer
+                else result.provenance.get("network_used") is False
             )
 
     generated_payload = prediction_row.get("tool_payload")
@@ -397,7 +577,12 @@ def score_tool_trajectory_record(
     generated_network_used_false = prediction_row.get("network_used_false")
     public_runtime_exact = (
         isinstance(generated_payload, Mapping)
-        and dict(generated_payload) == runtime_payload
+        and (
+            _normalize_evidence_ids(dict(generated_payload))
+            == _normalize_evidence_ids(runtime_payload)
+            if uses_v3_answer
+            else dict(generated_payload) == runtime_payload
+        )
         and generated_tool_error is None
     )
     network_used_false = (
@@ -412,8 +597,11 @@ def score_tool_trajectory_record(
         and reasoning_present
         and public_runtime_exact
     )
-    payload_exact = (
-        valid_single_call and runtime_payload == dict(expected_payload)
+    payload_exact = valid_single_call and (
+        _normalize_evidence_ids(runtime_payload)
+        == _normalize_evidence_ids(dict(expected_payload))
+        if uses_v3_answer
+        else runtime_payload == dict(expected_payload)
     )
 
     encoded_final = prediction_row.get("encoded_final_answer")
@@ -457,7 +645,11 @@ def score_tool_trajectory_record(
     structured_answer_error = None
     if uses_shared_answer and final_answer is not None:
         try:
-            parsed_structured_answer = parse_world_model_answer(final_answer)
+            parsed_structured_answer = (
+                parse_v3_answer(final_answer)
+                if uses_v3_answer
+                else parse_world_model_answer(final_answer)
+            )
         except WorldModelContractError as error:
             structured_answer_error = error.code
     structured_json_valid = (
@@ -472,7 +664,14 @@ def score_tool_trajectory_record(
         and structured_json_valid
         and final_explanation_present
     )
-    final_answer_exact = valid_final_answer and final_answer == expected_final
+    if valid_final_answer and uses_v3_answer:
+        expected_v3 = parse_v3_answer(expected_final)
+        final_answer_exact = (
+            _normalize_evidence_ids(parsed_structured_answer.payload)
+            == _normalize_evidence_ids(expected_v3.payload)
+        )
+    else:
+        final_answer_exact = valid_final_answer and final_answer == expected_final
     valid_tool_trajectory = valid_single_call and valid_final_answer
     family = answer_row.get("family")
     if uses_shared_answer:
@@ -500,7 +699,17 @@ def score_tool_trajectory_record(
                 and parsed_structured_answer.continuation_decision == "defer"
             )
         )
-        expected_result = parse_world_model_answer(expected_final).result
+        expected_result = (
+            parse_v3_answer(expected_final).result
+            if uses_v3_answer
+            else parse_world_model_answer(expected_final).result
+        )
+        # The result must restate the tool output, including a null symbol.
+        result_exact = (
+            structured_json_valid
+            and _normalize_evidence_ids(parsed_structured_answer.result)
+            == _normalize_evidence_ids(expected_result)
+        )
         unnamed_id_resolved = (
             expected_result.get("gene_symbol") is not None
             or expected_status != "resolved"
@@ -512,6 +721,7 @@ def score_tool_trajectory_record(
         )
     else:
         status_exact = True
+        result_exact = True
         continuation_exact = True
         not_found_defer = True
         unnamed_id_resolved = True
@@ -560,6 +770,7 @@ def score_tool_trajectory_record(
         "final_explanation_exact": final_explanation_exact,
         "structured_json_valid": structured_json_valid,
         "status_exact": status_exact,
+        "result_exact": result_exact,
         "continuation_decision_exact": continuation_exact,
         "final_answer_exact": final_answer_exact,
         "valid_tool_trajectory": valid_tool_trajectory,
@@ -595,11 +806,13 @@ def wilson_interval(successes: int, total: int) -> list[float]:
 def _load_tool_panel(
     evaluator_manifest_path: Path,
     expected_manifest_sha256: str,
+    *,
+    panel_name: str | None = None,
 ) -> tuple[
     dict[str, Any],
     dict[str, dict[str, Any]],
     dict[str, dict[str, Any]],
-    S0IdentifierToolRuntime,
+    S0IdentifierToolRuntime | WorldModelToolRuntime,
 ]:
     """Load one private trajectory panel and its pinned runtime."""
 
@@ -619,6 +832,15 @@ def _load_tool_panel(
     elif evaluation_contract == FULL_SHARED_TRACE_EVALUATION_CONTRACT:
         expected_schema = FULL_SHARED_TRACE_EVALUATOR_SCHEMA_VERSION
         expected_dataset = FULL_SHARED_TRACE_DATASET_ID
+    elif evaluation_contract == V3_EVALUATION_CONTRACT:
+        expected_schema = V3_EVALUATOR_SCHEMA_VERSION
+        expected_dataset = V3_DATASET_ID
+    elif evaluation_contract == FULL_REGISTRY_V3_EVALUATION_CONTRACT:
+        expected_schema = FULL_REGISTRY_V3_EVALUATOR_SCHEMA_VERSION
+        expected_dataset = FULL_REGISTRY_V3_DATASET_ID
+    elif evaluation_contract == SNAPSHOT_VALIDATION_EVALUATION_CONTRACT:
+        expected_schema = SNAPSHOT_VALIDATION_EVALUATOR_SCHEMA_VERSION
+        expected_dataset = SNAPSHOT_VALIDATION_DATASET_ID
     else:
         raise S0EvaluationError("The trajectory evaluator contract changed")
     if (
@@ -627,7 +849,15 @@ def _load_tool_panel(
     ):
         raise S0EvaluationError("The trajectory evaluator contract changed")
 
-    test = manifest.get("test")
+    if evaluation_contract == SNAPSHOT_VALIDATION_EVALUATION_CONTRACT:
+        panel_key = panel_name or "snapshot_validation"
+        if panel_key not in {"snapshot_validation", "behavioral_validation"}:
+            raise S0EvaluationError("The validation panel name changed")
+    else:
+        if panel_name is not None:
+            raise S0EvaluationError("A promotion test cannot override its panel")
+        panel_key = "test"
+    test = manifest.get(panel_key)
     registry = manifest.get("identifier_registry")
     if not isinstance(test, Mapping) or not isinstance(registry, Mapping):
         raise S0EvaluationError(
@@ -660,10 +890,16 @@ def _load_tool_panel(
     registry_sha256 = registry.get("sha256")
     if not isinstance(registry_sha256, str):
         raise S0EvaluationError("The evaluator lacks the registry identity")
-    runtime = S0IdentifierToolRuntime.from_registry(
-        registry_path,
-        expected_sha256=registry_sha256,
-    )
+    if evaluation_contract in V3_EVALUATION_CONTRACTS:
+        runtime = WorldModelToolRuntime.from_source_index(
+            registry_path,
+            contract=load_contract(),
+        )
+    else:
+        runtime = S0IdentifierToolRuntime.from_registry(
+            registry_path,
+            expected_sha256=registry_sha256,
+        )
     return manifest, questions, answers, runtime
 
 
@@ -684,9 +920,13 @@ def _load_tool_predictions(
         if key != "manifest_sha256"
     }
     expected_prediction_schema = (
-        SHARED_TRACE_PREDICTION_SCHEMA_VERSION
-        if evaluation_contract in SHARED_TRACE_EVALUATION_CONTRACTS
-        else TOOL_TRAJECTORY_PREDICTION_SCHEMA_VERSION
+        V3_PREDICTION_SCHEMA_VERSION
+        if evaluation_contract in V3_EVALUATION_CONTRACTS
+        else (
+            SHARED_TRACE_PREDICTION_SCHEMA_VERSION
+            if evaluation_contract in SHARED_TRACE_EVALUATION_CONTRACTS
+            else TOOL_TRAJECTORY_PREDICTION_SCHEMA_VERSION
+        )
     )
     if (
         generation.get("schema_version")
@@ -730,6 +970,7 @@ def _tool_trajectory_summary(
     final_count, final_rate = rate("final_answer_exact")
     structured_count, structured_rate = rate("structured_json_valid")
     status_count, status_rate = rate("status_exact")
+    result_count, result_rate = rate("result_exact")
     continuation_count, continuation_rate = rate(
         "continuation_decision_exact"
     )
@@ -766,6 +1007,8 @@ def _tool_trajectory_summary(
         "structured_json_valid_rate": structured_rate,
         "status_exact_count": status_count,
         "status_exact_rate": status_rate,
+        "result_exact_count": result_count,
+        "result_exact_rate": result_rate,
         "continuation_decision_exact_count": continuation_count,
         "continuation_decision_exact_rate": continuation_rate,
         "final_explanation_present_count": final_explanation_count,
@@ -802,6 +1045,12 @@ def build_tool_trajectory_report(
     minimum_family_final_answer_accuracy: float,
     minimum_ambiguous_defer_accuracy: float,
     maximum_direct_answer_rate: float,
+    minimum_structured_json_valid: float = 1.0,
+    minimum_status_exact: float = 1.0,
+    minimum_result_exact: float = 0.0,
+    minimum_continuation_decision_exact: float = 1.0,
+    minimum_not_found_defer_accuracy: float = 1.0,
+    minimum_unnamed_id_resolved_accuracy: float = 1.0,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Build private and public tool-trajectory reports."""
 
@@ -858,21 +1107,30 @@ def build_tool_trajectory_report(
         gate_checks.update(
             {
                 "structured_json_valid": (
-                    overall["structured_json_valid_rate"] == 1.0
+                    overall["structured_json_valid_rate"]
+                    >= minimum_structured_json_valid
                 ),
-                "status_exact": overall["status_exact_rate"] == 1.0,
+                "status_exact": (
+                    overall["status_exact_rate"] >= minimum_status_exact
+                ),
+                "result_exact": (
+                    overall["result_exact_rate"] >= minimum_result_exact
+                ),
                 "continuation_decision_exact": (
-                    overall["continuation_decision_exact_rate"] == 1.0
+                    overall["continuation_decision_exact_rate"]
+                    >= minimum_continuation_decision_exact
                 ),
                 "final_explanation_present": (
                     overall["final_explanation_present_rate"]
                     >= minimum_reasoning_present
                 ),
                 "not_found_defer": (
-                    overall["not_found_defer_accuracy"] == 1.0
+                    overall["not_found_defer_accuracy"]
+                    >= minimum_not_found_defer_accuracy
                 ),
                 "unnamed_id_resolved": (
-                    overall["unnamed_id_resolved_accuracy"] == 1.0
+                    overall["unnamed_id_resolved_accuracy"]
+                    >= minimum_unnamed_id_resolved_accuracy
                 ),
             }
         )
@@ -915,6 +1173,18 @@ def build_tool_trajectory_report(
                 minimum_ambiguous_defer_accuracy
             ),
             "maximum_direct_answer_rate": maximum_direct_answer_rate,
+            "minimum_structured_json_valid": minimum_structured_json_valid,
+            "minimum_status_exact": minimum_status_exact,
+            "minimum_result_exact": minimum_result_exact,
+            "minimum_continuation_decision_exact": (
+                minimum_continuation_decision_exact
+            ),
+            "minimum_not_found_defer_accuracy": (
+                minimum_not_found_defer_accuracy
+            ),
+            "minimum_unnamed_id_resolved_accuracy": (
+                minimum_unnamed_id_resolved_accuracy
+            ),
             "checks": gate_checks,
             "passed": all(gate_checks.values()),
         },
@@ -970,8 +1240,10 @@ def build_tool_trajectory_report(
     return report, metrics
 
 
-def publish_wandb(metrics: Mapping[str, Any]) -> dict[str, Any]:
-    """Append exact test metrics to the train W&B run."""
+def publish_wandb(
+    metrics: Mapping[str, Any], metric_prefix: str = "test"
+) -> dict[str, Any]:
+    """Publish S0 result accuracy and its gate; retain details in reports."""
 
     mode = os.environ.get("WANDB_MODE", "online").strip().lower()
     entity = os.environ.get("WANDB_ENTITY", "").strip()
@@ -994,48 +1266,14 @@ def publish_wandb(metrics: Mapping[str, Any]) -> dict[str, Any]:
     if run is None or getattr(run, "disabled", False):
         raise S0EvaluationError("W&B did not resume the train run")
     payload = {
-        "test/valid_tool_trajectory_rate": metrics["overall"][
-            "valid_tool_trajectory_rate"
-        ],
-        "test/reasoning_present_rate": metrics["overall"][
-            "reasoning_present_rate"
-        ],
-        "test/reasoning_exact_rate": metrics["overall"][
-            "reasoning_exact_rate"
-        ],
-        "test/valid_single_tool_call_rate": metrics["overall"][
-            "valid_single_tool_call_rate"
-        ],
-        "test/exact_tool_argument_rate": metrics["overall"][
-            "exact_tool_argument_rate"
-        ],
-        "test/payload_accuracy": metrics["overall"]["payload_accuracy"],
-        "test/final_answer_accuracy": metrics["overall"][
-            "final_answer_accuracy"
-        ],
-        "test/structured_json_valid_rate": metrics["overall"][
-            "structured_json_valid_rate"
-        ],
-        "test/status_exact_rate": metrics["overall"][
-            "status_exact_rate"
-        ],
-        "test/continuation_decision_exact_rate": metrics["overall"][
-            "continuation_decision_exact_rate"
-        ],
-        "test/final_explanation_present_rate": metrics["overall"][
-            "final_explanation_present_rate"
-        ],
-        "test/direct_answer_rate": metrics["overall"][
-            "direct_answer_rate"
-        ],
+        "test/result_exact_rate": metrics["overall"]["result_exact_rate"],
+        "test/gate_passed": int(metrics["gate"]["passed"]),
     }
-    for family, family_metrics in metrics["families"].items():
-        payload[f"test/{family}/payload_accuracy"] = family_metrics[
-            "payload_accuracy"
-        ]
-        payload[f"test/{family}/final_answer_accuracy"] = family_metrics[
-            "final_answer_accuracy"
-        ]
+    if metric_prefix != "test":
+        payload = {
+            f"{metric_prefix}/{key.split('/', 1)[1]}": value
+            for key, value in payload.items()
+        }
     run.log(payload)
     receipt = {
         "id": run.id,
@@ -1066,12 +1304,21 @@ def evaluate_tool_trajectory_test(
     minimum_ambiguous_defer_accuracy: float,
     maximum_direct_answer_rate: float,
     publish: bool,
+    panel_name: str | None = None,
+    minimum_structured_json_valid: float = 1.0,
+    minimum_status_exact: float = 1.0,
+    minimum_result_exact: float = 0.0,
+    minimum_continuation_decision_exact: float = 1.0,
+    minimum_not_found_defer_accuracy: float = 1.0,
+    minimum_unnamed_id_resolved_accuracy: float = 1.0,
+    wandb_metric_prefix: str = "test",
 ) -> dict[str, Any]:
     """Score one complete S0 tool-trajectory test result."""
 
     evaluator, questions, answers, runtime = _load_tool_panel(
         evaluator_manifest_path.resolve(),
         evaluator_manifest_sha256,
+        panel_name=panel_name,
     )
     evaluation_contract = str(evaluator["evaluation_contract"])
     if evaluation_contract not in TOOL_TRAJECTORY_EVALUATION_CONTRACTS:
@@ -1090,7 +1337,14 @@ def evaluate_tool_trajectory_test(
         or tokenizer_manifest.get("manifest_sha256")
         != generation.get("tokenizer_manifest_sha256")
         or generation.get("test_panel_id")
-        != evaluator["test"]["test_panel_id"]
+        != (
+            evaluator[panel_name or "snapshot_validation"][
+                "validation_panel_id"
+            ]
+            if evaluation_contract
+            == SNAPSHOT_VALIDATION_EVALUATION_CONTRACT
+            else evaluator["test"]["test_panel_id"]
+        )
     ):
         raise S0EvaluationError("The trajectory generation identity changed")
     scored = [
@@ -1110,7 +1364,11 @@ def evaluate_tool_trajectory_test(
         tokenizer_manifest_sha256=str(
             tokenizer_manifest["manifest_sha256"]
         ),
-        registry_sha256=runtime.registry_sha256,
+        registry_sha256=(
+            runtime.source_index_sha256
+            if isinstance(runtime, WorldModelToolRuntime)
+            else runtime.registry_sha256
+        ),
         minimum_valid_tool_trajectory=minimum_valid_tool_trajectory,
         minimum_reasoning_present=minimum_reasoning_present,
         minimum_exact_reasoning=minimum_exact_reasoning,
@@ -1124,12 +1382,22 @@ def evaluate_tool_trajectory_test(
             minimum_ambiguous_defer_accuracy
         ),
         maximum_direct_answer_rate=maximum_direct_answer_rate,
+        minimum_structured_json_valid=minimum_structured_json_valid,
+        minimum_status_exact=minimum_status_exact,
+        minimum_result_exact=minimum_result_exact,
+        minimum_continuation_decision_exact=(
+            minimum_continuation_decision_exact
+        ),
+        minimum_not_found_defer_accuracy=minimum_not_found_defer_accuracy,
+        minimum_unnamed_id_resolved_accuracy=(
+            minimum_unnamed_id_resolved_accuracy
+        ),
     )
     output_dir = output_dir.resolve()
     write_json(output_dir / "exact_tool_report.json", report, private=True)
     write_json(output_dir / "test_metrics.json", metrics, private=False)
     if publish:
-        receipt = publish_wandb(metrics)
+        receipt = publish_wandb(metrics, wandb_metric_prefix)
         write_json(output_dir / "wandb_test_run.json", receipt, private=False)
     return metrics
 
@@ -1173,7 +1441,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--maximum-direct-answer-rate", type=float, required=True
     )
+    # Older test configs omit these floors and keep their exact-match gate.
+    parser.add_argument(
+        "--minimum-structured-json-valid", type=float, default=1.0
+    )
+    parser.add_argument("--minimum-status-exact", type=float, default=1.0)
+    parser.add_argument("--minimum-result-exact", type=float, default=0.0)
+    parser.add_argument(
+        "--minimum-continuation-decision-exact", type=float, default=1.0
+    )
+    parser.add_argument(
+        "--minimum-not-found-defer-accuracy", type=float, default=1.0
+    )
+    parser.add_argument(
+        "--minimum-unnamed-id-resolved-accuracy", type=float, default=1.0
+    )
     parser.add_argument("--publish-wandb", action="store_true")
+    parser.add_argument("--wandb-metric-prefix", default="test")
     return parser.parse_args()
 
 
@@ -1204,6 +1488,19 @@ def main() -> int:
         ),
         maximum_direct_answer_rate=args.maximum_direct_answer_rate,
         publish=args.publish_wandb,
+        minimum_structured_json_valid=args.minimum_structured_json_valid,
+        minimum_status_exact=args.minimum_status_exact,
+        minimum_result_exact=args.minimum_result_exact,
+        minimum_continuation_decision_exact=(
+            args.minimum_continuation_decision_exact
+        ),
+        minimum_not_found_defer_accuracy=(
+            args.minimum_not_found_defer_accuracy
+        ),
+        minimum_unnamed_id_resolved_accuracy=(
+            args.minimum_unnamed_id_resolved_accuracy
+        ),
+        wandb_metric_prefix=args.wandb_metric_prefix,
     )
     print(
         json.dumps(

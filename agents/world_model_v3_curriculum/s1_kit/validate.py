@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check a question file's worked traces against the contract in contract/.
+"""Check worked traces or corpus rows against the canonical contract.
 
 Every violation carries the name of the check that produced it, so the coverage
 table and the totals reconcile by construction. Refuses to report a pass when it
@@ -9,26 +9,37 @@ import hashlib, json, re, sys, pathlib
 from collections import defaultdict, Counter
 
 try:
-    import yaml
+    REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[3]
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+    from runtime.world_model.contract import layer_tag_problem, load_contract
+    from runtime.world_model.s1_overlay import apply_s1_overlay
+    from runtime.world_model.s1_membership_retry import audit_membership_retry
 except ImportError:
-    sys.exit("ERROR: pyyaml is not installed for %s\n       run: %s -m pip install pyyaml"
-             % (sys.executable, sys.executable))
+    sys.exit("ERROR: cannot import runtime.world_model.contract from %s"
+             % REPOSITORY_ROOT)
+
+# An optional S1 overlay (--overlay runtime/world_model/s1_v5.yaml) checks
+# rows against the overlaid contract that built them.
+ARGS = sys.argv[1:]
+OVERLAY = None
+if len(ARGS) >= 2 and ARGS[0] == "--overlay":
+    OVERLAY, ARGS = pathlib.Path(ARGS[1]), ARGS[2:]
 
 HERE = pathlib.Path(__file__).resolve().parent
-C = HERE / "contract"
-if not C.is_dir():
-    sys.exit("ERROR: no contract/ directory next to %s" % __file__)
-V = yaml.safe_load((C / "vocabularies.yaml").read_text())
-G = yaml.safe_load((C / "layer_grammars.yaml").read_text())
-T = yaml.safe_load((C / "tools.yaml").read_text())
-P = yaml.safe_load((C / "provenance.yaml").read_text())
-B = yaml.safe_load((C / "blocked_reasons.yaml").read_text())
+CONTRACT = load_contract()
+if OVERLAY is not None:
+    CONTRACT = apply_s1_overlay(CONTRACT, OVERLAY)[0]
+V = CONTRACT["vocabularies"]
+G = CONTRACT["layer_grammars"]
+T = CONTRACT["tools"]
+P = CONTRACT["provenance"]
+B = CONTRACT["blocked_reasons"]
+R = CONTRACT["rows"]
 
-R = yaml.safe_load((C / "rows.yaml").read_text())
-
-if len(sys.argv) < 2:
-    sys.exit("usage: validate.py <question-file.md | corpus.jsonl>")
-qf = pathlib.Path(sys.argv[1])
+if len(ARGS) < 1:
+    sys.exit("usage: validate.py [--overlay s1_vN.yaml] "
+             "<question-file.md | corpus.jsonl>")
+qf = pathlib.Path(ARGS[0])
 if not qf.is_file():
     sys.exit("ERROR: no such question file: %s" % qf)
 src = qf.read_text()
@@ -112,11 +123,16 @@ def as_text(content):
     return content if isinstance(content, str) else json.dumps(content)
 
 def row_shape_problems(row):
-    """Return what keeps a row from the form of rows.yaml."""
+    """Return what keeps a row from the canonical row envelope."""
     problems = []
-    missing = [k for k in R["row_keys"] if k not in row]
-    if missing:
-        problems.append("no %s" % ", ".join(missing))
+    if list(row) != R["row_keys"]:
+        problems.append("row keys %s, expects %s" % (list(row), R["row_keys"]))
+    meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    allowed = R["metadata"]["required"] + R["metadata"]["optional"]
+    missing = [k for k in R["metadata"]["required"] if k not in meta]
+    extra = [k for k in meta if k not in allowed]
+    if missing or extra:
+        problems.append("metadata missing %s, extra %s" % (missing, extra))
     msgs = row.get("messages") if isinstance(row.get("messages"), list) else []
     roles = [m.get("role") if isinstance(m, dict) else None for m in msgs]
     unknown = sorted({str(x) for x in roles if x not in R["roles"]})
@@ -191,23 +207,7 @@ skipped = n_items - len(traces)
 
 # ---------- contract helpers ----------
 def parse_tag(tag):
-    parts = tag.split(G["sep"])
-    for fam, g in G["families"].items():
-        if parts[0] != g["match_prefix"]:
-            continue
-        if len(parts) != g["arity"]:
-            return "arity %d, %s grammar expects %d" % (len(parts), fam, g["arity"])
-        f = dict(zip(g["fields"], parts))
-        # bulkPEN, scPEN and TFs repeat the family in field 2. A tag whose
-        # family part disagrees with its prefix, such as
-        # bulkPEN:tf_target:brain:amygdala:v1, names two families at once.
-        if "family_part" in g and f["family_part"] != g["family_part"]:
-            return "family part %r, %s grammar expects %r" % (
-                f["family_part"], fam, g["family_part"])
-        if not re.fullmatch(G["version_pattern"], f["version"]):
-            return "version %r does not match %s" % (f["version"], G["version_pattern"])
-        return None
-    return "no family grammar matches first field %r" % parts[0]
+    return layer_tag_problem(CONTRACT, tag)
 
 TAG_PREFIXES = [g["match_prefix"] for g in G["families"].values()]
 TAG_RE = re.compile(r"\b(?:%s)[A-Za-z0-9_:.\-]*[A-Za-z0-9]"
@@ -298,34 +298,61 @@ def match_reason(sentence, a, meta=None):
         return code, t, "%s filled from the answer gives %r" % (t["id"], filled[:70])
     return code, t, None
 
-def provenance_shape(prov):
-    """Return a problem with a provenance block, or None."""
-    if not isinstance(prov, dict):
-        return "rests on registry evidence but carries no provenance block"
-    if list(prov) != P["required_at_s1"]:
-        return "provenance has fields %s, expects %s" % (list(prov), P["required_at_s1"])
-    if not re.fullmatch(P["registry_block"]["evidence_id_pattern"], str(prov["evidence_id"])):
+def channel_block_problem(channel, block):
+    """Return a problem with one non-null provenance channel."""
+    spec = P["%s_block" % channel]
+    if not isinstance(block, dict):
+        return "%s channel is not an object" % channel
+    if list(block) != spec["keys"]:
+        return "%s block has fields %s, expects %s" % (channel, list(block), spec["keys"])
+    if channel == "registry":
+        if (block["registry"], block["release"]) != (spec["registry"], spec["release"]):
+            return "registry block names %s release %s, expects %s release %s" % (
+                block["registry"], block["release"], spec["registry"], spec["release"])
+    else:
+        if not re.fullmatch(spec["multiplex_id_pattern"], str(block["multiplex_id"])):
+            return "multiplex_id %r does not match %s" % (
+                block["multiplex_id"], spec["multiplex_id_pattern"])
+        if not re.fullmatch(spec["graph_version_pattern"], str(block["graph_version"])):
+            return "graph_version %r does not match %s" % (
+                block["graph_version"], spec["graph_version_pattern"])
+        if block["layer_scope"] != spec["layer_scope"]:
+            return "layer_scope %r, expects %r" % (block["layer_scope"], spec["layer_scope"])
+    if not re.fullmatch(spec["evidence_id_pattern"], str(block["evidence_id"])):
         return "evidence_id %r does not match %s" % (
-            prov["evidence_id"], P["registry_block"]["evidence_id_pattern"])
+            block["evidence_id"], spec["evidence_id_pattern"])
+    return None
+
+def provenance_shape(prov):
+    """Return a problem with a non-null composite provenance object."""
+    if not isinstance(prov, dict):
+        return "rests on evidence but carries no composite provenance object"
+    if list(prov) != P["channels"]:
+        return "provenance has channels %s, expects %s" % (list(prov), P["channels"])
+    if all(prov[channel] is None for channel in P["channels"]):
+        return "provenance has no populated evidence channel"
+    for channel in P["channels"]:
+        if prov[channel] is not None:
+            problem = channel_block_problem(channel, prov[channel])
+            if problem:
+                return problem
     return None
 
 def tool_block_problem(producer, prov, status):
     """Return a problem with the block that a tool or the harness produced."""
-    # A failed call read no record, so its block is null. A successful call
-    # carries the block of its producer: at S1 every producer gives the
-    # registry block, and the evidence_id prefix names the producer.
+    # A failed call read no record, so its provenance is null. A successful
+    # producer populates exactly its registry or graph channel.
     if status == "error":
         return None if prov is None else "an error result carries %s" % json.dumps(prov)
     problem = provenance_shape(prov)
     if problem:
         return problem
-    want = P["registry_block"]
-    if (prov["registry"], prov["release"]) != (want["registry"], want["release"]):
-        return "the block names %s release %s, a registry block is %s release %s" % (
-            prov["registry"], prov["release"], want["registry"], want["release"])
-    prefix = want["evidence_id_prefix"].get(producer)
-    if prefix and not prov["evidence_id"].startswith(prefix):
-        return "evidence_id %r, but %s gives %s IDs" % (prov["evidence_id"], producer, prefix)
+    channel = P["producer_channel"].get(producer)
+    if channel is None:
+        return "no provenance channel is declared for %s" % producer
+    wrong = [name for name in P["channels"] if (name == channel) != (prov[name] is not None)]
+    if wrong:
+        return "%s must populate only the %s channel" % (producer, channel)
     return None
 
 def strings_in(obj):
@@ -347,6 +374,7 @@ EVIDENCE_ID_RE = re.compile(r'"evidence_id":\s*"([^"]*)"')
 
 # ---------- check ----------
 CHECKS = ["status vocabulary", "continuation vocabulary", "defer needs blocked_reason",
+          "answer shape",
           "blocked_reason matches template", "blocked_reason fits status",
           "blocked_reason null unless defer", "tool in inventory", "layer tag parses",
           "rejected input not parsed", "no by-reference placeholder",
@@ -368,7 +396,7 @@ prompt_owner = {}                 # visible input and call outcomes -> the first
 for t in traces:
     tid = t["id"]
     if t["meta"] is not None:
-        # A generated row has the form of rows.yaml, so that each check reads
+        # A generated row has the canonical row form, so that each check reads
         # the step it expects.
         seen["row shape"] += 1
         if t["shape"]:
@@ -391,7 +419,7 @@ for t in traces:
         name = m.group(1) if m else None
         if m:
             seen["tool in inventory"] += 1
-            if name not in T["s1_callable"]:
+            if name not in T["callable"]:
                 flag(tid, "tool in inventory", name)
         res = None
         if i < len(t["results"]):
@@ -420,20 +448,24 @@ for t in traces:
             earlier.append(json.loads(prior))
         except ValueError:
             pass                  # the context-answer check reads the raw text
-    # The evidence an answer rests on, in order: this turn's first successful
-    # lookup, an earlier turn's answer, the harness registry block, and last a
-    # successful membership result. A near-miss row has a block and a lookup,
-    # and its answer copies the lookup. An answer that rests on a lookup and a
-    # membership check copies the lookup.
-    evidence = None
+    # Merge successful registry and graph evidence. A same-turn lookup wins
+    # over earlier/harness registry context; membership supplies graph evidence.
+    evidence_registry = evidence_graph = None
     if lookups:
-        evidence = lookups[0].get("provenance")
+        evidence_registry = (lookups[0].get("provenance") or {}).get("registry")
     elif any(isinstance(e.get("provenance"), dict) for e in earlier):
-        evidence = [e for e in earlier if isinstance(e.get("provenance"), dict)][-1]["provenance"]
+        evidence_registry = [e for e in earlier if isinstance(e.get("provenance"), dict)][-1]["provenance"].get("registry")
     elif isinstance(block, dict) and isinstance(block.get("provenance"), dict):
-        evidence = block["provenance"]
-    elif good:
-        evidence = good[0][1].get("provenance")
+        evidence_registry = block["provenance"].get("registry")
+    memberships = [res for n, res in good if n == "check_multiplex_membership"]
+    if memberships:
+        evidence_graph = (memberships[0].get("provenance") or {}).get("graph")
+    elif any(isinstance(e.get("provenance"), dict) and e["provenance"].get("graph")
+             for e in earlier):
+        evidence_graph = [e["provenance"]["graph"] for e in earlier
+                          if isinstance(e.get("provenance"), dict) and e["provenance"].get("graph")][-1]
+    evidence = ({"registry": evidence_registry, "graph": evidence_graph}
+                if evidence_registry is not None or evidence_graph is not None else None)
 
     # A Thinking step follows each tool result, before the next call or the
     # answer. The S0 renderer once dropped it, so a model trained on those rows
@@ -450,13 +482,13 @@ for t in traces:
 
     # The tool writes its result, so a result the tool cannot produce teaches
     # the model to read a shape it will never see. status is first, provenance
-    # second, and the other keys follow tools.yaml for that status.
+    # second, and the other keys follow the canonical tool contract.
     for n, res in pairs:
-        if not isinstance(res, dict) or n not in T["s1_callable"]:
+        if not isinstance(res, dict) or n not in T["callable"]:
             continue
         seen["tool result shape"] += 1
         st = res.get("status")
-        want = T["error_result"]["keys"] if st == "error" else T["tools"][n]["returns"].get(st)
+        want = T["error_result"]["keys"] if st == "error" else T["definitions"][n]["returns"].get(st)
         if list(res) != want:
             detail = "%s %s result has keys %s, expects %s" % (n, st, list(res), want)
             flag(tid, "tool result shape", detail)
@@ -465,7 +497,7 @@ for t in traces:
     # after a failed call, the registry block otherwise, with the evidence_id
     # prefix of that producer. The harness registry block is a producer too.
     blocks = [(n, "provenance" in res, res.get("provenance"), res.get("status"))
-              for n, res in pairs if isinstance(res, dict) and n in T["s1_callable"]]
+              for n, res in pairs if isinstance(res, dict) and n in T["callable"]]
     if isinstance(block, dict):
         blocks.append(("harness_registry_block", "provenance" in block,
                        block.get("provenance"), "resolved"))
@@ -525,6 +557,11 @@ for t in traces:
         continue
     r = a.get("result") if isinstance(a.get("result"), dict) else {}
 
+    seen["answer shape"] += 1
+    if list(a) != CONTRACT["answer"]["keys"]:
+        flag(tid, "answer shape", "keys %s, expects %s" % (
+            list(a), CONTRACT["answer"]["keys"]))
+
     seen["status vocabulary"] += 1
     if a.get("status") not in V["status"]:
         flag(tid, "status vocabulary", repr(a.get("status")))
@@ -570,7 +607,7 @@ for t in traces:
 
     # The summary asks the user for input only when the answer defers, and a
     # deferring summary always says what input is needed. The phrases that
-    # ask are listed in vocabularies.yaml.
+    # ask are listed in the canonical vocabulary.
     asks = [p for p in V["input_request_phrases"] if p in summary]
     if a.get("continuation_decision") == "defer":
         seen["defer summary asks for input"] += 1
@@ -581,19 +618,44 @@ for t in traces:
         if asks:
             flag(tid, "summary asks only on defer", "%r in a %s answer" % (asks[0], a.get("continuation_decision")))
 
-    # A failure result names the failed tool. When every call failed, the
-    # answer rests on the failure alone and the key is "tool". When a lookup
-    # succeeded first, the result keeps the lookup and the key is
-    # "failed_tool". A result that names a failed tool when no call failed
-    # reports a failure that did not happen.
+    # One explicitly permitted, identical lookup may recover. Its successful
+    # result supplies the final mapping; an earlier transport error is not the
+    # final answer. Keep the old failure checks for all other trajectories.
     errors = [(n, res) for n, res in pairs if isinstance(res, dict) and res.get("status") == "error"]
-    if errors or "tool" in r or "failed_tool" in r:
+    recovered_lookup = (
+        len(pairs) == 2
+        and pairs[0][0] == pairs[1][0]
+        and pairs[0][0] in ("lookup_human_gene_symbol", "lookup_human_ensembl_gene_id")
+        and t["calls"][0] == t["calls"][1]
+        and pairs[0][1] == {
+            "status": "error", "provenance": None,
+            "error_code": "BACKEND_UNAVAILABLE",
+            "message": "registry unreachable; retries_remaining=1",
+        }
+        and isinstance(pairs[1][1], dict)
+        and pairs[1][1].get("status") == a.get("status") == "resolved"
+        and r == {k: pairs[1][1].get(k) for k in ("gene_id", "gene_symbol")}
+        and a.get("provenance") == pairs[1][1].get("provenance")
+        and a.get("continuation_decision") == "stop"
+    )
+    recovered_membership = False
+    if len(pairs) >= 3 and any(n == "check_multiplex_membership" for n, _ in errors):
+        seen["membership retry budget and evidence"] += 1
+        try:
+            retry_calls = []
+            for call in t["calls"]:
+                text = " ".join(call)
+                name, arguments = text.split("(", 1)
+                retry_calls.append({"name": name, "arguments": json.loads(arguments[:-1])})
+            case = "recovered" if pairs[-1][1].get("status") != "error" else "exhausted"
+            audit_membership_retry(retry_calls, [res for _, res in pairs], a, case)
+            recovered_membership = case == "recovered"
+        except (ValueError, KeyError, TypeError, AttributeError) as error:
+            flag(tid, "membership retry budget and evidence", str(error))
+    if (errors and not recovered_lookup and not recovered_membership) or "tool" in r or "failed_tool" in r:
         seen["failure keys"] += 1
         n_err, res_err = errors[0] if errors else (None, {})
-        if errors and not good:
-            want, banned = {"tool": n_err, "error_code": res_err.get("error_code")}, "failed_tool"
-        else:
-            want, banned = {"failed_tool": n_err, "error_code": res_err.get("error_code")}, "tool"
+        want, banned = {"failed_tool": n_err, "error_code": res_err.get("error_code")}, "tool"
         wrong = [k for k, v in want.items() if r.get(k) != v]
         problem = None
         if not errors:
@@ -607,7 +669,7 @@ for t in traces:
 
     # blocked_reason. A defer answer tells the user in one sentence what blocks
     # the task. The code stays in the backend, so the sentence is checked
-    # against the templates of blocked_reasons.yaml: exactly one template
+    # against the canonical blocked-reason templates: exactly one template
     # matches, filling it from the answer gives the sentence back, and the
     # template fits the answer's status. Every other answer has null.
     reason = a.get("blocked_reason")
@@ -641,12 +703,8 @@ for t in traces:
                       "the row has blocked_reason_code %r" % code)
             flag(tid, "blocked_reason null unless defer", detail)
 
-    # Provenance. An answer resting on registry evidence copies the block of
-    # that evidence, every field included, because the field exists to prove a
-    # copy rather than to decorate. The evidence_id changes with every call,
-    # so a copied block and a memorized block differ. An answer that rests on
-    # no registry evidence has null: inventing a block for a convention answer
-    # would teach the model to fabricate one.
+    # Provenance copies the merged registry/graph evidence exactly. An answer
+    # resting on no successful evidence has null.
     prov = a.get("provenance")
     if evidence is not None:
         seen["provenance present"] += 1
@@ -662,7 +720,7 @@ for t in traces:
     else:
         seen["no invented provenance"] += 1
         if prov is not None:
-            detail = "the answer rests on no registry evidence but carries %s" % json.dumps(prov)[:70]
+            detail = "the answer rests on no successful evidence but carries %s" % json.dumps(prov)[:70]
             flag(tid, "no invented provenance", detail)
 
     # Six traces under the S1.8 Direction Conventions heading were labelled
@@ -673,7 +731,7 @@ for t in traces:
     if fam:
         seen["trace label matches its family"] += 1
         head = tid.split(":")[0].strip()
-        if not head.startswith(fam + "."):
+        if head != fam and not head.startswith(fam + "."):
             detail = "labelled %s but sits under %s" % (head, fam)
             flag(tid, "trace label matches its family", detail)
 
@@ -686,7 +744,7 @@ for t in traces:
         if not re.search(r'"(gene_id|candidate_gene_ids)"', obj):
             continue
         seen["context answer carries provenance"] += 1
-        if '"provenance": {' not in obj:
+        if not re.search(r'"provenance"\s*:\s*\{', obj):
             detail = "an answer in this trace's context reports a registry identifier without provenance"
             flag(tid, "context answer carries provenance", detail)
 

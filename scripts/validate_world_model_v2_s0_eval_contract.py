@@ -11,6 +11,17 @@ import sys
 from typing import Any
 
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from runtime.world_model.contract import load_contract  # noqa: E402
+from runtime.world_model.source_index import (  # noqa: E402
+    check_source_index,
+    content_sha256,
+)
+
+
 V6_TEST_SCHEMA_VERSION = (
     "mentor-rl-world-model-s0-full-tool-trajectory-test-v6"
 )
@@ -45,6 +56,79 @@ V7_EVALUATOR_DATASET_ID = (
 V7_CORPUS_EVALUATION_CONTRACT = (
     "unseen_component_supervised_trace_v1"
 )
+V3_TEST_SCHEMA_VERSION = "mentor-rl-world-model-s0-test-v3"
+V3_EVALUATOR_SCHEMA_VERSION = "mentor-rl-world-model-s0-evaluator-v3"
+V3_EVALUATION_CONTRACT = "held_out_multiplex_sft_v3"
+V3_CORPUS_DATASET_ID = "world_model_v3_s0_human_identifiers"
+FULL_REGISTRY_V3_TEST_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-full-registry-test-v3"
+)
+FULL_REGISTRY_V4_FINAL_TEST_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-full-registry-final-test-v4"
+)
+FULL_REGISTRY_V3_EVALUATOR_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-full-registry-evaluator-v3"
+)
+FULL_REGISTRY_V3_EVALUATION_CONTRACT = "full_registry_multiplex_sft_v3"
+FULL_REGISTRY_V3_DATASET_ID = (
+    "world_model_v3_s0_human_identifiers_full_registry"
+)
+V4_CORPUS_DATASET_ID = "world_model_v4_s0_human_identifiers"
+S1_FORGETTING_TEST_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-full-registry-s1-forgetting-test-v1"
+)
+# The v2 envelope adds a pinned training config; its panel and gate stay frozen.
+S1_PINNED_FORGETTING_TEST_SCHEMA_VERSION = (
+    "mentor-rl-world-model-s0-full-registry-s1-forgetting-test-v2"
+)
+S1_CORPUS_DATASET_ID = "world_model_v3_s1_coordinate_system"
+FROZEN_FULL_REGISTRY_V3_SHA256 = {
+    "evaluator_manifest": (
+        "dbca23382f0881aba83a6100ea54004031337bef53415236e8f1042970c53beb"
+    ),
+    "questions": (
+        "c9714921c9bd348051ad05452dade6bd32166102a3ae3c9fb12e118c04e41320"
+    ),
+    "answer_key": (
+        "bc8d4c9b83781d69f8e4f0457ec9d84ddf4eefe9b3be76b940c45a5d1598b65d"
+    ),
+}
+FULL_REGISTRY_V3_MAXIMUM_AMBIGUOUS_CANDIDATES = 49
+FULL_REGISTRY_V3_LARGEST_INCLUDED_AMBIGUITY = 37
+FULL_REGISTRY_V3_EXCLUDED_RECORDS = [
+    {
+        "candidate_gene_id_count": 170,
+        "fact_id": "fact_1544b1236c875b2ad88138d0",
+        "family": "human_ambiguous_symbol",
+        "gene_symbol": "Metazoa_SRP",
+        "record_id": "wm3_s0_417b9df7d77e7cc389a35da8",
+    },
+    {
+        "candidate_gene_id_count": 50,
+        "fact_id": "fact_39c1052bc4d239a961544728",
+        "family": "human_ambiguous_symbol",
+        "gene_symbol": "U3",
+        "record_id": "wm3_s0_67c5581aede6c0a14a336c64",
+    },
+    {
+        "candidate_gene_id_count": 758,
+        "fact_id": "fact_fd3fc526542e105e08c060b9",
+        "family": "human_ambiguous_symbol",
+        "gene_symbol": "Y_RNA",
+        "record_id": "wm3_s0_fc487fbf26ebafc414e677d0",
+    },
+]
+# A v4 test reads the final checkpoint of one training run.
+V4_POPULATION_CONTRACTS = frozenset({"full_registry_v4_final_frozen_v3"})
+# The forgetting test reads one final S1 checkpoint that started from S0.
+S1_FORGETTING_POPULATION_CONTRACT = "full_registry_s1_forgetting_frozen_v3"
+# These tests accept both LoRA ranks of the S0 v4 sweep.
+SWEEP_RANK_POPULATION_CONTRACTS = V4_POPULATION_CONTRACTS | {
+    S1_FORGETTING_POPULATION_CONTRACT
+}
+V3_POPULATION_CONTRACTS = frozenset(
+    {"held_out_v3", "full_registry_v3"} | SWEEP_RANK_POPULATION_CONTRACTS
+)
 TEST_CONTRACTS = {
     V6_TEST_SCHEMA_VERSION: {
         "evaluator_schema_version": V6_EVALUATOR_SCHEMA_VERSION,
@@ -66,6 +150,51 @@ TEST_CONTRACTS = {
         "loss_contract": "supervised_explanation_trace_v1",
         "population_contract": "shared_registry_v7",
     },
+    V3_TEST_SCHEMA_VERSION: {
+        "evaluator_schema_version": V3_EVALUATOR_SCHEMA_VERSION,
+        "evaluation_contract": V3_EVALUATION_CONTRACT,
+        "corpus_dataset_id": V3_CORPUS_DATASET_ID,
+        "evaluator_dataset_id": V3_CORPUS_DATASET_ID,
+        "corpus_evaluation_contract": V3_EVALUATION_CONTRACT,
+        "training_contract": "multiplex_sft_v3",
+        "loss_contract": "multiplex_sft_v3",
+        "population_contract": "held_out_v3",
+    },
+    FULL_REGISTRY_V3_TEST_SCHEMA_VERSION: {
+        "evaluator_schema_version": FULL_REGISTRY_V3_EVALUATOR_SCHEMA_VERSION,
+        "evaluation_contract": FULL_REGISTRY_V3_EVALUATION_CONTRACT,
+        "corpus_dataset_id": V3_CORPUS_DATASET_ID,
+        "evaluator_dataset_id": FULL_REGISTRY_V3_DATASET_ID,
+        "corpus_evaluation_contract": V3_EVALUATION_CONTRACT,
+        "training_contract": "multiplex_sft_v3",
+        "loss_contract": "multiplex_sft_v3",
+        "population_contract": "full_registry_v3",
+    },
+    FULL_REGISTRY_V4_FINAL_TEST_SCHEMA_VERSION: {
+        "evaluator_schema_version": FULL_REGISTRY_V3_EVALUATOR_SCHEMA_VERSION,
+        "evaluation_contract": FULL_REGISTRY_V3_EVALUATION_CONTRACT,
+        "corpus_dataset_id": V4_CORPUS_DATASET_ID,
+        "evaluator_dataset_id": FULL_REGISTRY_V3_DATASET_ID,
+        "evaluator_source_dataset_id": V3_CORPUS_DATASET_ID,
+        "corpus_evaluation_contract": "held_out_multiplex_sft_v4",
+        "training_contract": "multiplex_sft_v3",
+        "loss_contracts": ["multiplex_sft_v3", "multiplex_sft_v4_priority"],
+        "population_contract": "full_registry_v4_final_frozen_v3",
+    },
+    S1_FORGETTING_TEST_SCHEMA_VERSION: {
+        "evaluator_schema_version": FULL_REGISTRY_V3_EVALUATOR_SCHEMA_VERSION,
+        "evaluation_contract": FULL_REGISTRY_V3_EVALUATION_CONTRACT,
+        "corpus_dataset_id": S1_CORPUS_DATASET_ID,
+        "evaluator_dataset_id": FULL_REGISTRY_V3_DATASET_ID,
+        "evaluator_source_dataset_id": V3_CORPUS_DATASET_ID,
+        "corpus_evaluation_contract": "held_out_s1_multiplex_sft_v3",
+        "training_contract": "multiplex_sft_v3",
+        "loss_contracts": ["multiplex_sft_v3", "multiplex_sft_v4_priority"],
+        "population_contract": S1_FORGETTING_POPULATION_CONTRACT,
+    },
+}
+TEST_CONTRACTS[S1_PINNED_FORGETTING_TEST_SCHEMA_VERSION] = {
+    **TEST_CONTRACTS[S1_FORGETTING_TEST_SCHEMA_VERSION]
 }
 
 
@@ -172,6 +301,49 @@ def resolve_model_path(root: Path, value: Any) -> Path:
     return path
 
 
+def validate_training_link(
+    root: Path, config: dict[str, Any], method: dict[str, Any],
+    checkpoint_path: Path, adapter_identity: dict[str, Any],
+) -> None:
+    """Bind a new forgetting run to its production config and final output root."""
+
+    link = config.get("training")
+    if not isinstance(link, dict):
+        raise SystemExit("The forgetting test requires a pinned training config")
+    training_path = resolve_repo_path(root, link.get("config"), "training config")
+    training_sha256 = require_sha256(link.get("config_sha256"), "training config SHA-256")
+    verify_file(training_path, training_sha256, "training config")
+    training = read_json(training_path, "training config")
+    selected = [
+        item for item in training.get("methods", [])
+        if isinstance(item, dict) and item.get("method_id") == method["method_id"]
+    ]
+    if (
+        training.get("training_id") != link.get("training_id")
+        or training.get("run_scope") != "production"
+        or training.get("promotion_eligible") is not True
+        or training.get("production_matrix_cell") is not True
+        or training.get("validation_gate", {}).get("checkpoint_set") != "final"
+        or training.get("validation_gate", {}).get("test_panel_access") is not False
+        or training.get("model") != config.get("model")
+        or any(training.get("corpus", {}).get(key) != config["corpus"].get(key)
+               for key in ("root", "manifest_sha256", "train_sha256"))
+        or len(selected) != 1
+    ):
+        raise SystemExit("The forgetting test and training identities disagree")
+    checkpoint_root = resolve_repo_path(root, link.get("checkpoint_root"), "checkpoint root")
+    expected_root = resolve_repo_path(root, selected[0].get("output_root"), "training output root")
+    if (
+        checkpoint_root != expected_root
+        or not checkpoint_path.is_relative_to(checkpoint_root)
+        or selected[0].get("tokenizer_path") != method.get("tokenizer_path")
+        or selected[0].get("tokenizer_manifest_sha256") != method.get("tokenizer_manifest_sha256")
+        or adapter_identity.get("run_config_sha256") != training_sha256
+    ):
+        raise SystemExit("The forgetting checkpoint differs from the linked training run")
+    verify_file(checkpoint_path / "run_contract/run_config.json", training_sha256, "checkpoint training config")
+
+
 def verify_file(path: Path, expected_sha256: str, label: str) -> None:
     """Verify one required file identity."""
 
@@ -195,6 +367,12 @@ def validate_internal_manifest(
     if stable_sha256(identity) != claimed:
         raise SystemExit(f"{label} failed its internal identity")
     return claimed
+
+
+
+
+
+
 
 
 def main() -> int:
@@ -238,13 +416,18 @@ def main() -> int:
         raise SystemExit(
             "The trajectory test requires the base tokenizer"
         )
+    fine_tune_configuration = method.get("fine_tune_configuration")
+    allowed_configurations = (
+        {"lora_r32", "lora_r128"}
+        if contract["population_contract"] in SWEEP_RANK_POPULATION_CONTRACTS
+        else {"lora_r32"}
+    )
     if (
         method.get("checkpoint_kind") != "lora"
-        or method.get("fine_tune_configuration") != "lora_r32"
+        or fine_tune_configuration not in allowed_configurations
     ):
-        raise SystemExit(
-            "The trajectory test requires one LoRA-r32 checkpoint"
-        )
+        raise SystemExit("The trajectory test LoRA configuration changed")
+    expected_lora_rank = int(str(fine_tune_configuration).removeprefix("lora_r"))
 
     sections = (
         config.get("model"),
@@ -305,19 +488,61 @@ def main() -> int:
     train_sha256 = require_sha256(
         corpus.get("train_sha256"), "train file"
     )
-    if (
-        corpus_manifest.get("dataset_id") != contract["corpus_dataset_id"]
-        or corpus_manifest.get("evaluation_contract")
-        != contract["corpus_evaluation_contract"]
-        or corpus_manifest.get("training_contract")
-        != contract["training_contract"]
-        or corpus_manifest.get("train_population", {}).get(
-            "eligible_train_rows"
+    if contract["population_contract"] in V4_POPULATION_CONTRACTS:
+        corpus_matches = (
+            corpus_manifest.get("dataset_id") == contract["corpus_dataset_id"]
+            and corpus_manifest.get("schema_version")
+            == "mentor-rl-world-model-s0-manifest-v2"
+            and corpus_manifest.get("corpus_schema_version")
+            == "mentor-rl-world-model-s0-corpus-v2"
+            and corpus_manifest.get("row_counts", {}).get("train")
+            == eligible_train_rows
+            and corpus_manifest.get("files", {})
+            .get("train.jsonl", {})
+            .get("sha256")
+            == train_sha256
         )
-        != eligible_train_rows
-        or corpus_manifest.get("file_hashes", {}).get("train.jsonl")
-        != train_sha256
-    ):
+    elif contract["population_contract"] == S1_FORGETTING_POPULATION_CONTRACT:
+        corpus_matches = (
+            corpus_manifest.get("dataset_id") == contract["corpus_dataset_id"]
+            and corpus_manifest.get("schema_version")
+            == "mentor-rl-world-model-s1-manifest-v1"
+            and corpus_manifest.get("corpus_schema_version")
+            == "mentor-rl-world-model-s1-corpus-v1"
+            and corpus_manifest.get("row_counts", {}).get("train")
+            == eligible_train_rows
+            and corpus_manifest.get("files", {})
+            .get("train.jsonl", {})
+            .get("sha256")
+            == train_sha256
+        )
+    elif contract["population_contract"] in V3_POPULATION_CONTRACTS:
+        corpus_matches = (
+            corpus_manifest.get("dataset_id") == contract["corpus_dataset_id"]
+            and corpus_manifest.get("corpus_schema_version")
+            == "mentor-rl-world-model-s0-corpus-v1"
+            and corpus_manifest.get("row_counts", {}).get("train")
+            == eligible_train_rows
+            and corpus_manifest.get("files", {})
+            .get("train.jsonl", {})
+            .get("sha256")
+            == train_sha256
+        )
+    else:
+        corpus_matches = (
+            corpus_manifest.get("dataset_id") == contract["corpus_dataset_id"]
+            and corpus_manifest.get("evaluation_contract")
+            == contract["corpus_evaluation_contract"]
+            and corpus_manifest.get("training_contract")
+            == contract["training_contract"]
+            and corpus_manifest.get("train_population", {}).get(
+                "eligible_train_rows"
+            )
+            == eligible_train_rows
+            and corpus_manifest.get("file_hashes", {}).get("train.jsonl")
+            == train_sha256
+        )
+    if not corpus_matches:
         raise SystemExit("The corpus test contract changed")
 
     panel_row_count = require_int(
@@ -342,12 +567,17 @@ def main() -> int:
         evaluator_manifest_path, "the evaluator manifest"
     )
     test = evaluator.get("test")
+    source_dataset_matches = (
+        evaluator.get("dataset_id") == contract["corpus_dataset_id"]
+        if contract["population_contract"] == "held_out_v3"
+        else evaluator.get("source_dataset_id")
+        == contract.get("evaluator_source_dataset_id", contract["corpus_dataset_id"])
+    )
     if (
         evaluator.get("schema_version")
         != contract["evaluator_schema_version"]
         or evaluator.get("dataset_id") != contract["evaluator_dataset_id"]
-        or evaluator.get("source_dataset_id")
-        != contract["corpus_dataset_id"]
+        or not source_dataset_matches
         or evaluator.get("evaluation_contract")
         != contract["evaluation_contract"]
         or not isinstance(test, dict)
@@ -366,6 +596,15 @@ def main() -> int:
     answer_key_sha256 = require_sha256(
         panel.get("answer_key_sha256"), "test answer key"
     )
+    if contract["population_contract"] in {
+        "full_registry_v3",
+        *SWEEP_RANK_POPULATION_CONTRACTS,
+    } and {
+        "evaluator_manifest": evaluator_manifest_hash,
+        "questions": questions_sha256,
+        "answer_key": answer_key_sha256,
+    } != FROZEN_FULL_REGISTRY_V3_SHA256:
+        raise SystemExit("The byte-frozen full-registry gate identity changed")
     verify_file(questions_path, questions_sha256, "test questions")
     verify_file(answer_key_path, answer_key_sha256, "test answer key")
     test_panel_id = require_sha256(
@@ -420,9 +659,19 @@ def main() -> int:
         != tokenizer_manifest_sha256
     ):
         raise SystemExit("The selected checkpoint contract changed")
+    if config.get("schema_version") == S1_PINNED_FORGETTING_TEST_SCHEMA_VERSION:
+        validate_training_link(root, config, method, checkpoint_path, adapter_identity)
+    allowed_loss_contracts = contract.get(
+        "loss_contracts", [contract.get("loss_contract")]
+    )
+    rank_matches = (
+        contract["population_contract"] not in SWEEP_RANK_POPULATION_CONTRACTS
+        or adapter_manifest.get("lora", {}).get("r") == expected_lora_rank
+    )
     if (
         adapter_manifest.get("objective", {}).get("loss_contract")
-        != contract["loss_contract"]
+        not in allowed_loss_contracts
+        or not rank_matches
     ):
         raise SystemExit("The checkpoint loss contract changed")
     train_run_id = require_string(
@@ -446,6 +695,16 @@ def main() -> int:
         or exposure_contract.get("satisfied") is not True
     ):
         raise SystemExit("The test requires one complete checkpoint")
+    # The forgetting test is meaningful only for S1 runs that started from S0.
+    initialization = adapter_manifest.get("initialization")
+    if contract["population_contract"] == S1_FORGETTING_POPULATION_CONTRACT and (
+        not isinstance(initialization, dict)
+        or initialization.get("parent") != "s0_checkpoint"
+        or not isinstance(initialization.get("run_id"), str)
+    ):
+        raise SystemExit(
+            "The forgetting test requires an S1 checkpoint that started from S0"
+        )
     required_checkpoint_files = (
         "adapter_config.json",
         "adapter_model.safetensors",
@@ -485,7 +744,32 @@ def main() -> int:
     max_total_tokens = require_int(
         generation.get("max_total_tokens"), "maximum total tokens"
     )
-    if max_total_tokens <= max_new_tokens or max_new_tokens < 256:
+    if contract["population_contract"] in V3_POPULATION_CONTRACTS:
+        max_tool_call_tokens = require_int(
+            generation.get("max_tool_call_tokens"),
+            "maximum tool-call tokens",
+        )
+        max_final_prompt_tokens = require_int(
+            generation.get("max_final_prompt_tokens"),
+            "maximum final prompt tokens",
+        )
+    else:
+        # Preserve the frozen v6/v7 generation contract unless an older
+        # config explicitly opts into the new safety limits.
+        max_tool_call_tokens = require_int(
+            generation.get("max_tool_call_tokens", max_new_tokens),
+            "maximum tool-call tokens",
+        )
+        max_final_prompt_tokens = require_int(
+            generation.get("max_final_prompt_tokens", max_total_tokens - 1),
+            "maximum final prompt tokens",
+        )
+    if (
+        max_total_tokens <= max_new_tokens
+        or max_new_tokens < 256
+        or max_tool_call_tokens > max_new_tokens
+        or max_final_prompt_tokens >= max_total_tokens
+    ):
         raise SystemExit(
             "The trajectory token limits are invalid"
         )
@@ -533,6 +817,18 @@ def main() -> int:
         gate.get("maximum_direct_answer_rate"),
         "direct answer limit",
     )
+    # Older configs omit these floors and keep their exact-match gate.
+    shared_answer_floors = {
+        name: require_number(gate.get(name, default), name)
+        for name, default in (
+            ("minimum_structured_json_valid", 1.0),
+            ("minimum_status_exact", 1.0),
+            ("minimum_result_exact", 0.0),
+            ("minimum_continuation_decision_exact", 1.0),
+            ("minimum_not_found_defer_accuracy", 1.0),
+            ("minimum_unnamed_id_resolved_accuracy", 1.0),
+        )
+    }
     if gate.get("require_network_used_false") is not True:
         raise SystemExit(
             "The trajectory test must disable network access"
@@ -552,172 +848,259 @@ def main() -> int:
     registry_sha256 = require_sha256(
         registry.get("sha256"), "identifier registry"
     )
-    verify_file(
-        registry_path, registry_sha256, "identifier registry"
-    )
+    if contract["population_contract"] in V3_POPULATION_CONTRACTS:
+        source_index = check_source_index(registry_path, load_contract())
+        if content_sha256(source_index) != registry_sha256:
+            raise SystemExit("The v3 source index identity changed")
+    else:
+        verify_file(
+            registry_path, registry_sha256, "identifier registry"
+        )
     if (
         evaluator_registry.get("path") != registry.get("path")
         or evaluator_registry.get("sha256") != registry_sha256
     ):
         raise SystemExit("The evaluator registry identity changed")
 
-    registry_payload = read_json(
-        registry_path, "the identifier registry"
-    )
-    registry_counts = registry_payload.get("counts")
-    population = evaluator.get("population")
-    if not isinstance(registry_counts, dict) or not isinstance(
-        population, dict
-    ):
-        raise SystemExit("The full registry counts are absent")
-    named_gene_ids = require_int(
-        registry_counts.get("named_gene_ids"),
-        "named gene ID count",
-    )
-    unique_gene_names = require_int(
-        registry_counts.get("unique_gene_names"),
-        "unique gene symbol count",
-    )
-    ambiguous_gene_names = require_int(
-        registry_counts.get("ambiguous_gene_names"),
-        "ambiguous gene symbol count",
-    )
-    panel_filter = panel.get("population_filter")
-    if not isinstance(panel_filter, dict):
-        raise SystemExit(
-            "The panel population filter must be one object"
+    if contract["population_contract"] == "held_out_v3":
+        if (
+            panel_row_count
+            != corpus_manifest.get("row_counts", {}).get("test")
+            or panel.get("population_filter") is not None
+            or evaluator.get("population") is not None
+        ):
+            raise SystemExit("The held-out v3 panel scope changed")
+    elif contract["population_contract"] in {
+        "full_registry_v3",
+        *SWEEP_RANK_POPULATION_CONTRACTS,
+    }:
+        counts = source_index.get("counts")
+        population = evaluator.get("population")
+        if not isinstance(counts, dict) or not isinstance(population, dict):
+            raise SystemExit("The full-registry v3 counts are absent")
+        gene_count = require_int(
+            counts.get("registry_gene_count"), "registry gene count"
         )
-    maximum_candidates = require_int(
-        panel_filter.get("maximum_ambiguous_candidate_gene_ids"),
-        "maximum ambiguous candidate count",
-    )
-    excluded_records = panel_filter.get("excluded_records")
-    if (
-        not isinstance(excluded_records, list)
-        or not excluded_records
-        or any(not isinstance(item, dict) for item in excluded_records)
-    ):
-        raise SystemExit(
-            "The panel exclusions must contain record objects"
+        symbol_count = require_int(
+            counts.get("registry_symbol_count"), "registry symbol count"
         )
-    excluded_ids = [
-        item.get("record_id") for item in excluded_records
-    ]
-    required_exclusion_fields = {
-        "record_id",
-        "fact_id",
-        "family",
-        "gene_symbol",
-        "candidate_gene_id_count",
-    }
-    if (
-        any(
-            not isinstance(record_id, str) or not record_id
-            for record_id in excluded_ids
+        ambiguous_count = require_int(
+            counts.get("registry_ambiguous_symbol_count"),
+            "registry ambiguous-symbol count",
         )
-        or len(set(excluded_ids)) != len(excluded_ids)
-        or any(
-            set(item) != required_exclusion_fields
-            or item.get("family") != "human_ambiguous_symbol"
-            or not isinstance(item.get("fact_id"), str)
-            or not item["fact_id"]
-            or not isinstance(item.get("gene_symbol"), str)
-            or not item["gene_symbol"]
-            or type(item.get("candidate_gene_id_count")) is not int
-            or item["candidate_gene_id_count"] <= maximum_candidates
-            for item in excluded_records
+        unnamed_count = require_int(
+            counts.get("registry_unnamed_gene_count"),
+            "registry unnamed-gene count",
         )
-    ):
-        raise SystemExit("The panel exclusion contract is invalid")
-    expected_population_filter = {
-        "maximum_ambiguous_candidate_gene_ids": maximum_candidates
-    }
-    if (
-        population.get("population_filter")
-        != expected_population_filter
-        or population.get("excluded_records") != excluded_records
-    ):
-        raise SystemExit(
-            "The evaluator population filter changed"
+        largest_candidates = require_int(
+            counts.get("registry_largest_candidate_count"),
+            "largest registry candidate count",
         )
-    excluded_ambiguous = len(excluded_records)
-    if contract["population_contract"] == "shared_registry_v7":
-        total_gene_ids = require_int(
-            registry_counts.get("total_gene_ids"),
-            "total gene ID count",
-        )
-        unnamed_gene_ids = require_int(
-            registry_counts.get("gene_ids_without_name"),
-            "unnamed gene ID count",
-        )
-        fixed_not_found = require_int(
-            population.get("fixed_not_found_symbol_count"),
-            "fixed absent-symbol count",
-        )
+        excluded_records = FULL_REGISTRY_V3_EXCLUDED_RECORDS
+        excluded_count = len(excluded_records)
+        maximum_candidates = FULL_REGISTRY_V3_MAXIMUM_AMBIGUOUS_CANDIDATES
+        expected_rows = gene_count + symbol_count - excluded_count
         expected_family_counts = {
-            "human_ambiguous_symbol": (
-                ambiguous_gene_names - excluded_ambiguous
-            ),
-            "human_ensembl_to_symbol": total_gene_ids,
-            "human_symbol_to_ensembl": (
-                unique_gene_names
-                - ambiguous_gene_names
-                + fixed_not_found
-            ),
+            "human_ambiguous_symbol": ambiguous_count - excluded_count,
+            "human_ensembl_to_symbol": gene_count,
+            "human_symbol_to_ensembl": symbol_count - ambiguous_count,
         }
-        expected_row_count = (
-            total_gene_ids
-            + unique_gene_names
-            - excluded_ambiguous
-            + fixed_not_found
-        )
-        expected_scope = (
-            "all_registry_gene_ids_and_symbols_except_declared_long_"
-            "ambiguities_plus_fixed_absent_symbol_panel"
-        )
         expected_status_counts = {
-            "ambiguous": ambiguous_gene_names - excluded_ambiguous,
-            "not_found": fixed_not_found,
-            "resolved": (
-                expected_row_count
-                - ambiguous_gene_names
-                + excluded_ambiguous
-                - fixed_not_found
-            ),
+            "ambiguous": ambiguous_count - excluded_count,
+            "resolved": expected_rows - ambiguous_count + excluded_count,
+        }
+        expected_population_filter = {
+            "maximum_ambiguous_candidate_gene_ids": maximum_candidates,
+        }
+        expected_panel_filter = {
+            **expected_population_filter,
+            "excluded_records": excluded_records,
         }
         if (
-            population.get("registry_gene_id_count") != total_gene_ids
-            or population.get("registry_symbol_count")
-            != unique_gene_names
-            or population.get("unnamed_gene_id_count")
-            != unnamed_gene_ids
+            panel_row_count != expected_rows
+            or test.get("population_filter") != expected_panel_filter
+            or population.get("scope")
+            != (
+                "all_ensembl_registry_gene_ids_and_symbols_except_declared_"
+                "long_ambiguities"
+            )
+            or population.get("row_count") != expected_rows
+            or population.get("family_counts") != expected_family_counts
             or population.get("status_counts") != expected_status_counts
+            or population.get("registry_gene_id_count") != gene_count
+            or population.get("registry_symbol_count") != symbol_count
+            or population.get("registry_ambiguous_symbol_count")
+            != ambiguous_count
+            or population.get("registry_unnamed_gene_id_count")
+            != unnamed_count
+            or population.get("registry_largest_ambiguous_candidate_count")
+            != largest_candidates
+            or population.get("largest_included_ambiguous_candidate_count")
+            != FULL_REGISTRY_V3_LARGEST_INCLUDED_AMBIGUITY
+            or population.get("population_filter")
+            != expected_population_filter
+            or population.get("excluded_row_count") != excluded_count
+            or population.get("excluded_records") != excluded_records
         ):
-            raise SystemExit("The full shared population changed")
+            raise SystemExit("The full-registry v3 panel scope changed")
     else:
-        expected_family_counts = {
-            "human_ambiguous_symbol": (
-                ambiguous_gene_names - excluded_ambiguous
-            ),
-            "human_ensembl_to_symbol": named_gene_ids,
-            "human_symbol_to_ensembl": (
-                unique_gene_names - ambiguous_gene_names
-            ),
+        registry_payload = read_json(
+            registry_path, "the identifier registry"
+        )
+        registry_counts = registry_payload.get("counts")
+        population = evaluator.get("population")
+        if not isinstance(registry_counts, dict) or not isinstance(
+            population, dict
+        ):
+            raise SystemExit("The full registry counts are absent")
+        named_gene_ids = require_int(
+            registry_counts.get("named_gene_ids"),
+            "named gene ID count",
+        )
+        unique_gene_names = require_int(
+            registry_counts.get("unique_gene_names"),
+            "unique gene symbol count",
+        )
+        ambiguous_gene_names = require_int(
+            registry_counts.get("ambiguous_gene_names"),
+            "ambiguous gene symbol count",
+        )
+        panel_filter = panel.get("population_filter")
+        if not isinstance(panel_filter, dict):
+            raise SystemExit(
+                "The panel population filter must be one object"
+            )
+        maximum_candidates = require_int(
+            panel_filter.get("maximum_ambiguous_candidate_gene_ids"),
+            "maximum ambiguous candidate count",
+        )
+        excluded_records = panel_filter.get("excluded_records")
+        if (
+            not isinstance(excluded_records, list)
+            or not excluded_records
+            or any(not isinstance(item, dict) for item in excluded_records)
+        ):
+            raise SystemExit(
+                "The panel exclusions must contain record objects"
+            )
+        excluded_ids = [
+            item.get("record_id") for item in excluded_records
+        ]
+        required_exclusion_fields = {
+            "record_id",
+            "fact_id",
+            "family",
+            "gene_symbol",
+            "candidate_gene_id_count",
         }
-        expected_row_count = (
-            named_gene_ids + unique_gene_names - excluded_ambiguous
-        )
-        expected_scope = (
-            "all_named_gene_ids_and_all_gene_symbols_"
-            "except_declared_long_ambiguities"
-        )
-    if (
-        population.get("scope") != expected_scope
-        or population.get("row_count") != expected_row_count
-        or population.get("row_count") != panel_row_count
-        or population.get("family_counts") != expected_family_counts
-    ):
-        raise SystemExit("The full registry population changed")
+        if (
+            any(
+                not isinstance(record_id, str) or not record_id
+                for record_id in excluded_ids
+            )
+            or len(set(excluded_ids)) != len(excluded_ids)
+            or any(
+                set(item) != required_exclusion_fields
+                or item.get("family") != "human_ambiguous_symbol"
+                or not isinstance(item.get("fact_id"), str)
+                or not item["fact_id"]
+                or not isinstance(item.get("gene_symbol"), str)
+                or not item["gene_symbol"]
+                or type(item.get("candidate_gene_id_count")) is not int
+                or item["candidate_gene_id_count"] <= maximum_candidates
+                for item in excluded_records
+            )
+        ):
+            raise SystemExit("The panel exclusion contract is invalid")
+        expected_population_filter = {
+            "maximum_ambiguous_candidate_gene_ids": maximum_candidates
+        }
+        if (
+            population.get("population_filter")
+            != expected_population_filter
+            or population.get("excluded_records") != excluded_records
+        ):
+            raise SystemExit(
+                "The evaluator population filter changed"
+            )
+        excluded_ambiguous = len(excluded_records)
+        if contract["population_contract"] == "shared_registry_v7":
+            total_gene_ids = require_int(
+                registry_counts.get("total_gene_ids"),
+                "total gene ID count",
+            )
+            unnamed_gene_ids = require_int(
+                registry_counts.get("gene_ids_without_name"),
+                "unnamed gene ID count",
+            )
+            fixed_not_found = require_int(
+                population.get("fixed_not_found_symbol_count"),
+                "fixed absent-symbol count",
+            )
+            expected_family_counts = {
+                "human_ambiguous_symbol": (
+                    ambiguous_gene_names - excluded_ambiguous
+                ),
+                "human_ensembl_to_symbol": total_gene_ids,
+                "human_symbol_to_ensembl": (
+                    unique_gene_names
+                    - ambiguous_gene_names
+                    + fixed_not_found
+                ),
+            }
+            expected_row_count = (
+                total_gene_ids
+                + unique_gene_names
+                - excluded_ambiguous
+                + fixed_not_found
+            )
+            expected_scope = (
+                "all_registry_gene_ids_and_symbols_except_declared_long_"
+                "ambiguities_plus_fixed_absent_symbol_panel"
+            )
+            expected_status_counts = {
+                "ambiguous": ambiguous_gene_names - excluded_ambiguous,
+                "not_found": fixed_not_found,
+                "resolved": (
+                    expected_row_count
+                    - ambiguous_gene_names
+                    + excluded_ambiguous
+                    - fixed_not_found
+                ),
+            }
+            if (
+                population.get("registry_gene_id_count") != total_gene_ids
+                or population.get("registry_symbol_count")
+                != unique_gene_names
+                or population.get("unnamed_gene_id_count")
+                != unnamed_gene_ids
+                or population.get("status_counts") != expected_status_counts
+            ):
+                raise SystemExit("The full shared population changed")
+        else:
+            expected_family_counts = {
+                "human_ambiguous_symbol": (
+                    ambiguous_gene_names - excluded_ambiguous
+                ),
+                "human_ensembl_to_symbol": named_gene_ids,
+                "human_symbol_to_ensembl": (
+                    unique_gene_names - ambiguous_gene_names
+                ),
+            }
+            expected_row_count = (
+                named_gene_ids + unique_gene_names - excluded_ambiguous
+            )
+            expected_scope = (
+                "all_named_gene_ids_and_all_gene_symbols_"
+                "except_declared_long_ambiguities"
+            )
+        if (
+            population.get("scope") != expected_scope
+            or population.get("row_count") != expected_row_count
+            or population.get("row_count") != panel_row_count
+            or population.get("family_counts") != expected_family_counts
+        ):
+            raise SystemExit("The full registry population changed")
 
     if (
         tracking.get("entity") != "jail-ai"
@@ -767,6 +1150,8 @@ def main() -> int:
         "S0_EVAL_GPUS_PER_NODE": str(gpus_per_node),
         "S0_MAX_NEW_TOKENS": str(max_new_tokens),
         "S0_MAX_TOTAL_TOKENS": str(max_total_tokens),
+        "S0_MAX_TOOL_CALL_TOKENS": str(max_tool_call_tokens),
+        "S0_MAX_FINAL_PROMPT_TOKENS": str(max_final_prompt_tokens),
         "S0_REASONING_EFFORT": reasoning_effort,
         "S0_ENABLE_THINKING": "1",
         "S0_EVAL_SEED": str(
@@ -800,10 +1185,21 @@ def main() -> int:
         "S0_MAXIMUM_DIRECT_ANSWER_RATE": str(
             maximum_direct_answer
         ),
+        **{
+            f"S0_{name.upper()}": str(value)
+            for name, value in shared_answer_floors.items()
+        },
         "S0_IDENTIFIER_REGISTRY": str(registry_path),
         "S0_IDENTIFIER_REGISTRY_SHA256": registry_sha256,
         "S0_WANDB_ENTITY": "jail-ai",
         "S0_WANDB_PROJECT": "mentor-sft",
+        # Forgetting metrics go to the S1 run, so keep them apart from S1 tests.
+        "S0_WANDB_METRIC_PREFIX": (
+            "s0_forgetting"
+            if contract["population_contract"]
+            == S1_FORGETTING_POPULATION_CONTRACT
+            else "test"
+        ),
     }
     for name, value in values.items():
         print(f"{name}={shlex.quote(value)}")
