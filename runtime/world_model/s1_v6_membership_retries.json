@@ -1,0 +1,16 @@
+{
+  "schema_version": "mentor-rl-s1-membership-retries-v1",
+  "max_retries": 1,
+  "case_counts": {
+    "no_retry": 300,
+    "recovered": 150,
+    "exhausted": 150
+  },
+  "thinking": {
+    "after_lookup": "The lookup returns {count} candidates for {symbol}, and the {source} names {multiplex_id}. Check all candidate_gene_ids in that multiplex before selecting an ID.",
+    "retry": "The graph service reports BACKEND_UNAVAILABLE and explicitly allows one remaining retry. Repeat check_multiplex_membership once with the identical multiplex_id and gene_ids arguments; retain the successful registry lookup.",
+    "no_retry": "The membership check in {multiplex_id} failed with {error_code}. The registry still lists {count} candidates for {symbol}, and the failed check supplies no membership evidence. Keep the lookup's ambiguous status and defer in both framings. Return exactly gene_symbol, candidate_gene_ids, candidate_details, multiplex_id, failed_tool, and error_code, preserving all candidates and their order. Set failed_tool to check_multiplex_membership and keep the returned failure code. Preserve registry evidence and leave graph evidence null. Omit gene_id, present_gene_ids, and absent_gene_ids because the failed check establishes no selection or membership outcome. Include a nonempty text blocked reason explaining that membership remains unknown. No retry allowance was supplied, so make no further call.",
+    "exhausted": "The retried membership check in {multiplex_id} failed with {error_code}. The registry still lists {count} candidates for {symbol}, and the failed check supplies no membership evidence. Keep the lookup's ambiguous status and defer in both framings. Return exactly gene_symbol, candidate_gene_ids, candidate_details, multiplex_id, failed_tool, and error_code, preserving all candidates and their order. Set failed_tool to check_multiplex_membership and keep the returned failure code. Preserve registry evidence and leave graph evidence null. Omit gene_id, present_gene_ids, and absent_gene_ids because the failed check establishes no selection or membership outcome. Include a nonempty text blocked reason explaining that membership remains unknown. The retry allowance is exhausted, so make no further call."
+  },
+  "summary_suffix": "Graph access must be restored to continue."
+}

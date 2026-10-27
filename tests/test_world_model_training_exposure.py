@@ -186,11 +186,10 @@ class TrainingExposureTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "system prompt identity"):
             build_training_exposure_manifest(**arguments)
 
-    def test_only_the_v4_dataset_is_supported(self) -> None:
+    def test_retired_datasets_are_rejected(self) -> None:
         for dataset_id in (
             "world_model_v2_s0_human_identifier_trajectories_v6",
             "world_model_v3_s0_human_identifiers",
-            "world_model_v3_s1_coordinate_system",
         ):
             with self.subTest(dataset_id=dataset_id):
                 with self.assertRaisesRegex(ValueError, "not supported"):

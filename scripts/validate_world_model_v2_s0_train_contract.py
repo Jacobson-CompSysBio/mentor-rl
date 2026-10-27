@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate one S0 v4 training contract and export its values.
+"""Validate one S0 v4 or S1 v10 training contract and export its values.
 
 The launcher runs this check before it allocates any training work. It pins
 the run settings of the v4 sweep, the corpus and its runtime contract, the
@@ -25,6 +25,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from runtime.world_model_training import (  # noqa: E402
+    S1_V3_DATASET_ID,
     S0_LOSS_CONTRACTS,
     S0_V3_TRACE_LOSS_CONTRACT,
     S0_V4_DATASET_ID,
@@ -95,6 +96,37 @@ V4_OVERLAY_METADATA_ADDITIONS = [
     "rendering_index",
     "input_variant",
 ]
+
+S1_V10_PRODUCTION_SCHEMA = "mentor-rl-world-model-s1-120b-training-v10"
+S1_V10_RUN_SETTINGS = {'num_nodes': 32,
+ 'gpus_per_node': 8,
+ 'tp_size': 8,
+ 'ep_size': 8,
+ 'data_parallel_size': 32,
+ 'num_train_epochs': 1,
+ 'per_device_train_batch_size': 1,
+ 'gradient_accumulation_steps': 1,
+ 'global_batch_size': 32,
+ 'learning_rate': 0.0001,
+ 'lr_scheduler_type': 'cosine',
+ 'warmup_ratio': 0.03,
+ 'weight_decay': 0,
+ 'max_grad_norm': 1,
+ 'max_length': 4096,
+ 'logging_steps': 10,
+ 'eval_strategy': 'epoch',
+ 'eval_on_start': True,
+ 'per_device_eval_batch_size': 1,
+ 'save_strategy': 'steps',
+ 'save_steps': 200,
+ 'save_total_limit': 3,
+ 'seed': 900913,
+ 'preserve_dataset_order': False,
+ 'autograd_multithreading': True,
+ 'local_files_only': True,
+ 'strict_tested_stack': True,
+ 'bf16': True,
+ 'diagnostic_snapshot_steps': [400, 800, 1200, 1600]}
 
 
 def sha256_file(path: Path) -> str:
@@ -259,12 +291,116 @@ def verify_file(path: Path, expected: str, name: str) -> None:
         raise SystemExit(f"The {name} identity changed")
 
 
+def validate_parent_checkpoint(
+    root: Path,
+    initialization: object,
+    *,
+    model_identity_sha256: str,
+    tokenizer_manifest_sha256: str,
+    lora_rank: int,
+    lora_alpha: int,
+) -> dict[str, str]:
+    """Validate the completed S0 v4 checkpoint that starts one S1 run."""
+
+    initialization = require_object(initialization, "initialization")
+    if initialization.get("parent") != "s0_checkpoint":
+        raise SystemExit("initialization parent must be s0_checkpoint")
+    checkpoint = Path(
+        absolute_path(
+            root,
+            initialization.get("checkpoint_path"),
+            "initialization checkpoint_path",
+        )
+    )
+    run_id = require_string(
+        initialization.get("run_id"), "initialization run_id"
+    )
+    adapter_sha256 = require_sha256(
+        initialization.get("adapter_sha256"), "initialization adapter_sha256"
+    )
+    parent_loss_contract = require_string(
+        initialization.get("loss_contract"), "initialization loss_contract"
+    )
+    if require_int(
+        initialization.get("lora_rank"), "initialization lora_rank"
+    ) != lora_rank:
+        raise SystemExit("The parent LoRA rank differs from this run")
+    if not checkpoint.is_dir():
+        raise SystemExit("The parent checkpoint directory is absent")
+
+    # The consolidated adapter is the exact tensor set that the trainer loads.
+    verify_file(
+        checkpoint / "adapter_model.safetensors",
+        adapter_sha256,
+        "parent adapter",
+    )
+    manifest = read_json(
+        checkpoint / "tp_adapter_manifest.json", "the parent adapter manifest"
+    )
+    identity = require_object(
+        manifest.get("identity"), "the parent adapter identity"
+    )
+    lora = require_object(manifest.get("lora"), "the parent LoRA spec")
+    objective = require_object(
+        manifest.get("objective"), "the parent objective"
+    )
+    if (
+        manifest.get("format") != "mentor-rl-s0-tp-lora-v1"
+        or identity.get("run_id") != run_id
+        or identity.get("model_identity_sha256") != model_identity_sha256
+        or identity.get("tokenizer_manifest_sha256")
+        != tokenizer_manifest_sha256
+        or lora.get("r") != lora_rank
+        or lora.get("alpha") != lora_alpha
+        or objective.get("loss_contract") != parent_loss_contract
+    ):
+        raise SystemExit("The parent checkpoint contract changed")
+
+    # Require one complete S0 v4 run, not an interim or diagnostic state.
+    run_config_path = checkpoint / "run_contract/run_config.json"
+    if (
+        not run_config_path.is_file()
+        or sha256_file(run_config_path) != identity.get("run_config_sha256")
+        or read_json(run_config_path, "the parent run config").get(
+            "schema_version"
+        )
+        != S0_V4_TRAINING_SCHEMA
+    ):
+        raise SystemExit("The parent is not an S0 v4 training run")
+    exposure = read_json(
+        checkpoint / "run_contract/training_exposure.json",
+        "the parent training exposure",
+    )
+    claimed = exposure.get("manifest_sha256")
+    schedule = exposure.get("schedule")
+    exposure_contract = exposure.get("exposure_contract")
+    if (
+        claimed
+        != stable_sha256(
+            {key: value for key, value in exposure.items() if key != "manifest_sha256"}
+        )
+        or exposure.get("status") != "complete"
+        or exposure.get("run_id") != run_id
+        or not isinstance(schedule, dict)
+        or not isinstance(schedule.get("total_steps"), int)
+        or schedule.get("completed_global_step") != schedule["total_steps"]
+        or not isinstance(exposure_contract, dict)
+        or exposure_contract.get("satisfied") is not True
+    ):
+        raise SystemExit("The parent S0 run is not complete")
+    return {
+        "INIT_ADAPTER_DIR": str(checkpoint),
+        "INIT_ADAPTER_SHA256": adapter_sha256,
+        "INIT_ADAPTER_RUN_ID": run_id,
+    }
+
+
 def validate_train_contract(
     root: Path,
     config_path: Path,
     method_id: str,
 ) -> dict[str, str]:
-    """Validate one S0 v4 training contract."""
+    """Validate one S0 v4 or S1 v10 training contract."""
 
     root = root.resolve()
     config_path = config_path.resolve()
@@ -274,7 +410,8 @@ def validate_train_contract(
         raise SystemExit("RUN_CONFIG must stay in the repository") from error
     config = read_json(config_path, "run config")
     schema = config.get("schema_version")
-    if schema != S0_V4_TRAINING_SCHEMA:
+    is_s1 = schema == S1_V10_PRODUCTION_SCHEMA
+    if schema not in {S0_V4_TRAINING_SCHEMA, S1_V10_PRODUCTION_SCHEMA}:
         raise SystemExit(
             f"The train config schema is not supported: {schema!r}"
         )
@@ -302,7 +439,7 @@ def validate_train_contract(
             f"The method run_settings has unknown keys: {unknown_overrides}"
         )
     settings.update(overrides)
-    if settings != S0_V4_RUN_SETTINGS:
+    if settings != (S1_V10_RUN_SETTINGS if is_s1 else S0_V4_RUN_SETTINGS):
         raise SystemExit("The S0 v4 training schedule changed")
 
     run_scope = require_string(config.get("run_scope"), "run_scope")
@@ -378,11 +515,11 @@ def validate_train_contract(
         gradient_accumulation_steps=grad_accum,
     )
     if (
-        train_rows != S0_V4_TRAIN_ROWS
-        or validation_rows != S0_V4_VALIDATION_ROWS
+        train_rows != (55276 if is_s1 else S0_V4_TRAIN_ROWS)
+        or validation_rows != (6875 if is_s1 else S0_V4_VALIDATION_ROWS)
         or schedule["global_batch_size"] != global_batch
-        or schedule["updates_per_epoch"] != S0_V4_UPDATES_PER_EPOCH
-        or schedule["total_steps"] != S0_V4_TOTAL_STEPS
+        or schedule["updates_per_epoch"] != (1728 if is_s1 else S0_V4_UPDATES_PER_EPOCH)
+        or schedule["total_steps"] != (1728 if is_s1 else S0_V4_TOTAL_STEPS)
     ):
         raise SystemExit("The S0 v4 optimizer-step schedule changed")
     learning_rate = require_number(
@@ -418,7 +555,7 @@ def validate_train_contract(
     )
     if (
         config_id
-        != f"world_model_s0_120b_training_v4_r{lora_rank}_{loss_arm}"
+        != ("world_model_s1_120b_training_v10_32n" if is_s1 else f"world_model_s0_120b_training_v4_r{lora_rank}_{loss_arm}")
         or run_scope != "production"
         or require_bool(
             config.get("promotion_eligible"), "promotion_eligible"
@@ -458,13 +595,20 @@ def validate_train_contract(
     validation_gate = require_object(
         config.get("validation_gate"), "validation_gate"
     )
-    if validation_gate != {
-        "checkpoint_set": "each_saved_checkpoint_and_final",
-        "selection_metric": "validation/hard_failure_count_then_accuracy",
-        "required_method_count": 1,
-        "full_registry_access": False,
-    }:
-        raise SystemExit("The S0 v4 validation gate changed")
+    if is_s1:
+        if validation_gate != {
+            "checkpoint_set": "final", "selection_metric": "eval/completion_loss",
+            "required_method_count": 1, "test_panel_access": False,
+        }:
+            raise SystemExit("The S1 v10 validation gate changed")
+    else:
+        if validation_gate != {
+            "checkpoint_set": "each_saved_checkpoint_and_final",
+            "selection_metric": "validation/hard_failure_count_then_accuracy",
+            "required_method_count": 1,
+            "full_registry_access": False,
+        }:
+            raise SystemExit("The S0 v4 validation gate changed")
 
     # The corpus must be the published v4 build of the shared contract and
     # the v4 overlay that are in this repository.
@@ -484,11 +628,11 @@ def validate_train_contract(
         corpus_manifest_path, "corpus manifest"
     )
     if (
-        corpus_manifest.get("dataset_id") != S0_V4_DATASET_ID
+        corpus_manifest.get("dataset_id") != (S1_V3_DATASET_ID if is_s1 else S0_V4_DATASET_ID)
         or corpus_manifest.get("schema_version")
-        != V4_MANIFEST_SCHEMA_VERSION
+        != ("mentor-rl-world-model-s1-manifest-v1" if is_s1 else V4_MANIFEST_SCHEMA_VERSION)
         or corpus_manifest.get("corpus_schema_version")
-        != V4_CORPUS_SCHEMA_VERSION
+        != ("mentor-rl-world-model-s1-corpus-v1" if is_s1 else V4_CORPUS_SCHEMA_VERSION)
         or corpus_manifest.get("contract", {}).get("row_schema_version")
         != "multiplex_sft_v3"
         or corpus_manifest.get("row_counts", {}).get("train")
@@ -522,35 +666,42 @@ def validate_train_contract(
         ),
         "corpus runtime contract",
     )
-    overlay = require_object(
-        runtime_contract.get("s0_overlay"),
-        "S0 v4 runtime overlay",
-    )
-    overlay_declared = require_string(
-        overlay.get("path"), "S0 v4 runtime overlay path"
-    )
-    if (
-        Path(overlay_declared).as_posix() != "runtime/world_model/s0_v4.yaml"
-        or overlay.get("schema_version")
-        != "mentor-rl-world-model-s0-overlay-v1"
-        or overlay.get("metadata_optional_additions")
-        != V4_OVERLAY_METADATA_ADDITIONS
-    ):
-        raise SystemExit("The S0 v4 runtime overlay contract changed")
-    verify_file(
-        Path(
-            absolute_path(
-                root,
-                overlay_declared,
-                "S0 v4 runtime overlay path",
-            )
-        ),
-        require_sha256(
-            overlay.get("sha256"),
-            "S0 v4 runtime overlay SHA-256",
-        ),
-        "S0 v4 runtime overlay",
-    )
+    if is_s1:
+        overlay = require_object(runtime_contract.get("s1_overlay"), "S1 v10 runtime overlay")
+        if (overlay.get("path") != "runtime/world_model/s1_v10.yaml"
+                or overlay.get("schema_version") != "mentor-rl-world-model-s1-overlay-v9"):
+            raise SystemExit("The S1 v10 runtime overlay contract changed")
+        verify_file(root / overlay["path"], require_sha256(overlay.get("sha256"), "overlay SHA-256"), "S1 v10 runtime overlay")
+    else:
+        overlay = require_object(
+            runtime_contract.get("s0_overlay"),
+            "S0 v4 runtime overlay",
+        )
+        overlay_declared = require_string(
+            overlay.get("path"), "S0 v4 runtime overlay path"
+        )
+        if (
+            Path(overlay_declared).as_posix() != "runtime/world_model/s0_v4.yaml"
+            or overlay.get("schema_version")
+            != "mentor-rl-world-model-s0-overlay-v1"
+            or overlay.get("metadata_optional_additions")
+            != V4_OVERLAY_METADATA_ADDITIONS
+        ):
+            raise SystemExit("The S0 v4 runtime overlay contract changed")
+        verify_file(
+            Path(
+                absolute_path(
+                    root,
+                    overlay_declared,
+                    "S0 v4 runtime overlay path",
+                )
+            ),
+            require_sha256(
+                overlay.get("sha256"),
+                "S0 v4 runtime overlay SHA-256",
+            ),
+            "S0 v4 runtime overlay",
+        )
 
     train_path = corpus_root / require_string(
         corpus.get("train_file"), "train_file"
@@ -595,21 +746,28 @@ def validate_train_contract(
     )
     evaluator = read_json(evaluator_path, "evaluator manifest")
     if (
-        evaluator.get("schema_version") != V4_EVALUATOR_SCHEMA_VERSION
-        or evaluator.get("dataset_id") != S0_V4_DATASET_ID
-        or evaluator.get("evaluation_contract") != V4_EVALUATION_CONTRACT
+        evaluator.get("schema_version") != ("mentor-rl-world-model-s1-evaluator-v1" if is_s1 else V4_EVALUATOR_SCHEMA_VERSION)
+        or evaluator.get("dataset_id") != (S1_V3_DATASET_ID if is_s1 else S0_V4_DATASET_ID)
+        or evaluator.get("evaluation_contract") != ("held_out_s1_multiplex_sft_v3" if is_s1 else V4_EVALUATION_CONTRACT)
         or evaluator.get("corpus_manifest_sha256") != corpus_manifest_sha256
     ):
         raise SystemExit("The evaluator manifest contract changed")
-    if (
-        evaluator.get("row_schema_version") != "multiplex_sft_v3"
-        or evaluator.get("compatible_loss_contracts")
-        != [S0_V3_TRACE_LOSS_CONTRACT, S0_V4_PRIORITY_LOSS_CONTRACT]
-        or "loss_contract" in evaluator
-    ):
-        raise SystemExit("The v4 evaluator loss compatibility changed")
+    if is_s1:
+        if (evaluator.get("schema_version") != "mentor-rl-world-model-s1-evaluator-v1"
+                or evaluator.get("dataset_id") != S1_V3_DATASET_ID
+                or evaluator.get("loss_contract") != S0_V3_TRACE_LOSS_CONTRACT
+                or evaluator.get("corpus_manifest_sha256") != corpus_manifest_sha256):
+            raise SystemExit("The S1 v10 evaluator contract changed")
+    else:
+        if (
+            evaluator.get("row_schema_version") != "multiplex_sft_v3"
+            or evaluator.get("compatible_loss_contracts")
+            != [S0_V3_TRACE_LOSS_CONTRACT, S0_V4_PRIORITY_LOSS_CONTRACT]
+            or "loss_contract" in evaluator
+        ):
+            raise SystemExit("The v4 evaluator loss compatibility changed")
     validation_panel = require_object(
-        evaluator.get("teacher_forced_validation"),
+        evaluator.get("validation" if is_s1 else "teacher_forced_validation"),
         "evaluator validation panel",
     )
     if validation_panel.get("row_count") != validation_rows:
@@ -642,12 +800,31 @@ def validate_train_contract(
     if base_schema != "mentor-rl-base-model-artifact-v2":
         raise SystemExit("The base model artifact schema changed")
 
+    init_values = {}
+    if is_s1:
+        if (lora_rank != 32 or loss_contract != S0_V3_TRACE_LOSS_CONTRACT
+                or trainer.get("segment_loss_telemetry") is not True):
+            raise SystemExit("The S1 v10 trainer contract changed")
+        if (corpus.get("root") != "data/world_model_v4/corpora/s1_v10"
+                or corpus.get("evaluator_manifest") != "data/world_model_v4/eval/s1_v10/manifest.json"):
+            raise SystemExit("The S1 v10 corpus layout changed")
+        init_values = validate_parent_checkpoint(
+            root, config.get("initialization"),
+            model_identity_sha256=require_sha256(model.get("model_identity_sha256"), "model identity"),
+            tokenizer_manifest_sha256=require_sha256(method.get("tokenizer_manifest_sha256"), "tokenizer identity"),
+            lora_rank=lora_rank, lora_alpha=2 * lora_rank,
+        )
+        init_values["SEGMENT_LOSS_TELEMETRY"] = "1"
+        init_values["DIAGNOSTIC_SNAPSHOT_STEPS"] = ",".join(map(str, settings["diagnostic_snapshot_steps"]))
+    elif config.get("initialization") is not None:
+        raise SystemExit("Only an S1 run can start from a parent checkpoint")
+
     values = {
         "S0_RUN_CONFIG": str(config_path),
         "S0_RUN_CONFIG_SHA256": sha256_file(config_path),
         "S0_CONFIG_ID": config_id,
         "S0_RUN_SCOPE": run_scope,
-        "S0_DATASET_ID": S0_V4_DATASET_ID,
+        "S0_DATASET_ID": S1_V3_DATASET_ID if is_s1 else S0_V4_DATASET_ID,
         "S0_METHOD_ID": method_id,
         "S0_TRAIN_MODE": "lora",
         "S0_TOKENIZER_METHOD": tokenizer_method,
@@ -782,6 +959,7 @@ def validate_train_contract(
             )
         ),
     }
+    values.update(init_values)
     return values
 
 

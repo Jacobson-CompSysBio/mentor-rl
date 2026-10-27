@@ -1,0 +1,15 @@
+{
+  "schema_version": "mentor-rl-s1-lookup-retries-v1",
+  "max_retries": 1,
+  "case_counts": {"no_retry": 200, "recovered": 100, "exhausted": 100},
+  "thinking": {
+    "retry": "The registry is temporarily unavailable, and one retry remains. Repeat the same lookup with unchanged arguments.",
+    "no_retry": "The registry is unavailable, and no retry allowance was provided. Defer without registry evidence; the failed call does not show that the gene is absent.",
+    "recovered": "The retry resolves {symbol} to {gene_id}, completing the requested lookup. Return this registry mapping with stop; no further task was requested.",
+    "exhausted": "The retry also failed, exhausting the permitted attempt. Defer without registry evidence; these failures do not show that {symbol} is absent."
+  },
+  "summaries": {
+    "no_retry": "The registry lookup for {symbol} failed, and no retry was authorized. Registry access must be restored to continue.",
+    "exhausted": "Both permitted lookup attempts for {symbol} failed. Registry access must be restored to continue."
+  }
+}

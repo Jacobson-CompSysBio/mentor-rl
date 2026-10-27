@@ -1038,8 +1038,10 @@ def build_tool_trajectory_report(
     return report, metrics
 
 
-def publish_wandb(metrics: Mapping[str, Any]) -> dict[str, Any]:
-    """Append exact test metrics to the train W&B run."""
+def publish_wandb(
+    metrics: Mapping[str, Any], metric_prefix: str = "test"
+) -> dict[str, Any]:
+    """Publish S0 result accuracy and its gate; retain details in reports."""
 
     mode = os.environ.get("WANDB_MODE", "online").strip().lower()
     entity = os.environ.get("WANDB_ENTITY", "").strip()
@@ -1062,50 +1064,14 @@ def publish_wandb(metrics: Mapping[str, Any]) -> dict[str, Any]:
     if run is None or getattr(run, "disabled", False):
         raise S0EvaluationError("W&B did not resume the train run")
     payload = {
-        "test/valid_tool_trajectory_rate": metrics["overall"][
-            "valid_tool_trajectory_rate"
-        ],
-        "test/reasoning_present_rate": metrics["overall"][
-            "reasoning_present_rate"
-        ],
-        "test/reasoning_exact_rate": metrics["overall"][
-            "reasoning_exact_rate"
-        ],
-        "test/valid_single_tool_call_rate": metrics["overall"][
-            "valid_single_tool_call_rate"
-        ],
-        "test/exact_tool_argument_rate": metrics["overall"][
-            "exact_tool_argument_rate"
-        ],
-        "test/payload_accuracy": metrics["overall"]["payload_accuracy"],
-        "test/final_answer_accuracy": metrics["overall"][
-            "final_answer_accuracy"
-        ],
-        "test/structured_json_valid_rate": metrics["overall"][
-            "structured_json_valid_rate"
-        ],
-        "test/status_exact_rate": metrics["overall"][
-            "status_exact_rate"
-        ],
         "test/result_exact_rate": metrics["overall"]["result_exact_rate"],
         "test/gate_passed": int(metrics["gate"]["passed"]),
-        "test/continuation_decision_exact_rate": metrics["overall"][
-            "continuation_decision_exact_rate"
-        ],
-        "test/final_explanation_present_rate": metrics["overall"][
-            "final_explanation_present_rate"
-        ],
-        "test/direct_answer_rate": metrics["overall"][
-            "direct_answer_rate"
-        ],
     }
-    for family, family_metrics in metrics["families"].items():
-        payload[f"test/{family}/payload_accuracy"] = family_metrics[
-            "payload_accuracy"
-        ]
-        payload[f"test/{family}/final_answer_accuracy"] = family_metrics[
-            "final_answer_accuracy"
-        ]
+    if metric_prefix != "test":
+        payload = {
+            f"{metric_prefix}/{key.split('/', 1)[1]}": value
+            for key, value in payload.items()
+        }
     run.log(payload)
     receipt = {
         "id": run.id,
@@ -1142,6 +1108,7 @@ def evaluate_tool_trajectory_test(
     minimum_not_found_defer_accuracy: float,
     minimum_unnamed_id_resolved_accuracy: float,
     publish: bool,
+    wandb_metric_prefix: str = "test",
 ) -> dict[str, Any]:
     """Score one complete S0 full-registry test result."""
 
@@ -1213,7 +1180,7 @@ def evaluate_tool_trajectory_test(
     write_json(output_dir / "exact_tool_report.json", report, private=True)
     write_json(output_dir / "test_metrics.json", metrics, private=False)
     if publish:
-        receipt = publish_wandb(metrics)
+        receipt = publish_wandb(metrics, wandb_metric_prefix)
         write_json(output_dir / "wandb_test_run.json", receipt, private=False)
     return metrics
 
@@ -1254,6 +1221,7 @@ def parse_args() -> argparse.Namespace:
             "--" + name.replace("_", "-"), type=float, required=True
         )
     parser.add_argument("--publish-wandb", action="store_true")
+    parser.add_argument("--wandb-metric-prefix", default="test")
     return parser.parse_args()
 
 
@@ -1269,6 +1237,7 @@ def main() -> int:
         tokenizer_manifest_path=args.tokenizer_manifest,
         output_dir=args.output_dir,
         publish=args.publish_wandb,
+        wandb_metric_prefix=args.wandb_metric_prefix,
         **{name: getattr(args, name) for name in GATE_ARGUMENTS},
     )
     print(

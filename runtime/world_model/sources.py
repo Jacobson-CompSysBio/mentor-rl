@@ -18,6 +18,9 @@ import unicodedata
 
 
 GENE_ID_PATTERN = re.compile(r"^ENSG[0-9]{11}$")
+MOUSE_GENE_ID_PATTERN = re.compile(r"^ENSMUSG[0-9]{11}$")
+TRANSCRIPT_ID_PATTERN = re.compile(r"^ENST[0-9]{11}$")
+ENSEMBL_VERSION_PATTERN = re.compile(r"^[1-9][0-9]*$")
 GTF_ATTRIBUTE_PATTERN = re.compile(r'([A-Za-z0-9_]+) "([^"]*)";')
 
 
@@ -33,6 +36,36 @@ class RegistryGene:
     gene_symbol: str | None
     chromosome: str
     biotype: str
+
+
+@dataclass(frozen=True, slots=True)
+class VersionedGeneId:
+    """One canonical human gene ID and its release-specific version."""
+
+    gene_id: str
+    gene_version: int
+
+    @property
+    def versioned_gene_id(self) -> str:
+        """Return the model-visible Ensembl accession with its version."""
+
+        return f"{self.gene_id}.{self.gene_version}"
+
+
+@dataclass(frozen=True, slots=True)
+class TranscriptIdentifier:
+    """One verified human transcript ID and its parent gene ID."""
+
+    transcript_id: str
+    gene_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class EnsemblGtfIdentifiers:
+    """Release-specific gene versions and transcript-to-gene links."""
+
+    genes: tuple[VersionedGeneId, ...]
+    transcripts: tuple[TranscriptIdentifier, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,8 +147,13 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def read_ensembl_gtf(path: Path) -> tuple[RegistryGene, ...]:
-    """Read every human gene feature from one gzipped Ensembl GTF."""
+def read_ensembl_gtf(
+    path: Path,
+    *,
+    gene_id_pattern: re.Pattern[str] = GENE_ID_PATTERN,
+    species: str = "human",
+) -> tuple[RegistryGene, ...]:
+    """Read every gene feature from one gzipped Ensembl GTF."""
 
     genes: dict[str, RegistryGene] = {}
     try:
@@ -134,9 +172,9 @@ def read_ensembl_gtf(path: Path) -> tuple[RegistryGene, ...]:
 
                 attributes = dict(GTF_ATTRIBUTE_PATTERN.findall(fields[8]))
                 gene_id = attributes.get("gene_id", "").strip()
-                if GENE_ID_PATTERN.fullmatch(gene_id) is None:
+                if gene_id_pattern.fullmatch(gene_id) is None:
                     raise SourceError(
-                        f"{path}:{line_number}: invalid human gene ID "
+                        f"{path}:{line_number}: invalid {species} gene ID "
                         f"{gene_id!r}"
                     )
                 chromosome = fields[0].strip()
@@ -167,8 +205,109 @@ def read_ensembl_gtf(path: Path) -> tuple[RegistryGene, ...]:
         raise SourceError(f"cannot read Ensembl GTF {path}: {exc}") from exc
 
     if not genes:
-        raise SourceError(f"{path}: no human gene features")
+        raise SourceError(f"{path}: no {species} gene features")
     return tuple(genes[gene_id] for gene_id in sorted(genes))
+
+
+def read_ensembl_gtf_identifiers(path: Path) -> EnsemblGtfIdentifiers:
+    """Read human gene versions and transcript-parent links from one GTF.
+
+    This is the narrow source view needed by the S1.2 corpus.  Gene versions
+    and transcript IDs are read from their native GTF attributes rather than
+    synthesized from another identifier.  The existing :func:`read_ensembl_gtf`
+    registry view remains separate because the content-addressed source index
+    intentionally stores only gene-level registry facts.
+    """
+
+    genes: dict[str, VersionedGeneId] = {}
+    transcripts: dict[str, TranscriptIdentifier] = {}
+    try:
+        handle = gzip.open(path, "rt", encoding="utf-8")
+        with handle:
+            for line_number, line in enumerate(handle, 1):
+                if not line.strip() or line.startswith("#"):
+                    continue
+                fields = line.rstrip("\n").split("\t")
+                if len(fields) != 9:
+                    raise SourceError(
+                        f"{path}:{line_number}: expected 9 GTF fields"
+                    )
+                feature = fields[2]
+                if feature not in {"gene", "transcript"}:
+                    continue
+
+                attributes = dict(GTF_ATTRIBUTE_PATTERN.findall(fields[8]))
+                gene_id = attributes.get("gene_id", "").strip()
+                if GENE_ID_PATTERN.fullmatch(gene_id) is None:
+                    raise SourceError(
+                        f"{path}:{line_number}: invalid human gene ID "
+                        f"{gene_id!r}"
+                    )
+
+                if feature == "gene":
+                    raw_version = attributes.get("gene_version", "").strip()
+                    if ENSEMBL_VERSION_PATTERN.fullmatch(raw_version) is None:
+                        raise SourceError(
+                            f"{path}:{line_number}: invalid gene version "
+                            f"{raw_version!r} for {gene_id}"
+                        )
+                    if gene_id in genes:
+                        raise SourceError(
+                            f"{path}:{line_number}: duplicate gene ID {gene_id}"
+                        )
+                    genes[gene_id] = VersionedGeneId(
+                        gene_id=gene_id,
+                        gene_version=int(raw_version),
+                    )
+                    continue
+
+                transcript_id = attributes.get("transcript_id", "").strip()
+                if TRANSCRIPT_ID_PATTERN.fullmatch(transcript_id) is None:
+                    raise SourceError(
+                        f"{path}:{line_number}: invalid human transcript ID "
+                        f"{transcript_id!r}"
+                    )
+                raw_version = attributes.get("transcript_version", "").strip()
+                if ENSEMBL_VERSION_PATTERN.fullmatch(raw_version) is None:
+                    raise SourceError(
+                        f"{path}:{line_number}: invalid transcript version "
+                        f"{raw_version!r} for {transcript_id}"
+                    )
+                if transcript_id in transcripts:
+                    raise SourceError(
+                        f"{path}:{line_number}: duplicate transcript ID "
+                        f"{transcript_id}"
+                    )
+                transcripts[transcript_id] = TranscriptIdentifier(
+                    transcript_id=transcript_id,
+                    gene_id=gene_id,
+                )
+    except (OSError, UnicodeError) as exc:
+        raise SourceError(f"cannot read Ensembl GTF {path}: {exc}") from exc
+
+    if not genes:
+        raise SourceError(f"{path}: no human gene features")
+    if not transcripts:
+        raise SourceError(f"{path}: no human transcript features")
+    missing_parents = sorted(
+        {
+            transcript.gene_id
+            for transcript in transcripts.values()
+            if transcript.gene_id not in genes
+        }
+    )
+    if missing_parents:
+        preview = ", ".join(missing_parents[:3])
+        raise SourceError(
+            f"{path}: transcript parent genes are absent: {preview}"
+        )
+    return EnsemblGtfIdentifiers(
+        genes=tuple(genes[gene_id] for gene_id in sorted(genes)),
+        transcripts=tuple(
+            transcripts[transcript_id]
+            for transcript_id in sorted(transcripts)
+        ),
+    )
 
 
 def read_ensembl_stable_id_history(path: Path) -> StableIdHistory:

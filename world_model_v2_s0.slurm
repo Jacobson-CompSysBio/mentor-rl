@@ -1,15 +1,11 @@
 #!/bin/bash
-# Train or test one S0 v4 method from one exact run contract.
+# Run one S0 method from one exact run contract.
 #
-# JOB_MODE=train (default) trains one LoRA arm on the v4 corpus.
-# JOB_MODE=test generates and scores the full-registry test for the final
-# checkpoint of one training run (set CHECKPOINT_PATH).
 # Set RUN_CONFIG and S0_METHOD_ID for each submission.
-# CONTRACT_ONLY=1 validates the contract and exits before any work starts.
+# Use a method-level run_settings object for a run-specific value.
 # Slurm adds its job ID to the run ID and output path.
 # Create logs/ before submission.
-# The #SBATCH defaults below match one v4 training arm (16 nodes).
-# See agents/world_model_v3_curriculum/S0-human-gene-identifiers.md.
+# Slurm uses these defaults for the canonical LoRA trajectory run.
 
 #SBATCH --job-name=wm2_s0
 #SBATCH -A SYB114
@@ -53,6 +49,10 @@ S0_METHOD_ID="${S0_METHOD_ID:?S0_METHOD_ID is required}"
 CONTRACT_ONLY="${CONTRACT_ONLY:-0}"
 S0_RESUME_SHARDS_ROOT="${S0_RESUME_SHARDS_ROOT:-}"
 S0_GENERATION_ATTEMPTS="${S0_GENERATION_ATTEMPTS:-2}"
+SEGMENT_LOSS_TELEMETRY="${SEGMENT_LOSS_TELEMETRY:-0}"
+DIAGNOSTIC_SNAPSHOT_STEPS="${DIAGNOSTIC_SNAPSHOT_STEPS:-}"
+[[ "${SEGMENT_LOSS_TELEMETRY}" == "0" || "${SEGMENT_LOSS_TELEMETRY}" == "1" ]] ||
+  die "SEGMENT_LOSS_TELEMETRY must be zero or one."
 
 # Train mode includes teacher-forced validation loss.
 # Test mode generates answers and then measures exact mapping accuracy.
@@ -128,6 +128,8 @@ if [[ "${JOB_MODE}" == "test" ]]; then
   export S0_MINIMUM_UNNAMED_ID_RESOLVED_ACCURACY
   export S0_IDENTIFIER_REGISTRY S0_IDENTIFIER_REGISTRY_SHA256
   export S0_WANDB_ENTITY S0_WANDB_PROJECT
+  : "${S0_WANDB_METRIC_PREFIX:=test}"
+  export S0_WANDB_METRIC_PREFIX
   require_positive_integer S0_GENERATION_ATTEMPTS \
     "${S0_GENERATION_ATTEMPTS}"
   export S0_GENERATION_ATTEMPTS
@@ -174,9 +176,9 @@ if [[ "${JOB_MODE}" == "test" ]]; then
 
   # This hash identifies all code that can affect prompts, output, or scores.
   evaluation_code_files=(
+    runtime/tools.py
     runtime/world_model_training.py
     runtime/world_model/contract.py
-    runtime/world_model/contract.yaml
     runtime/world_model/source_index.py
     runtime/world_model/sources.py
     runtime/world_model/tools.py
@@ -240,8 +242,8 @@ if [[ "${JOB_MODE}" == "test" ]]; then
     "world_size=${S0_EVAL_WORLD_SIZE}" \
     "generation_attempts=${S0_GENERATION_ATTEMPTS}" \
     "resume_shards_root=${S0_RESUME_SHARDS_ROOT:-none}" \
-    "wandb_entity=${S0_WANDB_ENTITY}" \
-    "wandb_project=${S0_WANDB_PROJECT}" \
+    "wandb_entity=${S0_WANDB_ENTITY:-disabled}" \
+    "wandb_project=${S0_WANDB_PROJECT:-disabled}" \
     "output_dir=${OUTPUT_DIR}" \
     > "${RUN_CONTRACT_DIR}/launch.env"
 
@@ -540,6 +542,7 @@ print(
       "${S0_MINIMUM_NOT_FOUND_DEFER_ACCURACY}" \
     --minimum-unnamed-id-resolved-accuracy \
       "${S0_MINIMUM_UNNAMED_ID_RESOLVED_ACCURACY}" \
+    --wandb-metric-prefix "${S0_WANDB_METRIC_PREFIX}" \
     --publish-wandb
 
   # Require the answer-free bundle, raw outputs, exact report, and W&B receipt.
@@ -561,13 +564,19 @@ print(
 fi
 
 # Resolve one method. The run contract owns all train values.
+S0_PREFLIGHT_ATTEMPTS="${S0_PREFLIGHT_ATTEMPTS:-3}"
+require_positive_integer S0_PREFLIGHT_ATTEMPTS "${S0_PREFLIGHT_ATTEMPTS}"
 CONTRACT_CHECKER="${REPO_ROOT}/scripts/validate_world_model_v2_s0_train_contract.py"
 [[ -f "${CONTRACT_CHECKER}" ]] || die "The train contract checker is absent."
 python "${CONTRACT_CHECKER}" "${REPO_ROOT}" "${RUN_CONFIG}" "${S0_METHOD_ID}" > "${contract_env}"
 
 # shellcheck disable=SC1090
 source "${contract_env}"
+: "${INIT_ADAPTER_DIR:=}"
+: "${INIT_ADAPTER_SHA256:=}"
+: "${INIT_ADAPTER_RUN_ID:=}"
 export S0_RUN_CONFIG S0_RUN_CONFIG_SHA256 S0_CONFIG_ID S0_RUN_SCOPE
+export INIT_ADAPTER_DIR INIT_ADAPTER_SHA256 INIT_ADAPTER_RUN_ID
 export S0_DATASET_ID
 export S0_METHOD_ID S0_TRAIN_MODE S0_TOKENIZER_METHOD
 export S0_TOKENIZER_ARM_ROOT S0_TOKENIZER_ARM_MANIFEST_SHA256
@@ -663,14 +672,17 @@ actual_model_identity="$({
 # Hash the direct code inputs for this method.
 training_code_files=(
   runtime/world_model_training.py
+  runtime/world_model_loss_metrics.py
   runtime/world_model/contract.py
-  runtime/world_model/contract.yaml
   scripts/validate_world_model_v2_s0_train_contract.py
   scripts/train_sft_dp_tp_ep.py
   scripts/world_model_dp_tp_ep.py
   scripts/tp_ep_autograd.py
   world_model_v2_s0.slurm
 )
+if [[ -n "${DIAGNOSTIC_SNAPSHOT_STEPS}" ]]; then
+  training_code_files+=(runtime/world_model_checkpoint_diagnostics.py)
+fi
 S0_TRAINING_CODE_SHA256="$({
   for path in "${training_code_files[@]}"; do
     [[ -f "${path}" ]] || die "A train code file is absent: ${path}"
@@ -713,6 +725,8 @@ printf '%s\n' \
   "model_identity_sha256=${MODEL_IDENTITY_SHA256}" \
   "base_model_artifact_sha256=${BASE_MODEL_ARTIFACT_SHA256}" \
   "training_code_sha256=${S0_TRAINING_CODE_SHA256}" \
+  "segment_loss_telemetry=${SEGMENT_LOSS_TELEMETRY}" \
+  "diagnostic_snapshot_steps=${DIAGNOSTIC_SNAPSHOT_STEPS}" \
   "nodes=${NUM_NODES}" \
   "ranks_per_node=${RANKS_PER_NODE}" \
   "world_size=${WORLD_SIZE_EXPECTED}" \
@@ -724,8 +738,11 @@ printf '%s\n' \
   "eval_strategy=${EVAL_STRATEGY}" \
   "eval_on_start=${EVAL_ON_START}" \
   "per_device_eval_batch_size=${EVAL_BATCH_SIZE}" \
+  "rank_preflight_attempts=${S0_PREFLIGHT_ATTEMPTS}" \
   "wandb_mode=${S0_TRACKING_MODE}" \
   "wandb_entity=${S0_WANDB_ENTITY}" \
+  "init_adapter_run_id=${INIT_ADAPTER_RUN_ID:-none}" \
+  "init_adapter_sha256=${INIT_ADAPTER_SHA256:-none}" \
   "output_dir=${OUTPUT_DIR}" \
   > "${RUN_CONTRACT_DIR}/launch.env"
 
@@ -924,18 +941,41 @@ rank_receipt_dir="${RUN_CONTRACT_DIR}/rank_preflight"
 mkdir -p "${rank_receipt_dir}"
 export rank_receipt_dir
 echo "Check all allocated ranks."
-srun --nodes="${NUM_NODES}" --ntasks="${WORLD_SIZE_EXPECTED}" \
-  --ntasks-per-node="${RANKS_PER_NODE}" --gpus-per-task=1 \
-  --cpu-bind=none --gpu-bind=closest --kill-on-bad-exit=1 bash -c '
-  set -euo pipefail
-  gpu_count="$(python -c "import torch; assert torch.cuda.is_available(); print(torch.cuda.device_count())")"
-  printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
-    "${SLURM_PROCID}" "${SLURM_LOCALID}" "$(hostname)" "${gpu_count}" \
-    "${ROCR_VISIBLE_DEVICES:-<unset>}" \
-    "${HIP_VISIBLE_DEVICES:-<unset>}" \
-    "${CUDA_VISIBLE_DEVICES:-<unset>}" \
-    > "${rank_receipt_dir}/rank-${SLURM_PROCID}.tsv"
-'
+run_rank_preflight() {
+  srun --nodes="${NUM_NODES}" --ntasks="${WORLD_SIZE_EXPECTED}" \
+    --ntasks-per-node="${RANKS_PER_NODE}" --gpus-per-task=1 \
+    --cpu-bind=none --gpu-bind=closest --kill-on-bad-exit=1 bash -c '
+    set -euo pipefail
+    gpu_count="$(python -c "import torch; assert torch.cuda.is_available(); print(torch.cuda.device_count())")"
+    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
+      "${SLURM_PROCID}" "${SLURM_LOCALID}" "$(hostname)" "${gpu_count}" \
+      "${ROCR_VISIBLE_DEVICES:-<unset>}" \
+      "${HIP_VISIBLE_DEVICES:-<unset>}" \
+      "${CUDA_VISIBLE_DEVICES:-<unset>}" \
+      > "${rank_receipt_dir}/rank-${SLURM_PROCID}.tsv"
+  '
+}
+
+# A Slurm controller timeout can reject a step before any rank starts. Retry
+# this read-only check and discard partial receipts between attempts.
+preflight_status=1
+for ((preflight_attempt = 1; \
+      preflight_attempt <= S0_PREFLIGHT_ATTEMPTS; \
+      preflight_attempt++)); do
+  rm -f -- "${rank_receipt_dir}"/rank-*.tsv
+  if run_rank_preflight; then
+    preflight_status=0
+    break
+  else
+    preflight_status=$?
+  fi
+  if (( preflight_attempt < S0_PREFLIGHT_ATTEMPTS )); then
+    echo "[WARN] Rank preflight attempt ${preflight_attempt} failed with status ${preflight_status}; retrying." >&2
+    sleep "$((5 * preflight_attempt))"
+  fi
+done
+[[ "${preflight_status}" -eq 0 ]] || \
+  die "The rank preflight failed with status ${preflight_status}."
 python - "${rank_receipt_dir}" "${WORLD_SIZE_EXPECTED}" \
   "${RANKS_PER_NODE}" "${NUM_NODES}" <<'PY'
 from collections import defaultdict
@@ -1008,6 +1048,20 @@ train_args=(
   --max_length "${MAX_LENGTH}"
   --seed "${SEED}"
 )
+if [[ "${SEGMENT_LOSS_TELEMETRY}" == "1" ]]; then
+  train_args+=(--segment_loss_telemetry)
+fi
+if [[ -n "${DIAGNOSTIC_SNAPSHOT_STEPS}" ]]; then
+  train_args+=(--diagnostic_snapshot_steps "${DIAGNOSTIC_SNAPSHOT_STEPS}")
+fi
+# Start from the validated parent adapter when the contract names one.
+if [[ -n "${INIT_ADAPTER_DIR}" ]]; then
+  train_args+=(
+    --init_adapter_dir "${INIT_ADAPTER_DIR}"
+    --init_adapter_sha256 "${INIT_ADAPTER_SHA256}"
+    --init_adapter_run_id "${INIT_ADAPTER_RUN_ID}"
+  )
+fi
 # Add the method values.
 train_args+=(
   --tp_size "${TP_SIZE}"

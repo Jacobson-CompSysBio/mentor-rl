@@ -163,3 +163,10 @@ For quick script-level validation, the main Python entry points also expose
 - Many defaults assume the current ORNL/Frontier filesystem layout and large local model caches.
 - The trajectory pipeline writes run artifacts and progress files into `data/`.
 - Slurm launchers are the most complete examples of the intended production workflow.
+
+### 6. World model S1: coordinate-system training
+
+The current S1 v10 recipe extends the S0 r32 uniform adapter and passes its
+frozen 6,875-row structured-answer gate at 95.1564%. See
+[the S1 training guide](agents/world_model_v3_curriculum/S1-coordinate-system.md)
+for the three current configs, required data, reproduction, and launcher checks.

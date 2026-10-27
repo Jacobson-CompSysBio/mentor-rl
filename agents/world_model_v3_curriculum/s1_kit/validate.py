@@ -12,12 +12,23 @@ try:
     REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[3]
     sys.path.insert(0, str(REPOSITORY_ROOT))
     from runtime.world_model.contract import layer_tag_problem, load_contract
+    from runtime.world_model.s1_overlay import apply_s1_overlay
+    from runtime.world_model.s1_membership_retry import audit_membership_retry
 except ImportError:
     sys.exit("ERROR: cannot import runtime.world_model.contract from %s"
              % REPOSITORY_ROOT)
 
+# An optional S1 overlay (--overlay runtime/world_model/s1_v5.yaml) checks
+# rows against the overlaid contract that built them.
+ARGS = sys.argv[1:]
+OVERLAY = None
+if len(ARGS) >= 2 and ARGS[0] == "--overlay":
+    OVERLAY, ARGS = pathlib.Path(ARGS[1]), ARGS[2:]
+
 HERE = pathlib.Path(__file__).resolve().parent
 CONTRACT = load_contract()
+if OVERLAY is not None:
+    CONTRACT = apply_s1_overlay(CONTRACT, OVERLAY)[0]
 V = CONTRACT["vocabularies"]
 G = CONTRACT["layer_grammars"]
 T = CONTRACT["tools"]
@@ -25,9 +36,10 @@ P = CONTRACT["provenance"]
 B = CONTRACT["blocked_reasons"]
 R = CONTRACT["rows"]
 
-if len(sys.argv) < 2:
-    sys.exit("usage: validate.py <question-file.md | corpus.jsonl>")
-qf = pathlib.Path(sys.argv[1])
+if len(ARGS) < 1:
+    sys.exit("usage: validate.py [--overlay s1_vN.yaml] "
+             "<question-file.md | corpus.jsonl>")
+qf = pathlib.Path(ARGS[0])
 if not qf.is_file():
     sys.exit("ERROR: no such question file: %s" % qf)
 src = qf.read_text()
@@ -606,9 +618,41 @@ for t in traces:
         if asks:
             flag(tid, "summary asks only on defer", "%r in a %s answer" % (asks[0], a.get("continuation_decision")))
 
-    # Every failure result uses the single failed_tool key.
+    # One explicitly permitted, identical lookup may recover. Its successful
+    # result supplies the final mapping; an earlier transport error is not the
+    # final answer. Keep the old failure checks for all other trajectories.
     errors = [(n, res) for n, res in pairs if isinstance(res, dict) and res.get("status") == "error"]
-    if errors or "tool" in r or "failed_tool" in r:
+    recovered_lookup = (
+        len(pairs) == 2
+        and pairs[0][0] == pairs[1][0]
+        and pairs[0][0] in ("lookup_human_gene_symbol", "lookup_human_ensembl_gene_id")
+        and t["calls"][0] == t["calls"][1]
+        and pairs[0][1] == {
+            "status": "error", "provenance": None,
+            "error_code": "BACKEND_UNAVAILABLE",
+            "message": "registry unreachable; retries_remaining=1",
+        }
+        and isinstance(pairs[1][1], dict)
+        and pairs[1][1].get("status") == a.get("status") == "resolved"
+        and r == {k: pairs[1][1].get(k) for k in ("gene_id", "gene_symbol")}
+        and a.get("provenance") == pairs[1][1].get("provenance")
+        and a.get("continuation_decision") == "stop"
+    )
+    recovered_membership = False
+    if len(pairs) >= 3 and any(n == "check_multiplex_membership" for n, _ in errors):
+        seen["membership retry budget and evidence"] += 1
+        try:
+            retry_calls = []
+            for call in t["calls"]:
+                text = " ".join(call)
+                name, arguments = text.split("(", 1)
+                retry_calls.append({"name": name, "arguments": json.loads(arguments[:-1])})
+            case = "recovered" if pairs[-1][1].get("status") != "error" else "exhausted"
+            audit_membership_retry(retry_calls, [res for _, res in pairs], a, case)
+            recovered_membership = case == "recovered"
+        except (ValueError, KeyError, TypeError, AttributeError) as error:
+            flag(tid, "membership retry budget and evidence", str(error))
+    if (errors and not recovered_lookup and not recovered_membership) or "tool" in r or "failed_tool" in r:
         seen["failure keys"] += 1
         n_err, res_err = errors[0] if errors else (None, {})
         want, banned = {"failed_tool": n_err, "error_code": res_err.get("error_code")}, "tool"
