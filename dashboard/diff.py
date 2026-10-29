@@ -101,6 +101,11 @@ def changed_labels(old: dict, new: dict) -> set[str]:
     return {key[1] for key in old.keys() | new.keys() if old.get(key) != new.get(key)}
 
 
+def question_type(row: dict) -> str:
+    """A row's question type: its source trace (S0, S1), else its question family (S2)."""
+    return row["metadata"].get("source_trace") or row["metadata"]["question_family"]
+
+
 def type_order(trace: str) -> tuple[int, ...]:
     """Sort S1.1.10 after S1.1.9."""
     return tuple(int(part) for part in re.findall(r"\d+", trace))
@@ -129,7 +134,7 @@ def type_names(rows: list[dict]) -> dict[str, str]:
         name = (meta.get("fact_kind") or meta.get("question_family", "")).replace("_", " ")
         if meta.get("input_variant") not in (None, "canonical"):
             name += f", {meta['input_variant']} input"
-        names.setdefault(meta["source_trace"], name)
+        names.setdefault(question_type(row), name)
     for trace in names:
         parts = type_order(trace)  # (1, section, form) for an S1 type
         if parts[0] == 1 and len(parts) == 3:
@@ -144,7 +149,7 @@ def scan(entry: dict) -> dict:
     parts, types, gold, first = {}, {}, {}, None
     for row in read_rows(entry):
         first = first or row
-        trace = row["metadata"]["source_trace"]
+        trace = question_type(row)
         parts[row["row_id"]] = row_parts(row)
         types[row["row_id"]] = trace
         gold.setdefault((trace, gold_key(row)), row)

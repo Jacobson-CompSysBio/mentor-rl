@@ -1,0 +1,192 @@
+# Text shown on the S1 dashboard page. Edit freely; Markdown works.
+#
+# families: the heading of each question family.
+# versions: what each corpus version changed and why. The registry's one-line
+#   summary stays in config/dashboard/stages.yaml; this is the longer account.
+# types:    what each question type asks and what a correct answer does. The
+#   page adds row counts, outcomes, and accuracy from the data.
+# tools:    what each tool does. The page adds parameters and result fields
+#   from the tool schemas and runtime/world_model/contract.yaml.
+#
+# Sources: the S1 stage document's history (S1-coordinate-system.md on
+# codex/s1-v10-to-main), AGENTS.md, the hand-written S1 question traces, and
+# the family builders' case names.
+
+families:
+  S1.1: {title: Symbol to Ensembl ID}
+  S1.2: {title: Ensembl ID to symbol}
+  S1.3: {title: Ambiguous symbol}
+  S1.4: {title: Cross-context alignment}
+  S1.5: {title: Context ID resolution, description: Disabled until the context ontology data exists.}
+  S1.6: {title: Layer tag parsing}
+  S1.7: {title: Layer family and supported claims}
+  S1.8: {title: Direction conventions}
+  S1.9: {title: Module ID parsing}
+
+versions:
+  v1: >-
+    First S1 corpus, built for the 20B qualification and smoke runs of
+    2026-10-06. 55,276 training rows: 55,000 S1 rows across eight families and
+    276 S0 replay rows from S0 v3, with 6,875 validation and 6,875 test rows.
+    S1.5 (context ID resolution) is disabled until the context ontology data
+    exists. No S1 gate run is recorded for this corpus.
+  v2: >-
+    Built 2026-10-08 with overlay `s1_v2.yaml`, which changes two things from
+    v1 and leaves the shared contract unchanged: S1.2 gets more genes without a
+    symbol, and the S0 replay rows come from the S0 v4 corpus. Row counts match
+    v1. Only the S1.2 component was rebuilt; the other components reuse v1's
+    files.
+  v3: >-
+    Built 2026-10-10. Only the training wording changes. The v2 test showed that
+    the model did not generalize from 4 direct and 4 step wrappers, each used
+    about 100 times, to held-out paraphrases. v3 adds a frozen, LLM-drafted
+    prompt bank, assigned round-robin: 64 direct and 64 step wrappers for S1.1
+    and S1.2, and 32 + 32 for the other families. S1.8 trains on 8 names per
+    metric and 16 shared aliases. Validation and test rows are unchanged; most
+    training rows were regenerated with new row IDs.
+  v4: >-
+    Built 2026-10-11. Only the final reasoning of the 700 S1.1.10 training rows
+    changes: it now states the rule that a gene that is not a node in the named
+    multiplex gets status `not_found`. S1.1.9 (present) and S1.1.10 (absent)
+    had shared one reasoning sentence, and S1.1.10's status was right on at most
+    16 of 88 test rows in any earlier run. The training bundle also normalizes
+    evidence IDs. Validation and test stay byte-identical to v3, and training
+    repeats the 32-node v3 recipe, so only the corpus changes.
+  v5: >-
+    Carries the approved S1.1 and S1.3 answer-template changes. These re-key the
+    held-out answers, so v4 and v5 scores do not compare directly. Trained with
+    the v4 32-node recipe: batch 32, one epoch, 1,728 steps, learning rate 1e-4,
+    r32 LoRA, S0 parent `slurm-5631883`. Structured accuracy was 5,533 of 6,875
+    (80.48%) and the gate failed; v4's predictions rescored against the v5 keys
+    give 87.78%.
+  v6: >-
+    Reviewed one question type at a time, then finished with an approved
+    reasoning-only batch (2026-10-19). Failing types get new final reasoning,
+    many forms restore the frozen v4 training wrappers, and three retry policies
+    are added (S1.1.8 symbol lookup, S1.2.11 ID lookup, S1.3.10 membership): the
+    model retries only when the tool error grants one remaining attempt. Passing
+    types stay unchanged, and validation, test, and evaluator files are
+    byte-identical to v5. The pinned gate run uses retained current-turn
+    reasoning (93.82%); the default-history run scored 68.84%.
+  v7: >-
+    Task-scope prompt experiment (prepared 2026-10-20): the approved new system
+    prompt and an 8,192-token training sequence limit, built in the separate
+    `mentor-rl-s1-prompt-v7` checkout on branch `codex/s1-prompt-v7`. It was
+    never submitted for training, so it has no gate run. Every gold trace
+    differs from v6 because the system prompt changed.
+  v8: >-
+    Training-only decorrelation sweep (2026-10-21): sampling, wording, order,
+    and case fixes that decorrelate training cases, including types that already
+    passed. Same system prompt, facts, reasoning rules, and recipe as v6;
+    held-out rows and answer keys are byte-identical to v6. Many training rows
+    were regenerated with new row IDs. Structured accuracy was 89.92% under
+    `tiered_v3` with retained reasoning, and the gate failed.
+  v9: >-
+    Targeted training-only revision (2026-10-22): v6's identity-task rows,
+    selected v8 coverage changes, and balanced S0 replay, with the v8 recipe
+    (32 nodes, one epoch, 1,728 updates, batch 32, learning rate 1e-4). Its
+    completed rerun scored 6,526 of 6,875 (94.92%) and failed the
+    `structured_95_v1` gate, the 95% overall gate chosen on 2026-10-23.
+  v10: >-
+    Three targeted training-only fixes (2026-10-26): final reasoning in S1.1.6
+    (800 rows), standalone scope wording and final reasoning in S1.3.8 (1,000
+    rows), and outer-request scope reasoning in S1.8.4 (666 rows). The v9
+    recipe, replay, prompt, and frozen test panel are unchanged. Scored 6,542 of
+    6,875 (95.16%) and passed `structured_95_v1`.
+
+tools:
+  lookup_human_gene_symbol: >-
+    Look up a human gene symbol in the Ensembl release 116 registry and return
+    its Ensembl gene ID. The argument copies the user's text; the tool trims
+    spaces and ignores case. When case folding joins two registry symbols, the
+    result is `ambiguous`, and an ambiguous symbol returns every candidate with
+    its chromosome and biotype.
+  lookup_human_ensembl_gene_id: >-
+    Look up a human Ensembl gene ID in the release 116 registry and return its
+    symbol, which is null for a gene without one. The tool checks the format
+    (ENSG followed by 11 digits), ignores case, and strips only a numeric `.N`
+    version suffix; any other suffix returns `not_found`.
+  check_multiplex_membership: >-
+    Report which of the given gene IDs are nodes of a registered multiplex, in
+    any layer. The tool reports membership; it does not choose between
+    candidates.
+  _all: >-
+    Every result has `provenance` as its second key, after `status`. Registry
+    lookups carry a registry-channel block and the membership check a
+    graph-channel block. An error result has `provenance` null.
+
+types:
+  # S1.1 Symbol to Ensembl ID
+  S1.1.1: The user gives a human gene symbol and asks only for its Ensembl ID. One symbol lookup resolves it, and the answer stops.
+  S1.1.2: The symbol lookup is one step of a larger task. One lookup resolves the ID, and the answer continues to the next step.
+  S1.1.3: The input is a previous HGNC symbol or an alias that is not a current registry symbol. The lookup returns `not_found`, and the answer defers with a blocked reason.
+  S1.1.4: A harness block already lists the requested symbol with its ID, so the answer comes from the block without a tool call.
+  S1.1.5: A harness block lists other genes but not the requested symbol, so the model still calls the lookup.
+  S1.1.6: An Ensembl gene ID arrives where a symbol is expected. The model picks the tool that matches the input form and resolves it in one call.
+  S1.1.7: The input names a gene from another species. The answer is `invalid_input` without a tool call, and it defers (`out_of_scope_species`).
+  S1.1.8: The symbol lookup fails with a backend error. The model retries once only when the error grants a remaining attempt; it either recovers or defers after the retry is used up, and without an allowance it defers at once (`tool_error`).
+  S1.1.9: The user asks whether a gene is in a named multiplex. After the symbol lookup, a membership check finds the gene present (`present`, true).
+  S1.1.10: The same question as S1.1.9, but the membership check finds the gene absent; the answer is a completed negative (`present`, false).
+  S1.1.11: The named multiplex is not registered. The membership check returns `not_found`, membership stays unknown (`present`, null), and the answer defers until a registered multiplex is supplied.
+  # S1.2 Ensembl ID to symbol
+  S1.2.1: The user gives a human Ensembl gene ID and asks only for its symbol. One ID lookup resolves it, and the answer stops.
+  S1.2.2: The ID lookup is one step of a larger task. One lookup resolves it, and the answer continues.
+  S1.2.3: The ID carries a numeric version suffix (`.N`). The ID tool strips the suffix and resolves the canonical ID.
+  S1.2.4: The gene has no assigned symbol. The lookup resolves the ID with `gene_symbol` null, which completes the lookup without a blocked reason.
+  S1.2.5: The ID is not in Ensembl release 116, for example a retired gene. The lookup returns `not_found`, and the answer defers.
+  S1.2.6: The ID is malformed (not ENSG followed by 11 digits). The ID tool returns `invalid_input`, and the answer defers without repairing the input.
+  S1.2.7: A harness block already lists the requested ID with its symbol, so the answer needs no tool call.
+  S1.2.8: A harness block lists other IDs but not the requested one, so the model still calls the lookup.
+  S1.2.9: A gene symbol arrives where an Ensembl ID is expected. The model picks the tool that matches the input form and resolves it in one call.
+  S1.2.10: The ID belongs to another species. The answer is `invalid_input` without a tool call, and it defers (`out_of_scope_species`).
+  S1.2.11: The ID lookup fails with a backend error. The model retries once only when the error grants a remaining attempt; it either recovers or defers after the retry is used up, and without an allowance it defers at once (`tool_error`).
+  S1.2.12: The input is a transcript ID, the wrong identifier type. The answer is `invalid_input` without a tool call, and it defers (`wrong_input_type`).
+  # S1.3 Ambiguous symbol
+  S1.3.1: The symbol maps to several genes and no multiplex is given. The lookup returns every candidate; the answer stays ambiguous and defers, and never picks a candidate by order.
+  S1.3.2: The same ambiguity inside a larger task. The answer still defers rather than choosing a candidate.
+  S1.3.3: The request already marks the symbol as ambiguous, so the answer defers without a tool call.
+  S1.3.4: A harness block covers a different symbol, so it supplies no choice. The lookup returns several candidates, and the answer defers.
+  S1.3.5: A named multiplex narrows the candidates. After the lookup, a membership check finds exactly one candidate present, which resolves the identity.
+  S1.3.6: The membership check finds several candidates present, so the identity stays ambiguous and the answer defers, asking for one present ID.
+  S1.3.7: No candidate is a member of the multiplex, so choosing an absent ID cannot unblock the request; the answer defers (`no_multiplex_membership`).
+  S1.3.8: In a second turn the user picks one ID from the earlier candidate list. The answer resolves with that ID and makes no new calls.
+  S1.3.9: The user replies in a second turn without picking a candidate, so the answer still defers.
+  S1.3.10: The lookup succeeds but the membership check fails with a backend error. With a retry allowance the model retries once and then applies the S1.3.5 to S1.3.7 rules; otherwise it defers (`tool_error`).
+  # S1.4 Cross-context alignment
+  S1.4.1: A symbol and an Ensembl ID from two contexts refer to the same gene. One lookup shows they match (`same_gene`, true).
+  S1.4.2: A symbol and an Ensembl ID refer to different genes. One lookup shows the mismatch (`same_gene`, false).
+  S1.4.3: Two IDs differ only in notation, so they match without a tool call.
+  S1.4.4: Two IDs look alike but are different genes, so they do not match; no tool call is needed.
+  S1.4.5: One side is an alias or previous symbol that does not resolve (`not_found`). Its identity is unknown, so the comparison cannot establish a mismatch and defers.
+  S1.4.6: One side is an ambiguous symbol. If the other side's ID is among its candidates, the comparison stays unknown and defers; if not, the mismatch is proven (`same_gene`, false).
+  S1.4.7: A registry block in the context already resolves the identity, so the comparison needs no tool call.
+  S1.4.8: A harness MyGene result supplies an external mapping, and the registry lookup confirms that it matches the module's ID.
+  S1.4.9: The lookup the comparison needs fails with a backend error, so the answer defers (`tool_error`).
+  # S1.6 Layer tag parsing (closed book)
+  S1.6.1: Parse a bulkPEN layer tag into its fields (organ and region path).
+  S1.6.2: Parse an scPEN layer tag and return one requested field (organ, region, or cell-type path) together with the full parse.
+  S1.6.3: Parse a HumanNet layer tag into its source, network, and the layer family the network maps to.
+  S1.6.4: Filter a list of layer tags by one parsed field.
+  S1.6.5: The input is not a layer tag, so the answer is `invalid_input` and defers (`wrong_input_type`).
+  S1.6.6: The tag fits no grammar, so the answer keeps the literal input and defers (`invalid_input`).
+  S1.6.7: Parse a transcription-factor (TF) target layer tag. Training only; it has no held-out rows.
+  # S1.7 Layer family and supported claims (closed book)
+  S1.7.1: Name the family of an scPEN layer.
+  S1.7.2: Filter a list of layers by family.
+  S1.7.3: List the claims that a coexpression layer supports.
+  S1.7.4: Check whether a layer supports one stated claim, including hard negatives.
+  S1.7.5: The input is not a layer, so the answer is `invalid_input` and defers (`wrong_input_type`).
+  S1.7.6: List the claims that a PPI layer supports.
+  S1.7.7: List the claims that a bulk PEN layer supports.
+  S1.7.8: An unrecognized network belongs to the family `other`, which supports no claims.
+  S1.7.9: List the claims that a TF-target layer supports.
+  # S1.8 Direction conventions (closed book)
+  S1.8.1: State the direction convention of a named metric, including name variants.
+  S1.8.2: Judge a true-or-false statement about a metric's direction, worded in distance style.
+  S1.8.3: Judge a true-or-false statement about a metric's direction, worded in similarity style.
+  S1.8.4: Judge a true-or-false direction statement inside a workflow request, where the task scope sets stop or continue.
+  S1.8.5: The metric name (a percentile) is ambiguous, so the answer defers (`ambiguous_metric`).
+  S1.8.6: The metric is not in the convention set, so the answer is `not_found` and defers (`unrecognized_metric`).
+  # S1.9 Module ID parsing (closed book)
+  S1.9.1: Parse an RWR LOE module ID into its encoded fields, without asserting that the module exists.
+  S1.9.2: Parse a MENTOR-EV module ID into its encoded fields, without asserting that the module exists.

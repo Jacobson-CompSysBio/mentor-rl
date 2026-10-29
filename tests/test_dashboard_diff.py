@@ -78,6 +78,19 @@ def test_single_file_corpus_and_fact_kind_names(tmp_path):
     assert type_names(list(found["gold"].values())) == {"S0.3": "resolved symbol, casefold input"}
 
 
+def test_rows_without_a_source_trace_use_their_question_family(tmp_path):
+    # S2 rows name their type only by question_family.
+    root = tmp_path / "s2"
+    root.mkdir()
+    s2_row = row("e", "edge")
+    del s2_row["metadata"]["source_trace"]
+    s2_row["metadata"]["question_family"] = "S2.1.single_edge"
+    (root / "train.jsonl").write_text(json.dumps(s2_row) + "\n")
+    (root / "manifest.json").write_text(json.dumps({"files": {}}))
+    found = scan({"version": "v1", "corpus_root": str(root)})
+    assert found["types"] == {"e": "S2.1.single_edge"}
+
+
 def gate(**changes):
     return {"panel": "p", "profile": "structured_95_v1", "history_policy": "retain_current_turn",
             "answer_key": "k", "overall": [1, 2]} | changes

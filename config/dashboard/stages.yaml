@@ -1,5 +1,9 @@
 # stage registry for the curriculum data dashboard
 # families, forms, and target shares come from each stage's contract
+#
+# Per stage: contract (tool definitions and data sources), descriptions (the
+# editable text for families, versions, and question types), and versions.
+# Paths are relative to the repository root; "../" reaches a sibling checkout.
 
 stages:
   - stage: S0
@@ -17,10 +21,11 @@ stages:
         summary: Four times the rows, balanced direct and step framing, 8 template families per input type, and 52.3% genes without a symbol among resolved ID-to-symbol rows.
         # Arm r32 uniform (training slurm-5631883), the parent S1 trains from. All four arms passed.
         gate_report: data/world_model_v4/eval_runs/s0_120b_full_registry_final/oss120b-plain-base-tokenizer-lora-r32/slurm-5637834/report/test_metrics.json
+    contract: runtime/world_model/contract.yaml
+    descriptions: dashboard/descriptions/S0.yaml
     question_doc: agents/world_model_v3_curriculum/S0-question-classes.md
     generator: runtime/world_model/s0_corpus.py
     notes: dashboard/notes/S0.md
-    # adapter and contract will be filled in step 6
 
   - stage: S1
     title: Lattice coordinate system
@@ -80,6 +85,7 @@ stages:
         gate_report: data/world_model_v4/eval_runs/s1_v10_120b_32n_test_structured95/oss120b-plain-base-tokenizer-lora-r32/slurm-5768597/report/test_metrics.json
     evaluator_root: null   # test.jsonl lives in the corpus
     contract: runtime/world_model/contract.yaml
+    descriptions: dashboard/descriptions/S1.yaml
     golden_traces: runtime/world_model/golden_traces.jsonl
     question_doc: agents/world_model_v3_curriculum/S1-question-classes.md
     generator: scripts/build_world_model_s1_bundle.py
@@ -88,8 +94,17 @@ stages:
     sample_seed: 0
 
   - stage: S2
-    status: designing   # corpora still being built; no versions to compare yet
-    question_doc: agents/world_model_v3_curriculum/S2-question-classes.md
+    status: designing   # corpora still being built
+    current: v1
+    versions:
+      - version: v1
+        corpus_root: data/world_model_v4/corpora/s2_v1_single_edge
+        summary: Single-edge pilot for S2.1; not yet training-ready.
+        gate_report: null
+    # The S2 code and documents are on s2-dashboard, in the main checkout.
+    contract: ../mentor-rl/runtime/world_model/s2_v1.json
+    descriptions: dashboard/descriptions/S2.yaml
+    question_doc: ../mentor-rl/agents/world_model_v3_curriculum/S2-question-classes.md
 
   - {stage: S3, status: planned}
   - {stage: S4, status: planned}

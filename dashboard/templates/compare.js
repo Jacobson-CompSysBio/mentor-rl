@@ -1,15 +1,21 @@
-// Side-by-side comparison of two corpus versions, built in the browser.
+// Traces and version comparison, built in the browser.
 //
 // The stage page embeds each version's gold traces once (dashboard/render.py),
 // plus a small record per pair of versions saying how the traces pair up
 // (dashboard/diff.py). Picking two versions renders that pair here, so the
-// page does not hold a pre-rendered copy of every pair.
+// page does not hold a pre-rendered copy of every pair. charts.js draws the
+// charts and page.js wires the tabs; render.py joins the three files.
 
 const TOKEN = /\s+|[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu;
 const CODE_LABELS = new Set(["Tool call", "Tool result", "Answer"]);
 
 function esc(text) {
   return String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+function inline(text) {
+  // Escaped text with `code` spans, for the hand-written descriptions.
+  return esc(text).replace(/`([^`]+)`/g, "<code>$1</code>");
 }
 
 function pretty(value) {
@@ -110,60 +116,61 @@ function turnRows(oldMessages, newMessages, markWords) {
   });
 }
 
-// ---- Page ----
+// ---- Shared helpers ----
 
 const number = (n) => n.toLocaleString("en-US");
 const percent = (pair) => `${((100 * pair[0]) / pair[1]).toFixed(2)}%`;
-// Rates the changelog shows when a gate report has them (dashboard/diff.py HEADLINE).
-const METRICS = {
-  structured_answer_accuracy: "Structured answer", status_exact: "status", result_exact: "result",
-  continuation_decision_exact: "decision", exact_tool_argument: "tool argument", structured_json_valid: "valid JSON",
-};
+const rate = (value) => `${(100 * value).toFixed(2)}%`;
+const SPLITS = ["train", "validation", "test"];
 
-function changelogView(data) {
-  // Every version, newest first, with its stated change and gate results.
-  const shown = Object.keys(METRICS).filter((name) => data.versions.some((v) => v.gate && name in v.gate.metrics));
-  const verdict = (gate) => (gate.passed === true ? '<span class="ok">passed</span>'
-    : gate.passed === false ? '<span class="bad">failed</span>' : "no verdict");
-  const rows = data.versions.slice().reverse().map((v) => {
-    const gate = v.gate
-      ? `${verdict(v.gate)} <span class="mono small muted">${esc(v.gate.run)}</span>` +
-        (v.vs_previous && v.vs_previous.reasons.length
-          ? `<br><span class="small muted">vs ${esc(v.vs_previous.version)}: ${esc(v.vs_previous.reasons.join("; "))}</span>` : "")
-      : '<span class="muted">no gate run</span>';
-    const rates = shown.map((name) => `<td class="num">${v.gate && name in v.gate.metrics
-      ? `${(100 * v.gate.metrics[name]).toFixed(2)}%` : "—"}</td>`).join("");
-    return `<tr><td><b>${esc(v.version)}</b>${v.version === data.current ? ' <span class="small muted">current</span>' : ""}</td>` +
-      `<td>${v.summary ? esc(v.summary) : '<span class="muted">no summary yet</span>'}</td>` +
-      `<td>${v.gold.length ? `${v.gold.length} gold traces` : '<span class="muted">not on disk</span>'}</td>` +
-      `<td>${gate}</td>${rates}</tr>`;
-  }).join("");
-  return `<h2>Versions <span class="count">${data.versions.length}</span></h2><div class="table-wrap"><table class="changelog">` +
-    `<thead><tr><th>Version</th><th>Change</th><th>Corpus</th><th>Gate</th>` +
-    shown.map((name) => `<th class="num">${METRICS[name]}</th>`).join("") + `</tr></thead><tbody>${rows}</tbody></table></div>`;
+function familyOf(type) {
+  // S1.3.8 and S2.1.single_edge belong to S1.3 and S2.1; S0.4 belongs to S0.
+  const match = type.match(/^(S\d+\.\d+)\./) || type.match(/^(S\d+)\./);
+  return match ? match[1] : type;
 }
 
-function singleView(rows, head) {
-  // One version's trace in a single column.
-  return `<div class="pair single"><div class="pair-head"><div>${esc(head)}</div></div>` + rows.map((r) =>
-    `<div class="pair-row${r.masked ? " masked" : ""}${r.code ? " code" : ""}">` +
-    `<div class="label">${esc(r.label)}${r.masked ? " · in context, masked" : ""}</div><div class="cell">${r.right}</div></div>`).join("") + "</div>";
+function toolText(tools) {
+  // A version's tool list as readable signatures, so a change can be word-diffed.
+  return (tools || []).map((tool) => {
+    const f = tool.function || tool;
+    const props = (f.parameters && f.parameters.properties) || {};
+    const required = new Set((f.parameters && f.parameters.required) || []);
+    const args = Object.entries(props).map(([name, spec]) =>
+      `${name}: ${spec.type === "array" ? `list of ${(spec.items && spec.items.type) || "value"}s` : spec.type}` +
+      (required.has(name) ? "" : " (optional)"));
+    return `${f.name}(${args.join(", ")})` + (f.description ? `\n  ${f.description}` : "");
+  }).join("\n\n");
 }
 
-function versionView(data, v) {
-  // The gold traces of the only version whose corpus is on disk.
-  const missing = data.versions.filter((x) => !x.gold.length).map((x) => x.version);
-  const byType = {};
-  for (const g of v.gold) (byType[g.type] = byType[g.type] || []).push(g);
-  return `<h2>${esc(v.version)} gold traces <span class="count">${v.gold.length}</span></h2>` +
-    `<p class="muted">Only one ${esc(data.stage)} corpus is on disk${missing.length ? ` (not ${esc(missing.join(", "))})` : ""}, ` +
-    "so there is no pair of versions to compare. The table above lists every version's gate results.</p>" +
-    `<p class="downloads">Download ${esc(v.version)}: <button type="button" data-version="${esc(v.version)}" data-what="gold">all gold traces (${v.gold.length})</button></p>` +
-    Object.entries(byType).map(([type, golds]) =>
-      `<article class="qtype" id="${esc(v.version)}/${esc(type)}"><h3>${esc(type)} <span class="name">${esc(v.names[type] || "")}</span></h3>` +
-      golds.map((g, i) => `<details class="trace"${i === 0 ? " open" : ""}><summary>${esc(g.outcome)}</summary>` +
-        singleView(turnRows(null, v.rows[g.row_id].messages, false), `${v.version} · row ${g.row_id}`) + "</details>").join("") +
-      "</article>").join("");
+// ---- Compare tab ----
+
+const ORDERS = { worst: "worst accuracy first", best: "best accuracy first" };
+
+function accuracyBasis(...versions) {
+  // The newest of these versions whose gate run scores each question type, or null.
+  return versions.slice().reverse().find((v) => v && v.gate && Object.keys(v.gate.types).length) || null;
+}
+
+function typeRate(basis, type) {
+  const pair = basis && basis.gate.types[type];
+  return pair && pair[1] ? pair[0] / pair[1] : null;
+}
+
+function sortByAccuracy(items, basis, order, typeOf = (item) => item) {
+  // Order question types by the basis version's accuracy, worst or best first.
+  // Types it does not score go last; ties keep catalog order.
+  if (!basis || !(order in ORDERS)) return items;
+  return items.map((item, index) => [item, typeRate(basis, typeOf(item)), index]).sort((x, y) => {
+    if (x[1] === null || y[1] === null) return (x[1] === null) - (y[1] === null) || x[2] - y[2];
+    return (order === "worst" ? x[1] - y[1] : y[1] - x[1]) || x[2] - y[2];
+  }).map(([item]) => item);
+}
+
+function orderNote(basis, order) {
+  // Says what the list is sorted by, or why it is not.
+  if (!(order in ORDERS)) return "";
+  return basis ? ` <span class="count">by ${esc(basis.version)} accuracy, ${ORDERS[order]}</span>`
+    : ' <span class="count">in catalog order: no version here has per-type accuracy</span>';
 }
 
 function isChanged(type) {
@@ -179,6 +186,13 @@ function sideBySide(rows, leftHead, rightHead) {
     `<div class="label">${esc(r.label)}${r.masked ? " · in context, masked" : ""}</div>` +
     cell("old", r.left, leftHead) + cell("new", r.right, rightHead) + "</div>").join("");
   return `<div class="pair"><div class="pair-head"><div>${esc(leftHead)}</div><div>${esc(rightHead)}</div></div>${body}</div>`;
+}
+
+function singleView(rows, head) {
+  // One version's trace in a single column.
+  return `<div class="pair single"><div class="pair-head"><div>${esc(head)}</div></div>` + rows.map((r) =>
+    `<div class="pair-row${r.masked ? " masked" : ""}${r.code ? " code" : ""}">` +
+    `<div class="label">${esc(r.label)}${r.masked ? " · in context, masked" : ""}</div><div class="cell">${r.right}</div></div>`).join("") + "</div>";
 }
 
 function traceView(trace, a, b) {
@@ -197,7 +211,7 @@ function traceView(trace, a, b) {
 function sharedView(a, b) {
   // The system prompt and tool list that every row of a version shares, which
   // the traces below leave out. Opened and marked when the versions differ.
-  return [["System prompt", a.system_prompt, b.system_prompt, false], ["Tool definitions", a.tools, b.tools, true]]
+  return [["System prompt", a.system_prompt, b.system_prompt, false], ["Tool definitions", toolText(a.tools), toolText(b.tools), true]]
     .map(([label, before, after, code]) => {
       const l = pretty(before), r = pretty(after), changed = l !== r;
       const [left, right] = changed ? wordDiff(l, r) : [esc(l), esc(r)];
@@ -207,12 +221,16 @@ function sharedView(a, b) {
     }).join("");
 }
 
-function typeView(type, traces, a, b, key, showUnchanged) {
+function typeView(data, type, traces, a, b, key, showUnchanged) {
   const before = a.gate && a.gate.types[type.type], after = b.gate && b.gate.types[type.type];
   let accuracy = "";
   if (before && after) {
     const direction = after[0] > before[0] ? "up" : after[0] < before[0] ? "down" : "";
-    accuracy = `<span class="acc ${direction}">${before[0]} → ${after[0]} of ${after[1]} correct</span> · `;
+    accuracy = `<span class="acc ${direction}">${before[0]} → ${after[0]} of ${after[1]} correct ` +
+      `(${percent(before)} → ${percent(after)})</span> · `;
+  } else if (before || after) {
+    const only = after || before, v = after ? b : a;
+    accuracy = `<span class="acc">${v.version}: ${only[0]} of ${only[1]} correct (${percent(only)})</span> · `;
   }
   const r = type.rows;
   let rows = `${number(r.edited)} of ${number(r.total)} training rows edited`;
@@ -221,8 +239,10 @@ function typeView(type, traces, a, b, key, showUnchanged) {
   const fields = Object.entries(type.fields).map(([label, count]) => `${esc(label)}: ${number(count)}`).join(" · ");
   const shown = traces.filter((t) => showUnchanged || t.state !== "identical");
   const hidden = traces.length - shown.length;
+  const text = data.type_text[type.type];
   return `<article class="qtype${isChanged(type) ? "" : " unchanged"}" id="${esc(key)}/${esc(type.type)}">` +
     `<h3>${esc(type.type)} <span class="name">${esc(type.name)}</span></h3>` +
+    (text ? `<p class="type-text">${inline(text)}</p>` : "") +
     `<p class="meta">${accuracy}${rows}${fields ? `<br><span class="fields">${fields}</span>` : ""}</p>` +
     (shown.length ? "" : '<p class="muted">No gold trace changed. The edits counted above are in other rows of this type.</p>') +
     shown.map((t) => traceView(t, a, b)).join("") +
@@ -230,12 +250,43 @@ function typeView(type, traces, a, b, key, showUnchanged) {
     "</article>";
 }
 
-function pairView(data, a, b, pair, showUnchanged) {
+function splitsView(data, versions) {
+  // Rows per split for one version, or two side by side, and per question type.
+  const shown = versions.filter((v) => v.splits);
+  if (!shown.length) return "";
+  const head = shown.map((v) => `<th class="num">${esc(v.version)}</th>`).join("");
+  const changedCell = (values) => (shown.length === 2 && values[0] !== values[1] ? " changed" : "");
+  const row = (label, values) => `<tr class="${changedCell(values).trim()}"><td>${label}</td>` +
+    values.map((n) => `<td class="num">${n === undefined ? "—" : number(n)}</td>`).join("") + "</tr>";
+  const total = (v) => SPLITS.reduce((sum, split) => sum + (v.splits.rows[split] || 0), 0);
+  let html = '<h2>Questions and splits</h2><div class="table-wrap"><table class="splits">' +
+    `<thead><tr><th>Rows</th>${head}</tr></thead><tbody>` +
+    SPLITS.map((split) => row(split, shown.map((v) => v.splits.rows[split]))).join("") +
+    row("<b>total</b>", shown.map(total)) +
+    (shown.some((v) => v.splits.replay) ? row("of train: S0 replay", shown.map((v) => v.splits.replay)) : "") +
+    "</tbody></table></div>";
+  const types = [...new Set(shown.flatMap((v) => Object.keys(v.splits.types)))]
+    .sort((x, y) => x.localeCompare(y, "en", { numeric: true }));
+  if (types.length) {
+    const cols = SPLITS.flatMap((split) => shown.map((v) => [split, v]));
+    html += `<details class="table-view"><summary>Rows per question type (${types.length})</summary><div class="table-wrap"><table class="splits">` +
+      `<thead><tr><th>Type</th>${cols.map(([split, v]) => `<th class="num">${split}${shown.length > 1 ? ` ${esc(v.version)}` : ""}</th>`).join("")}</tr></thead><tbody>` +
+      types.map((type) => {
+        const values = cols.map(([split, v]) => (v.splits.types[type] || {})[split]);
+        const differs = shown.length === 2 && SPLITS.some((split) => (shown[0].splits.types[type] || {})[split] !== (shown[1].splits.types[type] || {})[split]);
+        return `<tr class="${differs ? "changed" : ""}"><td class="mono">${esc(type)}</td>` +
+          values.map((n) => `<td class="num">${n === undefined ? "—" : number(n)}</td>`).join("") + "</tr>";
+      }).join("") + "</tbody></table></div></details>";
+  }
+  return html;
+}
+
+function pairView(data, a, b, pair, showUnchanged, order = "catalog") {
   const key = `${a.version}_${b.version}`;
   const parts = [];
 
   parts.push('<ul class="changes">' + pair.changes.map((c) =>
-    `<li><b>${esc(c.version)}</b> ${c.summary ? esc(c.summary) : '<span class="muted">no summary yet: add <code>summary:</code> to this version in the registry</span>'}</li>`).join("") + "</ul>");
+    `<li><b>${esc(c.version)}</b> ${c.summary ? inline(c.summary) : '<span class="muted">no summary yet: add <code>summary:</code> to this version in the registry</span>'}</li>`).join("") + "</ul>");
 
   const g = pair.gold, r = pair.rows;
   const frozen = Object.entries(pair.held_out_frozen).filter(([, same]) => !same).map(([name]) => name);
@@ -262,12 +313,13 @@ function pairView(data, a, b, pair, showUnchanged) {
 
   const tracesByType = {};
   for (const t of pair.traces) (tracesByType[t.type] = tracesByType[t.type] || []).push(t);
-  const changed = pair.types.filter(isChanged);
-  const types = showUnchanged ? pair.types : changed;
-  parts.push(`<h2>${showUnchanged ? "Question types" : "Changed question types"} <span class="count">${types.length}</span></h2>`);
+  const basis = accuracyBasis(a, b);
+  const types = sortByAccuracy(showUnchanged ? pair.types : pair.types.filter(isChanged), basis, order, (t) => t.type);
+  parts.push(`<h2>${showUnchanged ? "Question types" : "Changed question types"} <span class="count">${types.length}</span>` +
+    `${orderNote(basis, order)}</h2>`);
   parts.push('<nav class="chips">' + types.map((t) =>
     `<a class="${isChanged(t) ? "" : "unchanged"}" href="#${esc(key)}/${esc(t.type)}">${esc(t.type)}</a>`).join("") + "</nav>");
-  parts.push(types.map((t) => typeView(t, tracesByType[t.type] || [], a, b, key, showUnchanged)).join(""));
+  parts.push(types.map((t) => typeView(data, t, tracesByType[t.type] || [], a, b, key, showUnchanged)).join(""));
 
   const movers = [];
   for (const t of pair.types) {
@@ -284,6 +336,8 @@ function pairView(data, a, b, pair, showUnchanged) {
       "</tbody></table></div>");
   }
 
+  parts.push(splitsView(data, [a, b]));
+
   const gate = (v) => (v.gate ? `${esc(v.version)} gate: <code>${esc(v.gate.report)}</code> (${esc(v.gate.profile)}, history ${esc(v.gate.history_policy)})<br>`
     : `${esc(v.version)}: no gate run<br>`);
   const corpus = (v) => `<code>${esc(v.repo_root === "." ? v.corpus_root : `${v.repo_root}/${v.corpus_root}`)}</code>`;
@@ -293,6 +347,28 @@ function pairView(data, a, b, pair, showUnchanged) {
     `<p>Corpora: ${corpus(a)} → ${corpus(b)}<br>${gate(a)}${gate(b)}` +
     `Built ${esc(pair.built_at)} at commit <code>${esc(pair.repo_commit)}</code>.</p></footer>`);
   return parts.join("");
+}
+
+function versionView(data, v, order = "catalog") {
+  // The gold traces of the only version whose corpus is on disk.
+  const missing = data.versions.filter((x) => !x.gold.length).map((x) => x.version);
+  const byType = {};
+  for (const g of v.gold) (byType[g.type] = byType[g.type] || []).push(g);
+  const basis = accuracyBasis(v);
+  const types = sortByAccuracy(Object.keys(byType), basis, order);
+  return `<h2>${esc(v.version)} gold traces <span class="count">${v.gold.length}</span>${orderNote(basis, order)}</h2>` +
+    `<p class="muted">Only one ${esc(data.stage)} corpus is on disk${missing.length ? ` (not ${esc(missing.join(", "))})` : ""}, ` +
+    "so there is no pair of versions to compare. The Versions tab lists every version's gate results.</p>" +
+    `<p class="downloads">Download ${esc(v.version)}: <button type="button" data-version="${esc(v.version)}" data-what="gold">all gold traces (${v.gold.length})</button></p>` +
+    types.map((type) => {
+      const golds = byType[type], text = data.type_text[type], score = basis && basis.gate.types[type];
+      return `<article class="qtype" id="${esc(v.version)}/${esc(type)}"><h3>${esc(type)} <span class="name">${esc(v.names[type] || "")}</span></h3>` +
+        (text ? `<p class="type-text">${inline(text)}</p>` : "") +
+        (score ? `<p class="meta"><span class="acc">${score[0]} of ${score[1]} correct (${percent(score)})</span></p>` : "") +
+        golds.map((g, i) => `<details class="trace"${i === 0 ? " open" : ""}><summary>${esc(g.outcome)}</summary>` +
+          singleView(turnRows(null, v.rows[g.row_id].messages, false), `${v.version} · row ${g.row_id}`) + "</details>").join("") +
+        "</article>";
+    }).join("") + splitsView(data, [v]);
 }
 
 function fullRow(version, rowId) {
@@ -309,75 +385,4 @@ function download(name, rows) {
   link.download = name;
   link.click();
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-}
-
-function start() {
-  const data = JSON.parse(document.getElementById("dashboard-data").textContent);
-  const versions = data.available;
-  const byName = Object.fromEntries(data.versions.map((v) => [v.version, v]));
-  const out = document.getElementById("pair");
-  document.getElementById("changelog").innerHTML = changelogView(data);
-
-  // Download buttons name their version, and for changed traces their pair and side.
-  document.addEventListener("click", (event) => {
-    const button = event.target.closest && event.target.closest("button[data-what]");
-    if (!button) return;
-    const { version, what, pair: key, side } = button.dataset;
-    const v = byName[version];
-    const ids = what === "gold" ? v.gold.map((g) => g.row_id)
-      : data.pairs[key].traces.filter((t) => t.state !== "identical" && t[side]).map((t) => t[side]);
-    download(`${data.stage}_${key ? `${key}.` : ""}${version}.${what}.jsonl`, ids.map((id) => fullRow(v, id)));
-  });
-
-  if (!data.default) {
-    // One version on disk: show its gold traces.
-    if (versions.length) out.innerHTML = versionView(data, byName[versions[versions.length - 1]]);
-    return;
-  }
-
-  const form = document.getElementById("versions");
-  const showUnchanged = document.getElementById("show-unchanged");
-  let current = data.default;
-
-  function show(old, next, scrollTo) {
-    const key = `${old}_${next}`, a = byName[old], b = byName[next], pair = data.pairs[key];
-    current = [old, next];
-    form.elements.old.value = old;
-    form.elements.new.value = next;
-    document.title = `${data.stage} ${old} → ${next}`;
-    for (const [side, v] of [["old", a], ["new", b]]) {
-      const changedRows = pair.traces.filter((t) => t.state !== "identical" && t[side]).length;
-      const attrs = `type="button" data-version="${esc(v.version)}"`;
-      document.getElementById(`downloads-${side}`).innerHTML = `Download ${esc(v.version)}: ` +
-        `<button ${attrs} data-what="changed" data-pair="${esc(key)}" data-side="${side}">changed traces (${changedRows})</button> · ` +
-        `<button ${attrs} data-what="gold">all gold traces (${v.gold.length})</button>`;
-    }
-    out.innerHTML = pairView(data, a, b, pair, showUnchanged.checked);
-    if (scrollTo) document.getElementById(scrollTo)?.scrollIntoView();
-  }
-
-  form.addEventListener("change", (event) => {
-    let a = versions.indexOf(form.elements.old.value), b = versions.indexOf(form.elements.new.value);
-    if (a >= b) {
-      if (event.target.name === "old") { b = a + 1; } else { a = b - 1; }
-    }
-    history.replaceState(null, "", `#${versions[a]}_${versions[b]}`);
-    show(versions[a], versions[b]);
-  });
-  showUnchanged.addEventListener("change", () => show(...current));
-
-  function fromHash() {
-    const hash = decodeURIComponent(location.hash.slice(1));
-    const pair = data.pairs[hash.split("/")[0]];
-    if (pair) show(pair.old, pair.new, hash.includes("/") ? hash : null);
-  }
-  window.addEventListener("hashchange", fromHash);
-  show(...current);
-  fromHash();
-}
-
-if (typeof module !== "undefined") {
-  module.exports = { blocks, changelogView, diffOps, pairView, pretty, turnRows, versionView, wordDiff };
-} else {
-  start();
 }
