@@ -25,3 +25,5 @@ external/cli11/build*/
 AGENTS.md
 tea_debug.log
 /core
+/site/
+/site_data/

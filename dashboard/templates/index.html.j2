@@ -1,0 +1,19 @@
+{% extends "base.html.j2" %}
+{% block title %}Curriculum data{% endblock %}
+{% block body %}
+<h1>Curriculum data</h1>
+
+{% if summary %}
+<section class="note">{{ summary }}</section>
+{% endif %}
+
+<nav class="stages">
+{% for stage in stages %}
+{% if stage.stage in links %}
+  <a class="stage" href="{{ links[stage.stage] }}">{{ stage.stage }}</a>
+{% else %}
+  <span class="stage off" title="{{ stage.status }}: no corpus versions to compare yet">{{ stage.stage }}</span>
+{% endif %}
+{% endfor %}
+</nav>
+{% endblock %}

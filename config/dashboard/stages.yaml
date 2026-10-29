@@ -1,0 +1,100 @@
+# stage registry for the curriculum data dashboard
+# families, forms, and target shares come from each stage's contract
+
+stages:
+  - stage: S0
+    title: Human Gene Identifier Mapping Traces
+    status: built
+    current: v4
+    versions:   # summaries from S0-human-gene-identifiers.md
+      - version: v3
+        corpus_root: null   # no longer on disk; its builder is not on main
+        summary: Baseline. 4,096 training rows; 15.0% of resolved ID-to-symbol rows are genes without a symbol.
+        gate_report: data/world_model_v3/eval_runs/s0_120b_full_registry/oss120b-plain-base-tokenizer-lora-r32/slurm-5629216/report/test_metrics.json
+      - version: v4
+        corpus_root: data/world_model_v4/corpora/s0
+        overlay: runtime/world_model/s0_v4.yaml
+        summary: Four times the rows, balanced direct and step framing, 8 template families per input type, and 52.3% genes without a symbol among resolved ID-to-symbol rows.
+        # Arm r32 uniform (training slurm-5631883), the parent S1 trains from. All four arms passed.
+        gate_report: data/world_model_v4/eval_runs/s0_120b_full_registry_final/oss120b-plain-base-tokenizer-lora-r32/slurm-5637834/report/test_metrics.json
+    question_doc: agents/world_model_v3_curriculum/S0-question-classes.md
+    generator: runtime/world_model/s0_corpus.py
+    notes: dashboard/notes/S0.md
+    # adapter and contract will be filled in step 6
+
+  - stage: S1
+    title: Lattice coordinate system
+    status: gated   # v10 passed structured_95_v1, 2026-10-26
+    adapter: s1_contract_v1
+    current: v10   # the stage page opens on this version against the one before it
+    # Oldest first. summary: one line on what the version changed; without it,
+    # the overlay's first comment line is used when the overlay is on this branch.
+    # repo_root: the checkout a version was built in, when it is not this one.
+    versions:
+      - version: v1
+        corpus_root: data/world_model_v3/corpora/s1
+        gate_report: null   # no S1 gate run
+      - version: v2
+        corpus_root: data/world_model_v4/corpora/s1
+        overlay: runtime/world_model/s1_v2.yaml
+        gate_report: data/world_model_v4/eval_runs/s1_120b_test/oss120b-plain-base-tokenizer-lora-r32/slurm-5643749/report/test_metrics.json
+      - version: v3
+        corpus_root: data/world_model_v4/corpora/s1_v3
+        overlay: runtime/world_model/s1_v3.yaml
+        # The only completed v3 gate run is the 184-node one.
+        gate_report: data/world_model_v4/eval_runs/s1_v3_120b_184n_test/oss120b-plain-base-tokenizer-lora-r32/slurm-5650263/report/test_metrics.json
+      - version: v4
+        corpus_root: data/world_model_v4/corpora/s1_v4
+        overlay: runtime/world_model/s1_v4.yaml
+        gate_report: data/world_model_v4/eval_runs/s1_v4_120b_32n_test/oss120b-plain-base-tokenizer-lora-r32/slurm-5658399/report/test_metrics.json
+      - version: v5
+        corpus_root: data/world_model_v4/corpora/s1_v5
+        overlay: runtime/world_model/s1_v5.yaml
+        summary: Approved S1.1 and S1.3 answer-template changes.
+        gate_report: data/world_model_v4/eval_runs/s1_v5_120b_32n_test/oss120b-plain-base-tokenizer-lora-r32/slurm-5677219/report/test_metrics.json
+      - version: v6
+        corpus_root: data/world_model_v4/corpora/s1_v6
+        overlay: runtime/world_model/s1_v6.yaml
+        summary: Final reviewed v6 training revisions, including the approved reasoning-only batch.
+        # The retained-history run, like v8-v10. The default-history run is slurm-5712872.
+        gate_report: data/world_model_v4/eval_runs/s1_v6_120b_32n_test_retained/oss120b-plain-base-tokenizer-lora-r32/slurm-5724278/report/test_metrics.json
+      - version: v7
+        repo_root: ../mentor-rl-s1-prompt-v7   # branch codex/s1-prompt-v7
+        corpus_root: data/world_model_v4/corpora/s1_v7
+        overlay: runtime/world_model/s1_v7.yaml
+        summary: Task-scope prompt experiment with an 8,192-token training limit; never trained.
+        gate_report: null
+      - version: v8
+        corpus_root: data/world_model_v4/corpora/s1_v8
+        overlay: runtime/world_model/s1_v8.yaml
+        summary: Training-only decorrelation sweep. Same system prompt, facts, reasoning rules, and recipe as v6.
+        gate_report: data/world_model_v4/eval_runs/s1_v8_120b_32n_test_retained/oss120b-plain-base-tokenizer-lora-r32/slurm-5726300/report/test_metrics.json
+      - version: v9
+        corpus_root: data/world_model_v4/corpora/s1_v9
+        overlay: runtime/world_model/s1_v9.yaml
+        summary: "Targeted training-only revision: v6 identity tasks, selective v8 coverage, balanced S0 replay."
+        gate_report: data/world_model_v4/eval_runs/s1_v9_120b_32n_test_structured95/oss120b-plain-base-tokenizer-lora-r32/slurm-5742784/report/test_metrics.json
+      - version: v10
+        corpus_root: data/world_model_v4/corpora/s1_v10
+        overlay: runtime/world_model/s1_v10.yaml
+        gate_report: data/world_model_v4/eval_runs/s1_v10_120b_32n_test_structured95/oss120b-plain-base-tokenizer-lora-r32/slurm-5768597/report/test_metrics.json
+    evaluator_root: null   # test.jsonl lives in the corpus
+    contract: runtime/world_model/contract.yaml
+    golden_traces: runtime/world_model/golden_traces.jsonl
+    question_doc: agents/world_model_v3_curriculum/S1-question-classes.md
+    generator: scripts/build_world_model_s1_bundle.py
+    validator: agents/world_model_v3_curriculum/s1_kit/validate.py
+    notes: dashboard/notes/S1.md
+    sample_seed: 0
+
+  - stage: S2
+    status: designing   # corpora still being built; no versions to compare yet
+    question_doc: agents/world_model_v3_curriculum/S2-question-classes.md
+
+  - {stage: S3, status: planned}
+  - {stage: S4, status: planned}
+  - {stage: S5, status: planned}
+  - {stage: S6, status: planned}
+  - {stage: S7, status: planned}
+  - {stage: S8, status: planned}
+  - {stage: S9, status: planned}
