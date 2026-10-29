@@ -1,0 +1,56 @@
+# Text shown on the S2 dashboard page. Edit freely; Markdown works.
+# See S1.yaml for what each section is for. Sources: S2-question-classes.md
+# ("What this family should teach") and the S2 v1 corpus manifest.
+
+families:
+  S2.1:
+    title: Layer-specific edge existence and directionality
+    description: Given two genes and one layer, answer whether that layer records an edge, which directions are recorded when asked, and the applicable weights. Distinguish a single ordered-edge check, discovery of the complete directional pattern, and a narrower either-direction or both-direction question.
+  S2.2:
+    title: Multiplex edge existence
+    description: Given two genes and a multiplex scope, establish whether any selected layer records an edge, identify the supporting layers, or count them. One observed edge can answer "any layer?"; "every layer," "only this layer," and an exact total require complete coverage of that scope.
+  S2.3:
+    title: Layer-specific direct neighbors
+    description: List the direct neighbors of one gene in one layer, with their recorded weights, or return a requested strongest-K prefix. For directed layers, distinguish incoming from outgoing neighbors, and decide whether more pages are needed.
+  S2.4:
+    title: Multiplex direct neighbors
+    description: Given one gene and a set of layers, report each direct neighbor once and show every selected layer that connects it to the query, preserving each layer's own weight and direction.
+  S2.5:
+    title: Gene layer membership
+    description: Answer which layers contain a gene, in the requested view and scope. Keep registry identity, membership in the multiplex, and membership in each selected layer separate.
+  S2.6:
+    title: Nodes by layer
+    description: Given a finite list of genes and one registered layer, classify every requested gene. S2.5 asks which layers contain one gene; S2.6 asks which supplied genes belong to one layer.
+  S2.7:
+    title: Shared neighbors
+    description: Given two genes in one registered layer, compute the exact intersection of their requested neighbor sets. Keep acquiring each set separate from the final set calculation; two truncated lists do not reveal the full intersection.
+  S2.8:
+    title: Degree and hubness
+    description: Answer the requested distinct-neighbor count and, when asked, compare its exact rank in the declared reference population with the declared hub threshold. A degree is a count, a percentile is population-relative, and a hub label is a policy decision.
+  S2.9:
+    title: Induced subgraph
+    description: Classify every requested gene in one registered layer, then return the native edges whose two endpoints both belong to the layer-member subset. Inputs outside the layer keep their membership categories and do not become isolated nodes.
+  S2.10:
+    title: Connected components
+    description: Partition the requested layer members into the connected components of their induced graph, keeping isolated nodes. Paths through genes outside the requested set do not join its components.
+  S2.11:
+    title: Calibration (no edge and no path)
+    description: Answer a path question in one full layer, or assess what supplied graph evidence supports. No direct edge does not mean no path, and a completed negative search establishes absence only in its layer, graph version, and direction.
+  S2.12:
+    title: Calibration (gene absent from layer)
+    description: Classify one gene in one registered layer, then assess what that membership evidence supports. Present in the layer, absent from the layer but in the multiplex, and absent from the multiplex are all completed classifications.
+  S2.13:
+    title: Calibration (layer specificity)
+    description: Distinguish a layer family's general evidence meaning from what one observation establishes about particular genes. A PPI family label does not prove an interaction for an arbitrary pair; a matching positive record supports a recorded interaction in that source.
+
+versions:
+  v1: >-
+    Single-edge pilot for S2.1: 1,280 training, 640 validation, and 640 test
+    rows from the S2 dataset-review multiplex. Not yet marked training-ready.
+    Still to come: the rest of S2.1 (composed identity, pair-wide
+    directionality, claim calibration, incompatible or partial context, and
+    diagnostic cases), the S2.2 to S2.13 families, a six-file PEN view, and
+    broader quantitative ranges.
+
+types:
+  S2.1.single_edge: Check one ordered or undirected edge between two genes in one registered layer, after confirming that both endpoints are members of that layer.

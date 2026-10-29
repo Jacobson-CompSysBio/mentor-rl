@@ -44,6 +44,9 @@ def gate_info(path: str | None) -> dict | None:
 
     gate = report.get("gate", {})
     overall = report["overall"]
+    # Rates per question type (S1 reports) or per question family (S0 reports).
+    by_type = "source_traces" in report
+    groups = report.get("source_traces") or report.get("families") or {}
     return {
         "report": path,
         "run": Path(path).parts[-5],  # eval_runs/<run>/<method>/<job>/report/test_metrics.json
@@ -53,9 +56,39 @@ def gate_info(path: str | None) -> dict | None:
         "history_policy": history or "default",
         "answer_key": answer_key,
         "overall": pair(overall),
-        "metrics": {name: overall[f"{name}_rate"] for name in HEADLINE if f"{name}_rate" in overall},
+        "metrics": rates(overall),
+        "thresholds": thresholds(gate),
         "types": {trace: pair(metrics) for trace, metrics in report.get("source_traces", {}).items()},
+        "groups": {"by": "question type" if by_type else "question family",
+                   "rows": {name: {"rates": rates(metrics), "total": total(metrics)}
+                            for name, metrics in groups.items()}},
     }
+
+
+def rates(metrics: dict) -> dict[str, float]:
+    """The headline rates a report section has, by metric name."""
+    return {name: metrics[f"{name}_rate"] for name in HEADLINE if f"{name}_rate" in metrics}
+
+
+def total(metrics: dict) -> int | None:
+    """How many rows a report section scores."""
+    return metrics.get(f"{ACCURACY}_total") or metrics.get("record_count") or metrics.get("row_count")
+
+
+def thresholds(gate: dict) -> dict[str, float]:
+    """The gate's pass mark for each headline rate it sets one for.
+
+    structured_95_v1 states its target per metric under details; the S0 gate
+    states minimum_<metric>. Tiered S1 gates set no single structured target.
+    """
+    found = {}
+    for name in HEADLINE:
+        detail = gate.get("details", {}).get(name, {})
+        if "target" in detail:
+            found[name] = detail["target"]
+        elif f"minimum_{name}" in gate:
+            found[name] = gate[f"minimum_{name}"]
+    return found
 
 
 def comparability(old: dict | None, new: dict | None) -> list[str]:
