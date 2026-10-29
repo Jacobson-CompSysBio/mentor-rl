@@ -32,7 +32,11 @@ Two scripts run in sequence: a collector reads each corpus and writes one summar
 4. **Render.** `python -m dashboard.render` reads only the summaries and writes the site with Jinja2 templates. Expandable traces use `<details>`; one small script handles family filters.
 5. **Copy or serve.** The output folder is self-contained, with sample data inlined into each page, so it opens from disk without a server.
 
-Per-stage adapters absorb schema differences. S0 v6 rows carry `identifier_tool_sft_v2` metadata, S1 rows follow `runtime/world_model/contract.yaml`, and S2 onward will carry `multiplex_sft_v2` graph metadata. Each adapter maps its rows to the common fields in Summary schema, so a new stage needs one adapter and no renderer change.
+Per-stage adapters absorb schema differences. S0 v4 and S1 rows follow `runtime/world_model/contract.yaml`; S2 onward will add graph metadata. Each adapter maps its rows to the common fields in Summary schema, so a new stage needs one adapter and no renderer change.
+
+S0 uses the completed v4 corpus at `data/world_model_v4/corpora/s0/`, built by `runtime/world_model/s0_corpus.py`. All four v4 training arms passed the gate; their results are recorded in [the S0 stage document](S0-human-gene-identifiers.md#results-v4). The retired v6 tool-trajectory generator is not needed. Fill in the S0 adapter and remaining registry fields in build step 6.
+
+For S1 counting logic, use `scripts/render_world_model_s1_catalog.py`, restored from `codex/s1-v10-to-main`. It checks per-type training counts against each component manifest, counts tool calls only after the last user message, and selects examples by call count, status, continuation decision, and blocked-reason code. Its default corpus is the frozen v10 corpus. The S1 question catalog is regenerated from those rows and verified with `--check`.
 
 Suggested layout in the repo:
 
@@ -42,7 +46,7 @@ dashboard/
   render.py           # summaries -> site/
   checks.py
   adapters/
-    s0_tool_v6.py
+    s0_contract_v4.py
     s1_contract_v1.py
   templates/
     index.html.j2
@@ -79,13 +83,13 @@ Stages still in design, such as S2 today, appear on the index with their status 
 
 ## Inputs
 
-The collector reads the corpus manifest, the split files, the evaluator manifest and the stage contract. Field names below come from the S0 v6 builder (`scripts/build_world_model_v2_s0_tool_sft.py`); the S1 adapter maps its own names to the same roles.
+The collector reads the corpus manifest, the split files, the evaluator manifest and the stage contract. S0 v4 and S1 component manifests supply the fields below; the S1 adapter also reads the aggregate manifest for component membership and replay counts.
 
 | File | Fields read | Feeds |
 | --- | --- | --- |
-| `<corpus_root>/manifest.json` | `dataset_id`, `schema_version`, `record_schema_version`, `training_contract`, `evaluation_contract`, `config_sha256`, `row_counts`, `family_counts`, `tool_definitions`, `tool_contract_version`, `system_prompt_contract`, `identifier_registry`, `file_hashes` | Header, provenance, tools, checks |
-| `<corpus_root>/split_manifest.json` | `assignment_seed`, per-split `row_counts` and `family_counts`, held-out group ids or their hash | Splits and leakage |
-| `<corpus_root>/train.jsonl`, `val.jsonl` | Per row: `record_id`, `metadata`, `split`, `provenance`, and the trace fields | Counts, distributions, sample |
+| Corpus/component `manifest.json` | `dataset_id`, `schema_version`, `corpus_schema_version`, `contract`, `implementation`, `row_counts`, `form_counts`, `files`; aggregate S1 adds `components`, `family_counts`, `s0_replay` | Header, provenance, checks |
+| Corpus/component `manifest.json` | `assignment` seed and split units or hashes, per-split `row_counts` and `form_counts` | Splits and leakage |
+| `<corpus_root>/train.jsonl`, `validation.jsonl` | Per row: `row_id`, `messages`, `tools`, `metadata`; the adapter maps `row_id` to summary `record_id` | Counts, distributions, sample |
 | `<evaluator_root>/manifest.json` | Validation and test `row_count`, paths and hashes | Counts and hashes only |
 | Stage contract | Families, forms, form names, target share, tool vocabulary | Labels, target vs realized |
 | Golden traces | All rows | Reference example per form |
@@ -93,8 +97,8 @@ The collector reads the corpus manifest, the split files, the evaluator manifest
 
 Rules for the collector:
 
-- Never open `validation_answer_key.jsonl`, `test_answer_key.jsonl` or `test_questions.jsonl`. The S0 builder sets the evaluator directory to mode 700, and the dashboard should not copy those rows out.
-- Read trace fields through the adapter. S0 v6 rows hold one round in `assistant_thinking`, `assistant_tool_call`, `tool_result` and `assistant_final`; later stages may hold several rounds, so adapters return an ordered list of turns.
+- Never open `validation_answer_key.jsonl`, `test_answer_key.jsonl` or `test_questions.jsonl`. The dashboard must not copy protected evaluator rows out.
+- Read trace fields through the adapter. S0 v4 and S1 rows carry an ordered `messages` list; adapters preserve the turns and identify masked context before the current user message.
 - Read hidden metadata (`book_mode`, `step`, `question_family`, form, framing, `blocked_reason_code`) for counting and labels only. It appears on the page in the backend strip, never mixed into a turn.
 
 ## Summary schema
@@ -333,7 +337,6 @@ Build S1 first and use it as the template, since its corpus, contract and golden
 ## Open questions
 
 - Count realized share in rows or tokens? The proposal states targets against both \~3 million examples and \~1.2 billion tokens; tokens track compute better.
-- Which S0 corpus gets the S0 page: the trained v6 corpus, the v4 rebuild in the S1 envelope, or both as versions?
 - Keep a page per corpus version (S1 v1, then the rebuild with S0 v4 replay), so changes between rebuilds are visible?
 - Do construction notes live in `dashboard/notes/`, or get pulled from the existing design docs?
 - Who reads the site besides you? If your advisor or committee does, hosting it off Frontier matters early.

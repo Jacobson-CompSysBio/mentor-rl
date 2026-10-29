@@ -1,0 +1,54 @@
+{% extends "base.html.j2" %}
+{% block title %}{{ stage.stage }}{% endblock %}
+{% block body %}
+<p class="crumb"><a href="../index.html">Curriculum data</a> · {{ stage.stage }}</p>
+<h1>{{ stage.stage }} <span class="muted">{{ stage.title }}</span></h1>
+
+<nav class="tabs" role="tablist">
+  <button type="button" role="tab" data-tab="compare">{{ "Compare versions" if compare else "Traces" }}</button>
+  <button type="button" role="tab" data-tab="versions">Versions</button>
+  <button type="button" role="tab" data-tab="types">Question types</button>
+  <button type="button" role="tab" data-tab="tools">Tools</button>
+  <button type="button" role="tab" data-tab="sources">Raw data sources</button>
+</nav>
+
+<section class="tab-panel" id="tab-compare" role="tabpanel">
+{% if compare %}
+<form class="versions" id="versions">
+  <div class="side">
+    <label><span class="side-label">Old</span>
+      <select name="old">{% for version in versions[:-1] %}<option>{{ version }}</option>{% endfor %}</select>
+    </label>
+    <p class="downloads" id="downloads-old"></p>
+  </div>
+  <div class="arrow" aria-hidden="true">→</div>
+  <div class="side">
+    <label><span class="side-label">New</span>
+      <select name="new">{% for version in versions[1:] %}<option>{{ version }}</option>{% endfor %}</select>
+    </label>
+    <p class="downloads" id="downloads-new"></p>
+  </div>
+</form>
+{% endif %}
+<p class="controls">
+  <label id="order-control">Order question types
+    <select id="order-types">
+      <option value="catalog">in catalog order</option>
+      <option value="worst">worst accuracy first</option>
+      <option value="best">best accuracy first</option>
+    </select>
+  </label>
+  {% if compare %}<label class="toggle"><input type="checkbox" id="show-unchanged"> Show unchanged traces and question types</label>{% endif %}
+</p>
+<div id="pair"><noscript><p class="warn">This page needs JavaScript to show the traces.</p></noscript></div>
+</section>
+<section class="tab-panel" id="tab-versions" role="tabpanel" hidden></section>
+<section class="tab-panel" id="tab-types" role="tabpanel" hidden></section>
+<section class="tab-panel" id="tab-tools" role="tabpanel" hidden></section>
+<section class="tab-panel" id="tab-sources" role="tabpanel" hidden></section>
+
+<script type="application/json" id="dashboard-data">{{ data }}</script>
+<script>
+{{ script }}
+</script>
+{% endblock %}

@@ -1,0 +1,50 @@
+# Text shown on the S0 dashboard page. Edit freely; Markdown works.
+# See S1.yaml for what each section is for. Sources: S0-human-gene-identifiers.md.
+
+families:
+  S0: {title: Human gene identifiers, description: "Every answer also sets `continuation_decision` from the request framing: a direct question gets `stop`, a request for a later analysis step gets `continue`, and an ambiguous, absent, or retired input gets `defer` with a `blocked_reason` sentence."}
+  # The gate reports break accuracy down by these question families.
+  human_symbol_to_ensembl: {title: Symbol to Ensembl ID}
+  human_ensembl_to_symbol: {title: Ensembl ID to symbol}
+  human_ambiguous_symbol: {title: Ambiguous symbol}
+
+versions:
+  v3: >-
+    Baseline S0 corpus: 4,096 training rows, in which genes without a symbol
+    make up 15.0% of resolved ID-to-symbol rows. The v3 model (training
+    `slurm-5629215`) failed the strict and target tiers. Its main errors were
+    sending an Ensembl ID to the symbol tool (5,110 rows), inventing a symbol
+    when the tool returned none (5,205), answering `stop` when the request was
+    for a later step (16,881), and deferring without a blocked reason (730). The
+    corpus is no longer on disk.
+  v4: >-
+    Four times the rows: 16,384 training, 622 validation, and 600 test.
+    Balanced framing (8,192 direct and 8,192 step rows), 12.5% lowercase or
+    mixed-case inputs, 8 prompt template families per input type (validation
+    and test use different families), splits by identifier graph component, at
+    most 49 ambiguous candidates, and a 4,096-token limit. Genes without a
+    symbol make up 52.3% of resolved ID-to-symbol rows (v3, 15.0%), near the
+    full registry's 44.9%. All four training arms passed the gate; S1 trains
+    from the r32 uniform arm.
+
+tools:
+  lookup_human_gene_symbol: >-
+    Look up a human gene symbol in the Ensembl release 116 registry and return
+    its Ensembl gene ID. The tool trims spaces and ignores case; an ambiguous
+    symbol returns every candidate with its chromosome and biotype.
+  lookup_human_ensembl_gene_id: >-
+    Look up a human Ensembl gene ID in the release 116 registry and return its
+    symbol, which is null for a gene without one. The tool checks the format,
+    ignores case, and strips only a numeric `.N` version suffix.
+  check_multiplex_membership: >-
+    Report which of the given gene IDs are nodes of a registered multiplex, in
+    any layer.
+
+types:
+  S0.1: Symbol to Ensembl ID. One symbol lookup resolves it.
+  S0.2: Ensembl ID to symbol for a named gene. One ID lookup resolves it.
+  S0.3: A symbol in lowercase or mixed case. The symbol tool ignores case, so one lookup resolves it.
+  S0.4: Ensembl ID to symbol for a gene without a symbol. One ID lookup resolves it with `gene_symbol` null.
+  S0.5: An ambiguous symbol. The symbol lookup returns several candidates; the answer is `ambiguous` and defers.
+  S0.6: An absent symbol (a previous HGNC symbol). The symbol lookup returns `not_found`, and the answer defers.
+  S0.7: An ID not in Ensembl release 116 (retired). The ID lookup returns `not_found`, and the answer defers.
