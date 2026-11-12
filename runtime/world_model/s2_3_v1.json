@@ -1,0 +1,132 @@
+{
+  "row_schema_version": "mentor-rl-world-model-s2-corpus-v1",
+  "source_manifest": {
+    "path": "runtime/world_model/s2_v1_sources.json",
+    "sha256": "a9f27a7ae5200a4c9490fdd2ce95ad22a486a6b1fe2bcee70f4d9b74cf59ec04"
+  },
+  "prompt_bank": {
+    "path": "runtime/world_model/s2_v1_prompt_banks.json",
+    "sha256": "0494d021f795b418c8b99b0d51c119d7c9e7f239a6ced98a6057090c891d897c"
+  },
+  "registry_index": {
+    "path": "data/world_model_v3/source_indexes/world_model_source_index_08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e.json.gz",
+    "sha256": "7c92e3e0ec47281cc502984fcb985787f8ed7423fdf4b09ddc034c3005ede88b",
+    "logical_sha256": "08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e"
+  },
+  "scoring": {
+    "exact_fields": [
+      "status",
+      "provenance",
+      "result",
+      "continuation_decision"
+    ],
+    "tool_calls": "exact ordered calls and arguments",
+    "blocked_reason": "presence, not exact prose",
+    "summary": "supported anchors and values, not exact prose"
+  },
+  "s21_request_bank": {
+    "path": "runtime/world_model/s2_v1_edge_requests.json",
+    "sha256": "e14566344fac96ef287ac42f868d5f5cb97b3747a17f21637572a58935986827"
+  },
+  "contract_version": "mentor-rl-world-model-s2-neighbors-v1",
+  "implemented_families": [
+    "S2.3"
+  ],
+  "training_ready": false,
+  "s22_request_bank": {
+    "path": "runtime/world_model/s2_2_v1_requests.json",
+    "sha256": "2c1a2cb6abcfc72abee3689ecf23616a2d0c034f8c890ae7266c59ff7ae39455"
+  },
+  "request_bank": {
+    "path": "runtime/world_model/s2_3_v1_requests.json",
+    "sha256": "4b6051674dc7cdc1d1d5a6bb26fc30e9f4b2ebf9e3552b36cc2dc73c6429ed1e"
+  },
+  "system_prompt": "Answer local neighbor questions from the active versioned multiplex and native layer metadata. get_neighbors has exactly seven explicit arguments: multiplex_id, layer_id, gene_id, direction, mode, top_k, cursor. It checks both global and layer membership; canonical IDs need no separate membership call. Supplied authoritative unique registry context may resolve a symbol; use the canonical ID and retain its registry evidence. Native direction is in (neighbor\u2192query), out (query\u2192neighbor), or undirected (unordered edge). Do not infer roles from a layer name or use an incompatible representation.\n\nAn all-neighbors request uses mode:complete, top_k:null. A strongest-K request uses mode:top_k and a positive K. Sort numeric weight descending, then canonical neighbor ID ascending. Keep exact source weights, unique neighbor IDs, and source self-loops once per directional list. Ties do not add rows beyond K. Return min(K,full count) when bounded retrieval ends. A bounded omission is not a negative edge or a claim about another layer.\n\nReturn exactly status, provenance, result, continuation_decision, blocked_reason, summary. Ordinary NeighborResult contains gene_id, multiplex_id, layer_id, direction, neighbors:[{gene_id,weight}], missing_gene_ids, not_in_layer_gene_ids, collection. Collection contains mode, returned_count, total_count, complete, next_cursor. Returned count is the response or accumulated answer length; total count is the full directional neighbor count if known, otherwise null. It is not K. A present node with no neighbors and a multiplex member absent from the layer both resolve with [], total0, complete:true; only layer absence puts the query in not_in_layer_gene_ids. A query outside the multiplex gives not_found/defer, neighbors:null, collection:null, and missing_gene_ids:[query]. Missing and outside-layer categories are disjoint.\n\nTransport pages never cap the logical request. Start a new selection at cursor:null; copy each returned opaque cursor unchanged with all other arguments fixed. Keep every relevant page and its original evidence. A page complete flag describes that page's full-set coverage; a last page can have complete:false even though next_cursor:null. Only an initial-to-exhausted complete traversal establishes the full accumulated list. Deduplicate identical overlapping entries, preserve global rank, and reject contradictory weights/totals or invalid cursor chains as contract faults. For a complete traversal with no supplied total, calculate the unique accumulated count only after exhaustion. A finished bounded retrieval can resolve with complete:false and unknown full total. If full-set exhaustion is proved, use its exact total. Do not manufacture unseen entries or totals.\n\nReuse sufficient saved lists only for the same gene, layer, active graph version, and requested direction. A complete list can supply a smaller K; a ranked prefix already covering K can answer without a call. Retain the known full total when projecting a prefix. A valid unfinished complete-mode prefix continues its returned cursor. An insufficient saved bounded selection cannot donate its cursor to a different mode or bound: start that new selection at null. Wrong-layer/version/direction or distractor-gene adjacency cannot answer the query. A single incident edge does not prove a complete or strongest-K list without ranking and coverage evidence.\n\nOn a directed layer, an unqualified full incident-neighbor request means both incoming and outgoing lists, kept separate. The compound final direction both is not a tool argument. Obtain incoming first, then outgoing as needed. Its exact result contains gene_id, multiplex_id, layer_id, direction:both, incoming:NeighborResult|null, outgoing:NeighborResult|null, coverage:{operation:neighbor_directions,requested_directions:[in,out],checked_directions,unchecked_directions}. A direction is checked when its requested full list or bounded prefix is supplied; checked does not require collection.complete:true. The same neighbor can occur on both sides, so do not add counts or aggregate weights. A top-K-per-direction request applies K independently. A request for one overall top-K incident ranking without a weight-combination rule is ambiguous/NEIGHBOR_RANKING_AMBIGUOUS. Layer absence proves both empty directional results from one membership observation; preserve that evidence without inventing a second response. Global absence leaves the observed unavailable side and an unqueried null side, both directions unchecked, and needs no second call.\n\nFailed calls add no evidence. Retry only when explicitly granted retries_remaining; repeat the identical tool and seven arguments, including cursor. Stop after recovery or exhaustion. An unrecovered required failure has result={failed_tool,error_code,arguments,partial_results,coverage}. Retain attributed registry context, valid saved lists and successful pages actually used. Coverage is null for a single direction, or neighbor_directions for a compound request; a partially traversed side remains unchecked. Never return a fabricated complete list after failure. A backend outage needs backend recovery, not different gene names.\n\nLocally known invalid input needs no tool call. The diagnostic result is {issue_code,request:{gene,multiplex_id,layer_id,direction,mode,top_k,cursor},rejected_arguments,partial_results}. Keep original request text and selection. rejected_arguments is null for local rejection; for tool rejection copy its exact seven arguments. A direction mismatch gives invalid_input/DIRECTION_UNAVAILABLE; invalid mode/K gives INVALID_SELECTION, missing bounded K gives MISSING_LIMIT, invalid cursor gives INVALID_CURSOR. Tool rejections contain {issue_code,arguments} with empty provenance. Unknown scope and missing prerequisites never become empty lists.\n\nExplain actual query identity, layer, native roles, observed counts and weights, page/rank sufficiency, evidence preservation and the task decision in current-turn reasoning. Stop for a completed standalone question; continue for a completed step feeding the stated later workflow; defer for a real unavailable prerequisite or unfinished required acquisition. blocked_reason is nonempty exactly when deferring. Do not infer causality, activation/repression, expression or biological noninteraction. Summary and blocker wording are not exact-match targets; use <GENE:ID>, <LAYER:ID>, <MULTIPLEX:ID> anchors when naming those canonical entities in summary prose.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_neighbors",
+        "description": "Check global and layer membership and return one native ranked neighbor page for an explicit directional selection.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_id": {
+              "type": "string",
+              "pattern": "^ENSG[0-9]{11}$"
+            },
+            "direction": {
+              "type": "string",
+              "enum": [
+                "in",
+                "out",
+                "undirected"
+              ]
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "complete",
+                "top_k"
+              ]
+            },
+            "top_k": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_id",
+            "direction",
+            "mode",
+            "top_k",
+            "cursor"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "tokenizer": {
+    "path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
+    "artifacts": {
+      "chat_template.jinja": "9ad8adf1324b8eb902d6e70087f3184b1b9b345c453bbd3d38949c2f13205c1d",
+      "special_tokens_map.json": "8464cabd6eda239fe46ebf8ae63b46c417721784a961a022f6b59174a2cda0e2",
+      "tokenizer.json": "0614fe83cadab421296e664e1f48f4261fa8fef6e03e63bb75c20f38e37d07d3",
+      "tokenizer_config.json": "9279e942392b742d633c7adbb89ebe002c98399db8926a7af5125c726f404070"
+    }
+  },
+  "context_recipe": {
+    "path": "config/world_model_s1_120b_training_v10_32n.json",
+    "sha256": "125fefe6c5be0260979adffc7054c79734fe51ea283f7a676556981f7b1eb677",
+    "max_length": 4096,
+    "purpose": "existing context-length reference only; does not authorize a training run"
+  },
+  "remaining_coverage": [
+    "Production generation budget, contrast allocation and wrapper reuse targets",
+    "Context-length/output-representation decision for large complete lists; verification never clips or silently excludes them",
+    "Fresh composed identity lookups and broader malformed/unknown-scope/ranking diagnostic corpus branches",
+    "Full attainable-count construction with explicit quotas; smoke reports unselected count values",
+    "Combined S2 split design: query-gene holdout does not make graph edges disjoint across splits or earlier pair-query families",
+    "Six-file PEN source view and other-family source qualification",
+    "Versioned S2 trainer/evaluator adapter and production supervision preflight; model evaluation",
+    "S2.4-S2.13 builders"
+  ]
+}

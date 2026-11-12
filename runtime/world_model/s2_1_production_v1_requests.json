@@ -1,0 +1,80 @@
+{
+  "train": {
+    "directed": [
+      "In {multiplex}, does {layer} record the directed edge from {first} to {second}? Give its recorded weight if it exists.",
+      "Check {layer} of {multiplex} for an arc with source {first} and target {second}, and report the weight if that arc is recorded.",
+      "For {multiplex}/{layer}, determine whether {first} \u2192 {second} is a recorded edge and provide its source weight when available.",
+      "Using layer {layer} in multiplex {multiplex}, is there a stored edge directed from {first} toward {second}? Include the weight attached to that edge if found."
+    ],
+    "undirected": [
+      "In {multiplex}, does {layer} record an undirected edge between {first} and {second}? Give its recorded weight if it exists.",
+      "Check {layer} of {multiplex} for the unordered pair {first}, {second}, and report its edge weight if an edge is recorded.",
+      "For {multiplex}/{layer}, determine whether {first} and {second} share a direct undirected edge and provide its source weight when available.",
+      "Using layer {layer} in multiplex {multiplex}, is there a stored undirected link joining {first} with {second}? Include the weight attached to that link if found."
+    ],
+    "directionality": [
+      "Classify the native connection for reference order {first}, {second} in {layer} of {multiplex}: forward only, reverse only, both, neither, or undirected. Keep every checked edge and its own weight."
+    ],
+    "any_direction": [
+      "Does either native orientation connect {first} and {second} in {multiplex}/{layer}? A matching positive is enough; retain unchecked orientations explicitly."
+    ],
+    "both_directions": [
+      "Are both native arrows recorded for reference endpoints {first}, {second} in {layer} under {multiplex}? One checked negative settles this conjunction."
+    ],
+    "conflict": [
+      "Check a directed source-to-target edge from {first} to {second} in {layer}, selected from {multiplex}. Preserve the representation requirement."
+    ]
+  },
+  "validation": {
+    "directed": [
+      "Within multiplex {multiplex}, inspect the {layer} relation {first} \u2192 {second}. State whether this ordered connection is present; if so, supply its original numeric weight.",
+      "Does the {layer} network belonging to {multiplex} contain an arrow leaving {first} and entering {second}? If yes, return the associated weight without changing it.",
+      "For source {first} and destination {second}, establish arc presence in layer {layer} under {multiplex}; any present arc should be accompanied by its weight.",
+      "Examine source {first} and target {second} in {multiplex}'s {layer} graph. Is that ordered orientation represented by an edge, and what weight does it carry?"
+    ],
+    "undirected": [
+      "Within multiplex {multiplex}, inspect the {layer} relation between {first} and {second}. State whether this unordered connection is present; if so, supply its original numeric weight.",
+      "Does the {layer} network belonging to {multiplex} contain a single-hop undirected link for {first} and {second}? If yes, return the associated weight without changing it.",
+      "For endpoints {first} and {second}, establish direct undirected adjacency in layer {layer} under {multiplex}; any present edge should be accompanied by its weight.",
+      "Examine the unordered endpoints {first} and {second} in {multiplex}'s {layer} graph. Are they joined by an edge, and what weight does it carry?"
+    ],
+    "directionality": [
+      "For multiplex {multiplex}, determine the orientation category joining reference endpoints {first} then {second} within {layer}. Include the individual native observations and ordered check coverage."
+    ],
+    "any_direction": [
+      "Within {layer} ({multiplex}), is at least one arrow present between reference endpoints {first} and {second}? Report only acquired orientations."
+    ],
+    "both_directions": [
+      "Test whether opposite arrows are jointly present for {first} followed by {second}, using network {layer} from {multiplex}. Keep unexamined checks unknown."
+    ],
+    "conflict": [
+      "In multiplex {multiplex}, inspect layer {layer} for an arrow leaving {first} and entering {second}; an unordered link cannot supply that ordered representation."
+    ]
+  },
+  "test": {
+    "directed": [
+      "Is the connection {first} \u2192 {second} encoded in {layer} ({multiplex})? Answer the edge-existence question and, for a positive answer, copy the numerical edge weight.",
+      "Identify whether {multiplex} includes a {layer} arc originating at {first} and terminating at {second}. A recorded arc requires its unchanged weight in your answer.",
+      "Consider source {first} and target {second} in {layer}, selected from {multiplex}. Report ordered edge existence, plus the native weight for a recorded edge.",
+      "Assess the forward orientation {first} \u2192 {second} for {multiplex} and {layer}. Indicate whether an edge is stored there and return its weight if recorded."
+    ],
+    "undirected": [
+      "Is a direct connection between {first} and {second} encoded in {layer} ({multiplex})? Answer the undirected edge-existence question and, for a positive answer, copy the numerical edge weight.",
+      "Identify whether {multiplex} includes a {layer} edge joining endpoints {first} and {second} without orientation. A recorded edge requires its unchanged weight in your answer.",
+      "Consider the unordered endpoints ({first}, {second}) in {layer}, selected from {multiplex}. Report direct edge existence, plus the native weight for a recorded edge.",
+      "Assess undirected adjacency for {first} and {second} using {multiplex} and {layer}. Indicate whether an edge is stored there and return its weight if recorded."
+    ],
+    "directionality": [
+      "Identify the relationship orientation of {first} relative to {second}, taking {multiplex} as the graph and {layer} as its layer. Distinguish reciprocity, one-way links, missing links, and an unordered representation; preserve separate weights."
+    ],
+    "any_direction": [
+      "Assess whether {layer} in {multiplex} encodes a link in at least one direction for ({first}, {second}); finish once the requested existence has a witness."
+    ],
+    "both_directions": [
+      "Evaluate reciprocal existence for ({first}, {second}) in {multiplex}, layer {layer}. A failed directional predicate refutes the requested joint condition."
+    ],
+    "conflict": [
+      "Use source {first} and destination {second} to assess an ordered arrow in graph {multiplex}, network {layer}. Direction must be available in the native representation."
+    ]
+  }
+}

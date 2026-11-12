@@ -1,0 +1,225 @@
+{
+  "row_schema_version": "mentor-rl-world-model-s2-corpus-v1",
+  "source_manifest": {
+    "path": "runtime/world_model/s2_v1_sources.json",
+    "sha256": "a9f27a7ae5200a4c9490fdd2ce95ad22a486a6b1fe2bcee70f4d9b74cf59ec04"
+  },
+  "prompt_bank": {
+    "path": "runtime/world_model/s2_v1_prompt_banks.json",
+    "sha256": "0494d021f795b418c8b99b0d51c119d7c9e7f239a6ced98a6057090c891d897c"
+  },
+  "registry_index": {
+    "path": "data/world_model_v3/source_indexes/world_model_source_index_08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e.json.gz",
+    "sha256": "7c92e3e0ec47281cc502984fcb985787f8ed7423fdf4b09ddc034c3005ede88b",
+    "logical_sha256": "08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e"
+  },
+  "scoring": {
+    "exact_fields": [
+      "status",
+      "provenance",
+      "result",
+      "continuation_decision"
+    ],
+    "tool_calls": "exact ordered calls and arguments",
+    "blocked_reason": "presence, not exact prose",
+    "summary": "supported anchors and values, not exact prose"
+  },
+  "s21_request_bank": {
+    "path": "runtime/world_model/s2_v1_edge_requests.json",
+    "sha256": "e14566344fac96ef287ac42f868d5f5cb97b3747a17f21637572a58935986827"
+  },
+  "s22_request_bank": {
+    "path": "runtime/world_model/s2_2_v1_requests.json",
+    "sha256": "2c1a2cb6abcfc72abee3689ecf23616a2d0c034f8c890ae7266c59ff7ae39455"
+  },
+  "tokenizer": {
+    "path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
+    "artifacts": {
+      "chat_template.jinja": "9ad8adf1324b8eb902d6e70087f3184b1b9b345c453bbd3d38949c2f13205c1d",
+      "special_tokens_map.json": "8464cabd6eda239fe46ebf8ae63b46c417721784a961a022f6b59174a2cda0e2",
+      "tokenizer.json": "0614fe83cadab421296e664e1f48f4261fa8fef6e03e63bb75c20f38e37d07d3",
+      "tokenizer_config.json": "9279e942392b742d633c7adbb89ebe002c98399db8926a7af5125c726f404070"
+    }
+  },
+  "context_recipe": {
+    "path": "config/world_model_s1_120b_training_v10_32n.json",
+    "sha256": "125fefe6c5be0260979adffc7054c79734fe51ea283f7a676556981f7b1eb677",
+    "max_length": 4096,
+    "purpose": "existing context-length reference only; does not authorize a training run"
+  },
+  "contract_version": "mentor-rl-world-model-s2-neighbor-layers-v1",
+  "implemented_families": [
+    "S2.4"
+  ],
+  "training_ready": false,
+  "s23_request_bank": {
+    "path": "runtime/world_model/s2_3_v1_requests.json",
+    "sha256": "4b6051674dc7cdc1d1d5a6bb26fc30e9f4b2ebf9e3552b36cc2dc73c6429ed1e"
+  },
+  "request_bank": {
+    "path": "runtime/world_model/s2_4_v1_requests.json",
+    "sha256": "2f6d5017bbccd724d32874704658e338df7aa0e48c2be69d212f8cd0640a319b"
+  },
+  "system_prompt": "Answer multiplex direct-neighbor questions from the active versioned graph and native layer metadata. get_neighbor_layers has exactly seven explicit arguments: multiplex_id, gene_id, layer_scope, direction, mode, top_k, cursor. Canonical IDs need no redundant identity lookup. Supplied authoritative unique registry context can resolve a symbol; graph calls use the canonical ID and retain the registry evidence. Scope is {kind:layers,layer_ids:[...],layer_family:null} or {kind:all,layer_ids:[],layer_family:string|null}. Deduplicate explicit layers in manifest order. Expand all-layer and all-family selectors exhaustively. A valid family can select no layers: after global membership is established, return an empty map with count zero and empty coverage. Unknown identifiers and empty explicit selections are diagnostics.\n\nincident includes undirected adjacency and both incoming and outgoing native edges in directed layers. in means neighbor→query and out means query→neighbor; these require every selected layer to be directed. undirected requires every selected layer to be undirected. Use the manifest representation rather than a family name. Mixed layers are valid for incident. Neighbor rows use ascending canonical gene ID order. Supporting layers use manifest order. Directed supports list incoming edges before outgoing edges relative to the query, with source and target unchanged. An incident self-loop appears once, in the incoming position. Undirected endpoint pairs are sorted. Retain each native weight separately; do not aggregate cross-layer weights.\n\ncomplete requires top_k:null and the entire unique-neighbor union. top_k requires a positive explicit K and returns the first min(K,total) canonical-ID rows. This is a canonical prefix, not a strongest-neighbor ranking. Every returned row must contain its complete support across every selected layer, even on a bounded result or intermediate page. Independently weight-ranked single-layer prefixes cannot establish the required union or full supports. An unresolved request for strongest multiplex neighbors is ambiguous/NEIGHBOR_RANKING_AMBIGUOUS.\n\nReturn exactly status, provenance, result, continuation_decision, blocked_reason, summary. Ordinary MapResult contains query_gene_id,multiplex_id,layer_scope,direction,layer_results,neighbors,unique_neighbor_count,missing_gene_ids,layers_without_gene,coverage,collection. Each layer_results entry contains layer_id,directed,not_in_layer_gene_ids. Include every selected layer. Each neighbors entry contains gene_id,supporting_layers,supporting_layer_count. Each support contains layer_id,directed,edges:[{gene_ids:[source,target],weight}]. Supporting-layer count is the number of supports, not edges. Reciprocal arcs in one layer count as one support. Layer coverage is {operation:layer_neighbor_maps,requested_layer_ids,checked_layer_ids,unchecked_layer_ids}. A resolved page checks every layer for the requested map selection; this does not mean that every neighbor row was returned. Collection is {mode,returned_count,total_count,complete,next_cursor}. unique_neighbor_count and total_count are the full unique count, agree, and can both be null. returned_count is only the current response or accumulated answer length. Never add per-layer counts to infer a union.\n\nA globally present node absent from selected layers resolves with no adjacency from those layers and explicit layer absences. A present node with no requested outgoing adjacency also resolves empty, with no layer absence. A gene outside the multiplex gives not_found/defer and missing_gene_ids:[query]; layer_results,neighbors,unique_neighbor_count,layers_without_gene,collection are null and all requested layers remain unchecked. Preserve membership evidence without inventing a measured zero.\n\nReuse only compatible authoritative observations for the query, active version, direction, scope and selection. A complete saved map can supply a narrower scope: remove other supports, drop unsupported rows, recalculate the union and support counts, then apply any canonical prefix. A bounded saved map can supply the same or shorter bound in its original scope; it cannot generally supply a different scope or larger prefix. Preserve original acquisition provenance. Complete get_neighbors lists can supply the map: incident needs an undirected list per undirected layer and incoming plus outgoing lists per directed layer. Retrieve only missing native collections. Layer absence proves both directed sides empty. Regroup visible native edge records by neighbor ID. Deduplicate identical edges, rows and evidence; conflicting evidence IDs, weights, supports or totals are contract faults. A hidden construction count is not visible proof.\n\nTransport pages never reduce the logical request. Start at cursor:null, copy returned opaque cursors unchanged and keep every other argument fixed. Accumulate compatible pages from the first page through exhaustion. Each page must carry complete scoped supports for its rows. Preserve all supporting page evidence. A last page can have complete:false by itself. Exhaustive complete traversal permits an exact count from unique visible rows when no total was supplied. A finished bounded traversal with an unknown full total must retain null counts. Validate supplied totals against exhaustive accumulation. A new mode, bound or scope starts at null and cannot reuse another selection's cursor.\n\nget_neighbors retains its single-layer S2.3 interface: multiplex_id,layer_id,gene_id,direction,mode,top_k,cursor. Native direction is in,out,undirected, never incident. Its neighbor rows are {gene_id,weight}, ordered by descending numerical weight and ascending canonical ID on ties. Complete lists require all pages. Their result is {gene_id,multiplex_id,layer_id,direction,neighbors,missing_gene_ids,not_in_layer_gene_ids,collection}. Complete native lists can establish the map; truncated lists generally cannot.\n\nFailed calls add no evidence. Retry only after an explicit retries_remaining allowance, using the identical tool and all arguments including cursor. Stop after recovery or exhaustion. A terminal required failure returns {failed_tool,error_code,arguments,partial_results,coverage}, preserves independent successful observations and defers. Saved map pages use layer_neighbor_maps coverage; an unfinished traversal can already have all layers checked. Native assembly uses {operation:neighbor_collections,requested_inputs,checked_inputs,unchecked_inputs}, with each input {layer_id,direction}, ordered by manifest then incoming before outgoing. Only complete native collections or valid layer absence are checked; partial pages remain unchecked. No established graph scope means null coverage. Backend failure needs backend recovery.\n\nLocal diagnostics need no graph call. Use {issue_code,request:{gene,multiplex_id,layer_scope,direction,mode,top_k,cursor,ranking},rejected_arguments,partial_results}, preserving literal request values. ranking is strongest_unspecified or null. Direction mismatch gives invalid_input/DIRECTION_UNAVAILABLE; missing bounded K gives MISSING_LIMIT; invalid selection or cursor gives INVALID_SELECTION or INVALID_CURSOR. A local rejection has rejected_arguments:null. Tool rejections have empty provenance and {issue_code,arguments}; copy rejected arguments exactly without inventing supported work.\n\nExplain the actual query, native roles, selected layers, visible supports/counts, evidence sufficiency and task decision in current-turn reasoning. Stop for a completed standalone request, continue for a completed step that supplies the user's later workflow, and defer for a real missing prerequisite. blocked_reason is nonempty exactly when deferring. Summary and blocker prose are not exact-match targets. Use <GENE:ID>, <LAYER:ID>, <MULTIPLEX:ID> anchors when naming canonical entities in summary prose. Ordinary answers omit claim cards. Adjacency does not establish activation, repression, causality, physical binding from coexpression, feedback from reciprocal arcs, or independence of supporting layers.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_neighbor_layers",
+        "description": "Return one canonical-ID map page with complete native support across the selected layers for every neighbor row.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "gene_id": {
+              "type": "string",
+              "pattern": "^ENSG[0-9]{11}$"
+            },
+            "layer_scope": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "layers",
+                    "all"
+                  ]
+                },
+                "layer_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "layer_family": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "kind",
+                "layer_ids",
+                "layer_family"
+              ],
+              "additionalProperties": false
+            },
+            "direction": {
+              "type": "string",
+              "enum": [
+                "incident",
+                "in",
+                "out",
+                "undirected"
+              ]
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "complete",
+                "top_k"
+              ]
+            },
+            "top_k": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "gene_id",
+            "layer_scope",
+            "direction",
+            "mode",
+            "top_k",
+            "cursor"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_neighbors",
+        "description": "Check global and layer membership and return one native ranked neighbor page for an explicit directional selection.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_id": {
+              "type": "string",
+              "pattern": "^ENSG[0-9]{11}$"
+            },
+            "direction": {
+              "type": "string",
+              "enum": [
+                "in",
+                "out",
+                "undirected"
+              ]
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "complete",
+                "top_k"
+              ]
+            },
+            "top_k": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_id",
+            "direction",
+            "mode",
+            "top_k",
+            "cursor"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "remaining_coverage": [
+    "Production generation budget, contrast allocation, and wrapper reuse targets",
+    "Context-length or output-representation decision for large complete unions; verification never clips or silently removes them",
+    "Fresh composed identity lookups and broader malformed, unknown-scope, limit, and cursor diagnostic corpus branches",
+    "Explicit supported_claims/unsupported_claims calibration and further composed identity diagnostics",
+    "Full attainable-count construction with explicit quotas; smoke reports unselected strata",
+    "Combined S2 split design: query-gene holdout does not make graph edges disjoint across splits or earlier pair-query families",
+    "Six-file PEN source view and source qualification for other families",
+    "Versioned S2 trainer/evaluator adapter, production supervision preflight, and model evaluation",
+    "S2.5-S2.13 builders"
+  ]
+}

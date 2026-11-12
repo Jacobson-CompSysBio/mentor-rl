@@ -1,0 +1,208 @@
+{
+  "row_schema_version": "mentor-rl-world-model-s2-corpus-v1",
+  "source_manifest": {
+    "path": "runtime/world_model/s2_v1_sources.json",
+    "sha256": "a9f27a7ae5200a4c9490fdd2ce95ad22a486a6b1fe2bcee70f4d9b74cf59ec04"
+  },
+  "prompt_bank": {
+    "path": "runtime/world_model/s2_v1_prompt_banks.json",
+    "sha256": "0494d021f795b418c8b99b0d51c119d7c9e7f239a6ced98a6057090c891d897c"
+  },
+  "registry_index": {
+    "path": "data/world_model_v3/source_indexes/world_model_source_index_08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e.json.gz",
+    "sha256": "7c92e3e0ec47281cc502984fcb985787f8ed7423fdf4b09ddc034c3005ede88b",
+    "logical_sha256": "08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e"
+  },
+  "scoring": {
+    "exact_fields": [
+      "status",
+      "provenance",
+      "result",
+      "continuation_decision"
+    ],
+    "tool_calls": "exact ordered calls and arguments",
+    "blocked_reason": "presence, not exact prose",
+    "summary": "supported anchors and values, not exact prose"
+  },
+  "s21_request_bank": {
+    "path": "runtime/world_model/s2_v1_edge_requests.json",
+    "sha256": "e14566344fac96ef287ac42f868d5f5cb97b3747a17f21637572a58935986827"
+  },
+  "s22_request_bank": {
+    "path": "runtime/world_model/s2_2_v1_requests.json",
+    "sha256": "2c1a2cb6abcfc72abee3689ecf23616a2d0c034f8c890ae7266c59ff7ae39455"
+  },
+  "s23_request_bank": {
+    "path": "runtime/world_model/s2_3_v1_requests.json",
+    "sha256": "4b6051674dc7cdc1d1d5a6bb26fc30e9f4b2ebf9e3552b36cc2dc73c6429ed1e"
+  },
+  "s24_request_bank": {
+    "path": "runtime/world_model/s2_4_v1_requests.json",
+    "sha256": "2f6d5017bbccd724d32874704658e338df7aa0e48c2be69d212f8cd0640a319b"
+  },
+  "s25_request_bank": {
+    "path": "runtime/world_model/s2_5_v1_requests.json",
+    "sha256": "a2331cdacfe69c3b4f2bfeab2ae9af384fd36740e0ef9068d0b012048dd3e66f"
+  },
+  "tokenizer": {
+    "path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
+    "artifacts": {
+      "chat_template.jinja": "9ad8adf1324b8eb902d6e70087f3184b1b9b345c453bbd3d38949c2f13205c1d",
+      "special_tokens_map.json": "8464cabd6eda239fe46ebf8ae63b46c417721784a961a022f6b59174a2cda0e2",
+      "tokenizer.json": "0614fe83cadab421296e664e1f48f4261fa8fef6e03e63bb75c20f38e37d07d3",
+      "tokenizer_config.json": "9279e942392b742d633c7adbb89ebe002c98399db8926a7af5125c726f404070"
+    }
+  },
+  "context_recipe": {
+    "path": "config/world_model_s1_120b_training_v10_32n.json",
+    "sha256": "125fefe6c5be0260979adffc7054c79734fe51ea283f7a676556981f7b1eb677",
+    "max_length": 4096,
+    "purpose": "existing context-length reference only; does not authorize a training run"
+  },
+  "s26_request_bank": {
+    "path": "runtime/world_model/s2_6_v1_requests.json",
+    "sha256": "4872b6d8dd4552f0f265ab2c8d3106ac986fba935f4bef2bd69ca9e139a5a2b5"
+  },
+  "s27_request_bank": {
+    "path": "runtime/world_model/s2_7_v1_requests.json",
+    "sha256": "ad86a374ab79d0f350472fb71af15ea233cf7dab5d6b9e3c64205806224f3ce9"
+  },
+  "contract_version": "mentor-rl-world-model-s2-components-v1",
+  "implemented_families": [
+    "S2.10"
+  ],
+  "training_ready": false,
+  "request_bank": {
+    "path": "runtime/world_model/s2_10_v1_requests.json",
+    "sha256": "a7172bd44cdb18683bd7067bd50ec50d3f7cab6e72b377dd7bc22021978da500"
+  },
+  "system_prompt": "Compute the exact connected components induced by the selected layer members in one registered layer of the active versioned multiplex. Resolve identities from authoritative supplied unique registry context. Canonical IDs need no redundant lookup. Preserve original spellings, order, duplicates, and identity observations. Deduplicate canonical IDs in first-mention order for tool arguments and membership coverage. Unresolved identity is not graph absence; never guess a candidate.\n\nClassify every unique canonical request into sorted layer_gene_ids, not_in_layer_gene_ids, and missing_gene_ids. The categories partition the request: the second contains global multiplex members absent from this layer, and the third contains globally absent inputs. Components partition only layer_gene_ids. Retain target-only directed members and graph-only IDs. Excluded inputs never become singleton components.\n\nUse undirected connectivity only for undirected layers. An omitted kind defaults to undirected only in an undirected layer. A directed layer requires weak or strong from the user or an explicit visible harness policy; no silent directed default is allowed. Weak connectivity ignores arrows only during the local component calculation and retains directed:true and native arc evidence. Strong connectivity groups mutually reachable members. A member is reachable from itself by a zero-length path, so singleton membership proves one component with or without a loop. All connectivity is unweighted: a recorded zero-weight edge remains an edge. Never impose an unrequested threshold.\n\nAcquire native graph evidence through the unchanged induce_subgraph tool with exactly multiplex_id,layer_id,gene_ids,mode,top_k,cursor. No component backend tool or connectivity_kind tool argument exists. Start an ordinary acquisition with mode:complete,top_k:null,cursor:null. Keep the entire first-mention-ordered input list while following the exact returned cursor. Never split the request into independent induced batches and infer cross-batch absence. Preserve source-to-target native arcs, reciprocal arcs, exact source weights, and original graph collection metadata. Conflicting weights, memberships, totals, directions, or reused evidence IDs are harness faults.\n\nUse only visible compatible evidence matching multiplex, graph version, layer, native representation, and selected domain. Complete induced graphs or complete selected-node native neighbor records prove the exact partition. Restrict a saved superset to selected nodes and edges and recompute; intersecting old component labels is unsound when a bridge was removed. Full membership with zero or one selected layer member needs no graph call. Full membership plus a spanning undirected or weak witness proves one group even when additional edges are unknown; a directed strong witness must prove mutual reachability. A weakly connected prefix cannot establish a strong partition. Several positive-edge groups remain provisional unless negative evidence rules out mergers. Stop acquiring pages once the full exact partition is proved, while retaining original partial edge collections as partial.\n\nReturn exactly status,provenance,result,continuation_decision,blocked_reason,summary. Every successful question, including a Boolean one-component question, returns the full exact result {multiplex_id,layer_id,directed,connectivity_kind,layer_gene_ids,layer_gene_count,not_in_layer_gene_ids,missing_gene_ids,components,component_count,single_component,coverage,collection}. Sort each nonempty component by ID and sort groups by their first ID. Each selected member occurs once. single_component is true exactly when component_count equals one and both exclusion categories are empty. A connected projection with exclusions therefore has component_count:1 and single_component:false. The final result has no edges,edge_count,or claim-card fields. Final collection is {mode:complete,returned_count:component_count,total_count:component_count,complete:true,next_cursor:null}; it counts groups, independently of edge retrieval. Coverage is operation:layer_membership with first-mention requested and checked IDs and no unchecked IDs.\n\nAn explicit empty list with established valid scope and kind returns empty categories and groups, zero counts, single_component:false, no call, and empty provenance. A fully classified all-excluded request also has zero groups and a false Boolean, retaining membership evidence. Ordinary exclusion, a split partition, and empty inputs complete the task: direct framing stops and a requested workflow step continues. Apply an all-members gate only when require_all_in_layer:true was explicitly supplied. Establish membership first through get_nodes_by_layer if needed; a complete classification with exclusions gives not_found/MEMBERSHIP_PRECONDITION_UNSATISFIED and defers before unnecessary graph retrieval, preserving the full membership partition as partial evidence.\n\nLocal diagnostics make no call and return invalid_input with MISSING_SCOPE,MISSING_GENES,INVALID_GENE_LIST,CONNECTIVITY_KIND_REQUIRED,INVALID_CONNECTIVITY_KIND,or CONNECTIVITY_KIND_UNAVAILABLE as applicable. Unknown registered scope uses not_found/UNKNOWN_LAYER or not_found/UNKNOWN_MULTIPLEX. Unresolved identity keeps its S1 status under UNRESOLVED_IDENTITY and supported candidate observations. Fixed diagnostic result is {issue_code,request,rejected_arguments,partial_results,coverage}. Request is exactly {genes,multiplex_id,layer_id,connectivity_kind,require_all_in_layer}, preserving original JSON values and null for an omitted kind even if ordinary undirected calculation would default. Local rejected_arguments is null. A tool scope rejection preserves exact rejected arguments and its empty-provenance {issue_code,arguments} observation. Defer for required input corrections.\n\nA required unrecovered backend failure returns error/defer with result {failed_tool,error_code,arguments,partial_results,coverage}. Keep successful registry, membership, neighbor, and edge-page observations with original arguments, native data, evidence IDs, and provenance in first-use order, deduplicating identical observations. Successful membership may be complete even when the component partition remains unknown. Failed attempted checks never count as checked. Coverage is null until canonical domain and valid scope exist. Do not emit guessed empty components or provisional counts. Retry only when positive visible retries_remaining authorizes it, repeating the exact same tool and every argument including cursor; stop after recovery or exhaustion.\n\nThe summary describes the visible proof and result with supported gene and layer anchors. Structured fields, ordered calls, provenance, and blocker presence are graded; free summary and blocked_reason wording is not exact-matched. Connectivity concerns only the selected induced graph in this layer/version. An outside-set path does not merge selected components. Distinct strong components can have one-way paths between them; do not claim that no directed path exists either way. Components establish no expression, interaction, causality, or absence in another layer/version.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "induce_subgraph",
+        "description": "Classify all requested IDs in one layer and return one canonical native edge page for their induced member subset.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^ENSG[0-9]{11}$"
+              }
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "complete",
+                "top_k"
+              ]
+            },
+            "top_k": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_ids",
+            "mode",
+            "top_k",
+            "cursor"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_nodes_by_layer",
+        "description": "Classify every supplied canonical ID against one layer and the global multiplex inventory as one atomic complete batch.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^ENSG[0-9]{11}$"
+              }
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_ids"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "lookup_human_gene_symbol",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "gene_symbol": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "gene_symbol"
+          ],
+          "additionalProperties": false
+        },
+        "description": "Resolve one human gene symbol against the pinned authoritative registry without guessing among unresolved candidates."
+      }
+    }
+  ],
+  "remaining_coverage": [
+    "Select a production allocation across attainable input sizes, membership categories, component counts and sizes, connectivity kinds, and source structures.",
+    "Complete trainer compatibility and exact component evaluation before any training export.",
+    "Select a production context representation that preserves full component partitions and required evidence without silent truncation.",
+    "Expand cold and ambiguous identity paths, null registry symbols, malformed scope and connectivity values, and additional permitted retry budgets.",
+    "Add eligible bulk PEN, single-cell PEN, other-family layers, authoritative full-layer isolates, and additional pinned graph versions as sources become available.",
+    "Add claim calibration and outer compound tasks under shared vocabularies."
+  ],
+  "s28_request_bank": {
+    "path": "runtime/world_model/s2_8_v1_requests.json",
+    "sha256": "4960e4f2e234ee4c7ae641c9de517f5f3a8b766627b297c5c2bf4e3e6c7d2ae8"
+  },
+  "production_export_allowed": false,
+  "s29_request_bank": {
+    "path": "runtime/world_model/s2_9_v1_requests.json",
+    "sha256": "e922d21d77d55c08422c2ff3e05a916b8d66de84ad552fe0c68d1d8fa2f4a28e"
+  },
+  "context_source_contract": {
+    "path": "runtime/world_model/s2_9_v1.json",
+    "sha256": "d7dfb889dd2913c7f9ae75a8671c3e9173c65772291ab8e9afaf7f7081c21e48"
+  }
+}

@@ -1,0 +1,402 @@
+{
+  "row_schema_version": "mentor-rl-world-model-s2-corpus-v1",
+  "source_manifest": {
+    "path": "runtime/world_model/s2_v1_sources.json",
+    "sha256": "a9f27a7ae5200a4c9490fdd2ce95ad22a486a6b1fe2bcee70f4d9b74cf59ec04"
+  },
+  "prompt_bank": {
+    "path": "runtime/world_model/s2_v1_prompt_banks.json",
+    "sha256": "0494d021f795b418c8b99b0d51c119d7c9e7f239a6ced98a6057090c891d897c"
+  },
+  "registry_index": {
+    "path": "data/world_model_v3/source_indexes/world_model_source_index_08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e.json.gz",
+    "sha256": "7c92e3e0ec47281cc502984fcb985787f8ed7423fdf4b09ddc034c3005ede88b",
+    "logical_sha256": "08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e"
+  },
+  "scoring": {
+    "exact_fields": [
+      "status",
+      "provenance",
+      "result",
+      "continuation_decision"
+    ],
+    "tool_calls": "exact ordered calls and arguments",
+    "blocked_reason": "presence, not exact prose",
+    "summary": "supported anchors and values, not exact prose"
+  },
+  "s21_request_bank": {
+    "path": "runtime/world_model/s2_v1_edge_requests.json",
+    "sha256": "e14566344fac96ef287ac42f868d5f5cb97b3747a17f21637572a58935986827"
+  },
+  "s22_request_bank": {
+    "path": "runtime/world_model/s2_2_v1_requests.json",
+    "sha256": "2c1a2cb6abcfc72abee3689ecf23616a2d0c034f8c890ae7266c59ff7ae39455"
+  },
+  "s23_request_bank": {
+    "path": "runtime/world_model/s2_3_v1_requests.json",
+    "sha256": "4b6051674dc7cdc1d1d5a6bb26fc30e9f4b2ebf9e3552b36cc2dc73c6429ed1e"
+  },
+  "s24_request_bank": {
+    "path": "runtime/world_model/s2_4_v1_requests.json",
+    "sha256": "2f6d5017bbccd724d32874704658e338df7aa0e48c2be69d212f8cd0640a319b"
+  },
+  "s25_request_bank": {
+    "path": "runtime/world_model/s2_5_v1_requests.json",
+    "sha256": "a2331cdacfe69c3b4f2bfeab2ae9af384fd36740e0ef9068d0b012048dd3e66f"
+  },
+  "tokenizer": {
+    "path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
+    "artifacts": {
+      "chat_template.jinja": "9ad8adf1324b8eb902d6e70087f3184b1b9b345c453bbd3d38949c2f13205c1d",
+      "special_tokens_map.json": "8464cabd6eda239fe46ebf8ae63b46c417721784a961a022f6b59174a2cda0e2",
+      "tokenizer.json": "0614fe83cadab421296e664e1f48f4261fa8fef6e03e63bb75c20f38e37d07d3",
+      "tokenizer_config.json": "9279e942392b742d633c7adbb89ebe002c98399db8926a7af5125c726f404070"
+    }
+  },
+  "context_recipe": {
+    "path": "config/world_model_s1_120b_training_v10_32n.json",
+    "sha256": "125fefe6c5be0260979adffc7054c79734fe51ea283f7a676556981f7b1eb677",
+    "max_length": 4096,
+    "purpose": "existing context-length reference only; does not authorize a training run"
+  },
+  "s26_request_bank": {
+    "path": "runtime/world_model/s2_6_v1_requests.json",
+    "sha256": "4872b6d8dd4552f0f265ab2c8d3106ac986fba935f4bef2bd69ca9e139a5a2b5"
+  },
+  "s27_request_bank": {
+    "path": "runtime/world_model/s2_7_v1_requests.json",
+    "sha256": "ad86a374ab79d0f350472fb71af15ea233cf7dab5d6b9e3c64205806224f3ce9"
+  },
+  "contract_version": "mentor-rl-world-model-s2-path-calibration-v1",
+  "implemented_families": [
+    "S2.11"
+  ],
+  "training_ready": false,
+  "request_bank": {
+    "path": "runtime/world_model/s2_11_v1_requests.json",
+    "sha256": "1a32b9121afe63773d8af706df2dbcb66efcc9ee5cab12ea5b540f959d58b051"
+  },
+  "system_prompt": "Answer exact unweighted full-layer path requests and scoped graph claim questions. A shortest_path call has exactly multiplex_id,layer_id,gene_ids,direction. gene_ids contains exactly two ordered endpoint positions; retain repeats and do not sort undirected path endpoints. Canonical IDs require no registry call. Resolve supplied symbols only from unique authoritative registry evidence or the current-symbol lookup. Preserve unresolved candidates and literal inputs; do not guess aliases or infer graph absence from registry absence.\n\nThe path searches the complete selected native layer, without a hop limit or weight threshold. Every recorded edge is usable, including zero weights and self-loops. Weights are not distances. Undirected layers use direction:undirected; directed layers require source_to_target with explicit endpoint roles. A missing undirected direction may use the visible native default. Never infer directed orientation from ID order, reverse directed arcs, or add a weak-path interpretation. Choose minimum hop count, then the lexicographically smallest complete ID sequence in requested source-to-target order. A reversed undirected request can choose a different tied route.\n\nThe exact ordinary path result contains multiplex_id,layer_id,directed,direction,gene_ids,path_found,path_gene_ids,hop_count,missing_gene_ids,not_in_layer_gene_ids. Both membership lists are checked for the whole pair, sorted, unique, and disjoint. For present layer endpoints, a found path has true, its canonical ordered witness, and the exact hop count; exhaustive no-path has false,[],null. If both endpoints belong to the multiplex but an endpoint is outside the layer, return resolved with false,[],null and retain layer absence. A missing multiplex endpoint gives not_found/defer with null,null,null path fields and both membership lists. The same present layer endpoint has a zero-hop path [gene_id], regardless of a self-loop. Zero hops establish neither loop existence nor loop absence.\n\nMatch multiplex, layer, graph version, ordered endpoints, direction, and observation arguments before reuse. A matching shortest_path result supplies the exact answer. A positive direct edge proves one hop. Membership proves the same-node zero-hop result. A negative edge, arbitrary multihop route, or disconnected selected induced graph does not prove full-layer no-path. A multihop route proves existence and an upper bound; it does not prove minimum length or the canonical tie winner. Complete outgoing incidence from a directed source with no outgoing edges can prove no-path to a different known layer member. Complete native incidence can prove a closed undirected component excludes a target. Sufficient incidence can also prove the minimum distance and canonical witness. Retain original native weights, directions, arguments, collection fields, evidence IDs, and provenance. Never use hidden source inventories as visible proof. Unavailable search or an execution limit is an error, not no-path.\n\nOrdinary path questions omit claim cards. A path with calibration retains every ordinary path field and adds claim_cards. A claim-only result contains exactly multiplex_id,layer_id,directed,direction,gene_ids,claim_cards; do not add unrequested path outputs. Each card has subject:{gene_ids,multiplex_id,layer_id,direction},claim_vocabulary:s2_graph_observations_v1,supported_claims,unsupported_claims. The two lists partition the vocabulary below in its exact order. A support check also has claim and claim_supported. A truth request also has statement_true and evaluates the exact literal proposition and its declared scope. A card of all observation permissions omits assessed-claim and truth fields. Pair claims belong to the ordered pair. If membership_cards:true, add separate one-gene cards for affected endpoint membership; deduplicate identical subjects in first-use order.\n\nThe closed vocabulary is: no_edge_recorded_in_scope,no_path_recorded_in_scope,gene_not_node_in_multiplex,gene_not_node_in_layer,not_in_shown_top_k,absence_holds_in_other_layers,absence_holds_in_other_versions,genes_unrelated_in_all_contexts,no_interaction_in_biology,relationship_experimentally_disproven,gene_not_expressed_in_context. A checked missing direct edge supports only scoped edge absence. A verified shortest path of at least two hops also supports that edge absence. An arbitrary multihop route supports neither absence claim. Exhaustive no-path between present endpoints supports both scoped edge and path absence. Checked layer absence with known multiplex membership supports the same pair absences and affected one-gene layer absence. Missing multiplex membership leaves pair traversal unevaluated; an affected membership card can support gene_not_node_in_multiplex. Positive one-hop and zero-hop paths support neither absence. Separate checked loop evidence can support loop absence. These facts establish no biological noninteraction, experimental disproof, expression absence, or absence in other layers or versions.\n\nUnsupported does not mean false. A scope truth request can assess the exact scoped edge/path absence. A visible path refutes a universal no-path claim across all layers that include the checked layer. One local negative cannot decide universal absence. Use invalid_input/UNSUPPORTED_TRUTH_SCOPE when visible evidence cannot settle the requested wider proposition; retain successful observations as partial_results and defer. Do not emit a guessed truth verdict. A claim-support task can still resolve with claim_supported:false. Do not acquire a path just to make an unsupported biological claim more unsupported.\n\nDiagnostics use result:{issue_code,request:{genes,multiplex_id,layer_id,direction},rejected_arguments,partial_results}. Preserve all four raw fields. Local rejections have no call and rejected_arguments:null. Missing scope gives invalid_input/MISSING_SCOPE. Absent or malformed pairs give invalid_input/INVALID_PAIR. Missing directed orientation gives ambiguous/AMBIGUOUS_PATH_DIRECTION, malformed direction gives invalid_input/INVALID_DIRECTION, and a known incompatible direction gives invalid_input/DIRECTION_UNAVAILABLE. Unknown scopes give not_found/UNKNOWN_LAYER or UNKNOWN_MULTIPLEX. Unresolved identities retain S1 status under UNRESOLVED_IDENTITY. A tool scope rejection retains the exact rejected arguments and has no graph evidence. Every diagnostic defers.\n\nAn unrecovered required backend failure gives error/defer with result:{failed_tool,error_code,arguments,partial_results,coverage}. A pair traversal has coverage:null. Retain successful registry, membership, edge, neighbor, and path observations with original operation,arguments,status,result,provenance in first-use order. A failed call adds no evidence. Retry only after visible positive retries_remaining, with the exact same tool and arguments. Stop on recovery or exhaustion. Omit unassessed cards after failure.\n\nStop when a standalone request completes. Continue when a completed result supplies the stated workflow. Checked no-path is a completed result. Defer for a real missing prerequisite or unrecovered required acquisition. blocked_reason is nonempty exactly on defer. Explain the evidence and scope in current-turn reasoning. The summary can use <GENE:ID>,<LAYER:ID>,<MULTIPLEX:ID> anchors. Grade structured fields, ordered calls, provenance, and blocker presence; summary and blocker wording remain free prose.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "lookup_human_gene_symbol",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "gene_symbol": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "gene_symbol"
+          ],
+          "additionalProperties": false
+        },
+        "description": "Resolve one human gene symbol against the pinned authoritative registry without guessing among unresolved candidates."
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "lookup_human_ensembl_gene_id",
+        "description": "Resolve one supplied human Ensembl gene identifier against the pinned registry, preserving a null authoritative symbol.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "gene_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "gene_id"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "check_multiplex_membership",
+        "description": "Check every supplied canonical ID against the complete multiplex node inventory.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "gene_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "gene_ids"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_edge",
+        "description": "Check both endpoint memberships and one native ordered or undirected edge in a registered layer.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^ENSG[0-9]{11}$"
+              },
+              "minItems": 2,
+              "maxItems": 2,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_ids"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_neighbors",
+        "description": "Check global and layer membership and return one native ranked neighbor page for an explicit directional selection.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_id": {
+              "type": "string",
+              "pattern": "^ENSG[0-9]{11}$"
+            },
+            "direction": {
+              "type": "string",
+              "enum": [
+                "in",
+                "out",
+                "undirected"
+              ]
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "complete",
+                "top_k"
+              ]
+            },
+            "top_k": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_id",
+            "direction",
+            "mode",
+            "top_k",
+            "cursor"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_nodes_by_layer",
+        "description": "Classify every supplied canonical ID against one layer and the global multiplex inventory as one atomic complete batch.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^ENSG[0-9]{11}$"
+              }
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_ids"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "induce_subgraph",
+        "description": "Classify all requested IDs in one layer and return one canonical native edge page for their induced member subset.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^ENSG[0-9]{11}$"
+              }
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "complete",
+                "top_k"
+              ]
+            },
+            "top_k": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_ids",
+            "mode",
+            "top_k",
+            "cursor"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "shortest_path",
+        "description": "Search the full native layer for an unweighted minimum-hop path and return the lexicographically smallest tied witness in endpoint order.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^ENSG[0-9]{11}$"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "direction": {
+              "type": "string",
+              "enum": [
+                "undirected",
+                "source_to_target"
+              ]
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_ids",
+            "direction"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "remaining_coverage": [
+    "Select production quotas across attained shortest-hop counts, membership outcomes, directions, tied witnesses, claims, and evidence contrasts.",
+    "Complete trainer compatibility and exact path-and-claim evaluation before any training export.",
+    "Select a production context representation that preserves every required witness and observation without silent truncation.",
+    "Expand cold and ambiguous identity cases, null registry symbols, multiple missing endpoints, reverse tied witnesses, and permitted retry budgets.",
+    "Add eligible bulk PEN, single-cell PEN, other-family layers, full-layer isolate inventories, and additional pinned graph versions when sources permit.",
+    "Keep weighted paths, weak projection paths, cross-layer route composition, route interpretation, and broader compound workflows separate."
+  ],
+  "s28_request_bank": {
+    "path": "runtime/world_model/s2_8_v1_requests.json",
+    "sha256": "4960e4f2e234ee4c7ae641c9de517f5f3a8b766627b297c5c2bf4e3e6c7d2ae8"
+  },
+  "production_export_allowed": false,
+  "s29_request_bank": {
+    "path": "runtime/world_model/s2_9_v1_requests.json",
+    "sha256": "e922d21d77d55c08422c2ff3e05a916b8d66de84ad552fe0c68d1d8fa2f4a28e"
+  },
+  "s210_request_bank": {
+    "path": "runtime/world_model/s2_10_v1_requests.json",
+    "sha256": "a7172bd44cdb18683bd7067bd50ec50d3f7cab6e72b377dd7bc22021978da500"
+  },
+  "claim_vocabulary": [
+    "no_edge_recorded_in_scope",
+    "no_path_recorded_in_scope",
+    "gene_not_node_in_multiplex",
+    "gene_not_node_in_layer",
+    "not_in_shown_top_k",
+    "absence_holds_in_other_layers",
+    "absence_holds_in_other_versions",
+    "genes_unrelated_in_all_contexts",
+    "no_interaction_in_biology",
+    "relationship_experimentally_disproven",
+    "gene_not_expressed_in_context"
+  ]
+}

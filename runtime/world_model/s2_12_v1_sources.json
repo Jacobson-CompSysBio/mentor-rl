@@ -1,0 +1,94 @@
+{
+  "schema_version": "mentor-rl-world-model-s2-12-sources-v1",
+  "graph_version": "75538f73d7cc84197b7d8d67093fa3133569076f0f2151f89024e8abbf90db29",
+  "descriptor": {
+    "multiplex_id": "s2_dataset_review_20261028_pen_v1",
+    "representation": "complete-source-files",
+    "membership": "layer_nodes=union_of_all_source_row_endpoints; multiplex_nodes=union_of_layer_nodes; no registry filtering",
+    "undirected_pair_policy": "unordered; one source record per pair; no added reverse source records",
+    "directed_pair_policy": "ordered source-to-target; no symmetrization; retain self-loops",
+    "duplicate_policy": "reject duplicate unordered pairs for undirected layers and duplicate ordered pairs for directed layers",
+    "weights": "parse source decimal text as JSON number; no rescaling, rounding, or float32 conversion",
+    "layer_order": [
+      "HumanNetV3:string_ppi",
+      "HumanNetV3:coexpression",
+      "TFs:brain",
+      "TFs:cd4+t_cells",
+      "bulkPEN:brain:amygdala",
+      "scPEN:brain:extended-amygdala:astrocyte"
+    ],
+    "layers": [
+      {
+        "layer_id": "HumanNetV3:string_ppi",
+        "source_path": "/lustre/orion/syb111/proj-shared/Data/H_sap/mentor-ev_multiplexes/brain_multiplexes/full_brain/networks_filtered/humannet_pi_string_physical_ppi_merged_max_normalized_minimal.tsv",
+        "source_sha256": "2510e5c60a2c57d8c8f01f3f00275a19e80e2ff4e102df7d5756c9b2615790c5",
+        "directed": false
+      },
+      {
+        "layer_id": "HumanNetV3:coexpression",
+        "source_path": "/lustre/orion/syb111/proj-shared/Data/H_sap/mentor-ev_multiplexes/brain_multiplexes/full_brain/networks_filtered/HS-CX.tsv",
+        "source_sha256": "a226913a8dd3d36e3f3870f388eb969ce95fcedae467134ea89cc903927e9161",
+        "directed": false
+      },
+      {
+        "layer_id": "TFs:brain",
+        "source_path": "/lustre/orion/syb111/proj-shared/Data/H_sap/Networks/Transcription_Factor_Target/Brain/TF-target-Pearl2019.to.network.spec.tsv",
+        "source_sha256": "6e561cabfa9a3c6ca8771863be1ec65a4f9338261a581157fb480b344ac1b33e",
+        "directed": true
+      },
+      {
+        "layer_id": "TFs:cd4+t_cells",
+        "source_path": "/lustre/orion/syb111/proj-shared/Data/H_sap/Networks/Transcription_Factor_Target/CD4+T_Cells/Proximal_CD4TCell_TF_network.to.spec.txt",
+        "source_sha256": "9e7ae161439c3fbec8c9dd0bc030ce7b128513fd12888def03ae76669bc5f4ae",
+        "directed": true
+      },
+      {
+        "layer_id": "bulkPEN:brain:amygdala",
+        "source_path": "/lustre/orion/syb111/proj-shared/Projects/bulkrna-seq/data/human/cns/healthy/gtex/networks/brain-amygdala/enhanced/grn_u_r2w_r2ge0_wge0p05_rep.tsv",
+        "source_sha256": "384dcdcbf7a2122bb79887da81d5dd7e5ba44662fce275702833e4b5e885c223",
+        "directed": false
+      },
+      {
+        "layer_id": "scPEN:brain:extended-amygdala:astrocyte",
+        "source_path": "/lustre/orion/syb111/proj-shared/Projects/scrna-seq/data/human/brain/healthy/allen_brain/networks/unimputed/extended-amygdala_astrocyte/enhanced/grn_u_fi_r2ge0_wge0p05_rep.tsv",
+        "source_sha256": "b41a7c33498429f4b59b9af689ec7c1b4c49c4f8446df24c23894c73bf0a84ba",
+        "directed": false
+      }
+    ],
+    "direction_metadata": [
+      {
+        "path": "/lustre/orion/syb111/proj-shared/Data/H_sap/Networks/Transcription_Factor_Target/Brain/TF-target-Pearl2019.full.edges.tsv",
+        "sha256": "29034e3bbc877e5a079c22cbe6789ebff4d63fc5e70efaf4225eecc707181855"
+      },
+      {
+        "path": "/lustre/orion/syb111/proj-shared/Data/H_sap/Networks/Transcription_Factor_Target/Brain/README",
+        "sha256": "f78d09d06b464cae10f7a1de444ac150a90a7027fe4de620ea9339920dbbb9d3"
+      },
+      {
+        "path": "/lustre/orion/syb111/proj-shared/Data/H_sap/Networks/Transcription_Factor_Target/CD4+T_Cells/README",
+        "sha256": "14b8e4497796cd8a0a33a770dd95f25506fb708de5fa6820e37b3edd46feeb9f"
+      },
+      {
+        "path": "/lustre/orion/syb111/proj-shared/Projects/bulkrna-seq/data/human/cns/healthy/gtex/networks/brain-amygdala/enhanced/with_suffix/grn_u_r2w_r2ge0_wge0p05_rep.json",
+        "sha256": "47d24f3c94c53a34fedce28fa633d98cf5b9c865bcdae755dfd2c34dafbf8317"
+      },
+      {
+        "path": "/lustre/orion/syb111/proj-shared/Projects/scrna-seq/data/human/brain/healthy/allen_brain/networks/unimputed/extended-amygdala_astrocyte/enhanced/grn_u_fi_r2ge0_wge0p05_rep.json",
+        "sha256": "d8d4a0b6c42a248e34b361b434fd64f7e95d2a3c6e3f042549f672e845061276"
+      }
+    ],
+    "source_transformations": [
+      {
+        "layer_id": "bulkPEN:brain:amygdala",
+        "archived_source_path": "/lustre/orion/syb111/proj-shared/Projects/bulkrna-seq/data/human/cns/healthy/gtex/networks/brain-amygdala/enhanced/with_suffix/grn_u_r2w_r2ge0_wge0p05_rep.tsv",
+        "archived_source_sha256": "10d2f58b415123dc505e919da4f9f3c5fbc9486d34c1c6a7060a7ae1a657befc",
+        "interpretation_metadata_path": "/lustre/orion/syb111/proj-shared/Projects/bulkrna-seq/data/human/cns/healthy/gtex/networks/brain-amygdala/enhanced/with_suffix/grn_u_r2w_r2ge0_wge0p05_rep.json",
+        "interpretation_metadata_sha256": "47d24f3c94c53a34fedce28fa633d98cf5b9c865bcdae755dfd2c34dafbf8317",
+        "transformation": "Remove only terminal numeric Ensembl version suffixes from each endpoint ID; preserve header, row order, weights, delimiters, and line endings.",
+        "source_path": "/lustre/orion/syb111/proj-shared/Projects/bulkrna-seq/data/human/cns/healthy/gtex/networks/brain-amygdala/enhanced/grn_u_r2w_r2ge0_wge0p05_rep.tsv",
+        "source_sha256": "384dcdcbf7a2122bb79887da81d5dd7e5ba44662fce275702833e4b5e885c223",
+        "verified_relation": "Transformed archived bytes equal current source bytes exactly."
+      }
+    ]
+  }
+}

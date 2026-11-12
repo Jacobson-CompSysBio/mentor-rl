@@ -1,0 +1,21 @@
+{
+  "schema_version": "mentor-rl-s2-4-bounded-ranking-requests-v1",
+  "train": [
+    "Which are the strongest {top_k} multiplex neighbors of {gene} across {scope_text} in {multiplex_id}? Include their layers and weights.",
+    "Choose the strongest {top_k} direct neighbors for {gene} in {multiplex_id} using {scope_text}, with layer supports and weights.",
+    "Rank {top_k} multiplex neighbors of {gene} by strongest connection over {scope_text} from {multiplex_id}; attach supporting layers and weights.",
+    "Identify the strongest {top_k} neighbors touching {gene} under {scope_text} of {multiplex_id}. Show the layer evidence and weights."
+  ],
+  "validation": [
+    "For {scope_text} within {multiplex_id}, find the strongest {top_k} cross-layer neighbors associated with {gene}, preserving layer records and weights.",
+    "Retrieve a strength-ranked map of {top_k} neighbors around {gene} for multiplex {multiplex_id} and {scope_text}; retain each contributing layer and its weights.",
+    "Among the neighbors beside {gene} in {multiplex_id}, determine the strongest {top_k} using {scope_text} and expose weighted layer contributions.",
+    "Use {multiplex_id} with {scope_text} to select {top_k} neighbors attached to {gene} according to combined strength; retain the weighted layer evidence."
+  ],
+  "test": [
+    "Tabulate the strongest {top_k} adjacent genes meeting {gene} for {scope_text} at {multiplex_id}, together with weighted layer support records.",
+    "Produce a strength-ordered collection of {top_k} genes next to {gene} from {multiplex_id}, restricted to {scope_text}, with their layer weights.",
+    "Describe which {top_k} counterparts of {gene} have the greatest cross-layer strength under {scope_text} of {multiplex_id}, alongside support weights.",
+    "Report the strongest {top_k} genes adjoining {gene} in {multiplex_id} across {scope_text}; include their supporting weighted layer records."
+  ]
+}

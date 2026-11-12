@@ -1,0 +1,186 @@
+{
+  "schema_version": "mentor-rl-world-model-s2-4-requests-v1",
+  "description": "Frozen multiplex direct-neighbor requests. Complete requests ask for the unique union; bounded requests select a canonical-ID prefix with complete selected-layer supports for every returned row. Source weights remain separate. Four variants per selection and direction are independent of graph outcomes and generation budgets. No language model runs at build time.",
+  "train": {
+    "complete": {
+      "incident": [
+        "For {multiplex_id}, build the complete map of incident neighbors of {gene}, using unordered adjacency plus incoming and outgoing native arcs within {scope_text}. Merge repeated neighbor IDs and attach every selected supporting layer, with native endpoints and weights.",
+        "Map every incident neighbors of {gene}, using unordered adjacency plus incoming and outgoing native arcs across {scope_text} under {multiplex_id}. Each distinct neighbor needs all its scoped layer supports, edge directions, and unchanged weights.",
+        "Using {scope_text} from {multiplex_id}, enumerate all incident neighbors of {gene}, using unordered adjacency plus incoming and outgoing native arcs once per canonical identifier. Preserve every supporting layer and its native weighted edge records.",
+        "Give the full union of incident neighbors of {gene}, using unordered adjacency plus incoming and outgoing native arcs in {multiplex_id} for {scope_text}. Combine duplicate neighbor IDs; retain all supporting layers with their own edge roles and weights."
+      ],
+      "in": [
+        "For {multiplex_id}, build the complete map of incoming neighbors sending an arc into target {gene} within {scope_text}. Merge repeated neighbor IDs and attach every selected supporting layer, with native endpoints and weights.",
+        "Map every incoming neighbors sending an arc into target {gene} across {scope_text} under {multiplex_id}. Each distinct neighbor needs all its scoped layer supports, edge directions, and unchanged weights.",
+        "Using {scope_text} from {multiplex_id}, enumerate all incoming neighbors sending an arc into target {gene} once per canonical identifier. Preserve every supporting layer and its native weighted edge records.",
+        "Give the full union of incoming neighbors sending an arc into target {gene} in {multiplex_id} for {scope_text}. Combine duplicate neighbor IDs; retain all supporting layers with their own edge roles and weights."
+      ],
+      "out": [
+        "For {multiplex_id}, build the complete map of outgoing neighbors receiving an arc from source {gene} within {scope_text}. Merge repeated neighbor IDs and attach every selected supporting layer, with native endpoints and weights.",
+        "Map every outgoing neighbors receiving an arc from source {gene} across {scope_text} under {multiplex_id}. Each distinct neighbor needs all its scoped layer supports, edge directions, and unchanged weights.",
+        "Using {scope_text} from {multiplex_id}, enumerate all outgoing neighbors receiving an arc from source {gene} once per canonical identifier. Preserve every supporting layer and its native weighted edge records.",
+        "Give the full union of outgoing neighbors receiving an arc from source {gene} in {multiplex_id} for {scope_text}. Combine duplicate neighbor IDs; retain all supporting layers with their own edge roles and weights."
+      ],
+      "undirected": [
+        "For {multiplex_id}, build the complete map of undirected neighbors linked without orientation to {gene} within {scope_text}. Merge repeated neighbor IDs and attach every selected supporting layer, with native endpoints and weights.",
+        "Map every undirected neighbors linked without orientation to {gene} across {scope_text} under {multiplex_id}. Each distinct neighbor needs all its scoped layer supports, edge directions, and unchanged weights.",
+        "Using {scope_text} from {multiplex_id}, enumerate all undirected neighbors linked without orientation to {gene} once per canonical identifier. Preserve every supporting layer and its native weighted edge records.",
+        "Give the full union of undirected neighbors linked without orientation to {gene} in {multiplex_id} for {scope_text}. Combine duplicate neighbor IDs; retain all supporting layers with their own edge roles and weights."
+      ]
+    },
+    "top_k": {
+      "incident": [
+        "For {multiplex_id}, choose the first {top_k} incident neighbors of {gene}, using unordered adjacency plus incoming and outgoing native arcs within {scope_text}, ordered by ascending canonical gene ID. Merge duplicates and attach every selected supporting layer, with native endpoints and weights. Return fewer only upon exhaustion.",
+        "Map the initial {top_k} incident neighbors of {gene}, using unordered adjacency plus incoming and outgoing native arcs across {scope_text} under {multiplex_id} in ascending canonical gene ID order. Each distinct neighbor needs all its scoped layer supports, edge directions, and unchanged weights; allow a smaller set if exhausted.",
+        "Using {scope_text} from {multiplex_id}, select a prefix of {top_k} incident neighbors of {gene}, using unordered adjacency plus incoming and outgoing native arcs by ascending canonical gene ID. Preserve every supporting layer and its native weighted edge records. Use the available set when fewer exist.",
+        "Give the earliest {top_k} incident neighbors of {gene}, using unordered adjacency plus incoming and outgoing native arcs in {multiplex_id} for {scope_text}, with canonical gene IDs ascending. Combine duplicate neighbor IDs; retain all supporting layers with their own edge roles and weights. Stop below that bound only if exhausted."
+      ],
+      "in": [
+        "For {multiplex_id}, choose the first {top_k} incoming neighbors sending an arc into target {gene} within {scope_text}, ordered by ascending canonical gene ID. Merge duplicates and attach every selected supporting layer, with native endpoints and weights. Return fewer only upon exhaustion.",
+        "Map the initial {top_k} incoming neighbors sending an arc into target {gene} across {scope_text} under {multiplex_id} in ascending canonical gene ID order. Each distinct neighbor needs all its scoped layer supports, edge directions, and unchanged weights; allow a smaller set if exhausted.",
+        "Using {scope_text} from {multiplex_id}, select a prefix of {top_k} incoming neighbors sending an arc into target {gene} by ascending canonical gene ID. Preserve every supporting layer and its native weighted edge records. Use the available set when fewer exist.",
+        "Give the earliest {top_k} incoming neighbors sending an arc into target {gene} in {multiplex_id} for {scope_text}, with canonical gene IDs ascending. Combine duplicate neighbor IDs; retain all supporting layers with their own edge roles and weights. Stop below that bound only if exhausted."
+      ],
+      "out": [
+        "For {multiplex_id}, choose the first {top_k} outgoing neighbors receiving an arc from source {gene} within {scope_text}, ordered by ascending canonical gene ID. Merge duplicates and attach every selected supporting layer, with native endpoints and weights. Return fewer only upon exhaustion.",
+        "Map the initial {top_k} outgoing neighbors receiving an arc from source {gene} across {scope_text} under {multiplex_id} in ascending canonical gene ID order. Each distinct neighbor needs all its scoped layer supports, edge directions, and unchanged weights; allow a smaller set if exhausted.",
+        "Using {scope_text} from {multiplex_id}, select a prefix of {top_k} outgoing neighbors receiving an arc from source {gene} by ascending canonical gene ID. Preserve every supporting layer and its native weighted edge records. Use the available set when fewer exist.",
+        "Give the earliest {top_k} outgoing neighbors receiving an arc from source {gene} in {multiplex_id} for {scope_text}, with canonical gene IDs ascending. Combine duplicate neighbor IDs; retain all supporting layers with their own edge roles and weights. Stop below that bound only if exhausted."
+      ],
+      "undirected": [
+        "For {multiplex_id}, choose the first {top_k} undirected neighbors linked without orientation to {gene} within {scope_text}, ordered by ascending canonical gene ID. Merge duplicates and attach every selected supporting layer, with native endpoints and weights. Return fewer only upon exhaustion.",
+        "Map the initial {top_k} undirected neighbors linked without orientation to {gene} across {scope_text} under {multiplex_id} in ascending canonical gene ID order. Each distinct neighbor needs all its scoped layer supports, edge directions, and unchanged weights; allow a smaller set if exhausted.",
+        "Using {scope_text} from {multiplex_id}, select a prefix of {top_k} undirected neighbors linked without orientation to {gene} by ascending canonical gene ID. Preserve every supporting layer and its native weighted edge records. Use the available set when fewer exist.",
+        "Give the earliest {top_k} undirected neighbors linked without orientation to {gene} in {multiplex_id} for {scope_text}, with canonical gene IDs ascending. Combine duplicate neighbor IDs; retain all supporting layers with their own edge roles and weights. Stop below that bound only if exhausted."
+      ]
+    }
+  },
+  "validation": {
+    "complete": {
+      "incident": [
+        "Assemble an exhaustive union for neighbors around {gene} across both arrow roles and any unoriented connections in {scope_text}, multiplex {multiplex_id}. Associate each unique counterpart with every relevant layer and the original weighted endpoint records.",
+        "Within {multiplex_id}, construct the entire neighbor map for neighbors around {gene} across both arrow roles and any unoriented connections over {scope_text}. One row per gene must carry all applicable layer evidence and native edge weights.",
+        "Across {scope_text} in {multiplex_id}, retrieve every neighbors around {gene} across both arrow roles and any unoriented connections without duplicate gene rows. Show the whole set of supporting layers beside each gene, retaining arrow endpoints and weights.",
+        "Create a complete adjacency map covering neighbors around {gene} across both arrow roles and any unoriented connections for {multiplex_id} using {scope_text}. Group by distinct counterpart and preserve every contributing layer, its endpoint roles, and its weights."
+      ],
+      "in": [
+        "Assemble an exhaustive union for incoming predecessors with {gene} as the destination in {scope_text}, multiplex {multiplex_id}. Associate each unique counterpart with every relevant layer and the original weighted endpoint records.",
+        "Within {multiplex_id}, construct the entire neighbor map for incoming predecessors with {gene} as the destination over {scope_text}. One row per gene must carry all applicable layer evidence and native edge weights.",
+        "Across {scope_text} in {multiplex_id}, retrieve every incoming predecessors with {gene} as the destination without duplicate gene rows. Show the whole set of supporting layers beside each gene, retaining arrow endpoints and weights.",
+        "Create a complete adjacency map covering incoming predecessors with {gene} as the destination for {multiplex_id} using {scope_text}. Group by distinct counterpart and preserve every contributing layer, its endpoint roles, and its weights."
+      ],
+      "out": [
+        "Assemble an exhaustive union for outgoing successors for which {gene} supplies the origin in {scope_text}, multiplex {multiplex_id}. Associate each unique counterpart with every relevant layer and the original weighted endpoint records.",
+        "Within {multiplex_id}, construct the entire neighbor map for outgoing successors for which {gene} supplies the origin over {scope_text}. One row per gene must carry all applicable layer evidence and native edge weights.",
+        "Across {scope_text} in {multiplex_id}, retrieve every outgoing successors for which {gene} supplies the origin without duplicate gene rows. Show the whole set of supporting layers beside each gene, retaining arrow endpoints and weights.",
+        "Create a complete adjacency map covering outgoing successors for which {gene} supplies the origin for {multiplex_id} using {scope_text}. Group by distinct counterpart and preserve every contributing layer, its endpoint roles, and its weights."
+      ],
+      "undirected": [
+        "Assemble an exhaustive union for neighbors connected by unordered links with {gene} in {scope_text}, multiplex {multiplex_id}. Associate each unique counterpart with every relevant layer and the original weighted endpoint records.",
+        "Within {multiplex_id}, construct the entire neighbor map for neighbors connected by unordered links with {gene} over {scope_text}. One row per gene must carry all applicable layer evidence and native edge weights.",
+        "Across {scope_text} in {multiplex_id}, retrieve every neighbors connected by unordered links with {gene} without duplicate gene rows. Show the whole set of supporting layers beside each gene, retaining arrow endpoints and weights.",
+        "Create a complete adjacency map covering neighbors connected by unordered links with {gene} for {multiplex_id} using {scope_text}. Group by distinct counterpart and preserve every contributing layer, its endpoint roles, and its weights."
+      ]
+    },
+    "top_k": {
+      "incident": [
+        "Assemble a canonical gene identifiers prefix of {top_k} neighbors around {gene} across both arrow roles and any unoriented connections in {scope_text}, multiplex {multiplex_id}; use ascending identifiers. Associate each unique counterpart with every relevant layer and the original weighted endpoint records. Shorter output requires exhaustion.",
+        "Within {multiplex_id}, construct a map for the first {top_k} neighbors around {gene} across both arrow roles and any unoriented connections over {scope_text} after ascending canonical gene identifiers sorting. One row per gene must carry all applicable layer evidence and native edge weights, with fewer rows allowed when exhausted.",
+        "Across {scope_text} in {multiplex_id}, retrieve the initial {top_k} neighbors around {gene} across both arrow roles and any unoriented connections without duplicate gene rows, by ascending canonical gene identifiers. Show the whole set of supporting layers beside each gene, retaining arrow endpoints and weights; an exhausted set may be smaller.",
+        "Create a bounded adjacency map covering {top_k} neighbors around {gene} across both arrow roles and any unoriented connections for {multiplex_id} using {scope_text}; select the prefix after canonical gene identifiers ascend. Group by distinct counterpart and preserve every contributing layer, its endpoint roles, and its weights. Insufficient neighbors permit fewer rows."
+      ],
+      "in": [
+        "Assemble a canonical gene identifiers prefix of {top_k} incoming predecessors with {gene} as the destination in {scope_text}, multiplex {multiplex_id}; use ascending identifiers. Associate each unique counterpart with every relevant layer and the original weighted endpoint records. Shorter output requires exhaustion.",
+        "Within {multiplex_id}, construct a map for the first {top_k} incoming predecessors with {gene} as the destination over {scope_text} after ascending canonical gene identifiers sorting. One row per gene must carry all applicable layer evidence and native edge weights, with fewer rows allowed when exhausted.",
+        "Across {scope_text} in {multiplex_id}, retrieve the initial {top_k} incoming predecessors with {gene} as the destination without duplicate gene rows, by ascending canonical gene identifiers. Show the whole set of supporting layers beside each gene, retaining arrow endpoints and weights; an exhausted set may be smaller.",
+        "Create a bounded adjacency map covering {top_k} incoming predecessors with {gene} as the destination for {multiplex_id} using {scope_text}; select the prefix after canonical gene identifiers ascend. Group by distinct counterpart and preserve every contributing layer, its endpoint roles, and its weights. Insufficient neighbors permit fewer rows."
+      ],
+      "out": [
+        "Assemble a canonical gene identifiers prefix of {top_k} outgoing successors for which {gene} supplies the origin in {scope_text}, multiplex {multiplex_id}; use ascending identifiers. Associate each unique counterpart with every relevant layer and the original weighted endpoint records. Shorter output requires exhaustion.",
+        "Within {multiplex_id}, construct a map for the first {top_k} outgoing successors for which {gene} supplies the origin over {scope_text} after ascending canonical gene identifiers sorting. One row per gene must carry all applicable layer evidence and native edge weights, with fewer rows allowed when exhausted.",
+        "Across {scope_text} in {multiplex_id}, retrieve the initial {top_k} outgoing successors for which {gene} supplies the origin without duplicate gene rows, by ascending canonical gene identifiers. Show the whole set of supporting layers beside each gene, retaining arrow endpoints and weights; an exhausted set may be smaller.",
+        "Create a bounded adjacency map covering {top_k} outgoing successors for which {gene} supplies the origin for {multiplex_id} using {scope_text}; select the prefix after canonical gene identifiers ascend. Group by distinct counterpart and preserve every contributing layer, its endpoint roles, and its weights. Insufficient neighbors permit fewer rows."
+      ],
+      "undirected": [
+        "Assemble a canonical gene identifiers prefix of {top_k} neighbors connected by unordered links with {gene} in {scope_text}, multiplex {multiplex_id}; use ascending identifiers. Associate each unique counterpart with every relevant layer and the original weighted endpoint records. Shorter output requires exhaustion.",
+        "Within {multiplex_id}, construct a map for the first {top_k} neighbors connected by unordered links with {gene} over {scope_text} after ascending canonical gene identifiers sorting. One row per gene must carry all applicable layer evidence and native edge weights, with fewer rows allowed when exhausted.",
+        "Across {scope_text} in {multiplex_id}, retrieve the initial {top_k} neighbors connected by unordered links with {gene} without duplicate gene rows, by ascending canonical gene identifiers. Show the whole set of supporting layers beside each gene, retaining arrow endpoints and weights; an exhausted set may be smaller.",
+        "Create a bounded adjacency map covering {top_k} neighbors connected by unordered links with {gene} for {multiplex_id} using {scope_text}; select the prefix after canonical gene identifiers ascend. Group by distinct counterpart and preserve every contributing layer, its endpoint roles, and its weights. Insufficient neighbors permit fewer rows."
+      ]
+    }
+  },
+  "test": {
+    "complete": {
+      "incident": [
+        "Tabulate all adjacent genes meeting {gene} through incoming arrows, outgoing arrows, or undirected edges as represented for {scope_text} at {multiplex_id}. Consolidate each canonical gene into one row while retaining every layer support and its weighted edges.",
+        "Produce the complete multiplex map of adjacent genes meeting {gene} through incoming arrows, outgoing arrows, or undirected edges as represented from {multiplex_id}, restricted to {scope_text}. Include each gene once together with all selected layers that support it and their edge weights.",
+        "Describe the entire direct-neighbor union for adjacent genes meeting {gene} through incoming arrows, outgoing arrows, or undirected edges as represented under {scope_text} of {multiplex_id}. Keep a single entry per identifier and expose every layer contribution with native weights and endpoints.",
+        "Report an exhaustive map of adjacent genes meeting {gene} through incoming arrows, outgoing arrows, or undirected edges as represented in {multiplex_id} across {scope_text}. Every distinct gene needs the complete set of layer supports, including native weighted edge orientations."
+      ],
+      "in": [
+        "Tabulate all incoming neighbors whose arrows point to {gene} for {scope_text} at {multiplex_id}. Consolidate each canonical gene into one row while retaining every layer support and its weighted edges.",
+        "Produce the complete multiplex map of incoming neighbors whose arrows point to {gene} from {multiplex_id}, restricted to {scope_text}. Include each gene once together with all selected layers that support it and their edge weights.",
+        "Describe the entire direct-neighbor union for incoming neighbors whose arrows point to {gene} under {scope_text} of {multiplex_id}. Keep a single entry per identifier and expose every layer contribution with native weights and endpoints.",
+        "Report an exhaustive map of incoming neighbors whose arrows point to {gene} in {multiplex_id} across {scope_text}. Every distinct gene needs the complete set of layer supports, including native weighted edge orientations."
+      ],
+      "out": [
+        "Tabulate all outgoing neighbors on arrows that leave {gene} for {scope_text} at {multiplex_id}. Consolidate each canonical gene into one row while retaining every layer support and its weighted edges.",
+        "Produce the complete multiplex map of outgoing neighbors on arrows that leave {gene} from {multiplex_id}, restricted to {scope_text}. Include each gene once together with all selected layers that support it and their edge weights.",
+        "Describe the entire direct-neighbor union for outgoing neighbors on arrows that leave {gene} under {scope_text} of {multiplex_id}. Keep a single entry per identifier and expose every layer contribution with native weights and endpoints.",
+        "Report an exhaustive map of outgoing neighbors on arrows that leave {gene} in {multiplex_id} across {scope_text}. Every distinct gene needs the complete set of layer supports, including native weighted edge orientations."
+      ],
+      "undirected": [
+        "Tabulate all neighbors on undirected edges touching {gene} for {scope_text} at {multiplex_id}. Consolidate each canonical gene into one row while retaining every layer support and its weighted edges.",
+        "Produce the complete multiplex map of neighbors on undirected edges touching {gene} from {multiplex_id}, restricted to {scope_text}. Include each gene once together with all selected layers that support it and their edge weights.",
+        "Describe the entire direct-neighbor union for neighbors on undirected edges touching {gene} under {scope_text} of {multiplex_id}. Keep a single entry per identifier and expose every layer contribution with native weights and endpoints.",
+        "Report an exhaustive map of neighbors on undirected edges touching {gene} in {multiplex_id} across {scope_text}. Every distinct gene needs the complete set of layer supports, including native weighted edge orientations."
+      ]
+    },
+    "top_k": {
+      "incident": [
+        "Tabulate the first {top_k} adjacent genes meeting {gene} through incoming arrows, outgoing arrows, or undirected edges as represented for {scope_text} at {multiplex_id} according to canonical gene IDs in ascending order. Consolidate each gene into one row while retaining every layer support and its weighted edges. Exhaustion permits a shorter answer.",
+        "Produce a multiplex map of the earliest {top_k} adjacent genes meeting {gene} through incoming arrows, outgoing arrows, or undirected edges as represented from {multiplex_id}, restricted to {scope_text}, ordered with canonical gene IDs in ascending sequence. Include each gene once with all selected layers that support it and their edge weights; use fewer if none remain.",
+        "Describe a prefix containing {top_k} adjacent genes meeting {gene} through incoming arrows, outgoing arrows, or undirected edges as represented under {scope_text} of {multiplex_id} after canonical gene IDs sort in ascending order. Keep a single entry per identifier and expose every layer contribution with native weights and endpoints. Fewer entries require exhausted adjacency.",
+        "Report a map of the first {top_k} adjacent genes meeting {gene} through incoming arrows, outgoing arrows, or undirected edges as represented in {multiplex_id} across {scope_text} with ascending canonical gene IDs. Every distinct gene needs the complete set of layer supports, including native weighted edge orientations. Return the smaller set when availability is insufficient."
+      ],
+      "in": [
+        "Tabulate the first {top_k} incoming neighbors whose arrows point to {gene} for {scope_text} at {multiplex_id} according to canonical gene IDs in ascending order. Consolidate each gene into one row while retaining every layer support and its weighted edges. Exhaustion permits a shorter answer.",
+        "Produce a multiplex map of the earliest {top_k} incoming neighbors whose arrows point to {gene} from {multiplex_id}, restricted to {scope_text}, ordered with canonical gene IDs in ascending sequence. Include each gene once with all selected layers that support it and their edge weights; use fewer if none remain.",
+        "Describe a prefix containing {top_k} incoming neighbors whose arrows point to {gene} under {scope_text} of {multiplex_id} after canonical gene IDs sort in ascending order. Keep a single entry per identifier and expose every layer contribution with native weights and endpoints. Fewer entries require exhausted adjacency.",
+        "Report a map of the first {top_k} incoming neighbors whose arrows point to {gene} in {multiplex_id} across {scope_text} with ascending canonical gene IDs. Every distinct gene needs the complete set of layer supports, including native weighted edge orientations. Return the smaller set when availability is insufficient."
+      ],
+      "out": [
+        "Tabulate the first {top_k} outgoing neighbors on arrows that leave {gene} for {scope_text} at {multiplex_id} according to canonical gene IDs in ascending order. Consolidate each gene into one row while retaining every layer support and its weighted edges. Exhaustion permits a shorter answer.",
+        "Produce a multiplex map of the earliest {top_k} outgoing neighbors on arrows that leave {gene} from {multiplex_id}, restricted to {scope_text}, ordered with canonical gene IDs in ascending sequence. Include each gene once with all selected layers that support it and their edge weights; use fewer if none remain.",
+        "Describe a prefix containing {top_k} outgoing neighbors on arrows that leave {gene} under {scope_text} of {multiplex_id} after canonical gene IDs sort in ascending order. Keep a single entry per identifier and expose every layer contribution with native weights and endpoints. Fewer entries require exhausted adjacency.",
+        "Report a map of the first {top_k} outgoing neighbors on arrows that leave {gene} in {multiplex_id} across {scope_text} with ascending canonical gene IDs. Every distinct gene needs the complete set of layer supports, including native weighted edge orientations. Return the smaller set when availability is insufficient."
+      ],
+      "undirected": [
+        "Tabulate the first {top_k} neighbors on undirected edges touching {gene} for {scope_text} at {multiplex_id} according to canonical gene IDs in ascending order. Consolidate each gene into one row while retaining every layer support and its weighted edges. Exhaustion permits a shorter answer.",
+        "Produce a multiplex map of the earliest {top_k} neighbors on undirected edges touching {gene} from {multiplex_id}, restricted to {scope_text}, ordered with canonical gene IDs in ascending sequence. Include each gene once with all selected layers that support it and their edge weights; use fewer if none remain.",
+        "Describe a prefix containing {top_k} neighbors on undirected edges touching {gene} under {scope_text} of {multiplex_id} after canonical gene IDs sort in ascending order. Keep a single entry per identifier and expose every layer contribution with native weights and endpoints. Fewer entries require exhausted adjacency.",
+        "Report a map of the first {top_k} neighbors on undirected edges touching {gene} in {multiplex_id} across {scope_text} with ascending canonical gene IDs. Every distinct gene needs the complete set of layer supports, including native weighted edge orientations. Return the smaller set when availability is insufficient."
+      ]
+    }
+  },
+  "ranking_requests": {
+    "train": [
+      "Which are the strongest multiplex neighbors of {gene} across {scope_text} in {multiplex_id}? Include their layers and weights.",
+      "Choose the strongest direct neighbors for {gene} in {multiplex_id} using {scope_text}, with layer supports and weights.",
+      "Rank multiplex neighbors of {gene} by strongest connection over {scope_text} from {multiplex_id}; attach supporting layers and weights.",
+      "Identify the strongest neighbors touching {gene} under {scope_text} of {multiplex_id}. Show the layer evidence and weights."
+    ],
+    "validation": [
+      "For {scope_text} within {multiplex_id}, find the strongest cross-layer neighbors associated with {gene}, preserving layer records and weights.",
+      "Retrieve a strength-ranked map around {gene} for multiplex {multiplex_id} and {scope_text}; retain each contributing layer and its weights.",
+      "Among the neighbors beside {gene} in {multiplex_id}, determine the strongest using {scope_text} and expose weighted layer contributions.",
+      "Use {multiplex_id} with {scope_text} to select neighbors attached to {gene} according to combined strength; retain the weighted layer evidence."
+    ],
+    "test": [
+      "Tabulate the strongest adjacent genes meeting {gene} for {scope_text} at {multiplex_id}, together with weighted layer support records.",
+      "Produce a strength-ordered collection of genes next to {gene} from {multiplex_id}, restricted to {scope_text}, with their layer weights.",
+      "Describe which counterparts of {gene} have the greatest cross-layer strength under {scope_text} of {multiplex_id}, alongside support weights.",
+      "Report the strongest genes adjoining {gene} in {multiplex_id} across {scope_text}; include their supporting weighted layer records."
+    ]
+  }
+}

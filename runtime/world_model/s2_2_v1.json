@@ -1,0 +1,173 @@
+{
+  "contract_version": "mentor-rl-world-model-s2-multiplex-v1",
+  "row_schema_version": "mentor-rl-world-model-s2-corpus-v1",
+  "implemented_families": [
+    "S2.2"
+  ],
+  "training_ready": false,
+  "source_manifest": {
+    "path": "runtime/world_model/s2_v1_sources.json",
+    "sha256": "a9f27a7ae5200a4c9490fdd2ce95ad22a486a6b1fe2bcee70f4d9b74cf59ec04"
+  },
+  "prompt_bank": {
+    "path": "runtime/world_model/s2_v1_prompt_banks.json",
+    "sha256": "0494d021f795b418c8b99b0d51c119d7c9e7f239a6ced98a6057090c891d897c"
+  },
+  "registry_index": {
+    "path": "data/world_model_v3/source_indexes/world_model_source_index_08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e.json.gz",
+    "sha256": "7c92e3e0ec47281cc502984fcb985787f8ed7423fdf4b09ddc034c3005ede88b",
+    "logical_sha256": "08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e"
+  },
+  "scoring": {
+    "exact_fields": [
+      "status",
+      "provenance",
+      "result",
+      "continuation_decision"
+    ],
+    "tool_calls": "exact ordered calls and arguments",
+    "blocked_reason": "presence, not exact prose",
+    "summary": "supported anchors and values, not exact prose"
+  },
+  "system_prompt": "Answer local graph questions using the active versioned multiplex and its native layer representations. S2.2 asks which layers support two distinct canonical human genes. Preserve the input reference order. Every get_edge_layers call supplies multiplex_id, gene_ids, layer_scope, edge_query, mode, and top_k. An explicit scope is deduplicated in manifest order. The all selector may name a valid family, including an empty family; unknown selectors are errors. Both endpoints need checked multiplex membership even for an empty family. An endpoint outside the multiplex gives not_found, null graph predicates/lists/counts, and defer. An endpoint present globally but absent from a selected layer gives a checked negative layer predicate with its absence list.\n\nany_direction accepts an undirected edge or either directed orientation. source_to_target checks first-to-second and both_directions requires reciprocal arcs within the same layer; both predicates require every selected layer to be directed. Use the actual manifest, never the family name alone, to establish direction. Directed records preserve native source/target roles and weights; undirected pairs are sorted. Two reciprocal arcs count as one supporting layer. A fresh visited layer checks every requested orientation. Saved one-direction evidence can settle any_direction true or both_directions false while leaving the other orientation unchecked.\n\ncomplete requires the whole selected scope and top_k:null. exists asks only a Boolean: a positive witness anywhere suffices, but false requires exhaustion; top_k:null and collection:null. top_k requires a positive integer and returns the first K supporting layers in manifest order, checking every preceding potential match; never rank weights across layers. Stop scanning after the Kth match or scope exhaustion. supporting_layer_count and collection.total_count are exact only when all selected layer predicates are known; otherwise null, even when the private true count happens to equal K. next_cursor is always null. Keep every known LayerResult and its inner orientation coverage, including negative rows and richer saved observations. In bounded projections, supporting_layer_ids contains only the first K positives; collection.complete is true only when the returned list includes the entire known total.\n\nReturn exactly status, provenance, result, continuation_decision, blocked_reason, summary in that order. Ordinary result fields are multiplex_id, gene_ids, layer_scope, edge_query, mode, edge_exists_any_layer, layer_results, supporting_layer_ids, supporting_layer_count, missing_gene_ids, coverage, collection. LayerResult contains layer_id, directed, edge_exists, edges, not_in_layer_gene_ids, coverage. Each positive edge contains gene_ids and weight. Outer coverage operation is layer_edge_checks with requested_layer_ids, checked_layer_ids, unchecked_layer_ids. Inner coverage operation is edge_checks with requested_pairs, checked_pairs, unchecked_pairs. Collection contains mode, returned_count, total_count, complete, next_cursor. False means checked negative; null means unavailable. Do not infer a negative for an unchecked layer or orientation.\n\nReuse sufficient authoritative supplied observations only when the identities and active graph version match and the native observations prove the requested scoped predicate. A broader saved scope can supply a selected subset without changing its acquisition provenance. A reversed reference pair is reusable for a symmetric predicate; native arrow roles stay fixed. Different predicate labels can still supply sufficient underlying orientation evidence; derive the requested predicate only from those checked orientations. Supplied unique registry observations may resolve symbols; graph calls use their canonical IDs. Complete evidence can answer a narrower request without a new call. An incomplete prefix needs a call only for the remaining layers. Preserve original supporting provenance records unchanged; never relabel a saved narrower acquisition as all-layer evidence. Failed calls publish no partial graph evidence. Retry only when the response explicitly grants retries_remaining, using identical tool and arguments. Stop after recovery or exhaustion. A terminal required failure uses result={failed_tool,error_code,arguments,partial_results,coverage}; retain earlier independent observations and coverage for the original requested scope. Do not fabricate graph outputs from a failed batch.\n\nA locally evident direction/selection/scope error requires no graph call. Its diagnostic result is {issue_code,request:{genes,multiplex_id,layer_scope,edge_query,mode,top_k},partial_results}. Preserve literal request fields. A request including an undirected layer under a directed predicate gives invalid_input/DIRECTION_UNAVAILABLE. A tool rejection contains issue_code and arguments with empty provenance.\n\nStop after a completed standalone request; continue when a completed step supplies the user's stated later workflow; defer if a required prerequisite or observation remains unavailable. blocked_reason is nonempty exactly when deferring. Explain the actual pair, selected layers, native predicate, observed values, remaining coverage, evidence sufficiency and task decision in reasoning. Do not infer causality or biological non-interaction. Summary and blocker prose are not exact-match targets. Use <GENE:ID>, <LAYER:ID>, and <MULTIPLEX:ID> anchors when mentioning corresponding canonical entities in the summary.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_edge_layers",
+        "description": "Check both global memberships and scan selected native layer predicates, stopping according to the requested retrieval mode.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "gene_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^ENSG[0-9]{11}$"
+              },
+              "minItems": 2,
+              "maxItems": 2,
+              "uniqueItems": true
+            },
+            "layer_scope": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "layers",
+                    "all"
+                  ]
+                },
+                "layer_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "layer_family": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "kind",
+                "layer_ids",
+                "layer_family"
+              ],
+              "additionalProperties": false
+            },
+            "edge_query": {
+              "type": "string",
+              "enum": [
+                "any_direction",
+                "source_to_target",
+                "both_directions"
+              ]
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "complete",
+                "top_k",
+                "exists"
+              ]
+            },
+            "top_k": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "gene_ids",
+            "layer_scope",
+            "edge_query",
+            "mode",
+            "top_k"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_edge",
+        "description": "Check both endpoint memberships and one native ordered or undirected edge in a registered layer.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^ENSG[0-9]{11}$"
+              },
+              "minItems": 2,
+              "maxItems": 2,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_ids"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "request_bank": {
+    "path": "runtime/world_model/s2_2_v1_requests.json",
+    "sha256": "2c1a2cb6abcfc72abee3689ecf23616a2d0c034f8c890ae7266c59ff7ae39455"
+  },
+  "s21_request_bank": {
+    "path": "runtime/world_model/s2_v1_edge_requests.json",
+    "sha256": "e14566344fac96ef287ac42f868d5f5cb97b3747a17f21637572a58935986827"
+  },
+  "remaining_coverage": [
+    "Final generation budget, wrapper reuse targets, and combined S2 corpus assembly",
+    "Composed fresh identity resolution and its ambiguous/not-found/failure contrasts remain in the S1 prerequisite adapter",
+    "Generated malformed/unknown-scope and identity-prerequisite diagnostic combinations beyond the reviewed direction contrast; runtime scope rejection is unit-tested",
+    "Six-file PEN view and qualification of other-family graph sources",
+    "Versioned trainer/evaluator adapters and full-trace S0/S1 replay migration",
+    "Actual tokenizer and current-turn loss-mask audits; model evaluation",
+    "S2.3-S2.13 builders"
+  ]
+}

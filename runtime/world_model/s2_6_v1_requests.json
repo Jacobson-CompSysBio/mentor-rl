@@ -1,0 +1,138 @@
+{
+  "schema_version": "mentor-rl-world-model-s2-6-requests-v1",
+  "description": "Frozen S2.6 requests classify all genes from an explicit finite list against one selected layer. Raw list order, duplicate mentions, and invalid JSON values remain visible. Four variants per split are independent of graph outcomes, selected input sizes, and generation budgets. The same request forms cover six local diagnostic kinds without outcome cues. No language model runs at build time; human wording review remains available.",
+  "train": [
+    "Classify every supplied gene in {genes_json} against layer {layer_id} within multiplex {multiplex_id}. Include the complete requested classification.",
+    "Assign all supplied genes {genes_json} to their membership categories for layer {layer_id} in multiplex {multiplex_id}. Cover each input.",
+    "For multiplex {multiplex_id} and layer {layer_id}, classify the full supplied gene list {genes_json}. Return every requested membership category.",
+    "Check each supplied gene from {genes_json} for membership in layer {layer_id}, multiplex {multiplex_id}. Complete the classification for all inputs."
+  ],
+  "validation": [
+    "Evaluate each listed entry {genes_json} using {multiplex_id} with the single layer {layer_id}; provide exhaustive per-gene membership outcomes.",
+    "Using layer {layer_id} of {multiplex_id}, establish the membership category of every entry in {genes_json}. Account for the entire supplied selection.",
+    "Resolve membership for the supplied identifiers {genes_json} at {layer_id} under {multiplex_id}. Include the outcome for each listed entry.",
+    "Within {multiplex_id}, assess all entries {genes_json} against {layer_id}. Provide a complete account of this finite selection."
+  ],
+  "test": [
+    "Partition the given genes {genes_json} by their status relative to {layer_id} at {multiplex_id}. Retain a result for every supplied item.",
+    "Report which category applies to each item of {genes_json} in {multiplex_id} for {layer_id}. Cover the whole given list.",
+    "Determine layer membership outcomes throughout the input {genes_json}, with {multiplex_id} as multiplex and {layer_id} as layer. Include every given item.",
+    "For {layer_id} inside {multiplex_id}, separate the input genes {genes_json} into their membership groups. Report a category for each one."
+  ],
+  "diagnostic_requests": {
+    "train": {
+      "unknown_layer": [
+        "Classify every supplied gene in {genes_json} against layer {layer_id} within multiplex {multiplex_id}. Include the complete requested classification.",
+        "Assign all supplied genes {genes_json} to their membership categories for layer {layer_id} in multiplex {multiplex_id}. Cover each input.",
+        "For multiplex {multiplex_id} and layer {layer_id}, classify the full supplied gene list {genes_json}. Return every requested membership category.",
+        "Check each supplied gene from {genes_json} for membership in layer {layer_id}, multiplex {multiplex_id}. Complete the classification for all inputs."
+      ],
+      "unknown_multiplex": [
+        "Classify every supplied gene in {genes_json} against layer {layer_id} within multiplex {multiplex_id}. Include the complete requested classification.",
+        "Assign all supplied genes {genes_json} to their membership categories for layer {layer_id} in multiplex {multiplex_id}. Cover each input.",
+        "For multiplex {multiplex_id} and layer {layer_id}, classify the full supplied gene list {genes_json}. Return every requested membership category.",
+        "Check each supplied gene from {genes_json} for membership in layer {layer_id}, multiplex {multiplex_id}. Complete the classification for all inputs."
+      ],
+      "missing_scope": [
+        "Classify every supplied gene in {genes_json} against layer {layer_id} within multiplex {multiplex_id}. Include the complete requested classification.",
+        "Assign all supplied genes {genes_json} to their membership categories for layer {layer_id} in multiplex {multiplex_id}. Cover each input.",
+        "For multiplex {multiplex_id} and layer {layer_id}, classify the full supplied gene list {genes_json}. Return every requested membership category.",
+        "Check each supplied gene from {genes_json} for membership in layer {layer_id}, multiplex {multiplex_id}. Complete the classification for all inputs."
+      ],
+      "missing_genes": [
+        "Classify every supplied gene in {genes_json} against layer {layer_id} within multiplex {multiplex_id}. Include the complete requested classification.",
+        "Assign all supplied genes {genes_json} to their membership categories for layer {layer_id} in multiplex {multiplex_id}. Cover each input.",
+        "For multiplex {multiplex_id} and layer {layer_id}, classify the full supplied gene list {genes_json}. Return every requested membership category.",
+        "Check each supplied gene from {genes_json} for membership in layer {layer_id}, multiplex {multiplex_id}. Complete the classification for all inputs."
+      ],
+      "invalid_scalar": [
+        "Classify every supplied gene in {genes_json} against layer {layer_id} within multiplex {multiplex_id}. Include the complete requested classification.",
+        "Assign all supplied genes {genes_json} to their membership categories for layer {layer_id} in multiplex {multiplex_id}. Cover each input.",
+        "For multiplex {multiplex_id} and layer {layer_id}, classify the full supplied gene list {genes_json}. Return every requested membership category.",
+        "Check each supplied gene from {genes_json} for membership in layer {layer_id}, multiplex {multiplex_id}. Complete the classification for all inputs."
+      ],
+      "invalid_list": [
+        "Classify every supplied gene in {genes_json} against layer {layer_id} within multiplex {multiplex_id}. Include the complete requested classification.",
+        "Assign all supplied genes {genes_json} to their membership categories for layer {layer_id} in multiplex {multiplex_id}. Cover each input.",
+        "For multiplex {multiplex_id} and layer {layer_id}, classify the full supplied gene list {genes_json}. Return every requested membership category.",
+        "Check each supplied gene from {genes_json} for membership in layer {layer_id}, multiplex {multiplex_id}. Complete the classification for all inputs."
+      ]
+    },
+    "validation": {
+      "unknown_layer": [
+        "Evaluate each listed entry {genes_json} using {multiplex_id} with the single layer {layer_id}; provide exhaustive per-gene membership outcomes.",
+        "Using layer {layer_id} of {multiplex_id}, establish the membership category of every entry in {genes_json}. Account for the entire supplied selection.",
+        "Resolve membership for the supplied identifiers {genes_json} at {layer_id} under {multiplex_id}. Include the outcome for each listed entry.",
+        "Within {multiplex_id}, assess all entries {genes_json} against {layer_id}. Provide a complete account of this finite selection."
+      ],
+      "unknown_multiplex": [
+        "Evaluate each listed entry {genes_json} using {multiplex_id} with the single layer {layer_id}; provide exhaustive per-gene membership outcomes.",
+        "Using layer {layer_id} of {multiplex_id}, establish the membership category of every entry in {genes_json}. Account for the entire supplied selection.",
+        "Resolve membership for the supplied identifiers {genes_json} at {layer_id} under {multiplex_id}. Include the outcome for each listed entry.",
+        "Within {multiplex_id}, assess all entries {genes_json} against {layer_id}. Provide a complete account of this finite selection."
+      ],
+      "missing_scope": [
+        "Evaluate each listed entry {genes_json} using {multiplex_id} with the single layer {layer_id}; provide exhaustive per-gene membership outcomes.",
+        "Using layer {layer_id} of {multiplex_id}, establish the membership category of every entry in {genes_json}. Account for the entire supplied selection.",
+        "Resolve membership for the supplied identifiers {genes_json} at {layer_id} under {multiplex_id}. Include the outcome for each listed entry.",
+        "Within {multiplex_id}, assess all entries {genes_json} against {layer_id}. Provide a complete account of this finite selection."
+      ],
+      "missing_genes": [
+        "Evaluate each listed entry {genes_json} using {multiplex_id} with the single layer {layer_id}; provide exhaustive per-gene membership outcomes.",
+        "Using layer {layer_id} of {multiplex_id}, establish the membership category of every entry in {genes_json}. Account for the entire supplied selection.",
+        "Resolve membership for the supplied identifiers {genes_json} at {layer_id} under {multiplex_id}. Include the outcome for each listed entry.",
+        "Within {multiplex_id}, assess all entries {genes_json} against {layer_id}. Provide a complete account of this finite selection."
+      ],
+      "invalid_scalar": [
+        "Evaluate each listed entry {genes_json} using {multiplex_id} with the single layer {layer_id}; provide exhaustive per-gene membership outcomes.",
+        "Using layer {layer_id} of {multiplex_id}, establish the membership category of every entry in {genes_json}. Account for the entire supplied selection.",
+        "Resolve membership for the supplied identifiers {genes_json} at {layer_id} under {multiplex_id}. Include the outcome for each listed entry.",
+        "Within {multiplex_id}, assess all entries {genes_json} against {layer_id}. Provide a complete account of this finite selection."
+      ],
+      "invalid_list": [
+        "Evaluate each listed entry {genes_json} using {multiplex_id} with the single layer {layer_id}; provide exhaustive per-gene membership outcomes.",
+        "Using layer {layer_id} of {multiplex_id}, establish the membership category of every entry in {genes_json}. Account for the entire supplied selection.",
+        "Resolve membership for the supplied identifiers {genes_json} at {layer_id} under {multiplex_id}. Include the outcome for each listed entry.",
+        "Within {multiplex_id}, assess all entries {genes_json} against {layer_id}. Provide a complete account of this finite selection."
+      ]
+    },
+    "test": {
+      "unknown_layer": [
+        "Partition the given genes {genes_json} by their status relative to {layer_id} at {multiplex_id}. Retain a result for every supplied item.",
+        "Report which category applies to each item of {genes_json} in {multiplex_id} for {layer_id}. Cover the whole given list.",
+        "Determine layer membership outcomes throughout the input {genes_json}, with {multiplex_id} as multiplex and {layer_id} as layer. Include every given item.",
+        "For {layer_id} inside {multiplex_id}, separate the input genes {genes_json} into their membership groups. Report a category for each one."
+      ],
+      "unknown_multiplex": [
+        "Partition the given genes {genes_json} by their status relative to {layer_id} at {multiplex_id}. Retain a result for every supplied item.",
+        "Report which category applies to each item of {genes_json} in {multiplex_id} for {layer_id}. Cover the whole given list.",
+        "Determine layer membership outcomes throughout the input {genes_json}, with {multiplex_id} as multiplex and {layer_id} as layer. Include every given item.",
+        "For {layer_id} inside {multiplex_id}, separate the input genes {genes_json} into their membership groups. Report a category for each one."
+      ],
+      "missing_scope": [
+        "Partition the given genes {genes_json} by their status relative to {layer_id} at {multiplex_id}. Retain a result for every supplied item.",
+        "Report which category applies to each item of {genes_json} in {multiplex_id} for {layer_id}. Cover the whole given list.",
+        "Determine layer membership outcomes throughout the input {genes_json}, with {multiplex_id} as multiplex and {layer_id} as layer. Include every given item.",
+        "For {layer_id} inside {multiplex_id}, separate the input genes {genes_json} into their membership groups. Report a category for each one."
+      ],
+      "missing_genes": [
+        "Partition the given genes {genes_json} by their status relative to {layer_id} at {multiplex_id}. Retain a result for every supplied item.",
+        "Report which category applies to each item of {genes_json} in {multiplex_id} for {layer_id}. Cover the whole given list.",
+        "Determine layer membership outcomes throughout the input {genes_json}, with {multiplex_id} as multiplex and {layer_id} as layer. Include every given item.",
+        "For {layer_id} inside {multiplex_id}, separate the input genes {genes_json} into their membership groups. Report a category for each one."
+      ],
+      "invalid_scalar": [
+        "Partition the given genes {genes_json} by their status relative to {layer_id} at {multiplex_id}. Retain a result for every supplied item.",
+        "Report which category applies to each item of {genes_json} in {multiplex_id} for {layer_id}. Cover the whole given list.",
+        "Determine layer membership outcomes throughout the input {genes_json}, with {multiplex_id} as multiplex and {layer_id} as layer. Include every given item.",
+        "For {layer_id} inside {multiplex_id}, separate the input genes {genes_json} into their membership groups. Report a category for each one."
+      ],
+      "invalid_list": [
+        "Partition the given genes {genes_json} by their status relative to {layer_id} at {multiplex_id}. Retain a result for every supplied item.",
+        "Report which category applies to each item of {genes_json} in {multiplex_id} for {layer_id}. Cover the whole given list.",
+        "Determine layer membership outcomes throughout the input {genes_json}, with {multiplex_id} as multiplex and {layer_id} as layer. Include every given item.",
+        "For {layer_id} inside {multiplex_id}, separate the input genes {genes_json} into their membership groups. Report a category for each one."
+      ]
+    }
+  }
+}

@@ -1,0 +1,326 @@
+{
+  "schema_version": "mentor-rl-world-model-s2-11-requests-v1",
+  "description": "Production path wording extension for scarce native self-loop subjects; original request entries remain the first four.",
+  "train": {
+    "path": [
+      "Find the exact unweighted shortest path for endpoint positions {genes} in multiplex {multiplex_id}, layer {layer_id}, with direction {direction}. Retain the canonical witness, minimum hops, and endpoint exclusions.",
+      "Return minimum-hop reachability between endpoint positions {genes}, using multiplex {multiplex_id} and layer {layer_id}. Direction is {direction}; retain the lexicographically first shortest witness and checked exclusions.",
+      "Using {multiplex_id}, determine the shortest path for endpoints {genes} within layer {layer_id}, under direction {direction}. Give the exact minimum hop count, canonical route, and absent inputs.",
+      "For multiplex {multiplex_id} and layer {layer_id}, answer the exact shortest-path request for ordered endpoints {genes}. Use direction {direction}; keep the canonical witness and both membership exclusions.",
+      "Complete the requested assessment. Find the exact unweighted shortest path for endpoint positions {genes} in multiplex {multiplex_id}, layer {layer_id}, with direction {direction}. Retain the canonical witness, minimum hops, and endpoint exclusions.",
+      "Complete the requested assessment. Return minimum-hop reachability between endpoint positions {genes}, using multiplex {multiplex_id} and layer {layer_id}. Direction is {direction}; retain the lexicographically first shortest witness and checked exclusions.",
+      "Complete the requested assessment. Using {multiplex_id}, determine the shortest path for endpoints {genes} within layer {layer_id}, under direction {direction}. Give the exact minimum hop count, canonical route, and absent inputs.",
+      "Complete the requested assessment. For multiplex {multiplex_id} and layer {layer_id}, answer the exact shortest-path request for ordered endpoints {genes}. Use direction {direction}; keep the canonical witness and both membership exclusions.",
+      "Report the specified evidence task. Find the exact unweighted shortest path for endpoint positions {genes} in multiplex {multiplex_id}, layer {layer_id}, with direction {direction}. Retain the canonical witness, minimum hops, and endpoint exclusions.",
+      "Report the specified evidence task. Return minimum-hop reachability between endpoint positions {genes}, using multiplex {multiplex_id} and layer {layer_id}. Direction is {direction}; retain the lexicographically first shortest witness and checked exclusions.",
+      "Report the specified evidence task. Using {multiplex_id}, determine the shortest path for endpoints {genes} within layer {layer_id}, under direction {direction}. Give the exact minimum hop count, canonical route, and absent inputs.",
+      "Report the specified evidence task. For multiplex {multiplex_id} and layer {layer_id}, answer the exact shortest-path request for ordered endpoints {genes}. Use direction {direction}; keep the canonical witness and both membership exclusions.",
+      "Address the supplied biological question. Find the exact unweighted shortest path for endpoint positions {genes} in multiplex {multiplex_id}, layer {layer_id}, with direction {direction}. Retain the canonical witness, minimum hops, and endpoint exclusions.",
+      "Address the supplied biological question. Return minimum-hop reachability between endpoint positions {genes}, using multiplex {multiplex_id} and layer {layer_id}. Direction is {direction}; retain the lexicographically first shortest witness and checked exclusions.",
+      "Address the supplied biological question. Using {multiplex_id}, determine the shortest path for endpoints {genes} within layer {layer_id}, under direction {direction}. Give the exact minimum hop count, canonical route, and absent inputs.",
+      "Address the supplied biological question. For multiplex {multiplex_id} and layer {layer_id}, answer the exact shortest-path request for ordered endpoints {genes}. Use direction {direction}; keep the canonical witness and both membership exclusions."
+    ],
+    "path_claims": [
+      "Find the exact unweighted shortest path for endpoint positions {genes} in multiplex {multiplex_id}, layer {layer_id}, with direction {direction}. Retain the canonical witness, minimum hops, and endpoint exclusions. Also provide the scoped graph-observation claim card. Include affected one-gene membership cards: {membership_cards}.",
+      "Return minimum-hop reachability between endpoint positions {genes}, using multiplex {multiplex_id} and layer {layer_id}. Direction is {direction}; retain the lexicographically first shortest witness and checked exclusions. Also provide the scoped graph-observation claim card. Include affected one-gene membership cards: {membership_cards}.",
+      "Using {multiplex_id}, determine the shortest path for endpoints {genes} within layer {layer_id}, under direction {direction}. Give the exact minimum hop count, canonical route, and absent inputs. Also provide the scoped graph-observation claim card. Include affected one-gene membership cards: {membership_cards}.",
+      "For multiplex {multiplex_id} and layer {layer_id}, answer the exact shortest-path request for ordered endpoints {genes}. Use direction {direction}; keep the canonical witness and both membership exclusions. Also provide the scoped graph-observation claim card. Include affected one-gene membership cards: {membership_cards}."
+    ],
+    "path_support": [
+      "Find the exact unweighted shortest path for endpoint positions {genes} in multiplex {multiplex_id}, layer {layer_id}, with direction {direction}. Retain the canonical witness, minimum hops, and endpoint exclusions. Assess support for canonical claim {claim} in the card. Include affected one-gene membership cards: {membership_cards}.",
+      "Return minimum-hop reachability between endpoint positions {genes}, using multiplex {multiplex_id} and layer {layer_id}. Direction is {direction}; retain the lexicographically first shortest witness and checked exclusions. Assess support for canonical claim {claim} in the card. Include affected one-gene membership cards: {membership_cards}.",
+      "Using {multiplex_id}, determine the shortest path for endpoints {genes} within layer {layer_id}, under direction {direction}. Give the exact minimum hop count, canonical route, and absent inputs. Assess support for canonical claim {claim} in the card. Include affected one-gene membership cards: {membership_cards}.",
+      "For multiplex {multiplex_id} and layer {layer_id}, answer the exact shortest-path request for ordered endpoints {genes}. Use direction {direction}; keep the canonical witness and both membership exclusions. Assess support for canonical claim {claim} in the card. Include affected one-gene membership cards: {membership_cards}."
+    ],
+    "path_truth": [
+      "Find the exact unweighted shortest path for endpoint positions {genes} in multiplex {multiplex_id}, layer {layer_id}, with direction {direction}. Retain the canonical witness, minimum hops, and endpoint exclusions. Judge this exact statement: {statement}. Its canonical claim category is {claim}, and its truth scope is {truth_scope}. Include affected one-gene membership cards: {membership_cards}.",
+      "Return minimum-hop reachability between endpoint positions {genes}, using multiplex {multiplex_id} and layer {layer_id}. Direction is {direction}; retain the lexicographically first shortest witness and checked exclusions. Judge this exact statement: {statement}. Its canonical claim category is {claim}, and its truth scope is {truth_scope}. Include affected one-gene membership cards: {membership_cards}.",
+      "Using {multiplex_id}, determine the shortest path for endpoints {genes} within layer {layer_id}, under direction {direction}. Give the exact minimum hop count, canonical route, and absent inputs. Judge this exact statement: {statement}. Its canonical claim category is {claim}, and its truth scope is {truth_scope}. Include affected one-gene membership cards: {membership_cards}.",
+      "For multiplex {multiplex_id} and layer {layer_id}, answer the exact shortest-path request for ordered endpoints {genes}. Use direction {direction}; keep the canonical witness and both membership exclusions. Judge this exact statement: {statement}. Its canonical claim category is {claim}, and its truth scope is {truth_scope}. Include affected one-gene membership cards: {membership_cards}."
+    ],
+    "claim_card": [
+      "For supplied graph evidence about endpoint positions {genes}, produce its scoped claim card. Multiplex {multiplex_id}; layer {layer_id}; direction {direction}. Include affected one-gene membership cards: {membership_cards}.",
+      "List the claims supported and unsupported by supplied observations for endpoints {genes} in {multiplex_id}, layer {layer_id}, under direction {direction}. Include affected one-gene membership cards: {membership_cards}.",
+      "Assess supplied evidence for endpoint positions {genes} using multiplex {multiplex_id}, layer {layer_id}, and direction {direction}. Return the graph-observation vocabulary partition. Include affected one-gene membership cards: {membership_cards}.",
+      "State what the supplied observations establish about ordered endpoints {genes}. Use multiplex {multiplex_id}, layer {layer_id}, direction {direction}, and the declared claim vocabulary. Include affected one-gene membership cards: {membership_cards}."
+    ],
+    "claim_support": [
+      "For supplied graph evidence about endpoint positions {genes}, produce its scoped claim card. Multiplex {multiplex_id}; layer {layer_id}; direction {direction}. Assess support for canonical claim {claim} in the card. Include affected one-gene membership cards: {membership_cards}.",
+      "List the claims supported and unsupported by supplied observations for endpoints {genes} in {multiplex_id}, layer {layer_id}, under direction {direction}. Assess support for canonical claim {claim} in the card. Include affected one-gene membership cards: {membership_cards}.",
+      "Assess supplied evidence for endpoint positions {genes} using multiplex {multiplex_id}, layer {layer_id}, and direction {direction}. Return the graph-observation vocabulary partition. Assess support for canonical claim {claim} in the card. Include affected one-gene membership cards: {membership_cards}.",
+      "State what the supplied observations establish about ordered endpoints {genes}. Use multiplex {multiplex_id}, layer {layer_id}, direction {direction}, and the declared claim vocabulary. Assess support for canonical claim {claim} in the card. Include affected one-gene membership cards: {membership_cards}."
+    ],
+    "truth": [
+      "For supplied graph evidence about endpoint positions {genes}, produce its scoped claim card. Multiplex {multiplex_id}; layer {layer_id}; direction {direction}. Judge this exact statement: {statement}. Its canonical claim category is {claim}, and its truth scope is {truth_scope}. Include affected one-gene membership cards: {membership_cards}.",
+      "List the claims supported and unsupported by supplied observations for endpoints {genes} in {multiplex_id}, layer {layer_id}, under direction {direction}. Judge this exact statement: {statement}. Its canonical claim category is {claim}, and its truth scope is {truth_scope}. Include affected one-gene membership cards: {membership_cards}.",
+      "Assess supplied evidence for endpoint positions {genes} using multiplex {multiplex_id}, layer {layer_id}, and direction {direction}. Return the graph-observation vocabulary partition. Judge this exact statement: {statement}. Its canonical claim category is {claim}, and its truth scope is {truth_scope}. Include affected one-gene membership cards: {membership_cards}.",
+      "State what the supplied observations establish about ordered endpoints {genes}. Use multiplex {multiplex_id}, layer {layer_id}, direction {direction}, and the declared claim vocabulary. Judge this exact statement: {statement}. Its canonical claim category is {claim}, and its truth scope is {truth_scope}. Include affected one-gene membership cards: {membership_cards}."
+    ]
+  },
+  "validation": {
+    "path": [
+      "Establish least-link reachability for terminal positions {genes}. Graph reference {multiplex_id}; relation {layer_id}; traversal interpretation {direction}. Give the tie-ordered route, link distance, and absent-endpoint categories.",
+      "At relation {layer_id} of graph reference {multiplex_id}, derive a least-length route between terminal positions {genes}. Traversal interpretation {direction}; retain its canonical sequence, distance by links, and exclusion categories.",
+      "Resolve the least-link route query concerning terminal positions {genes} under traversal interpretation {direction}. Graph reference {multiplex_id}, relation {layer_id}. Supply a canonical tied-route winner and classified terminal absences.",
+      "Report least-length reachability concerning terminal positions {genes} within relation {layer_id}. Use graph reference {multiplex_id} with traversal interpretation {direction}; preserve the tie-ordered sequence and classified absences.",
+      "Resolve this stated inquiry. Establish least-link reachability for terminal positions {genes}. Graph reference {multiplex_id}; relation {layer_id}; traversal interpretation {direction}. Give the tie-ordered route, link distance, and absent-endpoint categories.",
+      "Resolve this stated inquiry. At relation {layer_id} of graph reference {multiplex_id}, derive a least-length route between terminal positions {genes}. Traversal interpretation {direction}; retain its canonical sequence, distance by links, and exclusion categories.",
+      "Resolve this stated inquiry. Resolve the least-link route query concerning terminal positions {genes} under traversal interpretation {direction}. Graph reference {multiplex_id}, relation {layer_id}. Supply a canonical tied-route winner and classified terminal absences.",
+      "Resolve this stated inquiry. Report least-length reachability concerning terminal positions {genes} within relation {layer_id}. Use graph reference {multiplex_id} with traversal interpretation {direction}; preserve the tie-ordered sequence and classified absences."
+    ],
+    "path_claims": [
+      "Establish least-link reachability for terminal positions {genes}. Graph reference {multiplex_id}; relation {layer_id}; traversal interpretation {direction}. Give the tie-ordered route, link distance, and absent-endpoint categories. Add a card of permitted assertions under the declared vocabulary. Endpoint-specific membership cards are requested: {membership_cards}.",
+      "At relation {layer_id} of graph reference {multiplex_id}, derive a least-length route between terminal positions {genes}. Traversal interpretation {direction}; retain its canonical sequence, distance by links, and exclusion categories. Add a card of permitted assertions under the declared vocabulary. Endpoint-specific membership cards are requested: {membership_cards}.",
+      "Resolve the least-link route query concerning terminal positions {genes} under traversal interpretation {direction}. Graph reference {multiplex_id}, relation {layer_id}. Supply a canonical tied-route winner and classified terminal absences. Add a card of permitted assertions under the declared vocabulary. Endpoint-specific membership cards are requested: {membership_cards}.",
+      "Report least-length reachability concerning terminal positions {genes} within relation {layer_id}. Use graph reference {multiplex_id} with traversal interpretation {direction}; preserve the tie-ordered sequence and classified absences. Add a card of permitted assertions under the declared vocabulary. Endpoint-specific membership cards are requested: {membership_cards}."
+    ],
+    "path_support": [
+      "Establish least-link reachability for terminal positions {genes}. Graph reference {multiplex_id}; relation {layer_id}; traversal interpretation {direction}. Give the tie-ordered route, link distance, and absent-endpoint categories. Decide whether the acquired evidence permits assertion {claim}. Endpoint-specific membership cards are requested: {membership_cards}.",
+      "At relation {layer_id} of graph reference {multiplex_id}, derive a least-length route between terminal positions {genes}. Traversal interpretation {direction}; retain its canonical sequence, distance by links, and exclusion categories. Decide whether the acquired evidence permits assertion {claim}. Endpoint-specific membership cards are requested: {membership_cards}.",
+      "Resolve the least-link route query concerning terminal positions {genes} under traversal interpretation {direction}. Graph reference {multiplex_id}, relation {layer_id}. Supply a canonical tied-route winner and classified terminal absences. Decide whether the acquired evidence permits assertion {claim}. Endpoint-specific membership cards are requested: {membership_cards}.",
+      "Report least-length reachability concerning terminal positions {genes} within relation {layer_id}. Use graph reference {multiplex_id} with traversal interpretation {direction}; preserve the tie-ordered sequence and classified absences. Decide whether the acquired evidence permits assertion {claim}. Endpoint-specific membership cards are requested: {membership_cards}."
+    ],
+    "path_truth": [
+      "Establish least-link reachability for terminal positions {genes}. Graph reference {multiplex_id}; relation {layer_id}; traversal interpretation {direction}. Give the tie-ordered route, link distance, and absent-endpoint categories. Evaluate proposition {statement}, with declared quantification {truth_scope} and assertion category {claim}. Endpoint-specific membership cards are requested: {membership_cards}.",
+      "At relation {layer_id} of graph reference {multiplex_id}, derive a least-length route between terminal positions {genes}. Traversal interpretation {direction}; retain its canonical sequence, distance by links, and exclusion categories. Evaluate proposition {statement}, with declared quantification {truth_scope} and assertion category {claim}. Endpoint-specific membership cards are requested: {membership_cards}.",
+      "Resolve the least-link route query concerning terminal positions {genes} under traversal interpretation {direction}. Graph reference {multiplex_id}, relation {layer_id}. Supply a canonical tied-route winner and classified terminal absences. Evaluate proposition {statement}, with declared quantification {truth_scope} and assertion category {claim}. Endpoint-specific membership cards are requested: {membership_cards}.",
+      "Report least-length reachability concerning terminal positions {genes} within relation {layer_id}. Use graph reference {multiplex_id} with traversal interpretation {direction}; preserve the tie-ordered sequence and classified absences. Evaluate proposition {statement}, with declared quantification {truth_scope} and assertion category {claim}. Endpoint-specific membership cards are requested: {membership_cards}."
+    ],
+    "claim_card": [
+      "Establish the permitted assertions from supplied evidence concerning terminal positions {genes}. Graph reference {multiplex_id}; relation {layer_id}; traversal interpretation {direction}. Endpoint-specific membership cards are requested: {membership_cards}.",
+      "At relation {layer_id}, classify assertion permissions for terminal positions {genes} from the available observations. Graph reference {multiplex_id}; traversal interpretation {direction}. Endpoint-specific membership cards are requested: {membership_cards}.",
+      "Derive an assertion card from the provided evidence concerning terminal positions {genes}, under traversal interpretation {direction}. Graph reference {multiplex_id}; relation {layer_id}. Endpoint-specific membership cards are requested: {membership_cards}.",
+      "Report the vocabulary partition justified by provided observations concerning terminal positions {genes}. Use graph reference {multiplex_id}, relation {layer_id}, and traversal interpretation {direction}. Endpoint-specific membership cards are requested: {membership_cards}."
+    ],
+    "claim_support": [
+      "Establish the permitted assertions from supplied evidence concerning terminal positions {genes}. Graph reference {multiplex_id}; relation {layer_id}; traversal interpretation {direction}. Decide whether the acquired evidence permits assertion {claim}. Endpoint-specific membership cards are requested: {membership_cards}.",
+      "At relation {layer_id}, classify assertion permissions for terminal positions {genes} from the available observations. Graph reference {multiplex_id}; traversal interpretation {direction}. Decide whether the acquired evidence permits assertion {claim}. Endpoint-specific membership cards are requested: {membership_cards}.",
+      "Derive an assertion card from the provided evidence concerning terminal positions {genes}, under traversal interpretation {direction}. Graph reference {multiplex_id}; relation {layer_id}. Decide whether the acquired evidence permits assertion {claim}. Endpoint-specific membership cards are requested: {membership_cards}.",
+      "Report the vocabulary partition justified by provided observations concerning terminal positions {genes}. Use graph reference {multiplex_id}, relation {layer_id}, and traversal interpretation {direction}. Decide whether the acquired evidence permits assertion {claim}. Endpoint-specific membership cards are requested: {membership_cards}."
+    ],
+    "truth": [
+      "Establish the permitted assertions from supplied evidence concerning terminal positions {genes}. Graph reference {multiplex_id}; relation {layer_id}; traversal interpretation {direction}. Evaluate proposition {statement}, with declared quantification {truth_scope} and assertion category {claim}. Endpoint-specific membership cards are requested: {membership_cards}.",
+      "At relation {layer_id}, classify assertion permissions for terminal positions {genes} from the available observations. Graph reference {multiplex_id}; traversal interpretation {direction}. Evaluate proposition {statement}, with declared quantification {truth_scope} and assertion category {claim}. Endpoint-specific membership cards are requested: {membership_cards}.",
+      "Derive an assertion card from the provided evidence concerning terminal positions {genes}, under traversal interpretation {direction}. Graph reference {multiplex_id}; relation {layer_id}. Evaluate proposition {statement}, with declared quantification {truth_scope} and assertion category {claim}. Endpoint-specific membership cards are requested: {membership_cards}.",
+      "Report the vocabulary partition justified by provided observations concerning terminal positions {genes}. Use graph reference {multiplex_id}, relation {layer_id}, and traversal interpretation {direction}. Evaluate proposition {statement}, with declared quantification {truth_scope} and assertion category {claim}. Endpoint-specific membership cards are requested: {membership_cards}."
+    ]
+  },
+  "test": {
+    "path": [
+      "Compute the fewest-hop path concerning ordered pair {genes} along layer identifier {layer_id} of network identifier {multiplex_id}. Orientation {direction}. Keep the lexicographic winning sequence and classify excluded endpoints.",
+      "For network identifier {multiplex_id}, solve a fewest-hop path query concerning ordered pair {genes}. Layer identifier {layer_id}; orientation {direction}. Tabulate the winning node sequence, hop total, and endpoint omissions.",
+      "Evaluate shortest reachability concerning ordered pair {genes}, with orientation {direction}, on network identifier {multiplex_id} along layer identifier {layer_id}. Preserve the lexicographic winner and account for absent endpoints.",
+      "Produce the fewest-hop route for ordered pair {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; orientation {direction}. Present its lexicographic winning witness, exact hop total, and excluded endpoint categories.",
+      "Respond to this exact prompt. Compute the fewest-hop path concerning ordered pair {genes} along layer identifier {layer_id} of network identifier {multiplex_id}. Orientation {direction}. Keep the lexicographic winning sequence and classify excluded endpoints.",
+      "Respond to this exact prompt. For network identifier {multiplex_id}, solve a fewest-hop path query concerning ordered pair {genes}. Layer identifier {layer_id}; orientation {direction}. Tabulate the winning node sequence, hop total, and endpoint omissions.",
+      "Respond to this exact prompt. Evaluate shortest reachability concerning ordered pair {genes}, with orientation {direction}, on network identifier {multiplex_id} along layer identifier {layer_id}. Preserve the lexicographic winner and account for absent endpoints.",
+      "Respond to this exact prompt. Produce the fewest-hop route for ordered pair {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; orientation {direction}. Present its lexicographic winning witness, exact hop total, and excluded endpoint categories."
+    ],
+    "path_claims": [
+      "Compute the fewest-hop path concerning ordered pair {genes} along layer identifier {layer_id} of network identifier {multiplex_id}. Orientation {direction}. Keep the lexicographic winning sequence and classify excluded endpoints. Attach a graph claim assessment; endpoint membership cards requested: {membership_cards}.",
+      "For network identifier {multiplex_id}, solve a fewest-hop path query concerning ordered pair {genes}. Layer identifier {layer_id}; orientation {direction}. Tabulate the winning node sequence, hop total, and endpoint omissions. Attach a graph claim assessment; endpoint membership cards requested: {membership_cards}.",
+      "Evaluate shortest reachability concerning ordered pair {genes}, with orientation {direction}, on network identifier {multiplex_id} along layer identifier {layer_id}. Preserve the lexicographic winner and account for absent endpoints. Attach a graph claim assessment; endpoint membership cards requested: {membership_cards}.",
+      "Produce the fewest-hop route for ordered pair {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; orientation {direction}. Present its lexicographic winning witness, exact hop total, and excluded endpoint categories. Attach a graph claim assessment; endpoint membership cards requested: {membership_cards}."
+    ],
+    "path_support": [
+      "Compute the fewest-hop path concerning ordered pair {genes} along layer identifier {layer_id} of network identifier {multiplex_id}. Orientation {direction}. Keep the lexicographic winning sequence and classify excluded endpoints. Attach the support verdict for claim category {claim}; endpoint membership cards requested: {membership_cards}.",
+      "For network identifier {multiplex_id}, solve a fewest-hop path query concerning ordered pair {genes}. Layer identifier {layer_id}; orientation {direction}. Tabulate the winning node sequence, hop total, and endpoint omissions. Attach the support verdict for claim category {claim}; endpoint membership cards requested: {membership_cards}.",
+      "Evaluate shortest reachability concerning ordered pair {genes}, with orientation {direction}, on network identifier {multiplex_id} along layer identifier {layer_id}. Preserve the lexicographic winner and account for absent endpoints. Attach the support verdict for claim category {claim}; endpoint membership cards requested: {membership_cards}.",
+      "Produce the fewest-hop route for ordered pair {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; orientation {direction}. Present its lexicographic winning witness, exact hop total, and excluded endpoint categories. Attach the support verdict for claim category {claim}; endpoint membership cards requested: {membership_cards}."
+    ],
+    "path_truth": [
+      "Compute the fewest-hop path concerning ordered pair {genes} along layer identifier {layer_id} of network identifier {multiplex_id}. Orientation {direction}. Keep the lexicographic winning sequence and classify excluded endpoints. Determine the truth of literal statement {statement}; proposition scope {truth_scope}, claim category {claim}. Endpoint membership cards requested: {membership_cards}.",
+      "For network identifier {multiplex_id}, solve a fewest-hop path query concerning ordered pair {genes}. Layer identifier {layer_id}; orientation {direction}. Tabulate the winning node sequence, hop total, and endpoint omissions. Determine the truth of literal statement {statement}; proposition scope {truth_scope}, claim category {claim}. Endpoint membership cards requested: {membership_cards}.",
+      "Evaluate shortest reachability concerning ordered pair {genes}, with orientation {direction}, on network identifier {multiplex_id} along layer identifier {layer_id}. Preserve the lexicographic winner and account for absent endpoints. Determine the truth of literal statement {statement}; proposition scope {truth_scope}, claim category {claim}. Endpoint membership cards requested: {membership_cards}.",
+      "Produce the fewest-hop route for ordered pair {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; orientation {direction}. Present its lexicographic winning witness, exact hop total, and excluded endpoint categories. Determine the truth of literal statement {statement}; proposition scope {truth_scope}, claim category {claim}. Endpoint membership cards requested: {membership_cards}."
+    ],
+    "claim_card": [
+      "Compute a graph claim assessment from supplied observations concerning ordered pair {genes}. Network identifier {multiplex_id}; layer identifier {layer_id}; orientation {direction}. Endpoint membership cards requested: {membership_cards}.",
+      "For network identifier {multiplex_id}, evaluate which canonical claims the available observations justify about ordered pair {genes}. Layer identifier {layer_id}; orientation {direction}. Endpoint membership cards requested: {membership_cards}.",
+      "Produce supported and unsupported claim lists for ordered pair {genes}, with orientation {direction}. Use supplied evidence from network identifier {multiplex_id} and layer identifier {layer_id}. Endpoint membership cards requested: {membership_cards}.",
+      "Tabulate the permitted graph claims concerning ordered pair {genes} from supplied evidence. Network identifier {multiplex_id}; layer identifier {layer_id}; orientation {direction}. Endpoint membership cards requested: {membership_cards}."
+    ],
+    "claim_support": [
+      "Compute a graph claim assessment from supplied observations concerning ordered pair {genes}. Network identifier {multiplex_id}; layer identifier {layer_id}; orientation {direction}. Attach the support verdict for claim category {claim}; endpoint membership cards requested: {membership_cards}.",
+      "For network identifier {multiplex_id}, evaluate which canonical claims the available observations justify about ordered pair {genes}. Layer identifier {layer_id}; orientation {direction}. Attach the support verdict for claim category {claim}; endpoint membership cards requested: {membership_cards}.",
+      "Produce supported and unsupported claim lists for ordered pair {genes}, with orientation {direction}. Use supplied evidence from network identifier {multiplex_id} and layer identifier {layer_id}. Attach the support verdict for claim category {claim}; endpoint membership cards requested: {membership_cards}.",
+      "Tabulate the permitted graph claims concerning ordered pair {genes} from supplied evidence. Network identifier {multiplex_id}; layer identifier {layer_id}; orientation {direction}. Attach the support verdict for claim category {claim}; endpoint membership cards requested: {membership_cards}."
+    ],
+    "truth": [
+      "Compute a graph claim assessment from supplied observations concerning ordered pair {genes}. Network identifier {multiplex_id}; layer identifier {layer_id}; orientation {direction}. Determine the truth of literal statement {statement}; proposition scope {truth_scope}, claim category {claim}. Endpoint membership cards requested: {membership_cards}.",
+      "For network identifier {multiplex_id}, evaluate which canonical claims the available observations justify about ordered pair {genes}. Layer identifier {layer_id}; orientation {direction}. Determine the truth of literal statement {statement}; proposition scope {truth_scope}, claim category {claim}. Endpoint membership cards requested: {membership_cards}.",
+      "Produce supported and unsupported claim lists for ordered pair {genes}, with orientation {direction}. Use supplied evidence from network identifier {multiplex_id} and layer identifier {layer_id}. Determine the truth of literal statement {statement}; proposition scope {truth_scope}, claim category {claim}. Endpoint membership cards requested: {membership_cards}.",
+      "Tabulate the permitted graph claims concerning ordered pair {genes} from supplied evidence. Network identifier {multiplex_id}; layer identifier {layer_id}; orientation {direction}. Determine the truth of literal statement {statement}; proposition scope {truth_scope}, claim category {claim}. Endpoint membership cards requested: {membership_cards}."
+    ]
+  },
+  "diagnostic_requests": {
+    "train": {
+      "unknown_layer": [
+        "Find the exact unweighted shortest path for endpoint positions {genes} in multiplex {multiplex_id}, layer {layer_id}, with direction {direction}. Retain the canonical witness, minimum hops, and endpoint exclusions.",
+        "Return minimum-hop reachability between endpoint positions {genes}, using multiplex {multiplex_id} and layer {layer_id}. Direction is {direction}; retain the lexicographically first shortest witness and checked exclusions.",
+        "Using {multiplex_id}, determine the shortest path for endpoints {genes} within layer {layer_id}, under direction {direction}. Give the exact minimum hop count, canonical route, and absent inputs.",
+        "For multiplex {multiplex_id} and layer {layer_id}, answer the exact shortest-path request for ordered endpoints {genes}. Use direction {direction}; keep the canonical witness and both membership exclusions."
+      ],
+      "unknown_multiplex": [
+        "Find the exact unweighted shortest path for endpoint positions {genes} in multiplex {multiplex_id}, layer {layer_id}, with direction {direction}. Retain the canonical witness, minimum hops, and endpoint exclusions.",
+        "Return minimum-hop reachability between endpoint positions {genes}, using multiplex {multiplex_id} and layer {layer_id}. Direction is {direction}; retain the lexicographically first shortest witness and checked exclusions.",
+        "Using {multiplex_id}, determine the shortest path for endpoints {genes} within layer {layer_id}, under direction {direction}. Give the exact minimum hop count, canonical route, and absent inputs.",
+        "For multiplex {multiplex_id} and layer {layer_id}, answer the exact shortest-path request for ordered endpoints {genes}. Use direction {direction}; keep the canonical witness and both membership exclusions."
+      ],
+      "missing_genes": [
+        "Find the exact unweighted shortest path for endpoint positions {genes} in multiplex {multiplex_id}, layer {layer_id}, with direction {direction}. Retain the canonical witness, minimum hops, and endpoint exclusions.",
+        "Return minimum-hop reachability between endpoint positions {genes}, using multiplex {multiplex_id} and layer {layer_id}. Direction is {direction}; retain the lexicographically first shortest witness and checked exclusions.",
+        "Using {multiplex_id}, determine the shortest path for endpoints {genes} within layer {layer_id}, under direction {direction}. Give the exact minimum hop count, canonical route, and absent inputs.",
+        "For multiplex {multiplex_id} and layer {layer_id}, answer the exact shortest-path request for ordered endpoints {genes}. Use direction {direction}; keep the canonical witness and both membership exclusions."
+      ],
+      "missing_scope": [
+        "Find the exact unweighted shortest path for endpoint positions {genes} in multiplex {multiplex_id}, layer {layer_id}, with direction {direction}. Retain the canonical witness, minimum hops, and endpoint exclusions.",
+        "Return minimum-hop reachability between endpoint positions {genes}, using multiplex {multiplex_id} and layer {layer_id}. Direction is {direction}; retain the lexicographically first shortest witness and checked exclusions.",
+        "Using {multiplex_id}, determine the shortest path for endpoints {genes} within layer {layer_id}, under direction {direction}. Give the exact minimum hop count, canonical route, and absent inputs.",
+        "For multiplex {multiplex_id} and layer {layer_id}, answer the exact shortest-path request for ordered endpoints {genes}. Use direction {direction}; keep the canonical witness and both membership exclusions."
+      ],
+      "invalid_pair": [
+        "Find the exact unweighted shortest path for endpoint positions {genes} in multiplex {multiplex_id}, layer {layer_id}, with direction {direction}. Retain the canonical witness, minimum hops, and endpoint exclusions.",
+        "Return minimum-hop reachability between endpoint positions {genes}, using multiplex {multiplex_id} and layer {layer_id}. Direction is {direction}; retain the lexicographically first shortest witness and checked exclusions.",
+        "Using {multiplex_id}, determine the shortest path for endpoints {genes} within layer {layer_id}, under direction {direction}. Give the exact minimum hop count, canonical route, and absent inputs.",
+        "For multiplex {multiplex_id} and layer {layer_id}, answer the exact shortest-path request for ordered endpoints {genes}. Use direction {direction}; keep the canonical witness and both membership exclusions."
+      ],
+      "missing_direction": [
+        "Find the exact unweighted shortest path for endpoint positions {genes} in multiplex {multiplex_id}, layer {layer_id}, with direction {direction}. Retain the canonical witness, minimum hops, and endpoint exclusions.",
+        "Return minimum-hop reachability between endpoint positions {genes}, using multiplex {multiplex_id} and layer {layer_id}. Direction is {direction}; retain the lexicographically first shortest witness and checked exclusions.",
+        "Using {multiplex_id}, determine the shortest path for endpoints {genes} within layer {layer_id}, under direction {direction}. Give the exact minimum hop count, canonical route, and absent inputs.",
+        "For multiplex {multiplex_id} and layer {layer_id}, answer the exact shortest-path request for ordered endpoints {genes}. Use direction {direction}; keep the canonical witness and both membership exclusions."
+      ],
+      "invalid_direction": [
+        "Find the exact unweighted shortest path for endpoint positions {genes} in multiplex {multiplex_id}, layer {layer_id}, with direction {direction}. Retain the canonical witness, minimum hops, and endpoint exclusions.",
+        "Return minimum-hop reachability between endpoint positions {genes}, using multiplex {multiplex_id} and layer {layer_id}. Direction is {direction}; retain the lexicographically first shortest witness and checked exclusions.",
+        "Using {multiplex_id}, determine the shortest path for endpoints {genes} within layer {layer_id}, under direction {direction}. Give the exact minimum hop count, canonical route, and absent inputs.",
+        "For multiplex {multiplex_id} and layer {layer_id}, answer the exact shortest-path request for ordered endpoints {genes}. Use direction {direction}; keep the canonical witness and both membership exclusions."
+      ],
+      "unavailable_direction": [
+        "Find the exact unweighted shortest path for endpoint positions {genes} in multiplex {multiplex_id}, layer {layer_id}, with direction {direction}. Retain the canonical witness, minimum hops, and endpoint exclusions.",
+        "Return minimum-hop reachability between endpoint positions {genes}, using multiplex {multiplex_id} and layer {layer_id}. Direction is {direction}; retain the lexicographically first shortest witness and checked exclusions.",
+        "Using {multiplex_id}, determine the shortest path for endpoints {genes} within layer {layer_id}, under direction {direction}. Give the exact minimum hop count, canonical route, and absent inputs.",
+        "For multiplex {multiplex_id} and layer {layer_id}, answer the exact shortest-path request for ordered endpoints {genes}. Use direction {direction}; keep the canonical witness and both membership exclusions."
+      ],
+      "unresolved_identity": [
+        "Find the exact unweighted shortest path for endpoint positions {genes} in multiplex {multiplex_id}, layer {layer_id}, with direction {direction}. Retain the canonical witness, minimum hops, and endpoint exclusions.",
+        "Return minimum-hop reachability between endpoint positions {genes}, using multiplex {multiplex_id} and layer {layer_id}. Direction is {direction}; retain the lexicographically first shortest witness and checked exclusions.",
+        "Using {multiplex_id}, determine the shortest path for endpoints {genes} within layer {layer_id}, under direction {direction}. Give the exact minimum hop count, canonical route, and absent inputs.",
+        "For multiplex {multiplex_id} and layer {layer_id}, answer the exact shortest-path request for ordered endpoints {genes}. Use direction {direction}; keep the canonical witness and both membership exclusions."
+      ]
+    },
+    "validation": {
+      "unknown_layer": [
+        "Establish least-link reachability for terminal positions {genes}. Graph reference {multiplex_id}; relation {layer_id}; traversal interpretation {direction}. Give the tie-ordered route, link distance, and absent-endpoint categories.",
+        "At relation {layer_id} of graph reference {multiplex_id}, derive a least-length route between terminal positions {genes}. Traversal interpretation {direction}; retain its canonical sequence, distance by links, and exclusion categories.",
+        "Resolve the least-link route query concerning terminal positions {genes} under traversal interpretation {direction}. Graph reference {multiplex_id}, relation {layer_id}. Supply a canonical tied-route winner and classified terminal absences.",
+        "Report least-length reachability concerning terminal positions {genes} within relation {layer_id}. Use graph reference {multiplex_id} with traversal interpretation {direction}; preserve the tie-ordered sequence and classified absences."
+      ],
+      "unknown_multiplex": [
+        "Establish least-link reachability for terminal positions {genes}. Graph reference {multiplex_id}; relation {layer_id}; traversal interpretation {direction}. Give the tie-ordered route, link distance, and absent-endpoint categories.",
+        "At relation {layer_id} of graph reference {multiplex_id}, derive a least-length route between terminal positions {genes}. Traversal interpretation {direction}; retain its canonical sequence, distance by links, and exclusion categories.",
+        "Resolve the least-link route query concerning terminal positions {genes} under traversal interpretation {direction}. Graph reference {multiplex_id}, relation {layer_id}. Supply a canonical tied-route winner and classified terminal absences.",
+        "Report least-length reachability concerning terminal positions {genes} within relation {layer_id}. Use graph reference {multiplex_id} with traversal interpretation {direction}; preserve the tie-ordered sequence and classified absences."
+      ],
+      "missing_genes": [
+        "Establish least-link reachability for terminal positions {genes}. Graph reference {multiplex_id}; relation {layer_id}; traversal interpretation {direction}. Give the tie-ordered route, link distance, and absent-endpoint categories.",
+        "At relation {layer_id} of graph reference {multiplex_id}, derive a least-length route between terminal positions {genes}. Traversal interpretation {direction}; retain its canonical sequence, distance by links, and exclusion categories.",
+        "Resolve the least-link route query concerning terminal positions {genes} under traversal interpretation {direction}. Graph reference {multiplex_id}, relation {layer_id}. Supply a canonical tied-route winner and classified terminal absences.",
+        "Report least-length reachability concerning terminal positions {genes} within relation {layer_id}. Use graph reference {multiplex_id} with traversal interpretation {direction}; preserve the tie-ordered sequence and classified absences."
+      ],
+      "missing_scope": [
+        "Establish least-link reachability for terminal positions {genes}. Graph reference {multiplex_id}; relation {layer_id}; traversal interpretation {direction}. Give the tie-ordered route, link distance, and absent-endpoint categories.",
+        "At relation {layer_id} of graph reference {multiplex_id}, derive a least-length route between terminal positions {genes}. Traversal interpretation {direction}; retain its canonical sequence, distance by links, and exclusion categories.",
+        "Resolve the least-link route query concerning terminal positions {genes} under traversal interpretation {direction}. Graph reference {multiplex_id}, relation {layer_id}. Supply a canonical tied-route winner and classified terminal absences.",
+        "Report least-length reachability concerning terminal positions {genes} within relation {layer_id}. Use graph reference {multiplex_id} with traversal interpretation {direction}; preserve the tie-ordered sequence and classified absences."
+      ],
+      "invalid_pair": [
+        "Establish least-link reachability for terminal positions {genes}. Graph reference {multiplex_id}; relation {layer_id}; traversal interpretation {direction}. Give the tie-ordered route, link distance, and absent-endpoint categories.",
+        "At relation {layer_id} of graph reference {multiplex_id}, derive a least-length route between terminal positions {genes}. Traversal interpretation {direction}; retain its canonical sequence, distance by links, and exclusion categories.",
+        "Resolve the least-link route query concerning terminal positions {genes} under traversal interpretation {direction}. Graph reference {multiplex_id}, relation {layer_id}. Supply a canonical tied-route winner and classified terminal absences.",
+        "Report least-length reachability concerning terminal positions {genes} within relation {layer_id}. Use graph reference {multiplex_id} with traversal interpretation {direction}; preserve the tie-ordered sequence and classified absences."
+      ],
+      "missing_direction": [
+        "Establish least-link reachability for terminal positions {genes}. Graph reference {multiplex_id}; relation {layer_id}; traversal interpretation {direction}. Give the tie-ordered route, link distance, and absent-endpoint categories.",
+        "At relation {layer_id} of graph reference {multiplex_id}, derive a least-length route between terminal positions {genes}. Traversal interpretation {direction}; retain its canonical sequence, distance by links, and exclusion categories.",
+        "Resolve the least-link route query concerning terminal positions {genes} under traversal interpretation {direction}. Graph reference {multiplex_id}, relation {layer_id}. Supply a canonical tied-route winner and classified terminal absences.",
+        "Report least-length reachability concerning terminal positions {genes} within relation {layer_id}. Use graph reference {multiplex_id} with traversal interpretation {direction}; preserve the tie-ordered sequence and classified absences."
+      ],
+      "invalid_direction": [
+        "Establish least-link reachability for terminal positions {genes}. Graph reference {multiplex_id}; relation {layer_id}; traversal interpretation {direction}. Give the tie-ordered route, link distance, and absent-endpoint categories.",
+        "At relation {layer_id} of graph reference {multiplex_id}, derive a least-length route between terminal positions {genes}. Traversal interpretation {direction}; retain its canonical sequence, distance by links, and exclusion categories.",
+        "Resolve the least-link route query concerning terminal positions {genes} under traversal interpretation {direction}. Graph reference {multiplex_id}, relation {layer_id}. Supply a canonical tied-route winner and classified terminal absences.",
+        "Report least-length reachability concerning terminal positions {genes} within relation {layer_id}. Use graph reference {multiplex_id} with traversal interpretation {direction}; preserve the tie-ordered sequence and classified absences."
+      ],
+      "unavailable_direction": [
+        "Establish least-link reachability for terminal positions {genes}. Graph reference {multiplex_id}; relation {layer_id}; traversal interpretation {direction}. Give the tie-ordered route, link distance, and absent-endpoint categories.",
+        "At relation {layer_id} of graph reference {multiplex_id}, derive a least-length route between terminal positions {genes}. Traversal interpretation {direction}; retain its canonical sequence, distance by links, and exclusion categories.",
+        "Resolve the least-link route query concerning terminal positions {genes} under traversal interpretation {direction}. Graph reference {multiplex_id}, relation {layer_id}. Supply a canonical tied-route winner and classified terminal absences.",
+        "Report least-length reachability concerning terminal positions {genes} within relation {layer_id}. Use graph reference {multiplex_id} with traversal interpretation {direction}; preserve the tie-ordered sequence and classified absences."
+      ],
+      "unresolved_identity": [
+        "Establish least-link reachability for terminal positions {genes}. Graph reference {multiplex_id}; relation {layer_id}; traversal interpretation {direction}. Give the tie-ordered route, link distance, and absent-endpoint categories.",
+        "At relation {layer_id} of graph reference {multiplex_id}, derive a least-length route between terminal positions {genes}. Traversal interpretation {direction}; retain its canonical sequence, distance by links, and exclusion categories.",
+        "Resolve the least-link route query concerning terminal positions {genes} under traversal interpretation {direction}. Graph reference {multiplex_id}, relation {layer_id}. Supply a canonical tied-route winner and classified terminal absences.",
+        "Report least-length reachability concerning terminal positions {genes} within relation {layer_id}. Use graph reference {multiplex_id} with traversal interpretation {direction}; preserve the tie-ordered sequence and classified absences."
+      ]
+    },
+    "test": {
+      "unknown_layer": [
+        "Compute the fewest-hop path concerning ordered pair {genes} along layer identifier {layer_id} of network identifier {multiplex_id}. Orientation {direction}. Keep the lexicographic winning sequence and classify excluded endpoints.",
+        "For network identifier {multiplex_id}, solve a fewest-hop path query concerning ordered pair {genes}. Layer identifier {layer_id}; orientation {direction}. Tabulate the winning node sequence, hop total, and endpoint omissions.",
+        "Evaluate shortest reachability concerning ordered pair {genes}, with orientation {direction}, on network identifier {multiplex_id} along layer identifier {layer_id}. Preserve the lexicographic winner and account for absent endpoints.",
+        "Produce the fewest-hop route for ordered pair {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; orientation {direction}. Present its lexicographic winning witness, exact hop total, and excluded endpoint categories."
+      ],
+      "unknown_multiplex": [
+        "Compute the fewest-hop path concerning ordered pair {genes} along layer identifier {layer_id} of network identifier {multiplex_id}. Orientation {direction}. Keep the lexicographic winning sequence and classify excluded endpoints.",
+        "For network identifier {multiplex_id}, solve a fewest-hop path query concerning ordered pair {genes}. Layer identifier {layer_id}; orientation {direction}. Tabulate the winning node sequence, hop total, and endpoint omissions.",
+        "Evaluate shortest reachability concerning ordered pair {genes}, with orientation {direction}, on network identifier {multiplex_id} along layer identifier {layer_id}. Preserve the lexicographic winner and account for absent endpoints.",
+        "Produce the fewest-hop route for ordered pair {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; orientation {direction}. Present its lexicographic winning witness, exact hop total, and excluded endpoint categories."
+      ],
+      "missing_genes": [
+        "Compute the fewest-hop path concerning ordered pair {genes} along layer identifier {layer_id} of network identifier {multiplex_id}. Orientation {direction}. Keep the lexicographic winning sequence and classify excluded endpoints.",
+        "For network identifier {multiplex_id}, solve a fewest-hop path query concerning ordered pair {genes}. Layer identifier {layer_id}; orientation {direction}. Tabulate the winning node sequence, hop total, and endpoint omissions.",
+        "Evaluate shortest reachability concerning ordered pair {genes}, with orientation {direction}, on network identifier {multiplex_id} along layer identifier {layer_id}. Preserve the lexicographic winner and account for absent endpoints.",
+        "Produce the fewest-hop route for ordered pair {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; orientation {direction}. Present its lexicographic winning witness, exact hop total, and excluded endpoint categories."
+      ],
+      "missing_scope": [
+        "Compute the fewest-hop path concerning ordered pair {genes} along layer identifier {layer_id} of network identifier {multiplex_id}. Orientation {direction}. Keep the lexicographic winning sequence and classify excluded endpoints.",
+        "For network identifier {multiplex_id}, solve a fewest-hop path query concerning ordered pair {genes}. Layer identifier {layer_id}; orientation {direction}. Tabulate the winning node sequence, hop total, and endpoint omissions.",
+        "Evaluate shortest reachability concerning ordered pair {genes}, with orientation {direction}, on network identifier {multiplex_id} along layer identifier {layer_id}. Preserve the lexicographic winner and account for absent endpoints.",
+        "Produce the fewest-hop route for ordered pair {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; orientation {direction}. Present its lexicographic winning witness, exact hop total, and excluded endpoint categories."
+      ],
+      "invalid_pair": [
+        "Compute the fewest-hop path concerning ordered pair {genes} along layer identifier {layer_id} of network identifier {multiplex_id}. Orientation {direction}. Keep the lexicographic winning sequence and classify excluded endpoints.",
+        "For network identifier {multiplex_id}, solve a fewest-hop path query concerning ordered pair {genes}. Layer identifier {layer_id}; orientation {direction}. Tabulate the winning node sequence, hop total, and endpoint omissions.",
+        "Evaluate shortest reachability concerning ordered pair {genes}, with orientation {direction}, on network identifier {multiplex_id} along layer identifier {layer_id}. Preserve the lexicographic winner and account for absent endpoints.",
+        "Produce the fewest-hop route for ordered pair {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; orientation {direction}. Present its lexicographic winning witness, exact hop total, and excluded endpoint categories."
+      ],
+      "missing_direction": [
+        "Compute the fewest-hop path concerning ordered pair {genes} along layer identifier {layer_id} of network identifier {multiplex_id}. Orientation {direction}. Keep the lexicographic winning sequence and classify excluded endpoints.",
+        "For network identifier {multiplex_id}, solve a fewest-hop path query concerning ordered pair {genes}. Layer identifier {layer_id}; orientation {direction}. Tabulate the winning node sequence, hop total, and endpoint omissions.",
+        "Evaluate shortest reachability concerning ordered pair {genes}, with orientation {direction}, on network identifier {multiplex_id} along layer identifier {layer_id}. Preserve the lexicographic winner and account for absent endpoints.",
+        "Produce the fewest-hop route for ordered pair {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; orientation {direction}. Present its lexicographic winning witness, exact hop total, and excluded endpoint categories."
+      ],
+      "invalid_direction": [
+        "Compute the fewest-hop path concerning ordered pair {genes} along layer identifier {layer_id} of network identifier {multiplex_id}. Orientation {direction}. Keep the lexicographic winning sequence and classify excluded endpoints.",
+        "For network identifier {multiplex_id}, solve a fewest-hop path query concerning ordered pair {genes}. Layer identifier {layer_id}; orientation {direction}. Tabulate the winning node sequence, hop total, and endpoint omissions.",
+        "Evaluate shortest reachability concerning ordered pair {genes}, with orientation {direction}, on network identifier {multiplex_id} along layer identifier {layer_id}. Preserve the lexicographic winner and account for absent endpoints.",
+        "Produce the fewest-hop route for ordered pair {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; orientation {direction}. Present its lexicographic winning witness, exact hop total, and excluded endpoint categories."
+      ],
+      "unavailable_direction": [
+        "Compute the fewest-hop path concerning ordered pair {genes} along layer identifier {layer_id} of network identifier {multiplex_id}. Orientation {direction}. Keep the lexicographic winning sequence and classify excluded endpoints.",
+        "For network identifier {multiplex_id}, solve a fewest-hop path query concerning ordered pair {genes}. Layer identifier {layer_id}; orientation {direction}. Tabulate the winning node sequence, hop total, and endpoint omissions.",
+        "Evaluate shortest reachability concerning ordered pair {genes}, with orientation {direction}, on network identifier {multiplex_id} along layer identifier {layer_id}. Preserve the lexicographic winner and account for absent endpoints.",
+        "Produce the fewest-hop route for ordered pair {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; orientation {direction}. Present its lexicographic winning witness, exact hop total, and excluded endpoint categories."
+      ],
+      "unresolved_identity": [
+        "Compute the fewest-hop path concerning ordered pair {genes} along layer identifier {layer_id} of network identifier {multiplex_id}. Orientation {direction}. Keep the lexicographic winning sequence and classify excluded endpoints.",
+        "For network identifier {multiplex_id}, solve a fewest-hop path query concerning ordered pair {genes}. Layer identifier {layer_id}; orientation {direction}. Tabulate the winning node sequence, hop total, and endpoint omissions.",
+        "Evaluate shortest reachability concerning ordered pair {genes}, with orientation {direction}, on network identifier {multiplex_id} along layer identifier {layer_id}. Preserve the lexicographic winner and account for absent endpoints.",
+        "Produce the fewest-hop route for ordered pair {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; orientation {direction}. Present its lexicographic winning witness, exact hop total, and excluded endpoint categories."
+      ]
+    }
+  }
+}

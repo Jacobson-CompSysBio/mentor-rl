@@ -1,0 +1,216 @@
+{
+  "schema_version": "mentor-rl-world-model-s2-9-requests-v1",
+  "description": "Frozen induced-subgraph requests. Bound JSON inputs preserve original spelling, order, duplicates, selection, and explicit membership requirements.",
+  "train": {
+    "complete": [
+      "Induce the native subgraph on {genes} in layer {layer_id} of {multiplex_id}. Selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+      "Return a subgraph among {genes} from {layer_id} inside {multiplex_id}. Use selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+      "For {multiplex_id}, induce a subgraph among {genes} restricted to {layer_id}. Selection is {mode}; limit is {top_k}; cursor is {cursor}; membership requirement is {require_all_in_layer}.",
+      "Which native graph is induced by {genes} in {multiplex_id}, layer {layer_id}? Apply selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}."
+    ],
+    "top_k": [
+      "Induce the native subgraph on {genes} in layer {layer_id} of {multiplex_id}. Selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+      "Return a subgraph among {genes} from {layer_id} inside {multiplex_id}. Use selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+      "For {multiplex_id}, induce a subgraph among {genes} restricted to {layer_id}. Selection is {mode}; limit is {top_k}; cursor is {cursor}; membership requirement is {require_all_in_layer}.",
+      "Which native graph is induced by {genes} in {multiplex_id}, layer {layer_id}? Apply selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}."
+    ]
+  },
+  "validation": {
+    "complete": [
+      "Recover the projected graph for inputs {genes} at {multiplex_id}, relation {layer_id}. Edge display {mode}; prefix length {top_k}; page token {cursor}; universal membership condition {require_all_in_layer}.",
+      "Establish the projected graph associated with inputs {genes} at relation {layer_id} within {multiplex_id}. Edge display: {mode}. Prefix length: {top_k}. Page token: {cursor}. Universal membership condition: {require_all_in_layer}.",
+      "At {multiplex_id}, recover a graph projection for inputs {genes} over relation {layer_id}. Respect edge display {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}.",
+      "Provide a graph projection for inputs {genes} over relation {layer_id} at {multiplex_id}. The edge display is {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}."
+    ],
+    "top_k": [
+      "Recover the projected graph for inputs {genes} at {multiplex_id}, relation {layer_id}. Edge display {mode}; prefix length {top_k}; page token {cursor}; universal membership condition {require_all_in_layer}.",
+      "Establish the projected graph associated with inputs {genes} at relation {layer_id} within {multiplex_id}. Edge display: {mode}. Prefix length: {top_k}. Page token: {cursor}. Universal membership condition: {require_all_in_layer}.",
+      "At {multiplex_id}, recover a graph projection for inputs {genes} over relation {layer_id}. Respect edge display {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}.",
+      "Provide a graph projection for inputs {genes} over relation {layer_id} at {multiplex_id}. The edge display is {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}."
+    ]
+  },
+  "test": {
+    "complete": [
+      "Construct an induced graph concerning {genes} under network {multiplex_id} and relation ID {layer_id}. Retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+      "Determine an induced graph concerning {genes} under relation ID {layer_id} of network {multiplex_id}. Retrieval form: {mode}; edge allowance: {top_k}; continuation key: {cursor}; mandatory inclusion: {require_all_in_layer}.",
+      "Under network {multiplex_id}, construct the graph induced concerning {genes} and relation ID {layer_id}. Follow retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+      "Supply the induced graph concerning {genes}, using network {multiplex_id} and relation ID {layer_id}. Its retrieval form is {mode}; edge allowance is {top_k}; continuation key is {cursor}; mandatory inclusion is {require_all_in_layer}."
+    ],
+    "top_k": [
+      "Construct an induced graph concerning {genes} under network {multiplex_id} and relation ID {layer_id}. Retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+      "Determine an induced graph concerning {genes} under relation ID {layer_id} of network {multiplex_id}. Retrieval form: {mode}; edge allowance: {top_k}; continuation key: {cursor}; mandatory inclusion: {require_all_in_layer}.",
+      "Under network {multiplex_id}, construct the graph induced concerning {genes} and relation ID {layer_id}. Follow retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+      "Supply the induced graph concerning {genes}, using network {multiplex_id} and relation ID {layer_id}. Its retrieval form is {mode}; edge allowance is {top_k}; continuation key is {cursor}; mandatory inclusion is {require_all_in_layer}."
+    ]
+  },
+  "diagnostic_requests": {
+    "train": {
+      "unknown_layer": [
+        "Induce the native subgraph on {genes} in layer {layer_id} of {multiplex_id}. Selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+        "Return a subgraph among {genes} from {layer_id} inside {multiplex_id}. Use selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+        "For {multiplex_id}, induce a subgraph among {genes} restricted to {layer_id}. Selection is {mode}; limit is {top_k}; cursor is {cursor}; membership requirement is {require_all_in_layer}.",
+        "Which native graph is induced by {genes} in {multiplex_id}, layer {layer_id}? Apply selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}."
+      ],
+      "unknown_multiplex": [
+        "Induce the native subgraph on {genes} in layer {layer_id} of {multiplex_id}. Selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+        "Return a subgraph among {genes} from {layer_id} inside {multiplex_id}. Use selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+        "For {multiplex_id}, induce a subgraph among {genes} restricted to {layer_id}. Selection is {mode}; limit is {top_k}; cursor is {cursor}; membership requirement is {require_all_in_layer}.",
+        "Which native graph is induced by {genes} in {multiplex_id}, layer {layer_id}? Apply selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}."
+      ],
+      "missing_genes": [
+        "Induce the native subgraph on {genes} in layer {layer_id} of {multiplex_id}. Selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+        "Return a subgraph among {genes} from {layer_id} inside {multiplex_id}. Use selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+        "For {multiplex_id}, induce a subgraph among {genes} restricted to {layer_id}. Selection is {mode}; limit is {top_k}; cursor is {cursor}; membership requirement is {require_all_in_layer}.",
+        "Which native graph is induced by {genes} in {multiplex_id}, layer {layer_id}? Apply selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}."
+      ],
+      "missing_scope": [
+        "Induce the native subgraph on {genes} in layer {layer_id} of {multiplex_id}. Selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+        "Return a subgraph among {genes} from {layer_id} inside {multiplex_id}. Use selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+        "For {multiplex_id}, induce a subgraph among {genes} restricted to {layer_id}. Selection is {mode}; limit is {top_k}; cursor is {cursor}; membership requirement is {require_all_in_layer}.",
+        "Which native graph is induced by {genes} in {multiplex_id}, layer {layer_id}? Apply selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}."
+      ],
+      "invalid_list": [
+        "Induce the native subgraph on {genes} in layer {layer_id} of {multiplex_id}. Selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+        "Return a subgraph among {genes} from {layer_id} inside {multiplex_id}. Use selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+        "For {multiplex_id}, induce a subgraph among {genes} restricted to {layer_id}. Selection is {mode}; limit is {top_k}; cursor is {cursor}; membership requirement is {require_all_in_layer}.",
+        "Which native graph is induced by {genes} in {multiplex_id}, layer {layer_id}? Apply selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}."
+      ],
+      "invalid_selection": [
+        "Induce the native subgraph on {genes} in layer {layer_id} of {multiplex_id}. Selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+        "Return a subgraph among {genes} from {layer_id} inside {multiplex_id}. Use selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+        "For {multiplex_id}, induce a subgraph among {genes} restricted to {layer_id}. Selection is {mode}; limit is {top_k}; cursor is {cursor}; membership requirement is {require_all_in_layer}.",
+        "Which native graph is induced by {genes} in {multiplex_id}, layer {layer_id}? Apply selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}."
+      ],
+      "invalid_cursor": [
+        "Induce the native subgraph on {genes} in layer {layer_id} of {multiplex_id}. Selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+        "Return a subgraph among {genes} from {layer_id} inside {multiplex_id}. Use selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+        "For {multiplex_id}, induce a subgraph among {genes} restricted to {layer_id}. Selection is {mode}; limit is {top_k}; cursor is {cursor}; membership requirement is {require_all_in_layer}.",
+        "Which native graph is induced by {genes} in {multiplex_id}, layer {layer_id}? Apply selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}."
+      ],
+      "ranking_required": [
+        "Induce the native subgraph on {genes} in layer {layer_id} of {multiplex_id}. Selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+        "Return a subgraph among {genes} from {layer_id} inside {multiplex_id}. Use selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+        "For {multiplex_id}, induce a subgraph among {genes} restricted to {layer_id}. Selection is {mode}; limit is {top_k}; cursor is {cursor}; membership requirement is {require_all_in_layer}.",
+        "Which native graph is induced by {genes} in {multiplex_id}, layer {layer_id}? Apply selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}."
+      ],
+      "unresolved_identity": [
+        "Induce the native subgraph on {genes} in layer {layer_id} of {multiplex_id}. Selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+        "Return a subgraph among {genes} from {layer_id} inside {multiplex_id}. Use selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}.",
+        "For {multiplex_id}, induce a subgraph among {genes} restricted to {layer_id}. Selection is {mode}; limit is {top_k}; cursor is {cursor}; membership requirement is {require_all_in_layer}.",
+        "Which native graph is induced by {genes} in {multiplex_id}, layer {layer_id}? Apply selection {mode}, limit {top_k}, cursor {cursor}, and membership requirement {require_all_in_layer}."
+      ]
+    },
+    "validation": {
+      "unknown_layer": [
+        "Recover the projected graph for inputs {genes} at {multiplex_id}, relation {layer_id}. Edge display {mode}; prefix length {top_k}; page token {cursor}; universal membership condition {require_all_in_layer}.",
+        "Establish the projected graph associated with inputs {genes} at relation {layer_id} within {multiplex_id}. Edge display: {mode}. Prefix length: {top_k}. Page token: {cursor}. Universal membership condition: {require_all_in_layer}.",
+        "At {multiplex_id}, recover a graph projection for inputs {genes} over relation {layer_id}. Respect edge display {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}.",
+        "Provide a graph projection for inputs {genes} over relation {layer_id} at {multiplex_id}. The edge display is {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}."
+      ],
+      "unknown_multiplex": [
+        "Recover the projected graph for inputs {genes} at {multiplex_id}, relation {layer_id}. Edge display {mode}; prefix length {top_k}; page token {cursor}; universal membership condition {require_all_in_layer}.",
+        "Establish the projected graph associated with inputs {genes} at relation {layer_id} within {multiplex_id}. Edge display: {mode}. Prefix length: {top_k}. Page token: {cursor}. Universal membership condition: {require_all_in_layer}.",
+        "At {multiplex_id}, recover a graph projection for inputs {genes} over relation {layer_id}. Respect edge display {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}.",
+        "Provide a graph projection for inputs {genes} over relation {layer_id} at {multiplex_id}. The edge display is {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}."
+      ],
+      "missing_genes": [
+        "Recover the projected graph for inputs {genes} at {multiplex_id}, relation {layer_id}. Edge display {mode}; prefix length {top_k}; page token {cursor}; universal membership condition {require_all_in_layer}.",
+        "Establish the projected graph associated with inputs {genes} at relation {layer_id} within {multiplex_id}. Edge display: {mode}. Prefix length: {top_k}. Page token: {cursor}. Universal membership condition: {require_all_in_layer}.",
+        "At {multiplex_id}, recover a graph projection for inputs {genes} over relation {layer_id}. Respect edge display {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}.",
+        "Provide a graph projection for inputs {genes} over relation {layer_id} at {multiplex_id}. The edge display is {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}."
+      ],
+      "missing_scope": [
+        "Recover the projected graph for inputs {genes} at {multiplex_id}, relation {layer_id}. Edge display {mode}; prefix length {top_k}; page token {cursor}; universal membership condition {require_all_in_layer}.",
+        "Establish the projected graph associated with inputs {genes} at relation {layer_id} within {multiplex_id}. Edge display: {mode}. Prefix length: {top_k}. Page token: {cursor}. Universal membership condition: {require_all_in_layer}.",
+        "At {multiplex_id}, recover a graph projection for inputs {genes} over relation {layer_id}. Respect edge display {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}.",
+        "Provide a graph projection for inputs {genes} over relation {layer_id} at {multiplex_id}. The edge display is {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}."
+      ],
+      "invalid_list": [
+        "Recover the projected graph for inputs {genes} at {multiplex_id}, relation {layer_id}. Edge display {mode}; prefix length {top_k}; page token {cursor}; universal membership condition {require_all_in_layer}.",
+        "Establish the projected graph associated with inputs {genes} at relation {layer_id} within {multiplex_id}. Edge display: {mode}. Prefix length: {top_k}. Page token: {cursor}. Universal membership condition: {require_all_in_layer}.",
+        "At {multiplex_id}, recover a graph projection for inputs {genes} over relation {layer_id}. Respect edge display {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}.",
+        "Provide a graph projection for inputs {genes} over relation {layer_id} at {multiplex_id}. The edge display is {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}."
+      ],
+      "invalid_selection": [
+        "Recover the projected graph for inputs {genes} at {multiplex_id}, relation {layer_id}. Edge display {mode}; prefix length {top_k}; page token {cursor}; universal membership condition {require_all_in_layer}.",
+        "Establish the projected graph associated with inputs {genes} at relation {layer_id} within {multiplex_id}. Edge display: {mode}. Prefix length: {top_k}. Page token: {cursor}. Universal membership condition: {require_all_in_layer}.",
+        "At {multiplex_id}, recover a graph projection for inputs {genes} over relation {layer_id}. Respect edge display {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}.",
+        "Provide a graph projection for inputs {genes} over relation {layer_id} at {multiplex_id}. The edge display is {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}."
+      ],
+      "invalid_cursor": [
+        "Recover the projected graph for inputs {genes} at {multiplex_id}, relation {layer_id}. Edge display {mode}; prefix length {top_k}; page token {cursor}; universal membership condition {require_all_in_layer}.",
+        "Establish the projected graph associated with inputs {genes} at relation {layer_id} within {multiplex_id}. Edge display: {mode}. Prefix length: {top_k}. Page token: {cursor}. Universal membership condition: {require_all_in_layer}.",
+        "At {multiplex_id}, recover a graph projection for inputs {genes} over relation {layer_id}. Respect edge display {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}.",
+        "Provide a graph projection for inputs {genes} over relation {layer_id} at {multiplex_id}. The edge display is {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}."
+      ],
+      "ranking_required": [
+        "Recover the projected graph for inputs {genes} at {multiplex_id}, relation {layer_id}. Edge display {mode}; prefix length {top_k}; page token {cursor}; universal membership condition {require_all_in_layer}.",
+        "Establish the projected graph associated with inputs {genes} at relation {layer_id} within {multiplex_id}. Edge display: {mode}. Prefix length: {top_k}. Page token: {cursor}. Universal membership condition: {require_all_in_layer}.",
+        "At {multiplex_id}, recover a graph projection for inputs {genes} over relation {layer_id}. Respect edge display {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}.",
+        "Provide a graph projection for inputs {genes} over relation {layer_id} at {multiplex_id}. The edge display is {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}."
+      ],
+      "unresolved_identity": [
+        "Recover the projected graph for inputs {genes} at {multiplex_id}, relation {layer_id}. Edge display {mode}; prefix length {top_k}; page token {cursor}; universal membership condition {require_all_in_layer}.",
+        "Establish the projected graph associated with inputs {genes} at relation {layer_id} within {multiplex_id}. Edge display: {mode}. Prefix length: {top_k}. Page token: {cursor}. Universal membership condition: {require_all_in_layer}.",
+        "At {multiplex_id}, recover a graph projection for inputs {genes} over relation {layer_id}. Respect edge display {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}.",
+        "Provide a graph projection for inputs {genes} over relation {layer_id} at {multiplex_id}. The edge display is {mode}, prefix length {top_k}, page token {cursor}, and universal membership condition {require_all_in_layer}."
+      ]
+    },
+    "test": {
+      "unknown_layer": [
+        "Construct an induced graph concerning {genes} under network {multiplex_id} and relation ID {layer_id}. Retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+        "Determine an induced graph concerning {genes} under relation ID {layer_id} of network {multiplex_id}. Retrieval form: {mode}; edge allowance: {top_k}; continuation key: {cursor}; mandatory inclusion: {require_all_in_layer}.",
+        "Under network {multiplex_id}, construct the graph induced concerning {genes} and relation ID {layer_id}. Follow retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+        "Supply the induced graph concerning {genes}, using network {multiplex_id} and relation ID {layer_id}. Its retrieval form is {mode}; edge allowance is {top_k}; continuation key is {cursor}; mandatory inclusion is {require_all_in_layer}."
+      ],
+      "unknown_multiplex": [
+        "Construct an induced graph concerning {genes} under network {multiplex_id} and relation ID {layer_id}. Retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+        "Determine an induced graph concerning {genes} under relation ID {layer_id} of network {multiplex_id}. Retrieval form: {mode}; edge allowance: {top_k}; continuation key: {cursor}; mandatory inclusion: {require_all_in_layer}.",
+        "Under network {multiplex_id}, construct the graph induced concerning {genes} and relation ID {layer_id}. Follow retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+        "Supply the induced graph concerning {genes}, using network {multiplex_id} and relation ID {layer_id}. Its retrieval form is {mode}; edge allowance is {top_k}; continuation key is {cursor}; mandatory inclusion is {require_all_in_layer}."
+      ],
+      "missing_genes": [
+        "Construct an induced graph concerning {genes} under network {multiplex_id} and relation ID {layer_id}. Retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+        "Determine an induced graph concerning {genes} under relation ID {layer_id} of network {multiplex_id}. Retrieval form: {mode}; edge allowance: {top_k}; continuation key: {cursor}; mandatory inclusion: {require_all_in_layer}.",
+        "Under network {multiplex_id}, construct the graph induced concerning {genes} and relation ID {layer_id}. Follow retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+        "Supply the induced graph concerning {genes}, using network {multiplex_id} and relation ID {layer_id}. Its retrieval form is {mode}; edge allowance is {top_k}; continuation key is {cursor}; mandatory inclusion is {require_all_in_layer}."
+      ],
+      "missing_scope": [
+        "Construct an induced graph concerning {genes} under network {multiplex_id} and relation ID {layer_id}. Retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+        "Determine an induced graph concerning {genes} under relation ID {layer_id} of network {multiplex_id}. Retrieval form: {mode}; edge allowance: {top_k}; continuation key: {cursor}; mandatory inclusion: {require_all_in_layer}.",
+        "Under network {multiplex_id}, construct the graph induced concerning {genes} and relation ID {layer_id}. Follow retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+        "Supply the induced graph concerning {genes}, using network {multiplex_id} and relation ID {layer_id}. Its retrieval form is {mode}; edge allowance is {top_k}; continuation key is {cursor}; mandatory inclusion is {require_all_in_layer}."
+      ],
+      "invalid_list": [
+        "Construct an induced graph concerning {genes} under network {multiplex_id} and relation ID {layer_id}. Retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+        "Determine an induced graph concerning {genes} under relation ID {layer_id} of network {multiplex_id}. Retrieval form: {mode}; edge allowance: {top_k}; continuation key: {cursor}; mandatory inclusion: {require_all_in_layer}.",
+        "Under network {multiplex_id}, construct the graph induced concerning {genes} and relation ID {layer_id}. Follow retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+        "Supply the induced graph concerning {genes}, using network {multiplex_id} and relation ID {layer_id}. Its retrieval form is {mode}; edge allowance is {top_k}; continuation key is {cursor}; mandatory inclusion is {require_all_in_layer}."
+      ],
+      "invalid_selection": [
+        "Construct an induced graph concerning {genes} under network {multiplex_id} and relation ID {layer_id}. Retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+        "Determine an induced graph concerning {genes} under relation ID {layer_id} of network {multiplex_id}. Retrieval form: {mode}; edge allowance: {top_k}; continuation key: {cursor}; mandatory inclusion: {require_all_in_layer}.",
+        "Under network {multiplex_id}, construct the graph induced concerning {genes} and relation ID {layer_id}. Follow retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+        "Supply the induced graph concerning {genes}, using network {multiplex_id} and relation ID {layer_id}. Its retrieval form is {mode}; edge allowance is {top_k}; continuation key is {cursor}; mandatory inclusion is {require_all_in_layer}."
+      ],
+      "invalid_cursor": [
+        "Construct an induced graph concerning {genes} under network {multiplex_id} and relation ID {layer_id}. Retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+        "Determine an induced graph concerning {genes} under relation ID {layer_id} of network {multiplex_id}. Retrieval form: {mode}; edge allowance: {top_k}; continuation key: {cursor}; mandatory inclusion: {require_all_in_layer}.",
+        "Under network {multiplex_id}, construct the graph induced concerning {genes} and relation ID {layer_id}. Follow retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+        "Supply the induced graph concerning {genes}, using network {multiplex_id} and relation ID {layer_id}. Its retrieval form is {mode}; edge allowance is {top_k}; continuation key is {cursor}; mandatory inclusion is {require_all_in_layer}."
+      ],
+      "ranking_required": [
+        "Construct an induced graph concerning {genes} under network {multiplex_id} and relation ID {layer_id}. Retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+        "Determine an induced graph concerning {genes} under relation ID {layer_id} of network {multiplex_id}. Retrieval form: {mode}; edge allowance: {top_k}; continuation key: {cursor}; mandatory inclusion: {require_all_in_layer}.",
+        "Under network {multiplex_id}, construct the graph induced concerning {genes} and relation ID {layer_id}. Follow retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+        "Supply the induced graph concerning {genes}, using network {multiplex_id} and relation ID {layer_id}. Its retrieval form is {mode}; edge allowance is {top_k}; continuation key is {cursor}; mandatory inclusion is {require_all_in_layer}."
+      ],
+      "unresolved_identity": [
+        "Construct an induced graph concerning {genes} under network {multiplex_id} and relation ID {layer_id}. Retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+        "Determine an induced graph concerning {genes} under relation ID {layer_id} of network {multiplex_id}. Retrieval form: {mode}; edge allowance: {top_k}; continuation key: {cursor}; mandatory inclusion: {require_all_in_layer}.",
+        "Under network {multiplex_id}, construct the graph induced concerning {genes} and relation ID {layer_id}. Follow retrieval form {mode}, edge allowance {top_k}, continuation key {cursor}, mandatory inclusion {require_all_in_layer}.",
+        "Supply the induced graph concerning {genes}, using network {multiplex_id} and relation ID {layer_id}. Its retrieval form is {mode}; edge allowance is {top_k}; continuation key is {cursor}; mandatory inclusion is {require_all_in_layer}."
+      ]
+    }
+  }
+}

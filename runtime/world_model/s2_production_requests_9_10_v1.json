@@ -1,0 +1,59 @@
+{
+  "schema_version": "mentor-rl-s2-production-9-10-request-additions-v1",
+  "s2_9": {
+    "train": [
+      "Form the subgraph for genes {genes}; multiplex {multiplex_id}; layer {layer_id}. Use edge selection {mode} with K {top_k}, start token {cursor}, all-in-layer gate {require_all_in_layer}.",
+      "For {multiplex_id}, obtain the native graph projection of {genes} through {layer_id}. Select {mode}; use bound {top_k}; continue from {cursor}; apply membership gate {require_all_in_layer}.",
+      "Produce a subgraph using {genes} as the inputs for {layer_id} inside {multiplex_id}. The display rule is {mode}, K is {top_k}, the cursor is {cursor}, and the layer-presence prerequisite is {require_all_in_layer}.",
+      "Show the induced graph defined by input IDs {genes} in {multiplex_id}/{layer_id}. Adopt mode {mode}, bound {top_k}, cursor state {cursor}, and universal-presence gate {require_all_in_layer}.",
+      "Give a graph projection restricted to {genes}, with {multiplex_id} identifying the multiplex and {layer_id} identifying the layer. Apply selector {mode}, cap {top_k}, cursor {cursor}, and presence condition {require_all_in_layer}.",
+      "Determine the subgraph over the requested inputs {genes}. Read multiplex {multiplex_id} and layer {layer_id}; selection method {mode}; requested K {top_k}; page state {cursor}; membership gate {require_all_in_layer}.",
+      "Assemble the native subgraph of {layer_id} for {genes} within {multiplex_id}. Respect display mode {mode}, requested limit {top_k}, supplied cursor {cursor}, and all-member requirement {require_all_in_layer}.",
+      "Project {multiplex_id} through layer {layer_id} onto genes {genes}. Return the induced graph using selection {mode}, bound {top_k}, traversal cursor {cursor}, and layer prerequisite {require_all_in_layer}.",
+      "Build a subgraph for this selection of genes: {genes}. Its multiplex is {multiplex_id}; its layer is {layer_id}; its selection mode is {mode}; its K is {top_k}; its continuation cursor is {cursor}; its inclusion gate is {require_all_in_layer}.",
+      "Derive the graph projection determined by {genes} for layer {layer_id} of multiplex {multiplex_id}. The edge-selection parameter is {mode}, the bound is {top_k}, the page cursor is {cursor}, and required membership is {require_all_in_layer}.",
+      "Supply the requested subgraph in {multiplex_id}, taking {layer_id} as the relation and {genes} as the inputs. Edge mode {mode}; edge bound {top_k}; continuation cursor {cursor}; all-input layer gate {require_all_in_layer}.",
+      "Find the native induced graph for the ID collection {genes} under {multiplex_id}, layer {layer_id}. Follow selection setting {mode}, K value {top_k}, cursor value {cursor}, and prerequisite flag {require_all_in_layer}."
+    ],
+    "validation": [
+      "Please derive a projected graph restricted to entries {genes}. Context tags are {multiplex_id} and {layer_id}; display setting {mode}; preview bound {top_k}; paging handle {cursor}; inclusion flag {require_all_in_layer}.",
+      "We need the subgraph corresponding to {genes} at network handle {multiplex_id} and relation handle {layer_id}. Presentation option {mode}, permitted count {top_k}, next-page handle {cursor}, necessary membership flag {require_all_in_layer}.",
+      "From relation {layer_id} associated with {multiplex_id}, recover a graph projection limited to {genes}. Read the presentation choice as {mode}, the preview amount as {top_k}, the page handle as {cursor}, and the inclusion prerequisite as {require_all_in_layer}.",
+      "Resolve a native subgraph whose requested vertices are {genes}, using context {multiplex_id} and relation key {layer_id}. Rendering choice {mode}; preview amount {top_k}; continuation handle {cursor}; mandatory-membership flag {require_all_in_layer}."
+    ],
+    "test": [
+      "Describe the induced graph selected by ID entries {genes} from resource {multiplex_id}, relation reference {layer_id}. Retrieval choice: {mode}; output bound: {top_k}; paging key: {cursor}; compulsory inclusion: {require_all_in_layer}.",
+      "For resource {multiplex_id} together with relation reference {layer_id}, deliver the subgraph specified by vertices {genes}. Retrieval option {mode}, maximum preview {top_k}, subsequent-page key {cursor}, compulsory-presence condition {require_all_in_layer}.",
+      "What graph projection is specified by entries {genes} at resource {multiplex_id} under relation reference {layer_id}? Use retrieval choice {mode}, preview maximum {top_k}, paging reference {cursor}, and compulsory membership {require_all_in_layer}.",
+      "Report a subgraph from relation reference {layer_id} in resource {multiplex_id} restricted to vertex entries {genes}. The retrieval option reads {mode}; the preview maximum reads {top_k}; the page reference reads {cursor}; compulsory layer presence reads {require_all_in_layer}."
+    ]
+  },
+  "s2_10": {
+    "train": [
+      "Partition {genes} into all native connected components for layer {layer_id} of multiplex {multiplex_id}. Use connectivity {connectivity_kind} and all-input membership gate {require_all_in_layer}; retain the excluded-input classification.",
+      "Give every component of the selected members among {genes}, keeping excluded IDs classified. Multiplex {multiplex_id}; layer {layer_id}; connectivity definition {connectivity_kind}; layer-presence prerequisite {require_all_in_layer}.",
+      "Find the complete component partition of the projection onto {genes} within {multiplex_id}/{layer_id}. Interpret connectivity as {connectivity_kind}, apply presence gate {require_all_in_layer}, and retain every exclusion category.",
+      "Split the selected members of {genes} into all connectivity groups, with excluded inputs retained separately. Target {layer_id} inside {multiplex_id}; connectivity kind {connectivity_kind}; all-members condition {require_all_in_layer}.",
+      "Compute a full partition into connected components for inputs {genes} at multiplex {multiplex_id}, layer {layer_id}. Follow connectivity kind {connectivity_kind} and membership prerequisite {require_all_in_layer}; preserve input exclusions.",
+      "For {multiplex_id} and layer {layer_id}, decompose the selected members of {genes} into every component. Connectivity interpretation {connectivity_kind}; all-in-layer gate {require_all_in_layer}; keep nonmembers in their proper categories.",
+      "Return every connectivity group induced on inputs {genes} under layer {layer_id} in {multiplex_id}. Use kind {connectivity_kind}, enforce requested membership gate {require_all_in_layer}, and classify excluded IDs.",
+      "Derive all components of the selected projection for {genes}. Multiplex reference {multiplex_id}, layer reference {layer_id}, connectivity rule {connectivity_kind}, and membership gate {require_all_in_layer}; include the exact exclusion partition.",
+      "Build the exhaustive connected-component partition for {genes} using {layer_id} in multiplex {multiplex_id}. Adopt connectivity {connectivity_kind} and membership requirement {require_all_in_layer}, retaining all excluded inputs.",
+      "Within {multiplex_id}, partition the selected inputs {genes} for layer {layer_id} into complete connectivity groups. Kind {connectivity_kind}; universal layer-presence gate {require_all_in_layer}; retain the input membership categories.",
+      "Supply the full decomposition into native components for the selection {genes}; multiplex tag {multiplex_id}; layer tag {layer_id}. Connectivity kind {connectivity_kind}; required input membership {require_all_in_layer}; classify each exclusion.",
+      "Identify every component in the subgraph on {genes} for {multiplex_id}, relation {layer_id}. Apply connectivity interpretation {connectivity_kind} and layer requirement {require_all_in_layer}; preserve the full excluded-input partition."
+    ],
+    "validation": [
+      "Recover an exhaustive connectivity grouping for entries {genes} under context {multiplex_id}, relation key {layer_id}. Interpretation flag {connectivity_kind}; mandatory inclusion flag {require_all_in_layer}. Account for entries absent from the selected relation.",
+      "We require all components among the selected entries of {genes}. Context handle {multiplex_id}, relation handle {layer_id}, interpretation setting {connectivity_kind}, necessary inclusion setting {require_all_in_layer}. Keep excluded entries classified.",
+      "Establish a complete decomposition into components for selection entries {genes}. Context tag {multiplex_id}; relation tag {layer_id}; interpretation option {connectivity_kind}; inclusion precondition {require_all_in_layer}. Categorize nonmembers independently.",
+      "Please recover every connectivity group induced by entries {genes} at context {multiplex_id} and relation key {layer_id}. Interpret adjacency using {connectivity_kind}, subject to inclusion flag {require_all_in_layer}, and retain the categories for excluded entries."
+    ],
+    "test": [
+      "Describe all components determined by vertex entries {genes} from resource {multiplex_id}, relation reference {layer_id}. Interpret connectivity via {connectivity_kind}, observe compulsory presence {require_all_in_layer}, and categorize the excluded vertices.",
+      "What exhaustive component decomposition follows for vertex entries {genes} under resource {multiplex_id} and relation reference {layer_id}? The requested interpretation is {connectivity_kind}; compulsory inclusion is {require_all_in_layer}; exclusions need separate categories.",
+      "Report every connectivity group among vertices selected by {genes}, using resource {multiplex_id} plus relation reference {layer_id}. Apply interpretation {connectivity_kind} with compulsory membership {require_all_in_layer}; show the excluded-input categories as well.",
+      "Deliver the entire component partition for vertex entries {genes} at resource {multiplex_id}, relation reference {layer_id}. Interpretation choice {connectivity_kind}; compulsory layer presence {require_all_in_layer}. Preserve categories for vertices outside this selection."
+    ]
+  }
+}

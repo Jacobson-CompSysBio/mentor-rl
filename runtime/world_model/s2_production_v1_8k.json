@@ -1,0 +1,40 @@
+{
+  "schema_version": "mentor-rl-s2-production-recipe-v1",
+  "production_id": "s2_production_v1_8k",
+  "max_length": 8192,
+  "length_unit": "complete_rendered_trace",
+  "serializer": "s2_current_turn_delta_verification_v1",
+  "tokenizer": {
+    "path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
+    "artifacts": {
+      "chat_template.jinja": "9ad8adf1324b8eb902d6e70087f3184b1b9b345c453bbd3d38949c2f13205c1d",
+      "special_tokens_map.json": "8464cabd6eda239fe46ebf8ae63b46c417721784a961a022f6b59174a2cda0e2",
+      "tokenizer.json": "0614fe83cadab421296e664e1f48f4261fa8fef6e03e63bb75c20f38e37d07d3",
+      "tokenizer_config.json": "9279e942392b742d633c7adbb89ebe002c98399db8926a7af5125c726f404070"
+    }
+  },
+  "truncation_allowed": false,
+  "oversize_policy": "Exclude overlength examples before quota selection. Retain a question case when smaller faithful source instances meet its quotas. Exclude a case for length only after establishing that its required behavior has no fitting instance; missing implementations and insufficient source populations are separate coverage gaps.",
+  "question_catalog": "agents/world_model_v3_curriculum/S2-question-classes.md",
+  "catalog_case_mapping_required": true,
+  "per_retained_case": {
+    "train": 512,
+    "validation": 64,
+    "test": 64
+  },
+  "training_mix": {
+    "S2": 0.8,
+    "S1": 0.15,
+    "S0": 0.05
+  },
+  "replay_rows_per_retained_s2_case": {
+    "S1": 96,
+    "S0": 32
+  },
+  "replay_selection": "Deterministic capped equal allocation across training question types, stratified within each type, without replacement. Select S1 from its component training pools and S0 separately, excluding embedded S0 replay from S1.",
+  "replay_contract": "Explicit visible historical-contract adapter; preserve original trace semantics and never relabel historical graph hashes as S2 graph-content versions.",
+  "split_policy": "Preserve published source-group splits and held-out wording. Never move a subject or unordered target pair to another split to fill a quota. Retain original S0/S1 held-out panels for retention evaluation.",
+  "seed": 20261028,
+  "output_dir": "data/world_model_v4/corpora/s2_production_v1_8k",
+  "submission_authorized": false
+}
