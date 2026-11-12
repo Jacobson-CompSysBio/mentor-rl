@@ -133,8 +133,15 @@ def generate_prompt_batch_with_oom_backoff(
     stage: str,
     shard_index: int,
     retry_singleton: bool = True,
+    prefill_chunk_size: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Generate one prompt batch, bisecting it after accelerator OOMs."""
+    """Generate one prompt batch, bisecting it after accelerator OOMs.
+
+    With prefill_chunk_size, a lone prompt longer than the chunk is
+    prefilled in chunks. This bounds eager attention memory at long
+    prompts. Batches are never chunked: chunked prefill places RoPE
+    positions by cache position, which ignores left padding.
+    """
 
     if not prompts or len(prompts) != len(record_ids):
         raise S0GenerationError("The generation prompt batch is invalid")
@@ -173,9 +180,14 @@ def generate_prompt_batch_with_oom_backoff(
                 f"A {stage} generation prompt exceeds max_total_tokens"
             )
         generation_limit = min(max_new_tokens, min(remaining))
+        chunking = {}
+        if (prefill_chunk_size is not None and len(prompts) == 1
+                and input_width > prefill_chunk_size):
+            chunking["prefill_chunk_size"] = prefill_chunk_size
         with torch_module.no_grad():
             output = model.generate(
                 **inputs,
+                **chunking,
                 max_new_tokens=generation_limit,
                 do_sample=False,
                 eos_token_id=(
@@ -251,6 +263,7 @@ def generate_prompt_batch_with_oom_backoff(
                 stage=stage,
                 shard_index=shard_index,
                 retry_singleton=False,
+                prefill_chunk_size=prefill_chunk_size,
             )
         print(
             json.dumps(
@@ -291,6 +304,7 @@ def generate_prompt_batch_with_oom_backoff(
         "max_total_tokens": max_total_tokens,
         "stage": stage,
         "shard_index": shard_index,
+        "prefill_chunk_size": prefill_chunk_size,
     }
     return generate_prompt_batch_with_oom_backoff(
         prompts=prompts[:midpoint],
