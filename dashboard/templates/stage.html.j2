@@ -1,16 +1,18 @@
 {% extends "base.html.j2" %}
-{% block title %}{{ stage.stage }}{% endblock %}
+{% block title %}{{ stage.stage }} · Curriculum data dashboard{% endblock %}
 {% block body %}
-<p class="crumb"><a href="../index.html">Curriculum data</a> · {{ stage.stage }}</p>
+<p class="crumb"><a href="{{ home }}">Curriculum data</a> · {{ stage.stage }}</p>
 <h1>{{ stage.stage }} <span class="muted">{{ stage.title }}</span></h1>
 
 <nav class="tabs" role="tablist">
   <button type="button" role="tab" data-tab="compare">{{ "Compare versions" if compare else "Traces" }}</button>
   <button type="button" role="tab" data-tab="versions">Versions</button>
   <button type="button" role="tab" data-tab="types">Question types</button>
+  {% if failures %}<button type="button" role="tab" data-tab="failures">Failures</button>{% endif %}
   <button type="button" role="tab" data-tab="tools">Tools</button>
   <button type="button" role="tab" data-tab="sources">Raw data sources</button>
 </nav>
+<p class="save-status warn" id="save-status" role="status"></p>
 
 <section class="tab-panel" id="tab-compare" role="tabpanel">
 {% if compare %}
@@ -44,6 +46,7 @@
 </section>
 <section class="tab-panel" id="tab-versions" role="tabpanel" hidden></section>
 <section class="tab-panel" id="tab-types" role="tabpanel" hidden></section>
+{% if failures %}<section class="tab-panel" id="tab-failures" role="tabpanel" hidden></section>{% endif %}
 <section class="tab-panel" id="tab-tools" role="tabpanel" hidden></section>
 <section class="tab-panel" id="tab-sources" role="tabpanel" hidden></section>
 

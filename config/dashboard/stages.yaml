@@ -94,15 +94,33 @@ stages:
     sample_seed: 0
 
   - stage: S2
-    status: designing   # corpora still being built
+    status: evaluated   # v1 scored 80.58% structured accuracy, report only, 2026-11-12
     current: v1
     versions:
       - version: v1
-        corpus_root: data/world_model_v4/corpora/s2_v1_single_edge
-        summary: Single-edge pilot for S2.1; not yet training-ready.
-        gate_report: null
+        corpus_root: data/world_model_v4/corpora/s2_production_v1_8k
+        summary: >-
+          First production corpus: 394 catalog cases across S2.1-S2.13, 512
+          training rows each, with S1 and S0 replay. Trained as slurm-5856263;
+          20,320 of 25,216 test rows correct (80.58%, report_only_v1).
+        # Full evaluation slurm-5902168. Its failures: python -m dashboard.failures --stage S2
+        gate_report: data/world_model_v4/eval_runs/s2_v1_120b_test/oss120b-plain-base-tokenizer-lora-r32/slurm-5902168/report/metrics.json
     # The S2 code and documents are on s2-dashboard, in the main checkout.
-    contract: ../mentor-rl/runtime/world_model/s2_v1.json
+    # Each family has its own contract (manifest.json contract_routes).
+    contract:
+      - ../mentor-rl/runtime/world_model/s2_1_production_v1.json
+      - ../mentor-rl/runtime/world_model/s2_2_production_v1.json
+      - ../mentor-rl/runtime/world_model/s2_3_v1.json
+      - ../mentor-rl/runtime/world_model/s2_4_v1.json
+      - ../mentor-rl/runtime/world_model/s2_5_v1.json
+      - ../mentor-rl/runtime/world_model/s2_6_v1.json
+      - ../mentor-rl/runtime/world_model/s2_7_v1.json
+      - ../mentor-rl/runtime/world_model/s2_8_v1.json
+      - ../mentor-rl/runtime/world_model/s2_9_v1.json
+      - ../mentor-rl/runtime/world_model/s2_10_v1.json
+      - ../mentor-rl/runtime/world_model/s2_11_v1.json
+      - ../mentor-rl/runtime/world_model/s2_12_v1.json
+      - ../mentor-rl/runtime/world_model/s2_13_v1.json
     descriptions: dashboard/descriptions/S2.yaml
     question_doc: ../mentor-rl/agents/world_model_v3_curriculum/S2-question-classes.md
 

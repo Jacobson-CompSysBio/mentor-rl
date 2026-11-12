@@ -14,7 +14,7 @@ lists it with its gate results only.
 Each version is read once and every pair is compared in memory. Writes:
 
   site_data/<stage>/versions/<version>.json  a version's gold traces (plus any
-      older rows a newer version's traces pair with), system prompt, and tools
+      older rows a newer version's traces pair with), system prompts, and tools
   site_data/<stage>/diffs/<old>_<new>.json   how each gold trace pairs up,
       edit counts per question type, and the held-out check
 
@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
+import functools
 import json
 from pathlib import Path
 import re
@@ -49,6 +50,7 @@ LABELS = {
     ("tool", "content"): "tool result",
 }
 KEYS: dict[tuple, tuple] = {}  # one shared copy of each part name, to keep scans small
+S2_CATALOG = Path("agents/world_model_v3_curriculum/S2-question-classes.md")
 
 
 def resolve(entry: dict, path: str) -> Path:
@@ -63,7 +65,9 @@ def read_rows(entry: dict):
     order; a version that rebuilt only some components points at the older
     component files in its manifest. Its aggregate train.jsonl also holds
     replay rows from the previous stage, which the component files do not.
-    A corpus without components (S0) is read from its train.jsonl.
+    A corpus without components (S0, S2) is read from its train.jsonl. S2's
+    mixes in replay rows from S1 and S0; they name their source_stage and are
+    skipped.
     """
     corpus = resolve(entry, entry["corpus_root"])
     manifest = json.loads((corpus / "manifest.json").read_text())
@@ -77,7 +81,9 @@ def read_rows(entry: dict):
     for path in files:
         with path.open() as stream:
             for line in stream:
-                yield json.loads(line)
+                row = json.loads(line)
+                if "source_stage" not in row["metadata"]:
+                    yield row
 
 
 def row_parts(row: dict) -> dict[tuple[int, str], int]:
@@ -102,8 +108,16 @@ def changed_labels(old: dict, new: dict) -> set[str]:
 
 
 def question_type(row: dict) -> str:
-    """A row's question type: its source trace (S0, S1), else its question family (S2)."""
-    return row["metadata"].get("source_trace") or row["metadata"]["question_family"]
+    """A row's question type: its source trace (S0, S1), its catalog case (S2),
+    else its question family (the S2 pilot)."""
+    meta = row["metadata"]
+    return meta.get("source_trace") or meta.get("catalog_case_id") or meta["question_family"]
+
+
+def family_of(trace: str) -> str:
+    """S1.3.8 and S2.9.3 belong to S1.3 and S2.9; S0.4 belongs to S0 (as familyOf in compare.js)."""
+    match = re.match(r"(S\d+\.\d+)\.", trace) or re.match(r"(S\d+)\.", trace)
+    return match.group(1) if match else trace
 
 
 def type_order(trace: str) -> tuple[int, ...]:
@@ -122,8 +136,15 @@ def describe(key: tuple) -> str:
     return f"calls: {calls} · {status} / {decision}" + (f" · {reason}" if reason else "")
 
 
+@functools.cache
+def s2_case_names() -> dict[str, str]:
+    """Map each S2 catalog case (S2.9.3) to the title of its section in the S2 catalog."""
+    text = S2_CATALOG.read_text() if S2_CATALOG.is_file() else ""
+    return dict(re.findall(r"^### (S2\.\d+\.\d+): (.+)$", text, re.MULTILINE))
+
+
 def type_names(rows: list[dict]) -> dict[str, str]:
-    """Name each question type: the S1 builder's case name, else its fact kind.
+    """Name each question type: the S1 builder's or S2 catalog's case name, else its fact kind.
 
     S0 rows carry a fact kind (resolved_symbol) and an input variant; a
     non-canonical variant is part of the name (resolved symbol, casefold input).
@@ -141,21 +162,37 @@ def type_names(rows: list[dict]) -> dict[str, str]:
             if parts[1] not in sections:
                 sections[parts[1]] = case_names(parts[1])
             names[trace] = sections[parts[1]].get(parts[2], names[trace])
+        elif parts[0] == 2:
+            names[trace] = s2_case_names().get(trace, names[trace])
     return names
 
 
 def scan(entry: dict) -> dict:
-    """Read one version once: each row's hashed parts and type, and its gold traces."""
-    parts, types, gold, first = {}, {}, {}, None
+    """Read one version once: each row's hashed parts, type, and prompt, and its gold traces.
+
+    Rows share a system prompt and tool list: one per version in S0 and S1, one
+    per family in S2. Each distinct pair is kept once, with the families that
+    use it, and prompt_of says which one each row uses.
+    """
+    parts, types, gold, prompt_of, prompts, index = {}, {}, {}, {}, [], {}
     for row in read_rows(entry):
-        first = first or row
-        trace = question_type(row)
-        parts[row["row_id"]] = row_parts(row)
-        types[row["row_id"]] = trace
+        trace, hashed = question_type(row), row_parts(row)
+        parts[row["row_id"]], types[row["row_id"]] = hashed, trace
         gold.setdefault((trace, gold_key(row)), row)
-    # Every row of a version shares one system prompt and one tool list.
-    return {"parts": parts, "types": types, "gold": gold,
-            "system_prompt": first["messages"][0]["content"], "tools": first.get("tools")}
+        shared = (hashed[(0, "system prompt")], hashed[(-1, "tool definitions")])
+        if shared not in index:
+            index[shared] = len(prompts)
+            prompts.append({"system_prompt": row["messages"][0]["content"], "tools": row.get("tools"),
+                            "families": set()})
+        prompts[index[shared]]["families"].add(family_of(trace))
+        prompt_of[row["row_id"]] = index[shared]
+    # S2 rows are shuffled, so list the prompts in catalog order of their families.
+    for prompt in prompts:
+        prompt["families"] = sorted(prompt["families"], key=type_order)
+    order = sorted(range(len(prompts)), key=lambda i: type_order(prompts[i]["families"][0]))
+    renumber = {old: new for new, old in enumerate(order)}
+    return {"parts": parts, "types": types, "gold": gold, "prompts": [prompts[i] for i in order],
+            "prompt_of": {row_id: renumber[i] for row_id, i in prompt_of.items()}}
 
 
 def intended_change(entry: dict) -> str | None:
@@ -248,7 +285,9 @@ def compare(stage: dict, old: dict, new: dict, scans: dict) -> tuple[dict, set[s
 
 
 def version_record(entry: dict, found: dict | None, extra: dict[str, dict]) -> dict:
-    """One version's gold traces and the rows the page shows, without the shared system prompt.
+    """One version's gold traces and the rows the page shows, without their shared system prompt.
+
+    Each row names the entry of prompts (system prompt and tools) it uses.
 
     found is None for a version whose corpus is no longer on disk.
     """
@@ -259,12 +298,12 @@ def version_record(entry: dict, found: dict | None, extra: dict[str, dict]) -> d
         "corpus_root": entry["corpus_root"],
         "repo_root": entry.get("repo_root", "."),
         "summary": intended_change(entry),
-        "system_prompt": found["system_prompt"] if found else None,
-        "tools": found["tools"] if found else None,
+        "prompts": found["prompts"] if found else [],
         "names": type_names(list(gold.values())),
         "gold": [{"type": key[0], "outcome": describe(key[1]), "row_id": gold[key]["row_id"]}
                  for key in sorted(gold, key=gold_order)],
-        "rows": {row_id: {"messages": row["messages"][1:], "metadata": row["metadata"]}
+        "rows": {row_id: {"messages": row["messages"][1:], "metadata": row["metadata"],
+                          "prompt": found["prompt_of"][row_id]}
                  for row_id, row in shown.items()},
     }
 

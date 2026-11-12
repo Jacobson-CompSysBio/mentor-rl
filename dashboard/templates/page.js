@@ -5,6 +5,10 @@
 const METRICS = {
   structured_answer_accuracy: "Structured answer accuracy", status_exact: "status exact", result_exact: "result exact",
   continuation_decision_exact: "decision exact", exact_tool_argument: "tool argument exact", structured_json_valid: "valid JSON",
+  // S2 reports.
+  structured_accuracy: "Structured accuracy", status_accuracy: "status", result_accuracy: "result",
+  continuation_decision_accuracy: "decision", provenance_accuracy: "provenance",
+  blocked_reason_presence_accuracy: "blocker presence", exact_tool_calls: "exact tool calls", valid_trajectory: "valid trajectory",
 };
 const NORMALIZES = {
   trim_spaces: "trims spaces", ignore_case: "ignores case", strip_numeric_version_suffix: "strips a numeric `.N` version suffix",
@@ -142,6 +146,7 @@ function catalogView(data) {
   const split = (type) => (v && v.splits && v.splits.types[type]) || null;
   return `<h2>Question types${v ? ` <span class="count">in ${esc(v.version)}</span>` : ""}</h2>` +
     '<p class="muted small">Descriptions come from <code>dashboard/descriptions</code>; rows and outcomes come from the data.</p>' +
+    (v ? `<p class="downloads">Download ${esc(v.version)} ${downloadButtons(v, "gold", v.gold.length)}</p>` : "") +
     families.map((family) => {
       const info = data.families[family] || {};
       const members = types.filter((t) => familyOf(t) === family);
@@ -182,7 +187,8 @@ function toolsView(data) {
     if (tool.canonical_format) facts.push(`Canonical format: <code>${esc(tool.canonical_format)}</code>.`);
     if (tool.candidate_details) facts.push(`Each candidate's details: ${Object.entries(tool.candidate_details).map(([k, kind]) => `<code>${esc(k)}</code> (${esc(kind)})`).join(", ")}.`);
     if (tool.provenance_channel) facts.push(`Provenance channel: <code>${esc(tool.provenance_channel)}</code>.`);
-    return `<section class="tooldoc" id="tool-${esc(tool.name)}"><h3><code>${esc(signature(tool))}</code></h3>` +
+    return `<section class="tooldoc" id="tool-${slug(tool.name)}"><h3><code>${esc(signature(tool))}</code></h3>` +
+      (tool.families ? `<p class="small muted">Offered in ${esc(tool.families.join(", "))}.</p>` : "") +
       (text ? `<p>${inline(text)}</p>` : "") + "<h4>Parameters</h4>" + params(tool.parameters) +
       (Object.keys(tool.returns).length ? `<h4>Returns</h4>${returns(tool.returns)}` : "") +
       (facts.length ? `<p class="small">${facts.join("<br>")}</p>` : "") + "</section>";
@@ -191,7 +197,7 @@ function toolsView(data) {
     `<p class="muted small">The tool definitions in ${esc(t.version || "the current version")}'s rows, with result fields from the stage contract.` +
     (t.differs_in.length ? ` They differ in ${esc(t.differs_in.join(", "))}; the Compare tab shows how.` : " Every version on disk offers the same definitions.") + "</p>" +
     (t.text._all ? `<p>${inline(t.text._all)}</p>` : "") +
-    '<nav class="chips">' + t.tools.map((tool) => `<a href="#tool-${esc(tool.name)}">${esc(tool.name)}</a>`).join("") + "</nav>" +
+    '<nav class="chips">' + t.tools.map((tool) => `<a href="#tool-${slug(tool.name)}">${esc(tool.name)}</a>`).join("") + "</nav>" +
     t.tools.map(doc).join("") +
     (t.error_result ? '<section class="tooldoc"><h3>Errors</h3><p>Any tool can fail with a transport error. The result then has ' +
       `${(t.error_result.keys || []).map((k) => `<code>${esc(k)}</code>`).join(", ")}, with <code>status</code> <code>${esc(t.error_result.status)}</code> and <code>provenance</code> null.</p></section>` : "") +
@@ -203,20 +209,30 @@ function toolsView(data) {
 // ---- Raw data sources tab ----
 
 function sourcesView(data) {
-  // Every file the stage contract pins: path, SHA-256, and the facts recorded beside it.
+  // Every file the stage contracts pin: path, SHA-256, and the facts recorded beside it.
   const s = data.sources;
   if (!s || !s.pins.length) return '<p class="muted">This stage has no contract with pinned sources.</p>';
   const label = (name) => esc(name.replace(/_/g, " ").replace(/\./g, " › "));
   const sha = (value) => (value ? `<code title="${esc(value)}">${esc(value.slice(0, 12))}…</code>` : '<span class="muted">—</span>');
   const facts = (map) => Object.entries(map).map(([k, value]) => `${esc(k.replace(/_/g, " "))}: ${esc(typeof value === "number" ? number(value) : value)}`).join("<br>");
   return `<h2>Raw data sources <span class="count">${s.pins.length}</span></h2>` +
-    `<p class="muted small">Pinned in <code>${esc(s.file)}</code>. Hover a hash to see all of it.</p>` +
+    `<p class="muted small">Pinned in ${s.files.map((file) => `<code>${esc(file)}</code>`).join(", ")}. Hover a hash to see all of it.</p>` +
     '<div class="table-wrap"><table class="sources"><thead><tr><th>Source</th><th>Path</th><th>SHA-256</th><th>Details</th></tr></thead><tbody>' +
     s.pins.map((pin) => `<tr><td>${label(pin.name)}</td><td><code>${esc(pin.path)}</code></td><td>${sha(pin.sha256)}</td>` +
       `<td class="small">${facts(pin.facts)}</td></tr>`).join("") + "</tbody></table></div>";
 }
 
 // ---- Wiring ----
+
+function setHash(hash) {
+  // Put the current view in the address bar so it can be linked. A page opened
+  // from disk (file://) may refuse with a SecurityError; the view changes anyway.
+  try {
+    history.replaceState(null, "", hash);
+  } catch (error) {
+    // Nothing to do: only the address bar stays as it was.
+  }
+}
 
 function wireTooltips() {
   // One tooltip for every [data-tip] element, on hover and on keyboard focus.
@@ -249,6 +265,8 @@ function start() {
   const out = document.getElementById("pair");
   const panel = (tab) => document.getElementById(`tab-${tab}`);
   const tabs = [...document.querySelectorAll("[data-tab]")];
+  // The address the Compare tab links to: the version pair it shows, once there is one.
+  let compareHash = location.pathname + location.search;
 
   function showTab(tab) {
     for (const button of tabs) button.setAttribute("aria-selected", String(button.dataset.tab === tab));
@@ -257,7 +275,7 @@ function start() {
   for (const button of tabs) {
     button.addEventListener("click", () => {
       showTab(button.dataset.tab);
-      if (button.dataset.tab !== "compare") history.replaceState(null, "", `#${button.dataset.tab}`);
+      setHash(button.dataset.tab === "compare" ? compareHash : `#${button.dataset.tab}`);
     });
   }
 
@@ -273,17 +291,41 @@ function start() {
   });
   panel("tools").innerHTML = toolsView(data);
   panel("sources").innerHTML = sourcesView(data);
+  if (data.failures) wireFailures(data, panel("failures"));
   wireTooltips();
 
-  // Download buttons name their version, and for changed traces their pair and side.
+  // Download buttons name their version and format, and for changed traces their pair and side.
+  // In a claude.ai artifact they appear only once the downloads capability answers.
+  const status = document.getElementById("save-status");
+  if (hosted) {
+    document.body.classList.add("saves-pending");
+    window.claude.use("downloads").catch(() => null).then((api) => {
+      downloadsApi = api;
+      document.body.classList.remove("saves-pending");
+      document.body.classList.toggle("saves-off", !api);
+    });
+  }
   document.addEventListener("click", (event) => {
     const button = event.target.closest && event.target.closest("button[data-what]");
     if (!button) return;
-    const { version, what, pair: key, side } = button.dataset;
+    const { version, what, format, pair: key, side } = button.dataset;
     const v = byName[version];
-    const ids = what === "gold" ? v.gold.map((g) => g.row_id)
-      : data.pairs[key].traces.filter((t) => t.state !== "identical" && t[side]).map((t) => t[side]);
-    download(`${data.stage}_${key ? `${key}.` : ""}${version}.${what}.jsonl`, ids.map((id) => fullRow(v, id)));
+    const items = what === "gold" ? v.gold.map((g) => ({ type: g.type, outcome: g.outcome, row_id: g.row_id }))
+      : data.pairs[key].traces.filter((t) => t.state !== "identical" && t[side])
+        .map((t) => ({ type: t.type, outcome: t.outcome, row_id: t[side], state: t.state }));
+    const name = `${data.stage}_${key ? `${slug(key)}.` : ""}${version}.${what}`;
+    const heading = what === "gold" ? `${data.stage} ${version} gold traces`
+      : `${data.stage} ${data.pairs[key].old} → ${data.pairs[key].new}: changed gold traces in ${version}`;
+    if (format === "md") save(`${name}.md`, tracesMarkdown(data, v, items, heading), status);
+    else save(`${name}.json`, rowsJson(items.map((item) => fullRow(v, item.row_id))), status);
+  });
+
+  // "expand all" and "collapse all" open or close the traces of one question type, or of the whole list.
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest && event.target.closest("button[data-open]");
+    if (!button) return;
+    const scope = button.closest(button.dataset.scope === "type" ? "article" : ".type-list");
+    for (const details of scope.querySelectorAll("details.trace")) details.open = button.dataset.open === "1";
   });
 
   // Ordering by accuracy needs a version whose gate scores each question type.
@@ -298,15 +340,14 @@ function start() {
     show = (old, next, scrollTo) => {
       const key = `${old}_${next}`, a = byName[old], b = byName[next], pair = data.pairs[key];
       current = [old, next];
+      compareHash = `#${slug(key)}`;
       form.elements.old.value = old;
       form.elements.new.value = next;
       document.title = `${data.stage} ${old} → ${next}`;
       for (const [side, v] of [["old", a], ["new", b]]) {
         const changedRows = pair.traces.filter((t) => t.state !== "identical" && t[side]).length;
-        const attrs = `type="button" data-version="${esc(v.version)}"`;
-        document.getElementById(`downloads-${side}`).innerHTML = `Download ${esc(v.version)}: ` +
-          `<button ${attrs} data-what="changed" data-pair="${esc(key)}" data-side="${side}">changed traces (${changedRows})</button> · ` +
-          `<button ${attrs} data-what="gold">all gold traces (${v.gold.length})</button>`;
+        document.getElementById(`downloads-${side}`).innerHTML = `Download ${esc(v.version)}<br>` +
+          `${downloadButtons(v, "changed", changedRows, key, side)}<br>${downloadButtons(v, "gold", v.gold.length)}`;
       }
       out.innerHTML = pairView(data, a, b, pair, showUnchanged.checked, order.value);
       if (scrollTo) document.getElementById(scrollTo)?.scrollIntoView();
@@ -316,7 +357,7 @@ function start() {
       if (a >= b) {
         if (event.target.name === "old") { b = a + 1; } else { a = b - 1; }
       }
-      history.replaceState(null, "", `#${versions[a]}_${versions[b]}`);
+      setHash(`#${slug(`${versions[a]}_${versions[b]}`)}`);
       show(versions[a], versions[b]);
     });
     showUnchanged.addEventListener("change", () => show(...current));
@@ -330,16 +371,27 @@ function start() {
     out.innerHTML = '<p class="muted">No corpus of this stage is on disk yet.</p>';
   }
 
+  // Links name a tab (#versions), a pair (#v9-v10), a question type in a pair or
+  // version (#v9-v10--s1-3-8), or a tool (#tool-get-edge): letters, digits, and
+  // hyphens only, so they survive being shared.
   function fromHash() {
     const hash = decodeURIComponent(location.hash.slice(1));
-    const pair = data.pairs[hash.split("/")[0]];
+    const pair = Object.values(data.pairs).find((p) => slug(`${p.old}_${p.new}`) === hash.split("--")[0]);
     if (tabs.some((button) => button.dataset.tab === hash)) {
       showTab(hash);
     } else if (pair && show) {
       showTab("compare");
-      show(pair.old, pair.new, hash.includes("/") ? hash : null);
+      show(pair.old, pair.new, hash.includes("--") ? hash : null);
     } else if (hash.startsWith("tool-")) {
       showTab("tools");
+      document.getElementById(hash)?.scrollIntoView();
+    } else if (hash.startsWith("failures--") && data.failures) {
+      // A failing case: #failures--s2-1-28 opens it.
+      showTab("failures");
+      const item = document.getElementById(hash);
+      if (item) { item.open = true; item.scrollIntoView(); }
+    } else if (hash.includes("--")) {
+      showTab("compare");
       document.getElementById(hash)?.scrollIntoView();
     }
   }
@@ -350,9 +402,9 @@ function start() {
 
 if (typeof module !== "undefined") {
   module.exports = {
-    accuracyBasis, barRows, blocks, catalogView, changelogView, columnChart, diffOps, pairView, pretty,
-    sortByAccuracy, sourcesView, splitsView, toolText, toolsView, turnRows, typesView, versionView,
-    versionsView, wordDiff,
+    accuracyBasis, anchor, barRows, blocks, caseBody, catalogView, changelogView, columnChart, diffOps, failedCases,
+    failuresView, fullRow, pairView, pretty, rowsJson, sharedView, slug, sortByAccuracy, sourcesView, splitsView,
+    toolText, toolsView, tracesMarkdown, turnRows, typesView, versionView, versionsView, wordDiff,
   };
 } else {
   start();

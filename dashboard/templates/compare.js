@@ -129,6 +129,30 @@ function familyOf(type) {
   return match ? match[1] : type;
 }
 
+function slug(text) {
+  // A name safe in a shared #link: ASCII letters, digits, and hyphens (S1.3.8 becomes s1-3-8).
+  return String(text).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function anchor(scope, type) {
+  // The element id, and #link, of one question type in a pair or version view: v9-v10--s1-3-8.
+  return `${slug(scope)}--${slug(type)}`;
+}
+
+function expandButtons(scope) {
+  // Open or close every trace in one question type, or in the whole list.
+  const button = (open, text) => `<button type="button" class="link" data-open="${open}" data-scope="${scope}">${text}</button>`;
+  return `<span class="section-tools">${button(1, "expand all")} · ${button(0, "collapse all")}</span>`;
+}
+
+function downloadButtons(v, what, count, key, side) {
+  // One version's gold traces (all, or those changed in a pair) as JSON or Markdown.
+  const attrs = `type="button" class="link" data-version="${esc(v.version)}" data-what="${what}"` +
+    (key ? ` data-pair="${esc(key)}" data-side="${side}"` : "");
+  return `${what === "gold" ? "all gold traces" : "changed traces"} (${count}): ` +
+    `<button ${attrs} data-format="json">JSON</button> · <button ${attrs} data-format="md">Markdown</button>`;
+}
+
 function toolText(tools) {
   // A version's tool list as readable signatures, so a change can be word-diffed.
   return (tools || []).map((tool) => {
@@ -208,17 +232,41 @@ function traceView(trace, a, b) {
     sideBySide(rows, head(a, trace.old), head(b, trace.new)) + "</details>";
 }
 
+function promptPairs(a, b) {
+  // Pair each system prompt of the newer version with the older one's for the same families.
+  const find = (families) => a.prompts.find((p) => p.families.some((f) => families.includes(f))) || null;
+  const pairs = b.prompts.map((p) => [find(p.families), p]);
+  for (const p of a.prompts) if (!pairs.some(([left]) => left === p)) pairs.push([p, null]);
+  return pairs;
+}
+
+function sharedLabel(v, prompt) {
+  // "" when every row of the version shares one prompt; else the families that use this one.
+  return v.prompts.length > 1 ? ` · ${prompt.families.join(", ")}` : "";
+}
+
 function sharedView(a, b) {
-  // The system prompt and tool list that every row of a version shares, which
-  // the traces below leave out. Opened and marked when the versions differ.
-  return [["System prompt", a.system_prompt, b.system_prompt, false], ["Tool definitions", toolText(a.tools), toolText(b.tools), true]]
-    .map(([label, before, after, code]) => {
-      const l = pretty(before), r = pretty(after), changed = l !== r;
-      const [left, right] = changed ? wordDiff(l, r) : [esc(l), esc(r)];
-      const state = changed ? "edited" : "identical";
-      return `<details class="trace ${state}"${changed ? " open" : ""}><summary><span class="state ${state}">${state}</span> ${label}</summary>` +
-        sideBySide([{ label, masked: false, code, changed, left, right }], a.version, b.version) + "</details>";
-    }).join("");
+  // The system prompt and tool list that a version's rows share (one per family
+  // in S2), which the traces below leave out. Opened and marked when they differ.
+  return promptPairs(a, b).flatMap(([before, after]) => {
+    const scope = sharedLabel(after ? b : a, after || before);
+    return [[`System prompt${scope}`, before && before.system_prompt, after && after.system_prompt, false],
+      [`Tool definitions${scope}`, before && toolText(before.tools), after && toolText(after.tools), true]];
+  }).map(([label, before, after, code]) => {
+    const l = before === null ? null : pretty(before), r = after === null ? null : pretty(after), changed = l !== r;
+    const [left, right] = changed && l !== null && r !== null ? wordDiff(l, r) : [l === null ? null : esc(l), r === null ? null : esc(r)];
+    const state = l === null ? "added" : r === null ? "removed" : changed ? "edited" : "identical";
+    return `<details class="trace ${state}"${changed ? " open" : ""}><summary><span class="state ${state}">${state}</span> ${esc(label)}</summary>` +
+      sideBySide([{ label, masked: false, code, changed, left, right }], a.version, b.version) + "</details>";
+  }).join("");
+}
+
+function promptsView(v) {
+  // One version's system prompts and tool lists, which its traces leave out.
+  return `<h2>${v.prompts.length > 1 ? "System prompts and tools by family" : "Shared by every row"}</h2><div class="qtype">` +
+    v.prompts.flatMap((p) => [[`System prompt${sharedLabel(v, p)}`, p.system_prompt, false], [`Tool definitions${sharedLabel(v, p)}`, toolText(p.tools), true]])
+      .map(([label, text, code]) => `<details class="trace"><summary>${esc(label)}</summary>` +
+        singleView([{ label, masked: false, code, right: esc(pretty(text)) }], v.version) + "</details>").join("") + "</div>";
 }
 
 function typeView(data, type, traces, a, b, key, showUnchanged) {
@@ -240,8 +288,8 @@ function typeView(data, type, traces, a, b, key, showUnchanged) {
   const shown = traces.filter((t) => showUnchanged || t.state !== "identical");
   const hidden = traces.length - shown.length;
   const text = data.type_text[type.type];
-  return `<article class="qtype${isChanged(type) ? "" : " unchanged"}" id="${esc(key)}/${esc(type.type)}">` +
-    `<h3>${esc(type.type)} <span class="name">${esc(type.name)}</span></h3>` +
+  return `<article class="qtype${isChanged(type) ? "" : " unchanged"}" id="${anchor(key, type.type)}">` +
+    `<h3>${esc(type.type)} <span class="name">${esc(type.name)}</span>${shown.length > 1 ? expandButtons("type") : ""}</h3>` +
     (text ? `<p class="type-text">${inline(text)}</p>` : "") +
     `<p class="meta">${accuracy}${rows}${fields ? `<br><span class="fields">${fields}</span>` : ""}</p>` +
     (shown.length ? "" : '<p class="muted">No gold trace changed. The edits counted above are in other rows of this type.</p>') +
@@ -263,7 +311,8 @@ function splitsView(data, versions) {
     `<thead><tr><th>Rows</th>${head}</tr></thead><tbody>` +
     SPLITS.map((split) => row(split, shown.map((v) => v.splits.rows[split]))).join("") +
     row("<b>total</b>", shown.map(total)) +
-    (shown.some((v) => v.splits.replay) ? row("of train: S0 replay", shown.map((v) => v.splits.replay)) : "") +
+    [...new Set(shown.flatMap((v) => Object.keys(v.splits.replay)))]
+      .map((stage) => row(`of train: ${esc(stage)} replay`, shown.map((v) => v.splits.replay[stage]))).join("") +
     "</tbody></table></div>";
   const types = [...new Set(shown.flatMap((v) => Object.keys(v.splits.types)))]
     .sort((x, y) => x.localeCompare(y, "en", { numeric: true }));
@@ -309,7 +358,8 @@ function pairView(data, a, b, pair, showUnchanged, order = "catalog") {
       "Read the changes below as context, not as the effect of the data change.</p>");
   }
   if (data.notes[key]) parts.push(`<div class="note">${data.notes[key]}</div>`);
-  parts.push(`<h2>Shared by every row</h2><div class="qtype">${sharedView(a, b)}</div>`);
+  const byFamily = a.prompts.length > 1 || b.prompts.length > 1;
+  parts.push(`<h2>${byFamily ? "System prompts and tools by family" : "Shared by every row"}</h2><div class="qtype">${sharedView(a, b)}</div>`);
 
   const tracesByType = {};
   for (const t of pair.traces) (tracesByType[t.type] = tracesByType[t.type] || []).push(t);
@@ -317,9 +367,10 @@ function pairView(data, a, b, pair, showUnchanged, order = "catalog") {
   const types = sortByAccuracy(showUnchanged ? pair.types : pair.types.filter(isChanged), basis, order, (t) => t.type);
   parts.push(`<h2>${showUnchanged ? "Question types" : "Changed question types"} <span class="count">${types.length}</span>` +
     `${orderNote(basis, order)}</h2>`);
-  parts.push('<nav class="chips">' + types.map((t) =>
-    `<a class="${isChanged(t) ? "" : "unchanged"}" href="#${esc(key)}/${esc(t.type)}">${esc(t.type)}</a>`).join("") + "</nav>");
-  parts.push(types.map((t) => typeView(data, t, tracesByType[t.type] || [], a, b, key, showUnchanged)).join(""));
+  parts.push('<div class="type-list">' + (types.length ? `<p class="small">${expandButtons("list")}</p>` : "") +
+    '<nav class="chips">' + types.map((t) =>
+      `<a class="${isChanged(t) ? "" : "unchanged"}" href="#${anchor(key, t.type)}">${esc(t.type)}</a>`).join("") + "</nav>" +
+    types.map((t) => typeView(data, t, tracesByType[t.type] || [], a, b, key, showUnchanged)).join("") + "</div>");
 
   const movers = [];
   for (const t of pair.types) {
@@ -343,7 +394,8 @@ function pairView(data, a, b, pair, showUnchanged, order = "catalog") {
   const corpus = (v) => `<code>${esc(v.repo_root === "." ? v.corpus_root : `${v.repo_root}/${v.corpus_root}`)}</code>`;
   parts.push("<footer><p>Gold traces: the first training row for each outcome (calls, status, decision, blocked reason) " +
     `of a question type, picked in ${esc(b.version)} and matched by row id in ${esc(a.version)}. ` +
-    "Edit counts cover every training row except S0 replay. Downloads are JSONL in the corpus row format.</p>" +
+    "Edit counts cover every training row except S0 replay. JSON downloads hold corpus rows, one per line; " +
+    "Markdown downloads lay the same traces out by question type.</p>" +
     `<p>Corpora: ${corpus(a)} → ${corpus(b)}<br>${gate(a)}${gate(b)}` +
     `Built ${esc(pair.built_at)} at commit <code>${esc(pair.repo_commit)}</code>.</p></footer>`);
   return parts.join("");
@@ -359,30 +411,81 @@ function versionView(data, v, order = "catalog") {
   return `<h2>${esc(v.version)} gold traces <span class="count">${v.gold.length}</span>${orderNote(basis, order)}</h2>` +
     `<p class="muted">Only one ${esc(data.stage)} corpus is on disk${missing.length ? ` (not ${esc(missing.join(", "))})` : ""}, ` +
     "so there is no pair of versions to compare. The Versions tab lists every version's gate results.</p>" +
-    `<p class="downloads">Download ${esc(v.version)}: <button type="button" data-version="${esc(v.version)}" data-what="gold">all gold traces (${v.gold.length})</button></p>` +
+    `<p class="downloads">Download ${esc(v.version)} ${downloadButtons(v, "gold", v.gold.length)}</p>` +
+    `<div class="type-list"><p class="small">${expandButtons("list")}</p>` +
     types.map((type) => {
       const golds = byType[type], text = data.type_text[type], score = basis && basis.gate.types[type];
-      return `<article class="qtype" id="${esc(v.version)}/${esc(type)}"><h3>${esc(type)} <span class="name">${esc(v.names[type] || "")}</span></h3>` +
+      return `<article class="qtype" id="${anchor(v.version, type)}"><h3>${esc(type)} <span class="name">${esc(v.names[type] || "")}</span>` +
+        `${golds.length > 1 ? expandButtons("type") : ""}</h3>` +
         (text ? `<p class="type-text">${inline(text)}</p>` : "") +
         (score ? `<p class="meta"><span class="acc">${score[0]} of ${score[1]} correct (${percent(score)})</span></p>` : "") +
         golds.map((g, i) => `<details class="trace"${i === 0 ? " open" : ""}><summary>${esc(g.outcome)}</summary>` +
           singleView(turnRows(null, v.rows[g.row_id].messages, false), `${v.version} · row ${g.row_id}`) + "</details>").join("") +
         "</article>";
-    }).join("") + splitsView(data, [v]);
+    }).join("") + "</div>" + promptsView(v) + splitsView(data, [v]);
 }
 
 function fullRow(version, rowId) {
-  // Put back the system prompt and tool list that every row of a version shares.
-  const row = version.rows[rowId];
-  return { row_id: rowId, messages: [{ role: "system", content: version.system_prompt }, ...row.messages],
-    tools: version.tools, metadata: row.metadata };
+  // Put back the system prompt and tool list the row shares with its version (or, in S2, its family).
+  const row = version.rows[rowId], shared = version.prompts[row.prompt];
+  return { row_id: rowId, messages: [{ role: "system", content: shared.system_prompt }, ...row.messages],
+    tools: shared.tools, metadata: row.metadata };
 }
 
-function download(name, rows) {
-  const blob = new Blob(rows.map((row) => JSON.stringify(row) + "\n"), { type: "application/x-ndjson" });
+function rowsJson(rows) {
+  // A JSON array with one corpus row per line, so it still reads like the JSONL it came from.
+  return "[\n" + rows.map((row) => JSON.stringify(row)).join(",\n") + "\n]\n";
+}
+
+function tracesMarkdown(data, v, items, heading) {
+  // Gold traces as a Markdown document, grouped by family and question type.
+  // items: [{type, outcome, row_id, state?}]; the system prompts and tools they use close it.
+  const turn = (t) => `**${t.label}**${t.masked ? " _(in context, masked)_" : ""}\n\n` +
+    (t.code ? "```" + (t.label === "Tool call" ? "text" : "json") + `\n${t.text}\n` + "```" : t.text);
+  const byType = {};
+  for (const item of items) (byType[item.type] = byType[item.type] || []).push(item);
+  const lines = [`# ${heading}`, "",
+    `${items.length} gold trace${items.length === 1 ? "" : "s"} from \`${v.corpus_root}\`, one training row each, ` +
+    "without the system prompt and tool list that the rows share (both are at the end).", ""];
+  let family = null;
+  for (const type of Object.keys(byType)) {
+    if (familyOf(type) !== family) {
+      family = familyOf(type);
+      lines.push(`## ${family} ${(data.families[family] || {}).title || ""}`.trim(), "");
+    }
+    lines.push(`### ${type} ${v.names[type] || ""}`.trim(), "");
+    if (data.type_text[type]) lines.push(data.type_text[type], "");
+    for (const item of byType[type]) {
+      lines.push(`#### ${item.outcome}${item.state ? ` · ${item.state}` : ""}`, "", `Row \`${item.row_id}\``, "");
+      lines.push(blocks(v.rows[item.row_id].messages).map(turn).join("\n\n"), "");
+    }
+  }
+  for (const index of [...new Set(items.map((item) => v.rows[item.row_id].prompt))].sort((x, y) => x - y)) {
+    const p = v.prompts[index], scope = sharedLabel(v, p).replace(" · ", ": ");
+    lines.push(`## System prompt${scope}`, "", "```text", p.system_prompt || "", "```", "",
+      `## Tools${scope}`, "", "```text", toolText(p.tools), "```", "");
+  }
+  return lines.join("\n");
+}
+
+// In a claude.ai artifact, files are saved through its downloads capability;
+// opened from disk or a local server, through an ordinary download link.
+const hosted = typeof window !== "undefined" && Boolean(window.claude && window.claude.use);
+let downloadsApi = null;
+
+async function save(filename, text, status) {
+  if (hosted) {
+    try {
+      await downloadsApi.save({ filename, data: text });
+      status.textContent = "";
+    } catch (error) {
+      status.textContent = error && error.code === "declined" ? "" : `${filename} was not saved: ${(error && (error.message || error.code)) || "unknown error"}.`;
+    }
+    return;
+  }
   const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = name;
+  link.href = URL.createObjectURL(new Blob([text], { type: filename.endsWith(".md") ? "text/markdown" : "application/json" }));
+  link.download = filename;
   link.click();
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }

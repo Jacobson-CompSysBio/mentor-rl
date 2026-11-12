@@ -23,9 +23,22 @@ def test_splits_count_types_from_component_manifests(tmp_path):
         "row_counts": {"train": 11, "validation": 0, "test": 2}, "stage_order": ["s1_1"],
         "stage_counts": {"train": {"s0_replay": 1, "s1_1": 10}}}))
     found = facts.splits({"version": "v1", "corpus_root": str(corpus)})
-    assert found == {"rows": {"train": 11, "validation": 0, "test": 2}, "replay": 1,
+    assert found == {"rows": {"train": 11, "validation": 0, "test": 2}, "replay": {"S0": 1},
                      "types": {"S1.1.1": {"train": 10, "test": 2}}}
     assert facts.splits({"version": "v0", "corpus_root": None}) is None
+
+
+def test_splits_count_s2_cases_and_replay_by_stage(tmp_path):
+    # The S2 production manifest counts rows per file and per catalog case, and replay per stage.
+    corpus = tmp_path / "s2"
+    corpus.mkdir()
+    (corpus / "manifest.json").write_text(json.dumps({
+        "files": {"train.jsonl": {"row_count": 9}, "validation.jsonl": {"row_count": 1}, "test.jsonl": {"row_count": 1}},
+        "budget": {"replay": {"S1": 3, "S0": 2}},
+        "case_entries": [{"case_id": "S2.1.1", "counts": {"train": 4, "validation": 1, "test": 1}}]}))
+    assert facts.splits({"version": "v1", "corpus_root": str(corpus)}) == {
+        "rows": {"train": 9, "validation": 1, "test": 1}, "replay": {"S1": 3, "S0": 2},
+        "types": {"S2.1.1": {"train": 4, "validation": 1, "test": 1}}}
 
 
 def test_tool_docs_join_schemas_with_the_contract(tmp_path):
@@ -63,6 +76,18 @@ def test_sources_follow_a_pinned_source_manifest(tmp_path):
     ]
     assert found["pins"][1]["facts"] == {"layer_id": "ppi"}
     assert facts.sources({"contract": None}) is None
+
+    # S2 has a contract per family: shared sources are listed once, under the first contract.
+    (folder / "s2_9_v1.json").write_text(json.dumps({
+        "source_manifest": {"path": "runtime/world_model/sources.json", "sha256": sha},
+        "request_bank": {"path": "runtime/world_model/s2_9_requests.json", "sha256": sha}}))
+    found = facts.sources({"contract": [str(folder / "config.json"), str(folder / "s2_9_v1.json")]})
+    assert found["files"] == [str(folder / "config.json"), str(folder / "s2_9_v1.json")]
+    assert [(pin["name"], pin["path"]) for pin in found["pins"]] == [
+        ("config.source_manifest", "runtime/world_model/sources.json"),
+        ("config.source_manifest.descriptor.layers.0", "/lustre/ppi.tsv"),
+        ("s2_9_v1.request_bank", "runtime/world_model/s2_9_requests.json"),
+    ]
 
 
 def test_pins_find_paths_hashes_and_facts():

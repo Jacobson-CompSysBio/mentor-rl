@@ -11,10 +11,15 @@ import json
 from pathlib import Path
 
 ACCURACY = "structured_answer_accuracy"
+# S2 reports name the same headline structured_accuracy and count rows as row_count.
+S2_ACCURACY = "structured_accuracy"
 # Rates shown in a stage's changelog when a report has them. The free-text
 # summary is never scored, so whole-answer exactness is not listed.
 HEADLINE = (ACCURACY, "status_exact", "result_exact", "continuation_decision_exact",
-            "exact_tool_argument", "structured_json_valid")
+            "exact_tool_argument", "structured_json_valid",
+            S2_ACCURACY, "status_accuracy", "result_accuracy", "continuation_decision_accuracy",
+            "provenance_accuracy", "blocked_reason_presence_accuracy", "exact_tool_calls",
+            "valid_trajectory")
 
 
 def gate_info(path: str | None) -> dict | None:
@@ -38,15 +43,19 @@ def gate_info(path: str | None) -> dict | None:
                   if evaluator.is_file() else None)
 
     def pair(metrics):
-        if f"{ACCURACY}_count" not in metrics:
-            return None
-        return [metrics[f"{ACCURACY}_count"], metrics[f"{ACCURACY}_total"]]
+        if f"{ACCURACY}_count" in metrics:
+            return [metrics[f"{ACCURACY}_count"], metrics[f"{ACCURACY}_total"]]
+        if f"{S2_ACCURACY}_count" in metrics:
+            return [metrics[f"{S2_ACCURACY}_count"], metrics["row_count"]]
+        return None
 
     gate = report.get("gate", {})
     overall = report["overall"]
-    # Rates per question type (S1 reports) or per question family (S0 reports).
-    by_type = "source_traces" in report
-    groups = report.get("source_traces") or report.get("families") or {}
+    # Rates per question type (S1 source traces, S2 catalog cases) or per
+    # question family (S0 reports).
+    types = report.get("source_traces") or report.get("cases") or {}
+    by_type = bool(types)
+    groups = types or report.get("families") or {}
     return {
         "report": path,
         "run": Path(path).parts[-5],  # eval_runs/<run>/<method>/<job>/report/test_metrics.json
@@ -58,7 +67,7 @@ def gate_info(path: str | None) -> dict | None:
         "overall": pair(overall),
         "metrics": rates(overall),
         "thresholds": thresholds(gate),
-        "types": {trace: pair(metrics) for trace, metrics in report.get("source_traces", {}).items()},
+        "types": {trace: pair(metrics) for trace, metrics in types.items()},
         "groups": {"by": "question type" if by_type else "question family",
                    "rows": {name: {"rates": rates(metrics), "total": total(metrics)}
                             for name, metrics in groups.items()}},

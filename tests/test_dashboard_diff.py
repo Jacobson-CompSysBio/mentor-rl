@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+from dashboard import diff
 from dashboard.diff import compare, scan, type_names
 from dashboard.gates import comparability
 
@@ -79,7 +80,7 @@ def test_single_file_corpus_and_fact_kind_names(tmp_path):
 
 
 def test_rows_without_a_source_trace_use_their_question_family(tmp_path):
-    # S2 rows name their type only by question_family.
+    # S2 pilot rows name their type only by question_family.
     root = tmp_path / "s2"
     root.mkdir()
     s2_row = row("e", "edge")
@@ -89,6 +90,36 @@ def test_rows_without_a_source_trace_use_their_question_family(tmp_path):
     (root / "manifest.json").write_text(json.dumps({"files": {}}))
     found = scan({"version": "v1", "corpus_root": str(root)})
     assert found["types"] == {"e": "S2.1.single_edge"}
+
+
+def test_s2_skips_replay_rows_and_keeps_each_family_prompt(tmp_path, monkeypatch):
+    # An S2 row names its catalog case, and each family has its own system prompt.
+    # Replay rows copied from earlier stages name their source_stage and are skipped.
+    root = tmp_path / "s2"
+    root.mkdir()
+    rows = []
+    for row_id, case, prompt in (("e1", "S2.1.1", "edges"), ("e2", "S2.1.2", "edges"), ("p1", "S2.11.1", "paths")):
+        s2_row = row(row_id, "check")
+        s2_row["messages"][0]["content"] = prompt
+        s2_row["metadata"] = {"question_family": case.rsplit(".", 1)[0], "catalog_case_id": case}
+        rows.append(s2_row)
+    replay = row("r", "lookup")
+    replay["metadata"]["source_stage"] = "S1"
+    # Rows are shuffled: the S2.11 row comes first, but prompts list in catalog order.
+    (root / "train.jsonl").write_text("".join(json.dumps(r) + "\n" for r in [rows[2], replay, *rows[:2]]))
+    (root / "manifest.json").write_text(json.dumps({"files": {}}))
+    found = scan({"version": "v1", "corpus_root": str(root)})
+    assert found["types"] == {"p1": "S2.11.1", "e1": "S2.1.1", "e2": "S2.1.2"}
+    assert [(p["system_prompt"], p["families"]) for p in found["prompts"]] == [("edges", ["S2.1"]), ("paths", ["S2.11"])]
+    assert found["prompt_of"] == {"p1": 1, "e1": 0, "e2": 0}
+
+    catalog = tmp_path / "S2-question-classes.md"
+    catalog.write_text("### S2.1.1: Edge present (direct)\n\nText.\n\n### S2.11.1: No path (direct)\n")
+    monkeypatch.setattr(diff, "S2_CATALOG", catalog)
+    diff.s2_case_names.cache_clear()
+    names = type_names(list(found["gold"].values()))
+    diff.s2_case_names.cache_clear()
+    assert names == {"S2.1.1": "Edge present (direct)", "S2.1.2": "S2.1", "S2.11.1": "No path (direct)"}
 
 
 def gate(**changes):

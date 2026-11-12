@@ -1,6 +1,26 @@
 {% extends "base.html.j2" %}
-{% block title %}Curriculum data{% endblock %}
+{% block title %}Curriculum data dashboard{% endblock %}
 {% block body %}
+{% if pages %}
+<script>
+// This one file holds every stage page. A stage link reopens it as ?stage=S1, and
+// once the file is read this replaces the index with that stage's page. It declares
+// no globals, so the stage page's own script starts clean.
+(function () {
+  var stage = new URLSearchParams(location.search).get("stage");
+  if (!stage) return;
+  document.documentElement.style.display = "none";
+  document.addEventListener("DOMContentLoaded", function () {
+    var pages = JSON.parse(document.getElementById("stage-pages").textContent);
+    if (!pages[stage]) { document.documentElement.style.display = ""; return; }
+    document.open();
+    document.write(pages[stage]);
+    document.close();
+  });
+})();
+</script>
+<noscript><p class="warn">This page needs JavaScript to open the stages.</p></noscript>
+{% endif %}
 <h1>Curriculum data</h1>
 
 {% if summary %}
@@ -16,4 +36,7 @@
 {% endif %}
 {% endfor %}
 </nav>
+{% if pages %}
+<script type="application/json" id="stage-pages">{{ pages }}</script>
+{% endif %}
 {% endblock %}

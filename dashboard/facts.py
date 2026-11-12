@@ -26,6 +26,12 @@ def load(path: Path):
     return json.loads(text) if path.suffix == ".json" else yaml.safe_load(text)
 
 
+def contracts(stage: dict) -> list[Path]:
+    """The stage's contract files: one path, or a list (S2 has one per family)."""
+    value = stage.get("contract") or []
+    return [Path(path) for path in ([value] if isinstance(value, str) else value)]
+
+
 def descriptions(stage: dict) -> dict:
     """The stage's editable text: families, versions, question types, and tools."""
     path = Path(stage.get("descriptions") or "")
@@ -34,10 +40,11 @@ def descriptions(stage: dict) -> dict:
 
 
 def splits(entry: dict) -> dict | None:
-    """Rows per split, replay rows, and rows per question type and split for one version.
+    """Rows per split, replay rows by source stage, and rows per question type and split.
 
-    S0 lists its type counts in the corpus manifest; S1 lists them in each
-    component manifest. None for a version whose corpus is not on disk.
+    S0 lists its type counts in the corpus manifest, S1 in each component
+    manifest, and S2 per catalog case. None for a version whose corpus is not
+    on disk.
     """
     if not entry.get("corpus_root"):
         return None
@@ -57,8 +64,14 @@ def splits(entry: dict) -> dict | None:
         path = root / pinned if pinned else corpus / component / "manifest.json"
         if path.is_file():
             add(load(path).get("form_counts", {}))
-    replay = manifest.get("stage_counts", {}).get("train", {}).get("s0_replay", 0)
-    return {"rows": manifest["row_counts"], "replay": replay, "types": types}
+    for case in manifest.get("case_entries", []):
+        for split, rows in case["counts"].items():
+            types.setdefault(case["case_id"], {})[split] = rows
+    rows = manifest.get("row_counts") or {name.removesuffix(".jsonl"): file["row_count"]
+                                          for name, file in manifest["files"].items()}
+    replay = manifest.get("budget", {}).get("replay") or {
+        "S0": manifest.get("stage_counts", {}).get("train", {}).get("s0_replay", 0)}
+    return {"rows": rows, "replay": {stage: n for stage, n in replay.items() if n}, "types": types}
 
 
 def parameters(schema: dict, arg_types: dict) -> list[dict]:
@@ -167,20 +180,25 @@ def pins(value, trail: tuple = ()) -> list[dict]:
 
 
 def sources(stage: dict) -> dict | None:
-    """The raw data a stage is built from: every file its contract pins.
+    """The raw data a stage is built from: every file its contracts pin.
 
     A contract may pin a source manifest instead of the files themselves, as
-    the S2 config does for its multiplex layers; that manifest's pins are
+    the S2 contracts do for their multiplex layers; that manifest's pins are
     listed too. Contracts live under <checkout>/runtime/, so a pinned path is
-    resolved against that checkout.
+    resolved against that checkout. S2 has a contract per family: a file that
+    several pin is listed once, named by the first contract that pins it.
     """
-    contract = Path(stage.get("contract") or "")
-    if not contract.is_file():
-        return None
-    checkout = next((parent.parent for parent in contract.parents if parent.name == "runtime"), Path("."))
-    found = pins(load(contract))
-    for pin in list(found):
-        if pin["name"].split(".")[-1] == "source_manifest" and (checkout / pin["path"]).is_file():
-            found += [{**inner, "name": f"{pin['name']}.{inner['name']}"}
-                      for inner in pins(load(checkout / pin["path"]))]
-    return {"file": str(contract), "pins": found}
+    files = [contract for contract in contracts(stage) if contract.is_file()]
+    found, seen = [], set()
+    for contract in files:
+        checkout = next((parent.parent for parent in contract.parents if parent.name == "runtime"), Path("."))
+        pinned = pins(load(contract))
+        for pin in list(pinned):
+            if pin["name"].split(".")[-1] == "source_manifest" and (checkout / pin["path"]).is_file():
+                pinned += [{**inner, "name": f"{pin['name']}.{inner['name']}"}
+                           for inner in pins(load(checkout / pin["path"]))]
+        for pin in pinned:
+            if pin["path"] not in seen:
+                seen.add(pin["path"])
+                found.append({**pin, "name": f"{contract.stem}.{pin['name']}"} if len(files) > 1 else pin)
+    return {"files": [str(contract) for contract in files], "pins": found} if files else None

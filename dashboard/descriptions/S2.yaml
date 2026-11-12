@@ -45,12 +45,18 @@ families:
 
 versions:
   v1: >-
-    Single-edge pilot for S2.1: 1,280 training, 640 validation, and 640 test
-    rows from the S2 dataset-review multiplex. Not yet marked training-ready.
-    Still to come: the rest of S2.1 (composed identity, pair-wide
-    directionality, claim calibration, incompatible or partial context, and
-    diagnostic cases), the S2.2 to S2.13 families, a six-file PEN view, and
-    broader quantitative ranges.
+    The first production corpus, built 2026-11-02 (s2_production_v1_8k). It
+    covers 394 of the 399 catalog cases across all 13 families, with 512
+    training, 64 validation, and 64 test rows per case: 201,728 S2 training
+    rows. Training adds 37,824 S1 v10 and 12,608 S0 replay rows, for 252,160
+    in all. Five cases are excluded: S2.4.25, because no complete instance
+    fits the 8,192-token limit, and S2.8.29, S2.8.30, S2.13.18, and S2.13.21,
+    because the source data has no qualifying validation subject or pair.
+    Each family has its own system prompt and tools. The data checks pass; the drafted wording still awaits
+    review. Training run slurm-5856263 completed 1,371 optimizer updates on 184 nodes. Evaluation
+    slurm-5902168 scored 20,320 of the 25,216 test rows correct (80.58%) under report_only_v1, which
+    sets no pass mark. The Failures tab shows where the other 4,896 go wrong.
 
-types:
-  S2.1.single_edge: Check one ordered or undirected edge between two genes in one registered layer, after confirming that both endpoints are members of that layer.
+# Question-type text, keyed by catalog case (S2.9.3). Case names come from the
+# section titles in S2-question-classes.md; add a sentence here to explain one.
+types: {}

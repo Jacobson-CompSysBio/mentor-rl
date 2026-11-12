@@ -5,7 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}{% endblock %}</title>
 <style>
+/* Light palette first; the dark one follows the OS setting unless a host such as
+   claude.ai sets data-theme on the root, which wins either way. */
 :root {
+  color-scheme: light;
   --bg: #f7f7f5; --surface: #ffffff; --text: #1d2026; --muted: #626a75; --line: #e1e3e6;
   --chip: #eef0f2; --accent: #2f5bd3; --ok: #17733a; --bad: #a12626; --warn-bg: #fff4dc;
   --warn-text: #6b4a00; --del-bg: #fbe3e3; --del-text: #8f1d1d; --ins-bg: #dcf3e3; --ins-text: #12602b;
@@ -14,12 +17,20 @@
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #121418; --surface: #1a1d22; --text: #e6e8eb; --muted: #9aa3ae; --line: #2c3138;
     --chip: #23272e; --accent: #8fb0ff; --ok: #7fd49a; --bad: #ff9b9b; --warn-bg: #3a2f14;
     --warn-text: #f3d48c; --del-bg: #4a1f23; --del-text: #ffb7b7; --ins-bg: #183a26; --ins-text: #a3e6b6;
     --series-1: #3987e5; --series-2: #d95926; --grid: #2c2c2a; --axis: #383835; --ink-2: #c3c2b7;
   }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121418; --surface: #1a1d22; --text: #e6e8eb; --muted: #9aa3ae; --line: #2c3138;
+  --chip: #23272e; --accent: #8fb0ff; --ok: #7fd49a; --bad: #ff9b9b; --warn-bg: #3a2f14;
+  --warn-text: #f3d48c; --del-bg: #4a1f23; --del-text: #ffb7b7; --ins-bg: #183a26; --ins-text: #a3e6b6;
+  --series-1: #3987e5; --series-2: #d95926; --grid: #2c2c2a; --axis: #383835; --ink-2: #c3c2b7;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -62,8 +73,13 @@ details > summary { cursor: pointer; font-size: 14px; }
   border: 1px solid var(--line); background: var(--bg); color: var(--text); }
 .side-label { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .downloads { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
-.downloads button { font: inherit; color: var(--accent); background: none; border: 0; padding: 0;
+button.link { font: inherit; color: var(--accent); background: none; border: 0; padding: 0;
   text-decoration: underline; cursor: pointer; }
+button.link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.section-tools { font-size: 12px; font-weight: 400; margin-left: 10px; white-space: nowrap; }
+/* In a claude.ai artifact, downloads wait for its downloads capability and hide without it. */
+.saves-pending .downloads, .saves-off .downloads { display: none; }
+.save-status:empty { display: none; }
 .toggle { display: inline-flex; gap: 8px; align-items: center; font-size: 14px; margin: 0 0 12px; cursor: pointer; }
 .small { font-size: 13px; }
 .chips a.unchanged { color: var(--muted); }
