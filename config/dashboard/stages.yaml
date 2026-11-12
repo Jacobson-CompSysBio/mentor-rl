@@ -64,7 +64,8 @@ stages:
         # The retained-history run, like v8-v10. The default-history run is slurm-5712872.
         gate_report: data/world_model_v4/eval_runs/s1_v6_120b_32n_test_retained/oss120b-plain-base-tokenizer-lora-r32/slurm-5724278/report/test_metrics.json
       - version: v7
-        repo_root: ../mentor-rl-s1-prompt-v7   # branch codex/s1-prompt-v7
+        # Built in the codex/s1-prompt-v7 worktree; its corpus was copied here
+        # on 2026-11-12 and its overlay is on that branch.
         corpus_root: data/world_model_v4/corpora/s1_v7
         overlay: runtime/world_model/s1_v7.yaml
         summary: Task-scope prompt experiment with an 8,192-token training limit; never trained.
