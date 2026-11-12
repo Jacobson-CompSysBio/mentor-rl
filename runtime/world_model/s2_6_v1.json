@@ -1,0 +1,124 @@
+{
+  "row_schema_version": "mentor-rl-world-model-s2-corpus-v1",
+  "source_manifest": {
+    "path": "runtime/world_model/s2_v1_sources.json",
+    "sha256": "a9f27a7ae5200a4c9490fdd2ce95ad22a486a6b1fe2bcee70f4d9b74cf59ec04"
+  },
+  "prompt_bank": {
+    "path": "runtime/world_model/s2_v1_prompt_banks.json",
+    "sha256": "0494d021f795b418c8b99b0d51c119d7c9e7f239a6ced98a6057090c891d897c"
+  },
+  "registry_index": {
+    "path": "data/world_model_v3/source_indexes/world_model_source_index_08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e.json.gz",
+    "sha256": "7c92e3e0ec47281cc502984fcb985787f8ed7423fdf4b09ddc034c3005ede88b",
+    "logical_sha256": "08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e"
+  },
+  "scoring": {
+    "exact_fields": [
+      "status",
+      "provenance",
+      "result",
+      "continuation_decision"
+    ],
+    "tool_calls": "exact ordered calls and arguments",
+    "blocked_reason": "presence, not exact prose",
+    "summary": "supported anchors and values, not exact prose"
+  },
+  "s21_request_bank": {
+    "path": "runtime/world_model/s2_v1_edge_requests.json",
+    "sha256": "e14566344fac96ef287ac42f868d5f5cb97b3747a17f21637572a58935986827"
+  },
+  "s22_request_bank": {
+    "path": "runtime/world_model/s2_2_v1_requests.json",
+    "sha256": "2c1a2cb6abcfc72abee3689ecf23616a2d0c034f8c890ae7266c59ff7ae39455"
+  },
+  "tokenizer": {
+    "path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
+    "artifacts": {
+      "chat_template.jinja": "9ad8adf1324b8eb902d6e70087f3184b1b9b345c453bbd3d38949c2f13205c1d",
+      "special_tokens_map.json": "8464cabd6eda239fe46ebf8ae63b46c417721784a961a022f6b59174a2cda0e2",
+      "tokenizer.json": "0614fe83cadab421296e664e1f48f4261fa8fef6e03e63bb75c20f38e37d07d3",
+      "tokenizer_config.json": "9279e942392b742d633c7adbb89ebe002c98399db8926a7af5125c726f404070"
+    }
+  },
+  "context_recipe": {
+    "path": "config/world_model_s1_120b_training_v10_32n.json",
+    "sha256": "125fefe6c5be0260979adffc7054c79734fe51ea283f7a676556981f7b1eb677",
+    "max_length": 4096,
+    "purpose": "existing context-length reference only; does not authorize a training run"
+  },
+  "contract_version": "mentor-rl-world-model-s2-nodes-by-layer-v1",
+  "implemented_families": [
+    "S2.6"
+  ],
+  "training_ready": false,
+  "s23_request_bank": {
+    "path": "runtime/world_model/s2_3_v1_requests.json",
+    "sha256": "4b6051674dc7cdc1d1d5a6bb26fc30e9f4b2ebf9e3552b36cc2dc73c6429ed1e"
+  },
+  "request_bank": {
+    "path": "runtime/world_model/s2_6_v1_requests.json",
+    "sha256": "4872b6d8dd4552f0f265ab2c8d3106ac986fba935f4bef2bd69ca9e139a5a2b5"
+  },
+  "system_prompt": "Classify every gene from the user's finite supplied list against exactly one registered layer in the active versioned multiplex. This operation does not request every node in that layer. get_nodes_by_layer has exactly three required arguments: multiplex_id,layer_id,gene_ids. It has no direction, top_k, cursor, or implicit size limit. Canonical IDs need no redundant registry lookup. Supplied authoritative unique registry context can resolve symbols; preserve raw inputs and attributed mappings. Unresolved identities block the requested classification rather than becoming graph negatives. Deduplicate canonical IDs in first-mention order only after identity resolution. Preserve the raw user list, order, duplicate mentions, and symbol spellings in the request.\n\nUse authoritative node inventories. In this source view each layer inventory is the union of both endpoint columns, and their union is the multiplex inventory. Target-only directed nodes belong to the layer. Registry absence does not remove a graph node. Positive degree, neighbor-list length, induced-subgraph omission, and biological expression do not define membership. One registered layer is required. An all-layer selector or family selector is not valid for this operation.\n\nReturn exactly status,provenance,result,continuation_decision,blocked_reason,summary. The ordinary result is {multiplex_id,layer_id,layer_gene_ids,layer_gene_count,not_in_layer_gene_ids,missing_gene_ids,coverage,collection}. layer_gene_ids contains requested genes in this layer. not_in_layer_gene_ids contains requested genes present in the multiplex but absent from this layer. missing_gene_ids contains requested genes confirmed outside the multiplex. Sort each category by ascending canonical ID. The three unique categories form a disjoint exhaustive partition of the requested canonical IDs. All three count fields, layer_gene_count and collection.returned_count and collection.total_count, equal the number of layer positives among the requested genes. They do not give the layer's full inventory size. Collection is {mode:complete,returned_count,total_count,complete:true,next_cursor:null}. Coverage is {operation:layer_membership,requested_gene_ids,checked_gene_ids,unchecked_gene_ids}; every coverage list follows first-mention order. A completed result has checked_gene_ids equal to requested_gene_ids and no unchecked genes.\n\nAn explicit empty input [] is valid after the multiplex and layer are known. Return empty categories and coverage, zero counts, and empty provenance without a graph call. Missing or null genes require invalid_input/MISSING_GENES. A completed classification with no layer positives still resolves. A global absence is checked evidence in missing_gene_ids, never an unchecked input or identity failure.\n\nReuse only visible authoritative evidence for the same canonical IDs, multiplex, graph version, and selected layer. A larger complete get_nodes_by_layer classification can answer a subset or a different input order. Recompute scoped categories, counts, and coverage from its visible partition while preserving the original observation and evidence ID. A global multiplex-membership positive cannot decide layer membership; a global negative puts the gene in missing_gene_ids. A complete get_gene_layers record can prove layer presence or absence within its covered scope. Its explicit present value distinguishes a layer negative from global absence. A bounded record's returned positive is usable; its omission and checked-layer coverage do not prove absence. Explicit get_neighbors membership fields can prove presence even when outgoing neighbors are empty. Supplied cross-tool observations are context only; the current acquisition tool remains get_nodes_by_layer.\n\nCombine compatible partial classifications by canonical ID, retain supporting records in first-use order, and query only still-unchecked IDs. Deduplicate identical evidence. Surface conflicting category assignments, evidence IDs, or authoritative records as harness/data faults, even when another record could already answer. Old-version observations do not fill a current-version gap. A successful batch classifies every supplied ID atomically. No failed or rejected batch supplies partial graph evidence.\n\nUse several complete batches only under an explicit runtime constraint or an actual context requirement. When the active harness supplies batch_limit, it must be a positive integer and is the maximum unique IDs per call. It is not a limit on the user's request. Preserve first-mention order when dividing unresolved IDs. Accumulate every batch and all three categories before a final success. Do not invent an implicit cap, drop a later batch, or treat an incomplete acquisition as complete. The verification size schedule selects corpus cases only; it does not constrain runtime input sizes.\n\nFailed calls add no evidence. Retry only after an explicit retries_remaining allowance, with the identical tool and all three arguments. Stop after recovery, terminal failure, or allowance exhaustion. For an unrecovered required failure use {failed_tool,error_code,arguments,partial_results,coverage}. Preserve exact failed arguments and all independent earlier attributed observations, including used registry mappings. Coverage describes the outer requested canonical domain: known positives and negatives remain checked, and failed batch inputs stay unchecked. Use null coverage if a valid common scope or canonical domain is not established. Do not synthesize an ordinary partition for unchecked inputs. Defer and name required backend recovery as the blocker.\n\nLocal prerequisite errors require no graph call. Return {issue_code,request:{genes,multiplex_id,layer_id},rejected_arguments,partial_results}. Preserve genes as the original supplied JSON value, including invalid scalars, invalid lists, raw order, and duplicates. Use null for a missing gene list. Missing scope gives invalid_input/MISSING_SCOPE. Missing or null genes give invalid_input/MISSING_GENES. Unregistered multiplex or layer gives not_found/UNKNOWN_MULTIPLEX or UNKNOWN_LAYER. Invalid gene-list shape gives invalid_input/INVALID_GENE_LIST. An unresolved identity retains its S1 invalid_input,not_found,or ambiguous status and uses UNRESOLVED_IDENTITY; keep its exact registry observation as an attributed partial. A registry backend failure uses the failure branch. Local rejection has rejected_arguments:null. A tool rejection has empty provenance and {issue_code,arguments}; copy the exact three arguments into rejected_arguments without inventing evidence.\n\nExplain the actual supplied request, selected layer, identity resolution, category evidence, input coverage, count calculation, and task decision in current-turn reasoning. Stop when classification completes a direct request. Continue when classification supplies a step of the user's stated workflow, including an all-negative result. Defer only for missing prerequisites or unavailable required acquisitions. A compound later operation can remain blocked after classification; preserve the completed classification. blocked_reason is nonempty exactly when deferring. Ordinary results omit claim cards. Explicit calibration uses approved supported_claims/unsupported_claims, subjects, scopes, versions, and prerequisites. Membership alone proves no arbitrary interaction, regulator/target role, expression, non-expression, or causality. Do not claim an edge or path search occurred from membership alone. Score structured fields, ordered calls, and evidence. Summary and blocker sentences are free text. Use <GENE:ID>,<LAYER:ID>,<MULTIPLEX:ID> anchors when naming canonical entities in summary prose.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_nodes_by_layer",
+        "description": "Classify every supplied canonical ID against one layer and the global multiplex inventory as one atomic complete batch.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^ENSG[0-9]{11}$"
+              }
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_ids"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "remaining_coverage": [
+    "Production input-size allocation across the full attainable domain and all feasible category-count triples; explicit selected-size verification does not set that budget",
+    "Production contrast allocation and wrapper reuse targets beyond the pinned verification schedule",
+    "Fresh composed identity lookups, raw normalization, candidates, null symbols, and the full S1 invalid/unknown/ambiguous identity diagnostic corpus",
+    "Explicit supported_claims/unsupported_claims calibration and compound outer tasks blocked after completed classification",
+    "Six-file PEN source view, all-family real memberships/absences, and authoritative full-layer or multiplex-only isolate inventories",
+    "Combined S2 split design: query-gene holdout does not make graph facts disjoint across splits or earlier families",
+    "Versioned S2 trainer/evaluator adapter, production supervision preflight, and model evaluation",
+    "S2.7-S2.13 builders"
+  ],
+  "s24_request_bank": {
+    "path": "runtime/world_model/s2_4_v1_requests.json",
+    "sha256": "2f6d5017bbccd724d32874704658e338df7aa0e48c2be69d212f8cd0640a319b"
+  },
+  "s25_request_bank": {
+    "path": "runtime/world_model/s2_5_v1_requests.json",
+    "sha256": "a2331cdacfe69c3b4f2bfeab2ae9af384fd36740e0ef9068d0b012048dd3e66f"
+  },
+  "smoke_input_sizes": [
+    0,
+    1,
+    2,
+    3,
+    8,
+    32,
+    256
+  ]
+}

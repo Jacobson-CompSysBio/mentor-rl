@@ -1,0 +1,545 @@
+{
+  "row_schema_version": "mentor-rl-world-model-s2-corpus-v1",
+  "source_manifest": {
+    "path": "runtime/world_model/s2_12_v1_sources.json",
+    "sha256": "e4072bba35bf5fc50285e12d253a0c3d1a44f5b33dbae8fdc7a2c82d6f4b43c9"
+  },
+  "prompt_bank": {
+    "path": "runtime/world_model/s2_v1_prompt_banks.json",
+    "sha256": "0494d021f795b418c8b99b0d51c119d7c9e7f239a6ced98a6057090c891d897c"
+  },
+  "registry_index": {
+    "path": "data/world_model_v3/source_indexes/world_model_source_index_08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e.json.gz",
+    "sha256": "7c92e3e0ec47281cc502984fcb985787f8ed7423fdf4b09ddc034c3005ede88b",
+    "logical_sha256": "08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e"
+  },
+  "scoring": {
+    "exact_fields": [
+      "status",
+      "provenance",
+      "result",
+      "continuation_decision"
+    ],
+    "tool_calls": "exact ordered calls and arguments",
+    "blocked_reason": "presence, not exact prose",
+    "summary": "supported anchors and values, not exact prose"
+  },
+  "s21_request_bank": {
+    "path": "runtime/world_model/s2_v1_edge_requests.json",
+    "sha256": "e14566344fac96ef287ac42f868d5f5cb97b3747a17f21637572a58935986827"
+  },
+  "s22_request_bank": {
+    "path": "runtime/world_model/s2_2_v1_requests.json",
+    "sha256": "2c1a2cb6abcfc72abee3689ecf23616a2d0c034f8c890ae7266c59ff7ae39455"
+  },
+  "s23_request_bank": {
+    "path": "runtime/world_model/s2_3_v1_requests.json",
+    "sha256": "4b6051674dc7cdc1d1d5a6bb26fc30e9f4b2ebf9e3552b36cc2dc73c6429ed1e"
+  },
+  "s24_request_bank": {
+    "path": "runtime/world_model/s2_4_v1_requests.json",
+    "sha256": "2f6d5017bbccd724d32874704658e338df7aa0e48c2be69d212f8cd0640a319b"
+  },
+  "s25_request_bank": {
+    "path": "runtime/world_model/s2_5_v1_requests.json",
+    "sha256": "a2331cdacfe69c3b4f2bfeab2ae9af384fd36740e0ef9068d0b012048dd3e66f"
+  },
+  "tokenizer": {
+    "path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
+    "artifacts": {
+      "chat_template.jinja": "9ad8adf1324b8eb902d6e70087f3184b1b9b345c453bbd3d38949c2f13205c1d",
+      "special_tokens_map.json": "8464cabd6eda239fe46ebf8ae63b46c417721784a961a022f6b59174a2cda0e2",
+      "tokenizer.json": "0614fe83cadab421296e664e1f48f4261fa8fef6e03e63bb75c20f38e37d07d3",
+      "tokenizer_config.json": "9279e942392b742d633c7adbb89ebe002c98399db8926a7af5125c726f404070"
+    }
+  },
+  "context_recipe": {
+    "path": "config/world_model_s1_120b_training_v10_32n.json",
+    "sha256": "125fefe6c5be0260979adffc7054c79734fe51ea283f7a676556981f7b1eb677",
+    "max_length": 4096,
+    "purpose": "existing context-length reference only; does not authorize a training run"
+  },
+  "s26_request_bank": {
+    "path": "runtime/world_model/s2_6_v1_requests.json",
+    "sha256": "4872b6d8dd4552f0f265ab2c8d3106ac986fba935f4bef2bd69ca9e139a5a2b5"
+  },
+  "s27_request_bank": {
+    "path": "runtime/world_model/s2_7_v1_requests.json",
+    "sha256": "ad86a374ab79d0f350472fb71af15ea233cf7dab5d6b9e3c64205806224f3ce9"
+  },
+  "contract_version": "mentor-rl-world-model-s2-layer-specificity-v1",
+  "implemented_families": [
+    "S2.13"
+  ],
+  "training_ready": false,
+  "request_bank": {
+    "path": "runtime/world_model/s2_13_v1_requests.json",
+    "sha256": "8525b3733b4215dec92304aa3a46e6094bb24bde3704ca1262cfc18318e3d55b"
+  },
+  "system_prompt": "Assess family capability separately from observed biological pair support. The six S1 families are ppi,coexpression,tf_target,bulk_pen,scpen,other. Their general evidence types are physical_interaction_recorded,global_coexpression,regulatory_link_recorded,context_predictive_expression,context_predictive_expression,null. The ordered s1_layer_v1 vocabulary is context_predictive_expression,physical_interaction_recorded,regulatory_link_recorded,regulation_direction,global_coexpression,cofunctional_association,holds_in_other_contexts,causal_effect. Cards partition all eight concepts into supported_claims and unsupported_claims in vocabulary order. Empty lists are []. A single-concept check adds claim and claim_supported together; list-only cards omit them. Never invent a canonical activation, repression, probability, or causal-confidence concept.\n\nA family-only result is exactly {layer_family,evidence_type,claim_cards:[one card]}. Its subject is {kind:family,layer_family}, its vocabulary is s1_layer_v1, and its provenance is empty. The family tag supplies no pair observation or native regulator/target assignment. The other family is a valid taxonomy category with null evidence type and no supported concepts; no other-family layer is registered in this view. Syntactic layer tags do not establish registration.\n\nA biological pair subject is {kind:pair,gene_ids,multiplex_id,graph_version,layer_id,layer_family,directed}. Undirected subjects sort canonical endpoints. Directed subjects preserve native source,target order; the reverse is a different subject. Each requested pair, layer, context, and orientation gets its own card. Preserve the declared subject order and append the primary subject only if absent. A matching positive native PPI record supports physical_interaction_recorded. Coexpression supports global_coexpression, which names source aggregation rather than every biological setting. A native directed TF positive supports regulatory_link_recorded and regulation_direction. A family tag or undirected representation cannot assign regulator and target. PEN positives support context_predictive_expression within their exact bulk or single-cell settings. HumanNet does not by itself establish cofunctional_association.\n\nAn evidence-only result is exactly {claim_cards:[...]}. Assess supplied records without acquiring new graph evidence or inventing an edge, weight, or membership result. Retain observations being contrasted, but wrong pair, view version, layer, native representation, or directed orientation supplies no positive proof for the requested target. Checked negatives and missing-prerequisite records support no positive biological concepts. They do not make biological statements false. A two-edge route is not a direct-interaction record. Independent positives in two contexts support those local cards, not additional unexamined contexts.\n\nWhen actual acquisition is requested, reuse a sufficient compatible positive or negative observation. Otherwise call unchanged get_edge with exactly multiplex_id,layer_id,gene_ids, preserving the literal canonical input order. Its complete successful ordinary result retains gene_ids,multiplex_id,layer_id,directed,edge_exists,weight,missing_gene_ids,not_in_layer_gene_ids and adds only claim_cards. A known multiplex endpoint outside the layer gives a completed false edge and no positive biological concepts. A required missing multiplex endpoint gives not_found/defer with the ordinary checked-missing result and no unassessed cards. Canonical IDs may go directly to graph tools. Resolve raw symbols and noncanonical IDs under S1 rules; reuse authoritative mappings, preserve literal inputs, null symbols, candidates, and candidate details, and never choose by expected graph outcome.\n\nMatch the complete graph version, multiplex, registered layer, exact canonical pair, native directed metadata, and orientation before using positive proof. Preserve original weights, operations, arguments, statuses, results, evidence IDs, and provenance. Equal records deduplicate in first-use order. Contradictory observations and one evidence ID naming different acquisitions are harness faults. A stale graph record cannot replace a required current acquisition. Retain successful independent observations as partials after failure.\n\nBulk PEN uses R-squared weights; single-cell PEN uses importance weights. Preserve the source decimals without rescaling or a new cutoff. These weights are not probabilities or a demonstrated common comparison scale. Their different settings remain separate. Undirected PEN does not assign predictor and response. Selected edge outputs supply no expression-abundance measurement, activation/repression sign, perturbation result, causal effect, or feedback mechanism. A high weight and reciprocal TF links do not add those conclusions.\n\nOrdinary support cards emit no statement_true. An explicit biological truth request that graph evidence cannot decide returns invalid_input/UNSUPPORTED_TRUTH_SCOPE, retains original usable partials, and defers without a false verdict. A separate explicit graph-truth card can use s2_graph_observations_v1 and the reviewed S2.11 subject {gene_ids,multiplex_id,layer_id,direction}. Bind its exact literal scoped graph statement and eleven-concept partition. Keep the biological card separate and unchanged. An observed edge refutes its exact scoped no-edge statement. Unsupported biological support does not mean false biological truth.\n\nPair diagnostics contain exactly issue_code,request:{genes,multiplex_id,layer_id,direction},rejected_arguments,partial_results. Preserve all four raw JSON values. Unknown scope gives not_found/UNKNOWN_LAYER or UNKNOWN_MULTIPLEX. Missing scope or genes, invalid pair shape, and incompatible direction retain S2.1 diagnostic rules. Unresolved identity retains its S1 status under UNRESOLVED_IDENTITY. Local rejections have no call and rejected_arguments:null. Tool rejections retain exact arguments and empty graph provenance. Every blocked branch defers.\n\nAn unrecovered required backend error returns error/defer with result:{failed_tool,error_code,arguments,partial_results,coverage:null}; omit unassessed cards. Failed attempts add no evidence. Retry only with visible positive retries_remaining and repeat the identical tool and arguments. Stop after recovery or exhaustion. A completed negative grants no retry. A completed standalone task stops; a completed workflow step continues, including unsupported claims and evaluated negatives. Defer only for an actual blocker. blocked_reason is nonempty exactly on defer. Explain observed scope and evidence limits in current-turn reasoning. Grade structured fields, ordered calls, provenance, and blocker presence; reasoning, summary, and blocker sentences remain free prose.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "lookup_human_gene_symbol",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "gene_symbol": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "gene_symbol"
+          ],
+          "additionalProperties": false
+        },
+        "description": "Resolve one human gene symbol against the pinned authoritative registry without guessing among unresolved candidates."
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "lookup_human_ensembl_gene_id",
+        "description": "Resolve one supplied human Ensembl gene identifier against the pinned registry, preserving a null authoritative symbol.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "gene_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "gene_id"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "check_multiplex_membership",
+        "description": "Check every supplied canonical ID against the complete multiplex node inventory.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "gene_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "gene_ids"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_gene_layers",
+        "description": "Classify global multiplex membership and return one manifest-ordered page of containing layers in the selected scope.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "gene_id": {
+              "type": "string",
+              "pattern": "^ENSG[0-9]{11}$"
+            },
+            "layer_scope": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "layers",
+                    "all"
+                  ]
+                },
+                "layer_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "layer_family": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "kind",
+                "layer_ids",
+                "layer_family"
+              ],
+              "additionalProperties": false
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "complete",
+                "top_k"
+              ]
+            },
+            "top_k": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "gene_id",
+            "layer_scope",
+            "mode",
+            "top_k",
+            "cursor"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_edge",
+        "description": "Check both endpoint memberships and one native ordered or undirected edge in a registered layer.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^ENSG[0-9]{11}$"
+              },
+              "minItems": 2,
+              "maxItems": 2,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_ids"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_neighbors",
+        "description": "Check global and layer membership and return one native ranked neighbor page for an explicit directional selection.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_id": {
+              "type": "string",
+              "pattern": "^ENSG[0-9]{11}$"
+            },
+            "direction": {
+              "type": "string",
+              "enum": [
+                "in",
+                "out",
+                "undirected"
+              ]
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "complete",
+                "top_k"
+              ]
+            },
+            "top_k": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_id",
+            "direction",
+            "mode",
+            "top_k",
+            "cursor"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_nodes_by_layer",
+        "description": "Classify every supplied canonical ID against one layer and the global multiplex inventory as one atomic complete batch.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^ENSG[0-9]{11}$"
+              }
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_ids"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "induce_subgraph",
+        "description": "Classify all requested IDs in one layer and return one canonical native edge page for their induced member subset.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^ENSG[0-9]{11}$"
+              }
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "complete",
+                "top_k"
+              ]
+            },
+            "top_k": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_ids",
+            "mode",
+            "top_k",
+            "cursor"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "shortest_path",
+        "description": "Search the full native layer for an unweighted minimum-hop path and return the lexicographically smallest tied witness in endpoint order.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^ENSG[0-9]{11}$"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "direction": {
+              "type": "string",
+              "enum": [
+                "undirected",
+                "source_to_target"
+              ]
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_ids",
+            "direction"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "remaining_coverage": [
+    "Qualify a real other-family graph source before adding observed other-family pair claims.",
+    "Select production quotas across attained native families, pair categories, concept checks, and evidence contrasts.",
+    "Complete trainer compatibility and exact biological-and-graph claim evaluation before training export.",
+    "Choose production context handling without truncating required observations.",
+    "Broader tissues, cell types, native representations, calibrated weight comparisons, signs, expression measurements, and causal evidence require qualified sources."
+  ],
+  "s28_request_bank": {
+    "path": "runtime/world_model/s2_8_v1_requests.json",
+    "sha256": "4960e4f2e234ee4c7ae641c9de517f5f3a8b766627b297c5c2bf4e3e6c7d2ae8"
+  },
+  "production_export_allowed": false,
+  "s29_request_bank": {
+    "path": "runtime/world_model/s2_9_v1_requests.json",
+    "sha256": "e922d21d77d55c08422c2ff3e05a916b8d66de84ad552fe0c68d1d8fa2f4a28e"
+  },
+  "s210_request_bank": {
+    "path": "runtime/world_model/s2_10_v1_requests.json",
+    "sha256": "a7172bd44cdb18683bd7067bd50ec50d3f7cab6e72b377dd7bc22021978da500"
+  },
+  "claim_vocabulary": [
+    "context_predictive_expression",
+    "physical_interaction_recorded",
+    "regulatory_link_recorded",
+    "regulation_direction",
+    "global_coexpression",
+    "cofunctional_association",
+    "holds_in_other_contexts",
+    "causal_effect"
+  ],
+  "previous_source_manifest": {
+    "path": "runtime/world_model/s2_v1_sources.json",
+    "sha256": "a9f27a7ae5200a4c9490fdd2ce95ad22a486a6b1fe2bcee70f4d9b74cf59ec04"
+  },
+  "s211_request_bank": {
+    "path": "runtime/world_model/s2_11_v1_requests.json",
+    "sha256": "1a32b9121afe63773d8af706df2dbcb66efcc9ee5cab12ea5b540f959d58b051"
+  },
+  "s212_request_bank": {
+    "path": "runtime/world_model/s2_12_v1_requests.json",
+    "sha256": "aaf500133ba2a47329ecbf9ea7b87c3f060bd76eb2073eaba1159e68a63c8d69"
+  },
+  "graph_claim_vocabulary": [
+    "no_edge_recorded_in_scope",
+    "no_path_recorded_in_scope",
+    "gene_not_node_in_multiplex",
+    "gene_not_node_in_layer",
+    "not_in_shown_top_k",
+    "absence_holds_in_other_layers",
+    "absence_holds_in_other_versions",
+    "genes_unrelated_in_all_contexts",
+    "no_interaction_in_biology",
+    "relationship_experimentally_disproven",
+    "gene_not_expressed_in_context"
+  ],
+  "layer_families": [
+    "ppi",
+    "coexpression",
+    "tf_target",
+    "bulk_pen",
+    "scpen",
+    "other"
+  ],
+  "family_cards": {
+    "ppi": {
+      "evidence_type": "physical_interaction_recorded",
+      "supported_claims": [
+        "physical_interaction_recorded"
+      ]
+    },
+    "coexpression": {
+      "evidence_type": "global_coexpression",
+      "supported_claims": [
+        "global_coexpression"
+      ]
+    },
+    "tf_target": {
+      "evidence_type": "regulatory_link_recorded",
+      "supported_claims": [
+        "regulatory_link_recorded"
+      ]
+    },
+    "bulk_pen": {
+      "evidence_type": "context_predictive_expression",
+      "supported_claims": [
+        "context_predictive_expression"
+      ]
+    },
+    "scpen": {
+      "evidence_type": "context_predictive_expression",
+      "supported_claims": [
+        "context_predictive_expression"
+      ]
+    },
+    "other": {
+      "evidence_type": null,
+      "supported_claims": []
+    }
+  }
+}

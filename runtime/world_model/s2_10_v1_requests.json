@@ -1,0 +1,216 @@
+{
+  "schema_version": "mentor-rl-world-model-s2-10-requests-v1",
+  "description": "Frozen literal requests for exact induced component partitions, all-input connectivity questions, and fixed prerequisites; wording never chooses graph facts.",
+  "train": {
+    "partition": [
+      "Partition the selected layer members of {genes} into connected components in {layer_id}, multiplex {multiplex_id}. Connectivity kind: {connectivity_kind}; require every input in the layer: {require_all_in_layer}. Return all groups and classify excluded inputs.",
+      "Find every connected component induced by {genes} using layer {layer_id} from {multiplex_id}. Apply connectivity kind {connectivity_kind} and all-members prerequisite {require_all_in_layer}; retain the entire partition and exclusions.",
+      "Using {multiplex_id} and {layer_id}, group {genes} by induced connectivity. Kind is {connectivity_kind}; the all-input membership prerequisite is {require_all_in_layer}. Provide the full component partition with excluded genes classified.",
+      "Give an exact connected-component partition for {genes} in multiplex {multiplex_id}, layer {layer_id}. Use kind {connectivity_kind} and membership gate {require_all_in_layer}; account for every requested input."
+    ],
+    "single_component": [
+      "Do all requested genes {genes} belong to one connected component in {layer_id}, multiplex {multiplex_id}? Connectivity kind: {connectivity_kind}; require every input in the layer: {require_all_in_layer}. Also return the complete partition and exclusions.",
+      "Determine whether every input in {genes} is a layer member forming one connected component under {multiplex_id}, layer {layer_id}. Apply connectivity kind {connectivity_kind} and all-members prerequisite {require_all_in_layer}; include every component and excluded input.",
+      "Using {multiplex_id} and {layer_id}, do {genes} form exactly one connected component with no excluded genes? Kind is {connectivity_kind}; the all-input membership prerequisite is {require_all_in_layer}. Supply the full partition as well.",
+      "Check whether {genes} all lie within one connected component in multiplex {multiplex_id}, layer {layer_id}. Use kind {connectivity_kind} and membership gate {require_all_in_layer}; report the exact partition and each exclusion too."
+    ]
+  },
+  "validation": {
+    "partition": [
+      "Establish the exhaustive connectivity grouping among selected members named by {genes}. Graph reference {multiplex_id}; relation {layer_id}; interpretation {connectivity_kind}; universal inclusion precondition {require_all_in_layer}. Retain excluded entries in their membership categories.",
+      "At relation {layer_id} of graph reference {multiplex_id}, enumerate connectivity groups induced on entries {genes}. Interpretation {connectivity_kind}, universal inclusion precondition {require_all_in_layer}. Include all groups plus the classification of exclusions.",
+      "Derive a complete connectivity grouping concerning entries {genes} under interpretation {connectivity_kind}. Graph reference: {multiplex_id}; relation: {layer_id}; universal inclusion precondition: {require_all_in_layer}. Keep excluded entries separately classified.",
+      "Enumerate each connectivity group formed by selected members from {genes}, with graph reference {multiplex_id} and relation {layer_id}. The interpretation is {connectivity_kind}; universal inclusion precondition is {require_all_in_layer}. Preserve a full account of exclusions."
+    ],
+    "single_component": [
+      "Does every entry named by {genes} occur in this relation and share a single connectivity group? Graph reference {multiplex_id}; relation {layer_id}; interpretation {connectivity_kind}; universal inclusion precondition {require_all_in_layer}. Include the exhaustive grouping and exclusion categories.",
+      "At relation {layer_id} of graph reference {multiplex_id}, establish whether entries {genes} are all members joined within one connectivity group. Interpretation {connectivity_kind}, universal inclusion precondition {require_all_in_layer}. Enumerate the entire grouping and classify exclusions too.",
+      "Determine whether entries {genes} have universal relation membership and exactly one induced connectivity group under interpretation {connectivity_kind}. Graph reference: {multiplex_id}; relation: {layer_id}; universal inclusion precondition: {require_all_in_layer}. Also retain the complete grouping with exclusions.",
+      "Assess whether a single connectivity group contains every entry from {genes}, with graph reference {multiplex_id} and relation {layer_id}. The interpretation is {connectivity_kind}; universal inclusion precondition is {require_all_in_layer}. Provide exhaustive groups and exclusion categories."
+    ]
+  },
+  "test": {
+    "partition": [
+      "Compute all components of the selection {genes} on network identifier {multiplex_id}, layer identifier {layer_id}. Requested connectivity {connectivity_kind}; obligatory layer presence {require_all_in_layer}. Tabulate the exact grouping and any inputs outside the selected layer.",
+      "For network identifier {multiplex_id}, divide selected layer nodes from {genes} into their components along layer identifier {layer_id}. Requested connectivity: {connectivity_kind}; obligatory layer presence: {require_all_in_layer}. Supply every component and classify omitted inputs.",
+      "Produce the exact component decomposition induced on {genes} along layer identifier {layer_id}. Network identifier {multiplex_id}, requested connectivity {connectivity_kind}, obligatory layer presence {require_all_in_layer}. Account separately for inputs absent from this layer or network.",
+      "Tabulate the components induced by selection {genes} with requested connectivity {connectivity_kind}. Use network identifier {multiplex_id} together with layer identifier {layer_id}; obligatory layer presence {require_all_in_layer}. Retain every group and both exclusion categories."
+    ],
+    "single_component": [
+      "Is the selection {genes} entirely present and united in one component on network identifier {multiplex_id}, layer identifier {layer_id}? Requested connectivity {connectivity_kind}; obligatory layer presence {require_all_in_layer}. Tabulate every component and categorize inputs outside the selected layer.",
+      "For network identifier {multiplex_id}, decide whether selection {genes} consists entirely of layer members connected into one component along layer identifier {layer_id}. Requested connectivity: {connectivity_kind}; obligatory layer presence: {require_all_in_layer}. Supply the exact decomposition and exclusions.",
+      "Answer whether {genes} are all layer members of a single induced component along layer identifier {layer_id}. Network identifier {multiplex_id}, requested connectivity {connectivity_kind}, obligatory layer presence {require_all_in_layer}. Present every component and classify absent inputs.",
+      "Evaluate whether one component includes the whole selection {genes}, with every input a layer member, using requested connectivity {connectivity_kind}. Use network identifier {multiplex_id} together with layer identifier {layer_id}; obligatory layer presence {require_all_in_layer}. Retain the exhaustive decomposition and exclusions."
+    ]
+  },
+  "diagnostic_requests": {
+    "train": {
+      "unknown_layer": [
+        "Partition the selected layer members of {genes} into connected components in {layer_id}, multiplex {multiplex_id}. Connectivity kind: {connectivity_kind}; require every input in the layer: {require_all_in_layer}. Return all groups and classify excluded inputs.",
+        "Find every connected component induced by {genes} using layer {layer_id} from {multiplex_id}. Apply connectivity kind {connectivity_kind} and all-members prerequisite {require_all_in_layer}; retain the entire partition and exclusions.",
+        "Using {multiplex_id} and {layer_id}, group {genes} by induced connectivity. Kind is {connectivity_kind}; the all-input membership prerequisite is {require_all_in_layer}. Provide the full component partition with excluded genes classified.",
+        "Give an exact connected-component partition for {genes} in multiplex {multiplex_id}, layer {layer_id}. Use kind {connectivity_kind} and membership gate {require_all_in_layer}; account for every requested input."
+      ],
+      "unknown_multiplex": [
+        "Partition the selected layer members of {genes} into connected components in {layer_id}, multiplex {multiplex_id}. Connectivity kind: {connectivity_kind}; require every input in the layer: {require_all_in_layer}. Return all groups and classify excluded inputs.",
+        "Find every connected component induced by {genes} using layer {layer_id} from {multiplex_id}. Apply connectivity kind {connectivity_kind} and all-members prerequisite {require_all_in_layer}; retain the entire partition and exclusions.",
+        "Using {multiplex_id} and {layer_id}, group {genes} by induced connectivity. Kind is {connectivity_kind}; the all-input membership prerequisite is {require_all_in_layer}. Provide the full component partition with excluded genes classified.",
+        "Give an exact connected-component partition for {genes} in multiplex {multiplex_id}, layer {layer_id}. Use kind {connectivity_kind} and membership gate {require_all_in_layer}; account for every requested input."
+      ],
+      "missing_genes": [
+        "Partition the selected layer members of {genes} into connected components in {layer_id}, multiplex {multiplex_id}. Connectivity kind: {connectivity_kind}; require every input in the layer: {require_all_in_layer}. Return all groups and classify excluded inputs.",
+        "Find every connected component induced by {genes} using layer {layer_id} from {multiplex_id}. Apply connectivity kind {connectivity_kind} and all-members prerequisite {require_all_in_layer}; retain the entire partition and exclusions.",
+        "Using {multiplex_id} and {layer_id}, group {genes} by induced connectivity. Kind is {connectivity_kind}; the all-input membership prerequisite is {require_all_in_layer}. Provide the full component partition with excluded genes classified.",
+        "Give an exact connected-component partition for {genes} in multiplex {multiplex_id}, layer {layer_id}. Use kind {connectivity_kind} and membership gate {require_all_in_layer}; account for every requested input."
+      ],
+      "missing_scope": [
+        "Partition the selected layer members of {genes} into connected components in {layer_id}, multiplex {multiplex_id}. Connectivity kind: {connectivity_kind}; require every input in the layer: {require_all_in_layer}. Return all groups and classify excluded inputs.",
+        "Find every connected component induced by {genes} using layer {layer_id} from {multiplex_id}. Apply connectivity kind {connectivity_kind} and all-members prerequisite {require_all_in_layer}; retain the entire partition and exclusions.",
+        "Using {multiplex_id} and {layer_id}, group {genes} by induced connectivity. Kind is {connectivity_kind}; the all-input membership prerequisite is {require_all_in_layer}. Provide the full component partition with excluded genes classified.",
+        "Give an exact connected-component partition for {genes} in multiplex {multiplex_id}, layer {layer_id}. Use kind {connectivity_kind} and membership gate {require_all_in_layer}; account for every requested input."
+      ],
+      "invalid_list": [
+        "Partition the selected layer members of {genes} into connected components in {layer_id}, multiplex {multiplex_id}. Connectivity kind: {connectivity_kind}; require every input in the layer: {require_all_in_layer}. Return all groups and classify excluded inputs.",
+        "Find every connected component induced by {genes} using layer {layer_id} from {multiplex_id}. Apply connectivity kind {connectivity_kind} and all-members prerequisite {require_all_in_layer}; retain the entire partition and exclusions.",
+        "Using {multiplex_id} and {layer_id}, group {genes} by induced connectivity. Kind is {connectivity_kind}; the all-input membership prerequisite is {require_all_in_layer}. Provide the full component partition with excluded genes classified.",
+        "Give an exact connected-component partition for {genes} in multiplex {multiplex_id}, layer {layer_id}. Use kind {connectivity_kind} and membership gate {require_all_in_layer}; account for every requested input."
+      ],
+      "missing_kind": [
+        "Partition the selected layer members of {genes} into connected components in {layer_id}, multiplex {multiplex_id}. Connectivity kind: {connectivity_kind}; require every input in the layer: {require_all_in_layer}. Return all groups and classify excluded inputs.",
+        "Find every connected component induced by {genes} using layer {layer_id} from {multiplex_id}. Apply connectivity kind {connectivity_kind} and all-members prerequisite {require_all_in_layer}; retain the entire partition and exclusions.",
+        "Using {multiplex_id} and {layer_id}, group {genes} by induced connectivity. Kind is {connectivity_kind}; the all-input membership prerequisite is {require_all_in_layer}. Provide the full component partition with excluded genes classified.",
+        "Give an exact connected-component partition for {genes} in multiplex {multiplex_id}, layer {layer_id}. Use kind {connectivity_kind} and membership gate {require_all_in_layer}; account for every requested input."
+      ],
+      "invalid_kind": [
+        "Partition the selected layer members of {genes} into connected components in {layer_id}, multiplex {multiplex_id}. Connectivity kind: {connectivity_kind}; require every input in the layer: {require_all_in_layer}. Return all groups and classify excluded inputs.",
+        "Find every connected component induced by {genes} using layer {layer_id} from {multiplex_id}. Apply connectivity kind {connectivity_kind} and all-members prerequisite {require_all_in_layer}; retain the entire partition and exclusions.",
+        "Using {multiplex_id} and {layer_id}, group {genes} by induced connectivity. Kind is {connectivity_kind}; the all-input membership prerequisite is {require_all_in_layer}. Provide the full component partition with excluded genes classified.",
+        "Give an exact connected-component partition for {genes} in multiplex {multiplex_id}, layer {layer_id}. Use kind {connectivity_kind} and membership gate {require_all_in_layer}; account for every requested input."
+      ],
+      "unavailable_kind": [
+        "Partition the selected layer members of {genes} into connected components in {layer_id}, multiplex {multiplex_id}. Connectivity kind: {connectivity_kind}; require every input in the layer: {require_all_in_layer}. Return all groups and classify excluded inputs.",
+        "Find every connected component induced by {genes} using layer {layer_id} from {multiplex_id}. Apply connectivity kind {connectivity_kind} and all-members prerequisite {require_all_in_layer}; retain the entire partition and exclusions.",
+        "Using {multiplex_id} and {layer_id}, group {genes} by induced connectivity. Kind is {connectivity_kind}; the all-input membership prerequisite is {require_all_in_layer}. Provide the full component partition with excluded genes classified.",
+        "Give an exact connected-component partition for {genes} in multiplex {multiplex_id}, layer {layer_id}. Use kind {connectivity_kind} and membership gate {require_all_in_layer}; account for every requested input."
+      ],
+      "unresolved_identity": [
+        "Partition the selected layer members of {genes} into connected components in {layer_id}, multiplex {multiplex_id}. Connectivity kind: {connectivity_kind}; require every input in the layer: {require_all_in_layer}. Return all groups and classify excluded inputs.",
+        "Find every connected component induced by {genes} using layer {layer_id} from {multiplex_id}. Apply connectivity kind {connectivity_kind} and all-members prerequisite {require_all_in_layer}; retain the entire partition and exclusions.",
+        "Using {multiplex_id} and {layer_id}, group {genes} by induced connectivity. Kind is {connectivity_kind}; the all-input membership prerequisite is {require_all_in_layer}. Provide the full component partition with excluded genes classified.",
+        "Give an exact connected-component partition for {genes} in multiplex {multiplex_id}, layer {layer_id}. Use kind {connectivity_kind} and membership gate {require_all_in_layer}; account for every requested input."
+      ]
+    },
+    "validation": {
+      "unknown_layer": [
+        "Establish the exhaustive connectivity grouping among selected members named by {genes}. Graph reference {multiplex_id}; relation {layer_id}; interpretation {connectivity_kind}; universal inclusion precondition {require_all_in_layer}. Retain excluded entries in their membership categories.",
+        "At relation {layer_id} of graph reference {multiplex_id}, enumerate connectivity groups induced on entries {genes}. Interpretation {connectivity_kind}, universal inclusion precondition {require_all_in_layer}. Include all groups plus the classification of exclusions.",
+        "Derive a complete connectivity grouping concerning entries {genes} under interpretation {connectivity_kind}. Graph reference: {multiplex_id}; relation: {layer_id}; universal inclusion precondition: {require_all_in_layer}. Keep excluded entries separately classified.",
+        "Enumerate each connectivity group formed by selected members from {genes}, with graph reference {multiplex_id} and relation {layer_id}. The interpretation is {connectivity_kind}; universal inclusion precondition is {require_all_in_layer}. Preserve a full account of exclusions."
+      ],
+      "unknown_multiplex": [
+        "Establish the exhaustive connectivity grouping among selected members named by {genes}. Graph reference {multiplex_id}; relation {layer_id}; interpretation {connectivity_kind}; universal inclusion precondition {require_all_in_layer}. Retain excluded entries in their membership categories.",
+        "At relation {layer_id} of graph reference {multiplex_id}, enumerate connectivity groups induced on entries {genes}. Interpretation {connectivity_kind}, universal inclusion precondition {require_all_in_layer}. Include all groups plus the classification of exclusions.",
+        "Derive a complete connectivity grouping concerning entries {genes} under interpretation {connectivity_kind}. Graph reference: {multiplex_id}; relation: {layer_id}; universal inclusion precondition: {require_all_in_layer}. Keep excluded entries separately classified.",
+        "Enumerate each connectivity group formed by selected members from {genes}, with graph reference {multiplex_id} and relation {layer_id}. The interpretation is {connectivity_kind}; universal inclusion precondition is {require_all_in_layer}. Preserve a full account of exclusions."
+      ],
+      "missing_genes": [
+        "Establish the exhaustive connectivity grouping among selected members named by {genes}. Graph reference {multiplex_id}; relation {layer_id}; interpretation {connectivity_kind}; universal inclusion precondition {require_all_in_layer}. Retain excluded entries in their membership categories.",
+        "At relation {layer_id} of graph reference {multiplex_id}, enumerate connectivity groups induced on entries {genes}. Interpretation {connectivity_kind}, universal inclusion precondition {require_all_in_layer}. Include all groups plus the classification of exclusions.",
+        "Derive a complete connectivity grouping concerning entries {genes} under interpretation {connectivity_kind}. Graph reference: {multiplex_id}; relation: {layer_id}; universal inclusion precondition: {require_all_in_layer}. Keep excluded entries separately classified.",
+        "Enumerate each connectivity group formed by selected members from {genes}, with graph reference {multiplex_id} and relation {layer_id}. The interpretation is {connectivity_kind}; universal inclusion precondition is {require_all_in_layer}. Preserve a full account of exclusions."
+      ],
+      "missing_scope": [
+        "Establish the exhaustive connectivity grouping among selected members named by {genes}. Graph reference {multiplex_id}; relation {layer_id}; interpretation {connectivity_kind}; universal inclusion precondition {require_all_in_layer}. Retain excluded entries in their membership categories.",
+        "At relation {layer_id} of graph reference {multiplex_id}, enumerate connectivity groups induced on entries {genes}. Interpretation {connectivity_kind}, universal inclusion precondition {require_all_in_layer}. Include all groups plus the classification of exclusions.",
+        "Derive a complete connectivity grouping concerning entries {genes} under interpretation {connectivity_kind}. Graph reference: {multiplex_id}; relation: {layer_id}; universal inclusion precondition: {require_all_in_layer}. Keep excluded entries separately classified.",
+        "Enumerate each connectivity group formed by selected members from {genes}, with graph reference {multiplex_id} and relation {layer_id}. The interpretation is {connectivity_kind}; universal inclusion precondition is {require_all_in_layer}. Preserve a full account of exclusions."
+      ],
+      "invalid_list": [
+        "Establish the exhaustive connectivity grouping among selected members named by {genes}. Graph reference {multiplex_id}; relation {layer_id}; interpretation {connectivity_kind}; universal inclusion precondition {require_all_in_layer}. Retain excluded entries in their membership categories.",
+        "At relation {layer_id} of graph reference {multiplex_id}, enumerate connectivity groups induced on entries {genes}. Interpretation {connectivity_kind}, universal inclusion precondition {require_all_in_layer}. Include all groups plus the classification of exclusions.",
+        "Derive a complete connectivity grouping concerning entries {genes} under interpretation {connectivity_kind}. Graph reference: {multiplex_id}; relation: {layer_id}; universal inclusion precondition: {require_all_in_layer}. Keep excluded entries separately classified.",
+        "Enumerate each connectivity group formed by selected members from {genes}, with graph reference {multiplex_id} and relation {layer_id}. The interpretation is {connectivity_kind}; universal inclusion precondition is {require_all_in_layer}. Preserve a full account of exclusions."
+      ],
+      "missing_kind": [
+        "Establish the exhaustive connectivity grouping among selected members named by {genes}. Graph reference {multiplex_id}; relation {layer_id}; interpretation {connectivity_kind}; universal inclusion precondition {require_all_in_layer}. Retain excluded entries in their membership categories.",
+        "At relation {layer_id} of graph reference {multiplex_id}, enumerate connectivity groups induced on entries {genes}. Interpretation {connectivity_kind}, universal inclusion precondition {require_all_in_layer}. Include all groups plus the classification of exclusions.",
+        "Derive a complete connectivity grouping concerning entries {genes} under interpretation {connectivity_kind}. Graph reference: {multiplex_id}; relation: {layer_id}; universal inclusion precondition: {require_all_in_layer}. Keep excluded entries separately classified.",
+        "Enumerate each connectivity group formed by selected members from {genes}, with graph reference {multiplex_id} and relation {layer_id}. The interpretation is {connectivity_kind}; universal inclusion precondition is {require_all_in_layer}. Preserve a full account of exclusions."
+      ],
+      "invalid_kind": [
+        "Establish the exhaustive connectivity grouping among selected members named by {genes}. Graph reference {multiplex_id}; relation {layer_id}; interpretation {connectivity_kind}; universal inclusion precondition {require_all_in_layer}. Retain excluded entries in their membership categories.",
+        "At relation {layer_id} of graph reference {multiplex_id}, enumerate connectivity groups induced on entries {genes}. Interpretation {connectivity_kind}, universal inclusion precondition {require_all_in_layer}. Include all groups plus the classification of exclusions.",
+        "Derive a complete connectivity grouping concerning entries {genes} under interpretation {connectivity_kind}. Graph reference: {multiplex_id}; relation: {layer_id}; universal inclusion precondition: {require_all_in_layer}. Keep excluded entries separately classified.",
+        "Enumerate each connectivity group formed by selected members from {genes}, with graph reference {multiplex_id} and relation {layer_id}. The interpretation is {connectivity_kind}; universal inclusion precondition is {require_all_in_layer}. Preserve a full account of exclusions."
+      ],
+      "unavailable_kind": [
+        "Establish the exhaustive connectivity grouping among selected members named by {genes}. Graph reference {multiplex_id}; relation {layer_id}; interpretation {connectivity_kind}; universal inclusion precondition {require_all_in_layer}. Retain excluded entries in their membership categories.",
+        "At relation {layer_id} of graph reference {multiplex_id}, enumerate connectivity groups induced on entries {genes}. Interpretation {connectivity_kind}, universal inclusion precondition {require_all_in_layer}. Include all groups plus the classification of exclusions.",
+        "Derive a complete connectivity grouping concerning entries {genes} under interpretation {connectivity_kind}. Graph reference: {multiplex_id}; relation: {layer_id}; universal inclusion precondition: {require_all_in_layer}. Keep excluded entries separately classified.",
+        "Enumerate each connectivity group formed by selected members from {genes}, with graph reference {multiplex_id} and relation {layer_id}. The interpretation is {connectivity_kind}; universal inclusion precondition is {require_all_in_layer}. Preserve a full account of exclusions."
+      ],
+      "unresolved_identity": [
+        "Establish the exhaustive connectivity grouping among selected members named by {genes}. Graph reference {multiplex_id}; relation {layer_id}; interpretation {connectivity_kind}; universal inclusion precondition {require_all_in_layer}. Retain excluded entries in their membership categories.",
+        "At relation {layer_id} of graph reference {multiplex_id}, enumerate connectivity groups induced on entries {genes}. Interpretation {connectivity_kind}, universal inclusion precondition {require_all_in_layer}. Include all groups plus the classification of exclusions.",
+        "Derive a complete connectivity grouping concerning entries {genes} under interpretation {connectivity_kind}. Graph reference: {multiplex_id}; relation: {layer_id}; universal inclusion precondition: {require_all_in_layer}. Keep excluded entries separately classified.",
+        "Enumerate each connectivity group formed by selected members from {genes}, with graph reference {multiplex_id} and relation {layer_id}. The interpretation is {connectivity_kind}; universal inclusion precondition is {require_all_in_layer}. Preserve a full account of exclusions."
+      ]
+    },
+    "test": {
+      "unknown_layer": [
+        "Compute all components of the selection {genes} on network identifier {multiplex_id}, layer identifier {layer_id}. Requested connectivity {connectivity_kind}; obligatory layer presence {require_all_in_layer}. Tabulate the exact grouping and any inputs outside the selected layer.",
+        "For network identifier {multiplex_id}, divide selected layer nodes from {genes} into their components along layer identifier {layer_id}. Requested connectivity: {connectivity_kind}; obligatory layer presence: {require_all_in_layer}. Supply every component and classify omitted inputs.",
+        "Produce the exact component decomposition induced on {genes} along layer identifier {layer_id}. Network identifier {multiplex_id}, requested connectivity {connectivity_kind}, obligatory layer presence {require_all_in_layer}. Account separately for inputs absent from this layer or network.",
+        "Tabulate the components induced by selection {genes} with requested connectivity {connectivity_kind}. Use network identifier {multiplex_id} together with layer identifier {layer_id}; obligatory layer presence {require_all_in_layer}. Retain every group and both exclusion categories."
+      ],
+      "unknown_multiplex": [
+        "Compute all components of the selection {genes} on network identifier {multiplex_id}, layer identifier {layer_id}. Requested connectivity {connectivity_kind}; obligatory layer presence {require_all_in_layer}. Tabulate the exact grouping and any inputs outside the selected layer.",
+        "For network identifier {multiplex_id}, divide selected layer nodes from {genes} into their components along layer identifier {layer_id}. Requested connectivity: {connectivity_kind}; obligatory layer presence: {require_all_in_layer}. Supply every component and classify omitted inputs.",
+        "Produce the exact component decomposition induced on {genes} along layer identifier {layer_id}. Network identifier {multiplex_id}, requested connectivity {connectivity_kind}, obligatory layer presence {require_all_in_layer}. Account separately for inputs absent from this layer or network.",
+        "Tabulate the components induced by selection {genes} with requested connectivity {connectivity_kind}. Use network identifier {multiplex_id} together with layer identifier {layer_id}; obligatory layer presence {require_all_in_layer}. Retain every group and both exclusion categories."
+      ],
+      "missing_genes": [
+        "Compute all components of the selection {genes} on network identifier {multiplex_id}, layer identifier {layer_id}. Requested connectivity {connectivity_kind}; obligatory layer presence {require_all_in_layer}. Tabulate the exact grouping and any inputs outside the selected layer.",
+        "For network identifier {multiplex_id}, divide selected layer nodes from {genes} into their components along layer identifier {layer_id}. Requested connectivity: {connectivity_kind}; obligatory layer presence: {require_all_in_layer}. Supply every component and classify omitted inputs.",
+        "Produce the exact component decomposition induced on {genes} along layer identifier {layer_id}. Network identifier {multiplex_id}, requested connectivity {connectivity_kind}, obligatory layer presence {require_all_in_layer}. Account separately for inputs absent from this layer or network.",
+        "Tabulate the components induced by selection {genes} with requested connectivity {connectivity_kind}. Use network identifier {multiplex_id} together with layer identifier {layer_id}; obligatory layer presence {require_all_in_layer}. Retain every group and both exclusion categories."
+      ],
+      "missing_scope": [
+        "Compute all components of the selection {genes} on network identifier {multiplex_id}, layer identifier {layer_id}. Requested connectivity {connectivity_kind}; obligatory layer presence {require_all_in_layer}. Tabulate the exact grouping and any inputs outside the selected layer.",
+        "For network identifier {multiplex_id}, divide selected layer nodes from {genes} into their components along layer identifier {layer_id}. Requested connectivity: {connectivity_kind}; obligatory layer presence: {require_all_in_layer}. Supply every component and classify omitted inputs.",
+        "Produce the exact component decomposition induced on {genes} along layer identifier {layer_id}. Network identifier {multiplex_id}, requested connectivity {connectivity_kind}, obligatory layer presence {require_all_in_layer}. Account separately for inputs absent from this layer or network.",
+        "Tabulate the components induced by selection {genes} with requested connectivity {connectivity_kind}. Use network identifier {multiplex_id} together with layer identifier {layer_id}; obligatory layer presence {require_all_in_layer}. Retain every group and both exclusion categories."
+      ],
+      "invalid_list": [
+        "Compute all components of the selection {genes} on network identifier {multiplex_id}, layer identifier {layer_id}. Requested connectivity {connectivity_kind}; obligatory layer presence {require_all_in_layer}. Tabulate the exact grouping and any inputs outside the selected layer.",
+        "For network identifier {multiplex_id}, divide selected layer nodes from {genes} into their components along layer identifier {layer_id}. Requested connectivity: {connectivity_kind}; obligatory layer presence: {require_all_in_layer}. Supply every component and classify omitted inputs.",
+        "Produce the exact component decomposition induced on {genes} along layer identifier {layer_id}. Network identifier {multiplex_id}, requested connectivity {connectivity_kind}, obligatory layer presence {require_all_in_layer}. Account separately for inputs absent from this layer or network.",
+        "Tabulate the components induced by selection {genes} with requested connectivity {connectivity_kind}. Use network identifier {multiplex_id} together with layer identifier {layer_id}; obligatory layer presence {require_all_in_layer}. Retain every group and both exclusion categories."
+      ],
+      "missing_kind": [
+        "Compute all components of the selection {genes} on network identifier {multiplex_id}, layer identifier {layer_id}. Requested connectivity {connectivity_kind}; obligatory layer presence {require_all_in_layer}. Tabulate the exact grouping and any inputs outside the selected layer.",
+        "For network identifier {multiplex_id}, divide selected layer nodes from {genes} into their components along layer identifier {layer_id}. Requested connectivity: {connectivity_kind}; obligatory layer presence: {require_all_in_layer}. Supply every component and classify omitted inputs.",
+        "Produce the exact component decomposition induced on {genes} along layer identifier {layer_id}. Network identifier {multiplex_id}, requested connectivity {connectivity_kind}, obligatory layer presence {require_all_in_layer}. Account separately for inputs absent from this layer or network.",
+        "Tabulate the components induced by selection {genes} with requested connectivity {connectivity_kind}. Use network identifier {multiplex_id} together with layer identifier {layer_id}; obligatory layer presence {require_all_in_layer}. Retain every group and both exclusion categories."
+      ],
+      "invalid_kind": [
+        "Compute all components of the selection {genes} on network identifier {multiplex_id}, layer identifier {layer_id}. Requested connectivity {connectivity_kind}; obligatory layer presence {require_all_in_layer}. Tabulate the exact grouping and any inputs outside the selected layer.",
+        "For network identifier {multiplex_id}, divide selected layer nodes from {genes} into their components along layer identifier {layer_id}. Requested connectivity: {connectivity_kind}; obligatory layer presence: {require_all_in_layer}. Supply every component and classify omitted inputs.",
+        "Produce the exact component decomposition induced on {genes} along layer identifier {layer_id}. Network identifier {multiplex_id}, requested connectivity {connectivity_kind}, obligatory layer presence {require_all_in_layer}. Account separately for inputs absent from this layer or network.",
+        "Tabulate the components induced by selection {genes} with requested connectivity {connectivity_kind}. Use network identifier {multiplex_id} together with layer identifier {layer_id}; obligatory layer presence {require_all_in_layer}. Retain every group and both exclusion categories."
+      ],
+      "unavailable_kind": [
+        "Compute all components of the selection {genes} on network identifier {multiplex_id}, layer identifier {layer_id}. Requested connectivity {connectivity_kind}; obligatory layer presence {require_all_in_layer}. Tabulate the exact grouping and any inputs outside the selected layer.",
+        "For network identifier {multiplex_id}, divide selected layer nodes from {genes} into their components along layer identifier {layer_id}. Requested connectivity: {connectivity_kind}; obligatory layer presence: {require_all_in_layer}. Supply every component and classify omitted inputs.",
+        "Produce the exact component decomposition induced on {genes} along layer identifier {layer_id}. Network identifier {multiplex_id}, requested connectivity {connectivity_kind}, obligatory layer presence {require_all_in_layer}. Account separately for inputs absent from this layer or network.",
+        "Tabulate the components induced by selection {genes} with requested connectivity {connectivity_kind}. Use network identifier {multiplex_id} together with layer identifier {layer_id}; obligatory layer presence {require_all_in_layer}. Retain every group and both exclusion categories."
+      ],
+      "unresolved_identity": [
+        "Compute all components of the selection {genes} on network identifier {multiplex_id}, layer identifier {layer_id}. Requested connectivity {connectivity_kind}; obligatory layer presence {require_all_in_layer}. Tabulate the exact grouping and any inputs outside the selected layer.",
+        "For network identifier {multiplex_id}, divide selected layer nodes from {genes} into their components along layer identifier {layer_id}. Requested connectivity: {connectivity_kind}; obligatory layer presence: {require_all_in_layer}. Supply every component and classify omitted inputs.",
+        "Produce the exact component decomposition induced on {genes} along layer identifier {layer_id}. Network identifier {multiplex_id}, requested connectivity {connectivity_kind}, obligatory layer presence {require_all_in_layer}. Account separately for inputs absent from this layer or network.",
+        "Tabulate the components induced by selection {genes} with requested connectivity {connectivity_kind}. Use network identifier {multiplex_id} together with layer identifier {layer_id}; obligatory layer presence {require_all_in_layer}. Retain every group and both exclusion categories."
+      ]
+    }
+  }
+}

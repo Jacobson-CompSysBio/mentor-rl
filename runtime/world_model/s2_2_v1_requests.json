@@ -1,0 +1,190 @@
+{
+  "schema_version": "mentor-rl-world-model-s2-2-requests-v1",
+  "description": "Frozen S2.2 request wording covering complete, first-K manifest-ordered, and Boolean existence retrieval across three edge predicates. Complete and bounded requests preserve observed supporting edge records and source weights without demanding every unobserved orientation. Directed reciprocity must occur within one layer. Scope and endpoint values are caller-selected content, not wording decisions. Four core variants per kind and split are frozen as data; no language model runs at build time. Human wording review remains available.",
+  "train": {
+    "complete": {
+      "any_direction": [
+        "In {multiplex_id}, list every layer in {scope_text} that contains an undirected edge or at least one directed orientation between {first} and {second}. Give the exact supporting-layer count and retain the observed supporting edges with their recorded weights.",
+        "Across {scope_text} of {multiplex_id}, identify all layers recording an undirected link between {first} and {second}, or a directed edge in either orientation. Report their exact total and include the observed edge records with unmodified weights.",
+        "Find the full set of layers within {scope_text}, in {multiplex_id}, with a pairwise connection joining {first} with {second}, allowing undirected edges or either directed orientation. Count those layers exactly and attach each observed supporting edge and its source weight.",
+        "For {multiplex_id}, enumerate every matching layer from {scope_text}: a match requires an edge joining {first} and {second}, whether undirected or directed in one or both orientations. Supply the exact match count together with observed edge records and their original weights."
+      ],
+      "source_to_target": [
+        "In {multiplex_id}, list every layer in {scope_text} that contains a directed edge from {first} to {second}. Give the exact supporting-layer count and retain the observed supporting edges with their recorded weights.",
+        "Across {scope_text} of {multiplex_id}, identify all layers recording an arc with source {first} and target {second}. Report their exact total and include the observed edge records with unmodified weights.",
+        "Find the full set of layers within {scope_text}, in {multiplex_id}, with the ordered edge {first} → {second}. Count those layers exactly and attach each observed supporting edge and its source weight.",
+        "For {multiplex_id}, enumerate every matching layer from {scope_text}: a match requires a directed link from {first} toward {second}. Supply the exact match count together with observed edge records and their original weights."
+      ],
+      "both_directions": [
+        "In {multiplex_id}, list every layer in {scope_text} that contains both directed arcs between {first} and {second}, within the same layer. Give the exact supporting-layer count and retain the observed supporting edges with their recorded weights.",
+        "Across {scope_text} of {multiplex_id}, identify all layers recording reciprocal directed edges connecting {first} and {second} in one layer. Report their exact total and include the observed edge records with unmodified weights.",
+        "Find the full set of layers within {scope_text}, in {multiplex_id}, with edges in both orientations between {first} and {second} within a single layer. Count those layers exactly and attach each observed supporting edge and its source weight.",
+        "For {multiplex_id}, enumerate every matching layer from {scope_text}: a match requires two opposite directed links between {first} and {second}, recorded in the same layer. Supply the exact match count together with observed edge records and their original weights."
+      ]
+    },
+    "top_k": {
+      "any_direction": [
+        "In {multiplex_id}, return the first {top_k} supporting layers from {scope_text} in manifest order for an undirected edge or at least one directed orientation between {first} and {second}. Include observed supporting edges and their recorded weights; this is a bounded request.",
+        "Across {scope_text} of {multiplex_id}, take the first {top_k} matches in manifest order, where a match records an undirected link between {first} and {second}, or a directed edge in either orientation. Preserve the observed edge records and their weights.",
+        "Using manifest order in {multiplex_id}, show the earliest {top_k} layers within {scope_text} with a pairwise connection joining {first} with {second}, allowing undirected edges or either directed orientation. Attach the observed supporting edge weights to this bounded selection.",
+        "For {multiplex_id}, give a manifest-ordered prefix of at most {top_k} qualifying layers from {scope_text}; qualification requires an edge joining {first} and {second}, whether undirected or directed in one or both orientations. Keep the observed supporting edges and original weights."
+      ],
+      "source_to_target": [
+        "In {multiplex_id}, return the first {top_k} supporting layers from {scope_text} in manifest order for a directed edge from {first} to {second}. Include observed supporting edges and their recorded weights; this is a bounded request.",
+        "Across {scope_text} of {multiplex_id}, take the first {top_k} matches in manifest order, where a match records an arc with source {first} and target {second}. Preserve the observed edge records and their weights.",
+        "Using manifest order in {multiplex_id}, show the earliest {top_k} layers within {scope_text} with the ordered edge {first} → {second}. Attach the observed supporting edge weights to this bounded selection.",
+        "For {multiplex_id}, give a manifest-ordered prefix of at most {top_k} qualifying layers from {scope_text}; qualification requires a directed link from {first} toward {second}. Keep the observed supporting edges and original weights."
+      ],
+      "both_directions": [
+        "In {multiplex_id}, return the first {top_k} supporting layers from {scope_text} in manifest order for both directed arcs between {first} and {second}, within the same layer. Include observed supporting edges and their recorded weights; this is a bounded request.",
+        "Across {scope_text} of {multiplex_id}, take the first {top_k} matches in manifest order, where a match records reciprocal directed edges connecting {first} and {second} in one layer. Preserve the observed edge records and their weights.",
+        "Using manifest order in {multiplex_id}, show the earliest {top_k} layers within {scope_text} with edges in both orientations between {first} and {second} within a single layer. Attach the observed supporting edge weights to this bounded selection.",
+        "For {multiplex_id}, give a manifest-ordered prefix of at most {top_k} qualifying layers from {scope_text}; qualification requires two opposite directed links between {first} and {second}, recorded in the same layer. Keep the observed supporting edges and original weights."
+      ]
+    },
+    "exists": {
+      "any_direction": [
+        "In {multiplex_id}, does any layer in {scope_text} contain an undirected edge or at least one directed orientation between {first} and {second}? Answer whether such a supporting layer exists.",
+        "Does at least one layer among {scope_text} of {multiplex_id} record an undirected link between {first} and {second}, or a directed edge in either orientation? A Boolean existence answer is sufficient.",
+        "Determine whether {scope_text} in {multiplex_id} includes a layer with a pairwise connection joining {first} with {second}, allowing undirected edges or either directed orientation. The requested result is whether any layer qualifies.",
+        "For {multiplex_id}, test whether some layer among {scope_text} satisfies this condition: an edge joining {first} and {second}, whether undirected or directed in one or both orientations. Return the existence finding."
+      ],
+      "source_to_target": [
+        "In {multiplex_id}, does any layer in {scope_text} contain a directed edge from {first} to {second}? Answer whether such a supporting layer exists.",
+        "Does at least one layer among {scope_text} of {multiplex_id} record an arc with source {first} and target {second}? A Boolean existence answer is sufficient.",
+        "Determine whether {scope_text} in {multiplex_id} includes a layer with the ordered edge {first} → {second}. The requested result is whether any layer qualifies.",
+        "For {multiplex_id}, test whether some layer among {scope_text} satisfies this condition: a directed link from {first} toward {second}. Return the existence finding."
+      ],
+      "both_directions": [
+        "In {multiplex_id}, does any layer in {scope_text} contain both directed arcs between {first} and {second}, within the same layer? Answer whether such a supporting layer exists.",
+        "Does at least one layer among {scope_text} of {multiplex_id} record reciprocal directed edges connecting {first} and {second} in one layer? A Boolean existence answer is sufficient.",
+        "Determine whether {scope_text} in {multiplex_id} includes a layer with edges in both orientations between {first} and {second} within a single layer. The requested result is whether any layer qualifies.",
+        "For {multiplex_id}, test whether some layer among {scope_text} satisfies this condition: two opposite directed links between {first} and {second}, recorded in the same layer. Return the existence finding."
+      ]
+    }
+  },
+  "validation": {
+    "complete": {
+      "any_direction": [
+        "Inspect {scope_text} within multiplex {multiplex_id} for a link connecting {first} with {second}, accepting unordered links or arrows pointing either way. Name the entire supporting selection, state its precise number of layers, and preserve observed edge measurements with their native weights.",
+        "Which layers among {scope_text}, belonging to {multiplex_id}, have an adjacency involving {first} and {second}: unoriented links qualify, as do arrows in either orientation? Supply all qualifying layer names, their precise total, and the witness edge observations carrying unchanged weights.",
+        "Within {multiplex_id}, examine {scope_text} for layers containing a connection for endpoints {first} and {second}, with either directed orientation or an undirected representation qualifying. Provide the exhaustive match set, a precise tally, and observed supporting arc or edge records retaining their weights.",
+        "Search the entirety of {scope_text} in {multiplex_id} for an edge for {first} and {second}, accepting either arrow orientation alongside unordered links. Report every qualifying layer with a precise layer count and preserve witnessed edge measurements at their native weights."
+      ],
+      "source_to_target": [
+        "Inspect {scope_text} within multiplex {multiplex_id} for an arrow leaving {first} and entering {second}. Name the entire supporting selection, state its precise number of layers, and preserve observed edge measurements with their native weights.",
+        "Which layers among {scope_text}, belonging to {multiplex_id}, have an oriented connection with source {first} and destination {second}? Supply all qualifying layer names, their precise total, and the witness edge observations carrying unchanged weights.",
+        "Within {multiplex_id}, examine {scope_text} for layers containing an arrow represented as {first} → {second}. Provide the exhaustive match set, a precise tally, and observed supporting arc or edge records retaining their weights.",
+        "Search the entirety of {scope_text} in {multiplex_id} for an arrow from {first} toward {second}. Report every qualifying layer with a precise layer count and preserve witnessed edge measurements at their native weights."
+      ],
+      "both_directions": [
+        "Inspect {scope_text} within multiplex {multiplex_id} for a reciprocal pair of arrows linking {first} with {second} inside one layer. Name the entire supporting selection, state its precise number of layers, and preserve observed edge measurements with their native weights.",
+        "Which layers among {scope_text}, belonging to {multiplex_id}, have arrows in both orientations for {first} and {second}, co-occurring in a single layer? Supply all qualifying layer names, their precise total, and the witness edge observations carrying unchanged weights.",
+        "Within {multiplex_id}, examine {scope_text} for layers containing opposite arcs connecting {first} with {second} inside the same layer. Provide the exhaustive match set, a precise tally, and observed supporting arc or edge records retaining their weights.",
+        "Search the entirety of {scope_text} in {multiplex_id} for reciprocal arcs for endpoints {first} and {second}, together in one layer. Report every qualifying layer with a precise layer count and preserve witnessed edge measurements at their native weights."
+      ]
+    },
+    "top_k": {
+      "any_direction": [
+        "Inspect {scope_text} within multiplex {multiplex_id} for a link connecting {first} with {second}, accepting unordered links or arrows pointing either way. Select the earliest {top_k} qualifying layers according to manifest position, retaining observed edge measurements and native weights.",
+        "Which initial {top_k} matches in the manifest sequence occur among {scope_text} of {multiplex_id} for an adjacency involving {first} and {second}: unoriented links qualify, as do arrows in either orientation? Accompany the bounded layer names with witness observations carrying unchanged weights.",
+        "Within {multiplex_id}, examine {scope_text} for a connection for endpoints {first} and {second}, with either directed orientation or an undirected representation qualifying and select a prefix containing up to {top_k} matches in manifest sequence. Preserve observed supporting records with native weights.",
+        "Search {scope_text} in {multiplex_id} for an edge for {first} and {second}, accepting either arrow orientation alongside unordered links, keeping only the earliest {top_k} qualifying layers as ordered by the manifest. Retain witnessed edge measurements at their native weights."
+      ],
+      "source_to_target": [
+        "Inspect {scope_text} within multiplex {multiplex_id} for an arrow leaving {first} and entering {second}. Select the earliest {top_k} qualifying layers according to manifest position, retaining observed edge measurements and native weights.",
+        "Which initial {top_k} matches in the manifest sequence occur among {scope_text} of {multiplex_id} for an oriented connection with source {first} and destination {second}? Accompany the bounded layer names with witness observations carrying unchanged weights.",
+        "Within {multiplex_id}, examine {scope_text} for an arrow represented as {first} → {second} and select a prefix containing up to {top_k} matches in manifest sequence. Preserve observed supporting records with native weights.",
+        "Search {scope_text} in {multiplex_id} for an arrow from {first} toward {second}, keeping only the earliest {top_k} qualifying layers as ordered by the manifest. Retain witnessed edge measurements at their native weights."
+      ],
+      "both_directions": [
+        "Inspect {scope_text} within multiplex {multiplex_id} for a reciprocal pair of arrows linking {first} with {second} inside one layer. Select the earliest {top_k} qualifying layers according to manifest position, retaining observed edge measurements and native weights.",
+        "Which initial {top_k} matches in the manifest sequence occur among {scope_text} of {multiplex_id} for arrows in both orientations for {first} and {second}, co-occurring in a single layer? Accompany the bounded layer names with witness observations carrying unchanged weights.",
+        "Within {multiplex_id}, examine {scope_text} for opposite arcs connecting {first} with {second} inside the same layer and select a prefix containing up to {top_k} matches in manifest sequence. Preserve observed supporting records with native weights.",
+        "Search {scope_text} in {multiplex_id} for reciprocal arcs for endpoints {first} and {second}, together in one layer, keeping only the earliest {top_k} qualifying layers as ordered by the manifest. Retain witnessed edge measurements at their native weights."
+      ]
+    },
+    "exists": {
+      "any_direction": [
+        "Inspect {scope_text} within multiplex {multiplex_id}: is there a layer containing a link connecting {first} with {second}, accepting unordered links or arrows pointing either way? Supply a yes-or-no finding about existence.",
+        "Can a layer among {scope_text}, belonging to {multiplex_id}, demonstrate an adjacency involving {first} and {second}: unoriented links qualify, as do arrows in either orientation? This asks whether support occurs anywhere in that selection.",
+        "Within {multiplex_id}, examine {scope_text} and decide whether a layer has a connection for endpoints {first} and {second}, with either directed orientation or an undirected representation qualifying. An existence verdict answers the inquiry.",
+        "Does any layer selected from {scope_text} inside {multiplex_id} have an edge for {first} and {second}, accepting either arrow orientation alongside unordered links? State the Boolean finding for the selected scope."
+      ],
+      "source_to_target": [
+        "Inspect {scope_text} within multiplex {multiplex_id}: is there a layer containing an arrow leaving {first} and entering {second}? Supply a yes-or-no finding about existence.",
+        "Can a layer among {scope_text}, belonging to {multiplex_id}, demonstrate an oriented connection with source {first} and destination {second}? This asks whether support occurs anywhere in that selection.",
+        "Within {multiplex_id}, examine {scope_text} and decide whether a layer has an arrow represented as {first} → {second}. An existence verdict answers the inquiry.",
+        "Does any layer selected from {scope_text} inside {multiplex_id} have an arrow from {first} toward {second}? State the Boolean finding for the selected scope."
+      ],
+      "both_directions": [
+        "Inspect {scope_text} within multiplex {multiplex_id}: is there a layer containing a reciprocal pair of arrows linking {first} with {second} inside one layer? Supply a yes-or-no finding about existence.",
+        "Can a layer among {scope_text}, belonging to {multiplex_id}, demonstrate arrows in both orientations for {first} and {second}, co-occurring in a single layer? This asks whether support occurs anywhere in that selection.",
+        "Within {multiplex_id}, examine {scope_text} and decide whether a layer has opposite arcs connecting {first} with {second} inside the same layer. An existence verdict answers the inquiry.",
+        "Does any layer selected from {scope_text} inside {multiplex_id} have reciprocal arcs for endpoints {first} and {second}, together in one layer? State the Boolean finding for the selected scope."
+      ]
+    }
+  },
+  "test": {
+    "complete": {
+      "any_direction": [
+        "Considering {multiplex_id} and the selection {scope_text}, enumerate all locations having a direct adjacency for {first} and {second}, counting nonoriented edges as well as arrows in either orientation. Specify the exact number of matching layers and quote the observed edge records including unchanged weights.",
+        "Locate every layer offering a link involving {first} alongside {second}, where either ordered orientation or an undirected edge counts as support within {scope_text} of {multiplex_id}. Include an exact total of qualifying layers and retain the supporting observations with their weight values.",
+        "For the selection {scope_text} under {multiplex_id}, determine the exhaustive layer roster satisfying an edge involving {first} plus {second}, accepting either directed orientation and also unoriented adjacency. Give an exact tally and carry along observed edge entries at their original weights.",
+        "Produce the entire roster of layers supporting a pairwise link for {first} and {second}: either arrow orientation is sufficient, and nonoriented edges qualify too, confined to {scope_text} under {multiplex_id}. Include the exact roster count together with observed supporting entries and their weight values."
+      ],
+      "source_to_target": [
+        "Considering {multiplex_id} and the selection {scope_text}, enumerate all locations having the specific ordered connection {first} → {second}. Specify the exact number of matching layers and quote the observed edge records including unchanged weights.",
+        "Locate every layer offering a source-to-target link from {first} to {second} within {scope_text} of {multiplex_id}. Include an exact total of qualifying layers and retain the supporting observations with their weight values.",
+        "For the selection {scope_text} under {multiplex_id}, determine the exhaustive layer roster satisfying a forward adjacency from {first} toward {second}. Give an exact tally and carry along observed edge entries at their original weights.",
+        "Produce the entire roster of layers supporting a link in the ordered orientation {first} → {second}, confined to {scope_text} under {multiplex_id}. Include the exact roster count together with observed supporting entries and their weight values."
+      ],
+      "both_directions": [
+        "Considering {multiplex_id} and the selection {scope_text}, enumerate all locations having two opposite arrows joining {first} and {second}, recorded together in a single layer. Specify the exact number of matching layers and quote the observed edge records including unchanged weights.",
+        "Locate every layer offering a mutual directed connection between {first} and {second}, with both arcs inside one layer within {scope_text} of {multiplex_id}. Include an exact total of qualifying layers and retain the supporting observations with their weight values.",
+        "For the selection {scope_text} under {multiplex_id}, determine the exhaustive layer roster satisfying a two-way directed link for {first} and {second}, with reciprocal arcs in the same layer. Give an exact tally and carry along observed edge entries at their original weights.",
+        "Produce the entire roster of layers supporting both arrow orientations for the pair {first} and {second}, sharing one layer, confined to {scope_text} under {multiplex_id}. Include the exact roster count together with observed supporting entries and their weight values."
+      ]
+    },
+    "top_k": {
+      "any_direction": [
+        "Considering {multiplex_id} and the selection {scope_text}, choose the first {top_k} locations in manifest sequence having a direct adjacency for {first} and {second}, counting nonoriented edges as well as arrows in either orientation. Quote the observed edge records including unchanged weights for this limited roster.",
+        "Locate a link involving {first} alongside {second}, where either ordered orientation or an undirected edge counts as support within {scope_text} of {multiplex_id}, returning only the initial {top_k} qualifying layers by manifest position. Retain supporting observations with their weight values.",
+        "For the selection {scope_text} under {multiplex_id}, produce an initial roster following manifest sequence, with up to {top_k} layers satisfying an edge involving {first} plus {second}, accepting either directed orientation and also unoriented adjacency. Carry along observed edge entries at their original weights.",
+        "Produce a limited roster containing the first {top_k} layers supporting a pairwise link for {first} and {second}: either arrow orientation is sufficient, and nonoriented edges qualify too, confined to {scope_text} under {multiplex_id} and ordered by the manifest. Include observed supporting entries and their weight values."
+      ],
+      "source_to_target": [
+        "Considering {multiplex_id} and the selection {scope_text}, choose the first {top_k} locations in manifest sequence having the specific ordered connection {first} → {second}. Quote the observed edge records including unchanged weights for this limited roster.",
+        "Locate a source-to-target link from {first} to {second} within {scope_text} of {multiplex_id}, returning only the initial {top_k} qualifying layers by manifest position. Retain supporting observations with their weight values.",
+        "For the selection {scope_text} under {multiplex_id}, produce an initial roster following manifest sequence, with up to {top_k} layers satisfying a forward adjacency from {first} toward {second}. Carry along observed edge entries at their original weights.",
+        "Produce a limited roster containing the first {top_k} layers supporting a link in the ordered orientation {first} → {second}, confined to {scope_text} under {multiplex_id} and ordered by the manifest. Include observed supporting entries and their weight values."
+      ],
+      "both_directions": [
+        "Considering {multiplex_id} and the selection {scope_text}, choose the first {top_k} locations in manifest sequence having two opposite arrows joining {first} and {second}, recorded together in a single layer. Quote the observed edge records including unchanged weights for this limited roster.",
+        "Locate a mutual directed connection between {first} and {second}, with both arcs inside one layer within {scope_text} of {multiplex_id}, returning only the initial {top_k} qualifying layers by manifest position. Retain supporting observations with their weight values.",
+        "For the selection {scope_text} under {multiplex_id}, produce an initial roster following manifest sequence, with up to {top_k} layers satisfying a two-way directed link for {first} and {second}, with reciprocal arcs in the same layer. Carry along observed edge entries at their original weights.",
+        "Produce a limited roster containing the first {top_k} layers supporting both arrow orientations for the pair {first} and {second}, sharing one layer, confined to {scope_text} under {multiplex_id} and ordered by the manifest. Include observed supporting entries and their weight values."
+      ]
+    },
+    "exists": {
+      "any_direction": [
+        "Considering {multiplex_id} and the selection {scope_text}, can any layer show a direct adjacency for {first} and {second}, counting nonoriented edges as well as arrows in either orientation? Indicate the existence of support as a Boolean.",
+        "Is there a qualifying layer offering a link involving {first} alongside {second}, where either ordered orientation or an undirected edge counts as support within {scope_text} of {multiplex_id}? Respond about existence rather than an ordered layer roster.",
+        "For the selection {scope_text} under {multiplex_id}, determine whether a layer satisfies an edge involving {first} plus {second}, accepting either directed orientation and also unoriented adjacency. Only the existence of a qualifying layer is requested.",
+        "Does support for a pairwise link for {first} and {second}: either arrow orientation is sufficient, and nonoriented edges qualify too occur in any layer confined to {scope_text} under {multiplex_id}? Indicate whether the selected scope contains such support."
+      ],
+      "source_to_target": [
+        "Considering {multiplex_id} and the selection {scope_text}, can any layer show the specific ordered connection {first} → {second}? Indicate the existence of support as a Boolean.",
+        "Is there a qualifying layer offering a source-to-target link from {first} to {second} within {scope_text} of {multiplex_id}? Respond about existence rather than an ordered layer roster.",
+        "For the selection {scope_text} under {multiplex_id}, determine whether a layer satisfies a forward adjacency from {first} toward {second}. Only the existence of a qualifying layer is requested.",
+        "Does support for a link in the ordered orientation {first} → {second} occur in any layer confined to {scope_text} under {multiplex_id}? Indicate whether the selected scope contains such support."
+      ],
+      "both_directions": [
+        "Considering {multiplex_id} and the selection {scope_text}, can any layer show two opposite arrows joining {first} and {second}, recorded together in a single layer? Indicate the existence of support as a Boolean.",
+        "Is there a qualifying layer offering a mutual directed connection between {first} and {second}, with both arcs inside one layer within {scope_text} of {multiplex_id}? Respond about existence rather than an ordered layer roster.",
+        "For the selection {scope_text} under {multiplex_id}, determine whether a layer satisfies a two-way directed link for {first} and {second}, with reciprocal arcs in the same layer. Only the existence of a qualifying layer is requested.",
+        "Does support for both arrow orientations for the pair {first} and {second}, sharing one layer occur in any layer confined to {scope_text} under {multiplex_id}? Indicate whether the selected scope contains such support."
+      ]
+    }
+  }
+}

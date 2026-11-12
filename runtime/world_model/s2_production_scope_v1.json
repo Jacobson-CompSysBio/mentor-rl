@@ -1,0 +1,85 @@
+{
+  "schema_version": "mentor-rl-s2-production-scope-v1",
+  "date": "2026-11-02",
+  "catalog": {
+    "path": "agents/world_model_v3_curriculum/S2-question-classes.md",
+    "approved_prefix_bytes": 2522784,
+    "approved_prefix_sha256": "bee3d761fce8a008dfe2e352b346e709755d17df90d52b041e96e369ee6fb12c"
+  },
+  "recipe": {
+    "path": "runtime/world_model/s2_production_v1_8k.json",
+    "sha256": "c73af72ae7d2b0650d0d7647f92d1ac9a98a337ec9576d203438cb5ea85dc206"
+  },
+  "retained_cases": 394,
+  "exclusions": [
+    {
+      "case_id": "S2.4.25",
+      "kind": "unavoidable_context_length",
+      "authorization": "Approved production recipe: exclude a case only after proving no faithful complete instance fits.",
+      "reason": "All five native loop subjects require complete incident results of 40,970\u201351,185 tokens before prompt or evidence overhead.",
+      "evidence": {
+        "path": "diagnostics/s2_production_generation/s2_4_25_length_exclusion.json",
+        "sha256": "a144ce9e8d3c1b0f1135f6483d5e9c1b208c8108d72e62bb68725b0e2ea58714"
+      }
+    },
+    {
+      "case_id": "S2.8.29",
+      "kind": "source_split_capacity",
+      "authorization": "User explicitly approved exclusion from all production splits in this session.",
+      "reason": "Exhaustive native scope census has no qualifying validation subject.",
+      "evidence": {
+        "path": "diagnostics/s2_production_coverage/s2_8_29_source_capacity.json",
+        "sha256": "26d869286a1943501ac6d6e0df24d83d65d56c0cbbe9e5c3aa2a470578a1c3f5"
+      }
+    },
+    {
+      "case_id": "S2.8.30",
+      "kind": "source_split_capacity",
+      "authorization": "User explicitly approved exclusion from all production splits in this session.",
+      "reason": "Exhaustive native scope census has no qualifying validation or test subject.",
+      "evidence": {
+        "path": "diagnostics/s2_production_coverage/s2_8_30_source_capacity.json",
+        "sha256": "454a3741feeafe07afff7b7e82782bbd01626c79630b4364e93d6977e31b968e"
+      }
+    },
+    {
+      "case_id": "S2.13.18",
+      "kind": "source_split_capacity",
+      "authorization": "User explicitly approved exclusion from every split for this production run in this session.",
+      "reason": "All 24 same-pair positive bulk/single-cell PEN intersections fall in train or test; none in validation.",
+      "evidence": {
+        "path": "diagnostics/s2_production_11_13/pen_intersection.json",
+        "sha256": "e7cdef065c2985e173e30bd433c86631e8a81a5e96cd7662950395d3364fe5ce"
+      }
+    },
+    {
+      "case_id": "S2.13.21",
+      "kind": "source_split_capacity",
+      "authorization": "User explicitly approved exclusion from every split for this production run in this session.",
+      "reason": "The same exhaustive PEN intersection has no validation pair.",
+      "evidence": {
+        "path": "diagnostics/s2_production_11_13/pen_intersection.json",
+        "sha256": "e7cdef065c2985e173e30bd433c86631e8a81a5e96cd7662950395d3364fe5ce"
+      }
+    }
+  ],
+  "budget": {
+    "retained_cases": 394,
+    "s2": {
+      "train": 201728,
+      "validation": 25216,
+      "test": 25216
+    },
+    "replay": {
+      "S1": 37824,
+      "S0": 12608
+    },
+    "train": 252160,
+    "validation": 25216,
+    "test": 25216
+  },
+  "source_splits_changed": false,
+  "approved_case_predicates_changed": false,
+  "historical_artifacts_modified": false,
+  "training_submission_authorized": false
+}

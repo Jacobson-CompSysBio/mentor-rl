@@ -1,0 +1,88 @@
+{
+  "schema_version": "mentor-rl-world-model-s2-test-v1",
+  "evaluation_id": "world_model_s2_120b_test_v1_512n",
+  "evaluation_contract": "held_out_s2_structured_rollout_v1",
+  "training": {
+    "config": "config/world_model_s2_120b_training_v1_184n.json",
+    "config_sha256": "bd7687f1cd6cbc037bfde3ecc617196a509fde855d953311b70b234e10790f25",
+    "training_id": "world_model_s2_120b_training_v1_184n",
+    "checkpoint_root": "data/world_model_v4/checkpoints/s2_v1_184n/oss120b-plain-base-tokenizer-lora-r32",
+    "checkpoint_path": "data/world_model_v4/checkpoints/s2_v1_184n/oss120b-plain-base-tokenizer-lora-r32/slurm-5856263",
+    "train_run_id": "oss120b-plain-base-tokenizer-lora-r32-slurm-5856263"
+  },
+  "model": {
+    "model_id": "gpt-oss-120b-bf16",
+    "path": "../models/gpt-oss-120b-bf16",
+    "model_identity_sha256": "905e86330e48859268f5e51fd569acf619e6030e1508b37e6a82e61dcf0c7889",
+    "base_model_artifact_schema": "mentor-rl-base-model-artifact-v2",
+    "base_model_artifact_sha256": "b1713d10cbba7c69498037d7712c5988db95804dc62c614111e1f470d16449bc",
+    "weight_shard_count": 36
+  },
+  "corpus": {
+    "root": "data/world_model_v4/corpora/s2_production_v1_8k",
+    "manifest_sha256": "2d4e0613f3327e0e98fef908b453327cefea69350bd8d16c3f96f22acdfb1dfc",
+    "train_sha256": "aa6f22297c0d7f6b1b6aeba6e08043bf31dff0d2fc98a6a46c1dc4c5aa57e8e1",
+    "train_rows": 252160,
+    "validation_sha256": "355fb0245a6d8d5d8447ebfe1237086780d57542754fff0c15e6943c36272f29",
+    "validation_rows": 25216,
+    "test_sha256": "10bba6a380feb107f5b7763b95860957da1abcf2d4324f0273c47362d75bd6b9",
+    "test_rows": 25216,
+    "test_panel_id": "335950a9b202d0ef9b76b2b23019e4e43638c3e8419dd1fb3feb270dd1ca8d0a"
+  },
+  "test_panel": {
+    "evaluator_root": "data/world_model_v4/eval/s2_v1",
+    "evaluator_manifest": "manifest.json",
+    "evaluator_manifest_sha256": "79b0fcfd04c4ed9eedb9d398119bf6be78a7e908e165873ea3d1637d23246ee5",
+    "questions_file": "test_questions.jsonl",
+    "questions_sha256": "0b60dc7ea96031baa5b87a000a70e9de5eb20a10b5febb39ac078ac00c9471c9",
+    "answer_key_file": "test_answer_key.jsonl",
+    "answer_key_sha256": "e27144117ec11e2e65710ccc37dda3fefb5dc92f2c11a2cc13f9b6b05f7ed811",
+    "test_panel_id": "335950a9b202d0ef9b76b2b23019e4e43638c3e8419dd1fb3feb270dd1ca8d0a",
+    "row_count": 25216,
+    "required_family_count": 13,
+    "required_case_count": 394
+  },
+  "generation": {
+    "num_nodes": 512,
+    "tasks_per_node": 1,
+    "gpus_per_node": 8,
+    "batch_size": 4,
+    "max_tool_call_tokens": 1024,
+    "max_final_prompt_tokens": 8191,
+    "max_new_tokens": 4096,
+    "max_total_tokens": 8192,
+    "maximum_tool_calls": 4,
+    "do_sample": false,
+    "enable_thinking": true,
+    "reasoning_effort": "low",
+    "history_policy": "retain_current_turn",
+    "seed": 900913,
+    "local_files_only": true
+  },
+  "gate": {
+    "profile": "report_only_v1",
+    "minimum_structured_accuracy": null,
+    "require_complete_coverage": true,
+    "require_network_used_false": true
+  },
+  "tracking": {
+    "entity": "jail-ai",
+    "project": "mentor-sft",
+    "resume_training_run": true,
+    "resume_policy": "must",
+    "publish_after_complete_scoring": true
+  },
+  "methods": [
+    {
+      "method_id": "oss120b-plain-base-tokenizer-lora-r32",
+      "tokenizer_method": "plain_base_tokenizer",
+      "tokenizer_path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
+      "tokenizer_manifest": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer_manifest.json",
+      "tokenizer_manifest_sha256": "245163b5189a64afb8e5b061585f90d4c15bcf94599b68307e9ff008880fe3c0",
+      "tokenizer_artifacts_sha256": "be21ce55523f893dc49e5ec7433f627372eebc1b9ac39dcdca5af8c7561e8d2f",
+      "checkpoint_kind": "lora",
+      "fine_tune_configuration": "lora_r32",
+      "output_root": "data/world_model_v4/eval_runs/s2_v1_120b_test/oss120b-plain-base-tokenizer-lora-r32"
+    }
+  ]
+}

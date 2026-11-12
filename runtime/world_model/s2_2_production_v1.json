@@ -1,0 +1,27 @@
+{
+  "schema_version": "mentor-rl-s2-multiplex-production-extension-v1",
+  "base_contract": {
+    "path": "runtime/world_model/s2_2_v1.json",
+    "sha256": "95c76c1665ae8a6289031c8041e268cde88eb8be962df1e2d74998ad61f9496e"
+  },
+  "contract_version": "mentor-rl-world-model-s2-multiplex-production-v1",
+  "diagnostic_leads": {
+    "train": "Evaluate this exact multiplex request; preserve every supplied JSON value: ",
+    "validation": "For the following local graph task, interpret the literal fields without repairing them: ",
+    "test": "Process the encoded request below using the active native scope and its prerequisites: "
+  },
+  "system_append": "For symbols without supplied unique registry evidence, call lookup_human_gene_symbol in first-mention order before any canonical graph call. Reuse a supplied unique mapping when present. Preserve the original symbol order in canonical arguments and retain every registry acquisition. An unresolved or ambiguous symbol is an identity prerequisite failure, not graph absence. Local malformed-input and unknown-scope diagnostics preserve the literal six-field request as {genes,multiplex_id,layer_scope,edge_query,mode,top_k}, return {issue_code,request,partial_results}, and defer without invented graph evidence. When the layer catalogue is withheld, an explicit requested layer may be checked by the graph resolver; preserve its atomic rejection and rejected_arguments in the final diagnostic.",
+  "identity_tool": {
+    "type": "function",
+    "function": {
+      "name": "lookup_human_gene_symbol",
+      "description": "Resolve an exact current human symbol against the pinned Ensembl registry; preserve candidate ambiguity and attributed registry evidence.",
+      "parameters": {
+        "type": "object",
+        "properties": {"gene_symbol": {"type": "string"}},
+        "required": ["gene_symbol"],
+        "additionalProperties": false
+      }
+    }
+  }
+}

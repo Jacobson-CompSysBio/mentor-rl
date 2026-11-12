@@ -1,0 +1,146 @@
+{
+  "row_schema_version": "mentor-rl-world-model-s2-corpus-v1",
+  "source_manifest": {
+    "path": "runtime/world_model/s2_v1_sources.json",
+    "sha256": "a9f27a7ae5200a4c9490fdd2ce95ad22a486a6b1fe2bcee70f4d9b74cf59ec04"
+  },
+  "prompt_bank": {
+    "path": "runtime/world_model/s2_v1_prompt_banks.json",
+    "sha256": "0494d021f795b418c8b99b0d51c119d7c9e7f239a6ced98a6057090c891d897c"
+  },
+  "registry_index": {
+    "path": "data/world_model_v3/source_indexes/world_model_source_index_08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e.json.gz",
+    "sha256": "7c92e3e0ec47281cc502984fcb985787f8ed7423fdf4b09ddc034c3005ede88b",
+    "logical_sha256": "08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e"
+  },
+  "scoring": {
+    "exact_fields": [
+      "status",
+      "provenance",
+      "result",
+      "continuation_decision"
+    ],
+    "tool_calls": "exact ordered calls and arguments",
+    "blocked_reason": "presence, not exact prose",
+    "summary": "supported anchors and values, not exact prose"
+  },
+  "s21_request_bank": {
+    "path": "runtime/world_model/s2_v1_edge_requests.json",
+    "sha256": "e14566344fac96ef287ac42f868d5f5cb97b3747a17f21637572a58935986827"
+  },
+  "s22_request_bank": {
+    "path": "runtime/world_model/s2_2_v1_requests.json",
+    "sha256": "2c1a2cb6abcfc72abee3689ecf23616a2d0c034f8c890ae7266c59ff7ae39455"
+  },
+  "s23_request_bank": {
+    "path": "runtime/world_model/s2_3_v1_requests.json",
+    "sha256": "4b6051674dc7cdc1d1d5a6bb26fc30e9f4b2ebf9e3552b36cc2dc73c6429ed1e"
+  },
+  "s24_request_bank": {
+    "path": "runtime/world_model/s2_4_v1_requests.json",
+    "sha256": "2f6d5017bbccd724d32874704658e338df7aa0e48c2be69d212f8cd0640a319b"
+  },
+  "s25_request_bank": {
+    "path": "runtime/world_model/s2_5_v1_requests.json",
+    "sha256": "a2331cdacfe69c3b4f2bfeab2ae9af384fd36740e0ef9068d0b012048dd3e66f"
+  },
+  "tokenizer": {
+    "path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
+    "artifacts": {
+      "chat_template.jinja": "9ad8adf1324b8eb902d6e70087f3184b1b9b345c453bbd3d38949c2f13205c1d",
+      "special_tokens_map.json": "8464cabd6eda239fe46ebf8ae63b46c417721784a961a022f6b59174a2cda0e2",
+      "tokenizer.json": "0614fe83cadab421296e664e1f48f4261fa8fef6e03e63bb75c20f38e37d07d3",
+      "tokenizer_config.json": "9279e942392b742d633c7adbb89ebe002c98399db8926a7af5125c726f404070"
+    }
+  },
+  "context_recipe": {
+    "path": "config/world_model_s1_120b_training_v10_32n.json",
+    "sha256": "125fefe6c5be0260979adffc7054c79734fe51ea283f7a676556981f7b1eb677",
+    "max_length": 4096,
+    "purpose": "existing context-length reference only; does not authorize a training run"
+  },
+  "s26_request_bank": {
+    "path": "runtime/world_model/s2_6_v1_requests.json",
+    "sha256": "4872b6d8dd4552f0f265ab2c8d3106ac986fba935f4bef2bd69ca9e139a5a2b5"
+  },
+  "contract_version": "mentor-rl-world-model-s2-shared-neighbors-v1",
+  "implemented_families": [
+    "S2.7"
+  ],
+  "training_ready": false,
+  "request_bank": {
+    "path": "runtime/world_model/s2_7_v1_requests.json",
+    "sha256": "ad86a374ab79d0f350472fb71af15ea233cf7dab5d6b9e3c64205806224f3ce9"
+  },
+  "system_prompt": "Compute the exact intersection of two ordered neighbor roles in one registered layer of the active versioned multiplex. Resolve identities through supplied authoritative unique registry context. Canonical IDs need no redundant lookup. Preserve raw inputs, symbol spellings, and attributed identity observations. An unresolved identity blocks the intersection; it is not a graph negative. Preserve both roles even when they use the same gene.\n\nFor undirected layers use undirected roles. Directed out means recorded query-to-neighbor targets. Directed in means recorded neighbor-to-query regulators. A mixed out/in pair describes recorded intermediates. An unqualified directed neighbor role means both: form the union of incoming and outgoing IDs for that role. Then intersect the role sets. The final-only both direction is never a tool argument. Expand both into in then out. Deduplicate identical primitive gene/direction operations in first-use order, not distinct roles for the same gene. Preserve self-loops and query endpoints that satisfy the actual intersection. Do not assume adjacency makes an endpoint shared.\n\nUse unchanged get_neighbors with exactly multiplex_id,layer_id,gene_id,direction,mode,top_k,cursor. New acquisitions use mode:complete,top_k:null,cursor:null. Acquire required primitive operations in first-role order. Continue pages with the exact returned cursor and unchanged six other arguments. Preserve each exact S2.3 response and its native weight order: descending numeric weight, then ascending ID. The intersection contains IDs only. Do not combine weights across endpoints or orientations. A bounded prefix is not a complete list, and its omission does not prove absence. A new complete traversal after bounded context starts at null.\n\nReturn exactly status,provenance,result,continuation_decision,blocked_reason,summary. The ordinary result is {multiplex_id,layer_id,queries,shared_neighbors,shared_neighbor_count,input_memberships,coverage,collection}. queries has exactly two {gene_id,direction} roles in user order. Sort unique shared_neighbors lexicographically. input_memberships has each distinct query ID in first-mention order, with exactly {gene_id,present_in_multiplex:true,present_in_layer:boolean|null}. Both genes require positive global membership. Layer membership may remain null when unneeded; null does not mean absence. Collection is {mode:complete,returned_count,total_count,complete:true,next_cursor:null}. shared_neighbor_count and both collection counts equal the number of unique shared IDs, not a source-list count.\n\nCoverage is {operation:neighbor_lists,requested_queries,checked_queries,unchecked_queries}. Every entry is exactly {gene_id,direction}, with primitive in,out,undirected only. Expand and deduplicate the requested operations in first-use order. Each operation appears in exactly one of checked or unchecked. Mark a primitive query checked only when its entire neighbor set is known. Layer absence can prove an empty set. A bounded list or partial page alone does not check a full-set operation. An exact intersection may leave an unnecessary neighbor set unchecked.\n\nReuse only visible evidence with compatible IDs, multiplex, graph version, layer, and direction. Retain original acquisitions and evidence IDs in first-use order. Deduplicate identical records. Conflicting weights, membership facts, totals, or reused evidence IDs are harness/data faults, even when another record could answer. Old-version or wrong-direction evidence cannot fill a current gap. Accumulate complete-mode pages from the initial cursor through exhaustion. Retain each page, merge identical entries, copy compatible non-null totals, and count the final union when totals were unknown. Failed calls add no evidence.\n\nTwo complete role sets prove their exact intersection. One complete set contained in visible positives of the other also proves that exact set. Stop unnecessary pages after this proof. A complete empty set proves an empty intersection only when both genes are known multiplex members. For both, one empty direction does not prove an empty union; both directions or authoritative layer absence are required. A separate authoritative global membership positive can satisfy the other gene's prerequisite without its neighbor list; retain it and leave unobserved layer membership null. Two incomplete lists yield only a lower bound from common entries. Their empty overlap does not prove an empty final set. Positive degree does not define membership. Use authoritative endpoint inventories. Keep graph IDs absent from the registry.\n\nA required unrecovered backend failure returns {failed_tool,error_code,arguments,partial_results,coverage}. Keep successful registry records, lists, and pages as exact attributed partials. Incomplete or failed queries remain unchecked. Use null coverage before valid scope and canonical query roles exist. Do not add a shared list or shared count. Retry only when the visible error has positive retries_remaining. Repeat the identical tool and all seven arguments, including cursor. Stop retries after success. Exhaustion uses error/defer with a nonempty blocked_reason.\n\nAn unresolved prerequisite returns {issue_code,request,rejected_arguments,partial_results,coverage}. request is exactly {genes,multiplex_id,layer_id,directions}; retain the original JSON values, order, duplicates, and null fields. A local rejection has rejected_arguments:null and no graph call. A tool rejection retains its exact seven arguments and empty graph provenance. Missing genes use invalid_input/MISSING_GENES. Malformed or non-two-role inputs use invalid_input/INVALID_QUERY_PAIR. Missing scope uses invalid_input/MISSING_SCOPE. Unknown scope uses not_found/UNKNOWN_LAYER or not_found/UNKNOWN_MULTIPLEX. Unavailable explicit directions use invalid_input/DIRECTION_UNAVAILABLE. Invalid cursors use invalid_input/INVALID_CURSOR. S1 identity statuses retain their meanings with UNRESOLVED_IDENTITY and original observations as partials. A requested ranking without a defined selection rule uses ambiguous/SHARED_NEIGHBOR_RANKING_REQUIRED. Do not invent a ranked or top-K intersection.\n\nConfirmed global absence uses not_found/NO_MULTIPLEX_MEMBERSHIP. Retain the actual unavailable neighbor response or global membership observation and its evidence as a partial. Unavailable primitive queries remain unchecked. Stop before an unnecessary second lookup. Omit uncomputed shared IDs and counts. An opposite empty set never removes this prerequisite. Known layer absence for a global member instead gives a valid empty role set.\n\nAn ordinary complete empty intersection uses resolved. Choose stop or continue from the outer request, including empty answers. Unresolved prerequisites and required unrecovered failures use defer and a nonempty blocked_reason. Ordinary answers omit claim cards. An empty intersection supports no common neighbor for the specified orientations and scope. It does not prove no direct edge, no longer path, biological noninteraction, or lack of expression. Recorded TF roles do not establish activation, repression, or causality. Use supported anchors in free summaries; do not score their prose token for token.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_neighbors",
+        "description": "Check global and layer membership and return one native ranked neighbor page for an explicit directional selection.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_id": {
+              "type": "string",
+              "pattern": "^ENSG[0-9]{11}$"
+            },
+            "direction": {
+              "type": "string",
+              "enum": [
+                "in",
+                "out",
+                "undirected"
+              ]
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "complete",
+                "top_k"
+              ]
+            },
+            "top_k": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_id",
+            "direction",
+            "mode",
+            "top_k",
+            "cursor"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "remaining_coverage": [
+    "Select a production context recipe and preserve every required list without a hidden cap.",
+    "Complete trainer compatibility and exact evaluation before any training export.",
+    "Audit broad pair populations, mixed directions, both unions, and larger neighborhoods beyond the conditioned verification domains.",
+    "Add cold identity lookups, ambiguity, unknown IDs, and expanded real layer families from pinned sources.",
+    "Add explicit claim calibration and outer compound-task blockers under the shared closed vocabularies.",
+    "Expand version, conflict, and cursor coverage before a production corpus claim."
+  ]
+}

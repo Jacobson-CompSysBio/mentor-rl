@@ -1,0 +1,324 @@
+{
+  "schema_version": "mentor-rl-world-model-s2-7-requests-v1",
+  "description": "Frozen S2.7 requests bind two ordered gene roles to one layer. All ten direction pairs have four variants per split. Raw gene spellings and repeated roles remain visible. Diagnostics preserve raw JSON genes and directions. Content choices do not depend on bank size. No language model runs at build time.",
+  "train": {
+    "undirected": [
+      "Use layer {layer_id} in multiplex {multiplex_id}. First set: undirected neighbors connected to {gene_a}. Second set: undirected neighbors connected to {gene_b}. Return the complete shared-neighbor intersection.",
+      "Find all shared IDs for two sets in {multiplex_id}, layer {layer_id}. Set one contains undirected neighbors connected to {gene_a}. Set two contains undirected neighbors connected to {gene_b}.",
+      "Give the entire neighbor intersection for {layer_id} within {multiplex_id}. Compare undirected neighbors connected to {gene_a} against undirected neighbors connected to {gene_b}.",
+      "For {multiplex_id} and layer {layer_id}, identify every common neighbor. The two sets are undirected neighbors connected to {gene_a} and undirected neighbors connected to {gene_b}."
+    ],
+    "in_in": [
+      "Use layer {layer_id} in multiplex {multiplex_id}. First set: incoming sources that point to {gene_a}. Second set: incoming sources that point to {gene_b}. Return the complete shared-neighbor intersection.",
+      "Find all shared IDs for two sets in {multiplex_id}, layer {layer_id}. Set one contains incoming sources that point to {gene_a}. Set two contains incoming sources that point to {gene_b}.",
+      "Give the entire neighbor intersection for {layer_id} within {multiplex_id}. Compare incoming sources that point to {gene_a} against incoming sources that point to {gene_b}.",
+      "For {multiplex_id} and layer {layer_id}, identify every common neighbor. The two sets are incoming sources that point to {gene_a} and incoming sources that point to {gene_b}."
+    ],
+    "out_out": [
+      "Use layer {layer_id} in multiplex {multiplex_id}. First set: outgoing targets reached from {gene_a}. Second set: outgoing targets reached from {gene_b}. Return the complete shared-neighbor intersection.",
+      "Find all shared IDs for two sets in {multiplex_id}, layer {layer_id}. Set one contains outgoing targets reached from {gene_a}. Set two contains outgoing targets reached from {gene_b}.",
+      "Give the entire neighbor intersection for {layer_id} within {multiplex_id}. Compare outgoing targets reached from {gene_a} against outgoing targets reached from {gene_b}.",
+      "For {multiplex_id} and layer {layer_id}, identify every common neighbor. The two sets are outgoing targets reached from {gene_a} and outgoing targets reached from {gene_b}."
+    ],
+    "out_in": [
+      "Use layer {layer_id} in multiplex {multiplex_id}. First set: outgoing targets reached from {gene_a}. Second set: incoming sources that point to {gene_b}. Return the complete shared-neighbor intersection.",
+      "Find all shared IDs for two sets in {multiplex_id}, layer {layer_id}. Set one contains outgoing targets reached from {gene_a}. Set two contains incoming sources that point to {gene_b}.",
+      "Give the entire neighbor intersection for {layer_id} within {multiplex_id}. Compare outgoing targets reached from {gene_a} against incoming sources that point to {gene_b}.",
+      "For {multiplex_id} and layer {layer_id}, identify every common neighbor. The two sets are outgoing targets reached from {gene_a} and incoming sources that point to {gene_b}."
+    ],
+    "in_out": [
+      "Use layer {layer_id} in multiplex {multiplex_id}. First set: incoming sources that point to {gene_a}. Second set: outgoing targets reached from {gene_b}. Return the complete shared-neighbor intersection.",
+      "Find all shared IDs for two sets in {multiplex_id}, layer {layer_id}. Set one contains incoming sources that point to {gene_a}. Set two contains outgoing targets reached from {gene_b}.",
+      "Give the entire neighbor intersection for {layer_id} within {multiplex_id}. Compare incoming sources that point to {gene_a} against outgoing targets reached from {gene_b}.",
+      "For {multiplex_id} and layer {layer_id}, identify every common neighbor. The two sets are incoming sources that point to {gene_a} and outgoing targets reached from {gene_b}."
+    ],
+    "both_both": [
+      "Use layer {layer_id} in multiplex {multiplex_id}. First set: incident neighbors of {gene_a}, across incoming and outgoing links. Second set: incident neighbors of {gene_b}, across incoming and outgoing links. Return the complete shared-neighbor intersection.",
+      "Find all shared IDs for two sets in {multiplex_id}, layer {layer_id}. Set one contains incident neighbors of {gene_a}, across incoming and outgoing links. Set two contains incident neighbors of {gene_b}, across incoming and outgoing links.",
+      "Give the entire shared-neighbor set for {layer_id} within {multiplex_id}. Use neighbors of {gene_a} and neighbors of {gene_b}.",
+      "For {multiplex_id} and layer {layer_id}, identify every common neighbor. The two sets are incident neighbors of {gene_a}, across incoming and outgoing links and incident neighbors of {gene_b}, across incoming and outgoing links."
+    ],
+    "both_in": [
+      "Use layer {layer_id} in multiplex {multiplex_id}. First set: incident neighbors of {gene_a}, across incoming and outgoing links. Second set: incoming sources that point to {gene_b}. Return the complete shared-neighbor intersection.",
+      "Find all shared IDs for two sets in {multiplex_id}, layer {layer_id}. Set one contains incident neighbors of {gene_a}, across incoming and outgoing links. Set two contains incoming sources that point to {gene_b}.",
+      "Give the entire neighbor intersection for {layer_id} within {multiplex_id}. Compare incident neighbors of {gene_a}, across incoming and outgoing links against incoming sources that point to {gene_b}.",
+      "For {multiplex_id} and layer {layer_id}, identify every common neighbor. The two sets are incident neighbors of {gene_a}, across incoming and outgoing links and incoming sources that point to {gene_b}."
+    ],
+    "in_both": [
+      "Use layer {layer_id} in multiplex {multiplex_id}. First set: incoming sources that point to {gene_a}. Second set: incident neighbors of {gene_b}, across incoming and outgoing links. Return the complete shared-neighbor intersection.",
+      "Find all shared IDs for two sets in {multiplex_id}, layer {layer_id}. Set one contains incoming sources that point to {gene_a}. Set two contains incident neighbors of {gene_b}, across incoming and outgoing links.",
+      "Give the entire neighbor intersection for {layer_id} within {multiplex_id}. Compare incoming sources that point to {gene_a} against incident neighbors of {gene_b}, across incoming and outgoing links.",
+      "For {multiplex_id} and layer {layer_id}, identify every common neighbor. The two sets are incoming sources that point to {gene_a} and incident neighbors of {gene_b}, across incoming and outgoing links."
+    ],
+    "both_out": [
+      "Use layer {layer_id} in multiplex {multiplex_id}. First set: incident neighbors of {gene_a}, across incoming and outgoing links. Second set: outgoing targets reached from {gene_b}. Return the complete shared-neighbor intersection.",
+      "Find all shared IDs for two sets in {multiplex_id}, layer {layer_id}. Set one contains incident neighbors of {gene_a}, across incoming and outgoing links. Set two contains outgoing targets reached from {gene_b}.",
+      "Give the entire neighbor intersection for {layer_id} within {multiplex_id}. Compare incident neighbors of {gene_a}, across incoming and outgoing links against outgoing targets reached from {gene_b}.",
+      "For {multiplex_id} and layer {layer_id}, identify every common neighbor. The two sets are incident neighbors of {gene_a}, across incoming and outgoing links and outgoing targets reached from {gene_b}."
+    ],
+    "out_both": [
+      "Use layer {layer_id} in multiplex {multiplex_id}. First set: outgoing targets reached from {gene_a}. Second set: incident neighbors of {gene_b}, across incoming and outgoing links. Return the complete shared-neighbor intersection.",
+      "Find all shared IDs for two sets in {multiplex_id}, layer {layer_id}. Set one contains outgoing targets reached from {gene_a}. Set two contains incident neighbors of {gene_b}, across incoming and outgoing links.",
+      "Give the entire neighbor intersection for {layer_id} within {multiplex_id}. Compare outgoing targets reached from {gene_a} against incident neighbors of {gene_b}, across incoming and outgoing links.",
+      "For {multiplex_id} and layer {layer_id}, identify every common neighbor. The two sets are outgoing targets reached from {gene_a} and incident neighbors of {gene_b}, across incoming and outgoing links."
+    ]
+  },
+  "validation": {
+    "undirected": [
+      "At {layer_id} under {multiplex_id}, establish an exhaustive overlap of two gene sets. Compare partners sharing an unoriented link with {gene_a} with partners sharing an unoriented link with {gene_b}.",
+      "Consider partners sharing an unoriented link with {gene_a}, then partners sharing an unoriented link with {gene_b}. In {multiplex_id} with relation {layer_id}, enumerate their whole common set.",
+      "Take partners sharing an unoriented link with {gene_a} as one set and partners sharing an unoriented link with {gene_b} as another. Using {layer_id} from {multiplex_id}, supply all intersected IDs.",
+      "Determine the full set shared between partners sharing an unoriented link with {gene_a} and partners sharing an unoriented link with {gene_b}. Restrict this comparison to {multiplex_id} with {layer_id}."
+    ],
+    "in_in": [
+      "At {layer_id} under {multiplex_id}, establish an exhaustive overlap of two gene sets. Compare predecessors whose directed edges end at {gene_a} with predecessors whose directed edges end at {gene_b}.",
+      "Consider predecessors whose directed edges end at {gene_a}, then predecessors whose directed edges end at {gene_b}. In {multiplex_id} with relation {layer_id}, enumerate their whole common set.",
+      "Take predecessors whose directed edges end at {gene_a} as one set and predecessors whose directed edges end at {gene_b} as another. Using {layer_id} from {multiplex_id}, supply all intersected IDs.",
+      "Determine the full set shared between predecessors whose directed edges end at {gene_a} and predecessors whose directed edges end at {gene_b}. Restrict this comparison to {multiplex_id} with {layer_id}."
+    ],
+    "out_out": [
+      "At {layer_id} under {multiplex_id}, establish an exhaustive overlap of two gene sets. Compare successors whose directed edges begin at {gene_a} with successors whose directed edges begin at {gene_b}.",
+      "Consider successors whose directed edges begin at {gene_a}, then successors whose directed edges begin at {gene_b}. In {multiplex_id} with relation {layer_id}, enumerate their whole common set.",
+      "Take successors whose directed edges begin at {gene_a} as one set and successors whose directed edges begin at {gene_b} as another. Using {layer_id} from {multiplex_id}, supply all intersected IDs.",
+      "Determine the full set shared between successors whose directed edges begin at {gene_a} and successors whose directed edges begin at {gene_b}. Restrict this comparison to {multiplex_id} with {layer_id}."
+    ],
+    "out_in": [
+      "At {layer_id} under {multiplex_id}, establish an exhaustive overlap of two gene sets. Compare successors whose directed edges begin at {gene_a} with predecessors whose directed edges end at {gene_b}.",
+      "Consider successors whose directed edges begin at {gene_a}, then predecessors whose directed edges end at {gene_b}. In {multiplex_id} with relation {layer_id}, enumerate their whole common set.",
+      "Take successors whose directed edges begin at {gene_a} as one set and predecessors whose directed edges end at {gene_b} as another. Using {layer_id} from {multiplex_id}, supply all intersected IDs.",
+      "Determine the full set shared between successors whose directed edges begin at {gene_a} and predecessors whose directed edges end at {gene_b}. Restrict this comparison to {multiplex_id} with {layer_id}."
+    ],
+    "in_out": [
+      "At {layer_id} under {multiplex_id}, establish an exhaustive overlap of two gene sets. Compare predecessors whose directed edges end at {gene_a} with successors whose directed edges begin at {gene_b}.",
+      "Consider predecessors whose directed edges end at {gene_a}, then successors whose directed edges begin at {gene_b}. In {multiplex_id} with relation {layer_id}, enumerate their whole common set.",
+      "Take predecessors whose directed edges end at {gene_a} as one set and successors whose directed edges begin at {gene_b} as another. Using {layer_id} from {multiplex_id}, supply all intersected IDs.",
+      "Determine the full set shared between predecessors whose directed edges end at {gene_a} and successors whose directed edges begin at {gene_b}. Restrict this comparison to {multiplex_id} with {layer_id}."
+    ],
+    "both_both": [
+      "At {layer_id} under {multiplex_id}, establish an exhaustive overlap of two gene sets. Compare neighbors beside {gene_a}, using either arrow orientation with neighbors beside {gene_b}, using either arrow orientation.",
+      "Consider neighbors beside {gene_a}, using either arrow orientation, then neighbors beside {gene_b}, using either arrow orientation. In {multiplex_id} with relation {layer_id}, enumerate their whole common set.",
+      "Take neighbors around {gene_a} as one set and neighbors around {gene_b} as another. Using {layer_id} from {multiplex_id}, supply all intersected IDs.",
+      "Determine the full set shared between neighbors beside {gene_a}, using either arrow orientation and neighbors beside {gene_b}, using either arrow orientation. Restrict this comparison to {multiplex_id} with {layer_id}."
+    ],
+    "both_in": [
+      "At {layer_id} under {multiplex_id}, establish an exhaustive overlap of two gene sets. Compare neighbors beside {gene_a}, using either arrow orientation with predecessors whose directed edges end at {gene_b}.",
+      "Consider neighbors beside {gene_a}, using either arrow orientation, then predecessors whose directed edges end at {gene_b}. In {multiplex_id} with relation {layer_id}, enumerate their whole common set.",
+      "Take neighbors beside {gene_a}, using either arrow orientation as one set and predecessors whose directed edges end at {gene_b} as another. Using {layer_id} from {multiplex_id}, supply all intersected IDs.",
+      "Determine the full set shared between neighbors beside {gene_a}, using either arrow orientation and predecessors whose directed edges end at {gene_b}. Restrict this comparison to {multiplex_id} with {layer_id}."
+    ],
+    "in_both": [
+      "At {layer_id} under {multiplex_id}, establish an exhaustive overlap of two gene sets. Compare predecessors whose directed edges end at {gene_a} with neighbors beside {gene_b}, using either arrow orientation.",
+      "Consider predecessors whose directed edges end at {gene_a}, then neighbors beside {gene_b}, using either arrow orientation. In {multiplex_id} with relation {layer_id}, enumerate their whole common set.",
+      "Take predecessors whose directed edges end at {gene_a} as one set and neighbors beside {gene_b}, using either arrow orientation as another. Using {layer_id} from {multiplex_id}, supply all intersected IDs.",
+      "Determine the full set shared between predecessors whose directed edges end at {gene_a} and neighbors beside {gene_b}, using either arrow orientation. Restrict this comparison to {multiplex_id} with {layer_id}."
+    ],
+    "both_out": [
+      "At {layer_id} under {multiplex_id}, establish an exhaustive overlap of two gene sets. Compare neighbors beside {gene_a}, using either arrow orientation with successors whose directed edges begin at {gene_b}.",
+      "Consider neighbors beside {gene_a}, using either arrow orientation, then successors whose directed edges begin at {gene_b}. In {multiplex_id} with relation {layer_id}, enumerate their whole common set.",
+      "Take neighbors beside {gene_a}, using either arrow orientation as one set and successors whose directed edges begin at {gene_b} as another. Using {layer_id} from {multiplex_id}, supply all intersected IDs.",
+      "Determine the full set shared between neighbors beside {gene_a}, using either arrow orientation and successors whose directed edges begin at {gene_b}. Restrict this comparison to {multiplex_id} with {layer_id}."
+    ],
+    "out_both": [
+      "At {layer_id} under {multiplex_id}, establish an exhaustive overlap of two gene sets. Compare successors whose directed edges begin at {gene_a} with neighbors beside {gene_b}, using either arrow orientation.",
+      "Consider successors whose directed edges begin at {gene_a}, then neighbors beside {gene_b}, using either arrow orientation. In {multiplex_id} with relation {layer_id}, enumerate their whole common set.",
+      "Take successors whose directed edges begin at {gene_a} as one set and neighbors beside {gene_b}, using either arrow orientation as another. Using {layer_id} from {multiplex_id}, supply all intersected IDs.",
+      "Determine the full set shared between successors whose directed edges begin at {gene_a} and neighbors beside {gene_b}, using either arrow orientation. Restrict this comparison to {multiplex_id} with {layer_id}."
+    ]
+  },
+  "test": {
+    "undirected": [
+      "Report every common gene present in these two collections. Collection A: genes joined without arrow orientation to {gene_a}. Collection B: genes joined without arrow orientation to {gene_b}. Scope: {multiplex_id}/{layer_id}.",
+      "Which IDs belong to the complete intersection at {multiplex_id}/{layer_id}? One collection has genes joined without arrow orientation to {gene_a}; the other has genes joined without arrow orientation to {gene_b}.",
+      "Tabulate the entire common collection for this scope: {layer_id} of {multiplex_id}. Its operands are genes joined without arrow orientation to {gene_a} and genes joined without arrow orientation to {gene_b}.",
+      "State all shared IDs that occur in both collections for {multiplex_id} using {layer_id}. Use genes joined without arrow orientation to {gene_a} together with genes joined without arrow orientation to {gene_b}."
+    ],
+    "in_in": [
+      "Report every common gene present in these two collections. Collection A: genes with a recorded arrow toward {gene_a}. Collection B: genes with a recorded arrow toward {gene_b}. Scope: {multiplex_id}/{layer_id}.",
+      "Which IDs belong to the complete intersection at {multiplex_id}/{layer_id}? One collection has genes with a recorded arrow toward {gene_a}; the other has genes with a recorded arrow toward {gene_b}.",
+      "Tabulate the entire common collection for this scope: {layer_id} of {multiplex_id}. Its operands are genes with a recorded arrow toward {gene_a} and genes with a recorded arrow toward {gene_b}.",
+      "State all shared IDs that occur in both collections for {multiplex_id} using {layer_id}. Use genes with a recorded arrow toward {gene_a} together with genes with a recorded arrow toward {gene_b}."
+    ],
+    "out_out": [
+      "Report every common gene present in these two collections. Collection A: genes with a recorded arrow away from {gene_a}. Collection B: genes with a recorded arrow away from {gene_b}. Scope: {multiplex_id}/{layer_id}.",
+      "Which IDs belong to the complete intersection at {multiplex_id}/{layer_id}? One collection has genes with a recorded arrow away from {gene_a}; the other has genes with a recorded arrow away from {gene_b}.",
+      "Tabulate the entire common collection for this scope: {layer_id} of {multiplex_id}. Its operands are genes with a recorded arrow away from {gene_a} and genes with a recorded arrow away from {gene_b}.",
+      "State all shared IDs that occur in both collections for {multiplex_id} using {layer_id}. Use genes with a recorded arrow away from {gene_a} together with genes with a recorded arrow away from {gene_b}."
+    ],
+    "out_in": [
+      "Report every common gene present in these two collections. Collection A: genes with a recorded arrow away from {gene_a}. Collection B: genes with a recorded arrow toward {gene_b}. Scope: {multiplex_id}/{layer_id}.",
+      "Which IDs belong to the complete intersection at {multiplex_id}/{layer_id}? One collection has genes with a recorded arrow away from {gene_a}; the other has genes with a recorded arrow toward {gene_b}.",
+      "Tabulate the entire common collection for this scope: {layer_id} of {multiplex_id}. Its operands are genes with a recorded arrow away from {gene_a} and genes with a recorded arrow toward {gene_b}.",
+      "State all shared IDs that occur in both collections for {multiplex_id} using {layer_id}. Use genes with a recorded arrow away from {gene_a} together with genes with a recorded arrow toward {gene_b}."
+    ],
+    "in_out": [
+      "Report every common gene present in these two collections. Collection A: genes with a recorded arrow toward {gene_a}. Collection B: genes with a recorded arrow away from {gene_b}. Scope: {multiplex_id}/{layer_id}.",
+      "Which IDs belong to the complete intersection at {multiplex_id}/{layer_id}? One collection has genes with a recorded arrow toward {gene_a}; the other has genes with a recorded arrow away from {gene_b}.",
+      "Tabulate the entire common collection for this scope: {layer_id} of {multiplex_id}. Its operands are genes with a recorded arrow toward {gene_a} and genes with a recorded arrow away from {gene_b}.",
+      "State all shared IDs that occur in both collections for {multiplex_id} using {layer_id}. Use genes with a recorded arrow toward {gene_a} together with genes with a recorded arrow away from {gene_b}."
+    ],
+    "both_both": [
+      "Report every common gene present in these two collections. Collection A: counterparts adjoining {gene_a}, whether arrows enter or leave. Collection B: counterparts adjoining {gene_b}, whether arrows enter or leave. Scope: {multiplex_id}/{layer_id}.",
+      "Which IDs belong to the complete intersection at {multiplex_id}/{layer_id}? One collection has counterparts adjoining {gene_a}, whether arrows enter or leave; the other has counterparts adjoining {gene_b}, whether arrows enter or leave.",
+      "Tabulate the entire common collection for this scope: {layer_id} of {multiplex_id}. Its operands are neighbors beside {gene_a} and neighbors beside {gene_b}.",
+      "State all shared IDs that occur in both collections for {multiplex_id} using {layer_id}. Use counterparts adjoining {gene_a}, whether arrows enter or leave together with counterparts adjoining {gene_b}, whether arrows enter or leave."
+    ],
+    "both_in": [
+      "Report every common gene present in these two collections. Collection A: counterparts adjoining {gene_a}, whether arrows enter or leave. Collection B: genes with a recorded arrow toward {gene_b}. Scope: {multiplex_id}/{layer_id}.",
+      "Which IDs belong to the complete intersection at {multiplex_id}/{layer_id}? One collection has counterparts adjoining {gene_a}, whether arrows enter or leave; the other has genes with a recorded arrow toward {gene_b}.",
+      "Tabulate the entire common collection for this scope: {layer_id} of {multiplex_id}. Its operands are counterparts adjoining {gene_a}, whether arrows enter or leave and genes with a recorded arrow toward {gene_b}.",
+      "State all shared IDs that occur in both collections for {multiplex_id} using {layer_id}. Use counterparts adjoining {gene_a}, whether arrows enter or leave together with genes with a recorded arrow toward {gene_b}."
+    ],
+    "in_both": [
+      "Report every common gene present in these two collections. Collection A: genes with a recorded arrow toward {gene_a}. Collection B: counterparts adjoining {gene_b}, whether arrows enter or leave. Scope: {multiplex_id}/{layer_id}.",
+      "Which IDs belong to the complete intersection at {multiplex_id}/{layer_id}? One collection has genes with a recorded arrow toward {gene_a}; the other has counterparts adjoining {gene_b}, whether arrows enter or leave.",
+      "Tabulate the entire common collection for this scope: {layer_id} of {multiplex_id}. Its operands are genes with a recorded arrow toward {gene_a} and counterparts adjoining {gene_b}, whether arrows enter or leave.",
+      "State all shared IDs that occur in both collections for {multiplex_id} using {layer_id}. Use genes with a recorded arrow toward {gene_a} together with counterparts adjoining {gene_b}, whether arrows enter or leave."
+    ],
+    "both_out": [
+      "Report every common gene present in these two collections. Collection A: counterparts adjoining {gene_a}, whether arrows enter or leave. Collection B: genes with a recorded arrow away from {gene_b}. Scope: {multiplex_id}/{layer_id}.",
+      "Which IDs belong to the complete intersection at {multiplex_id}/{layer_id}? One collection has counterparts adjoining {gene_a}, whether arrows enter or leave; the other has genes with a recorded arrow away from {gene_b}.",
+      "Tabulate the entire common collection for this scope: {layer_id} of {multiplex_id}. Its operands are counterparts adjoining {gene_a}, whether arrows enter or leave and genes with a recorded arrow away from {gene_b}.",
+      "State all shared IDs that occur in both collections for {multiplex_id} using {layer_id}. Use counterparts adjoining {gene_a}, whether arrows enter or leave together with genes with a recorded arrow away from {gene_b}."
+    ],
+    "out_both": [
+      "Report every common gene present in these two collections. Collection A: genes with a recorded arrow away from {gene_a}. Collection B: counterparts adjoining {gene_b}, whether arrows enter or leave. Scope: {multiplex_id}/{layer_id}.",
+      "Which IDs belong to the complete intersection at {multiplex_id}/{layer_id}? One collection has genes with a recorded arrow away from {gene_a}; the other has counterparts adjoining {gene_b}, whether arrows enter or leave.",
+      "Tabulate the entire common collection for this scope: {layer_id} of {multiplex_id}. Its operands are genes with a recorded arrow away from {gene_a} and counterparts adjoining {gene_b}, whether arrows enter or leave.",
+      "State all shared IDs that occur in both collections for {multiplex_id} using {layer_id}. Use genes with a recorded arrow away from {gene_a} together with counterparts adjoining {gene_b}, whether arrows enter or leave."
+    ]
+  },
+  "diagnostic_requests": {
+    "train": {
+      "unknown_layer": [
+        "Find the complete shared-neighbor set in multiplex {multiplex_id}, layer {layer_id}. Supplied gene roles: {genes_json}. Their direction roles: {directions_json}.",
+        "Compute all common neighbors for layer {layer_id} under {multiplex_id}. Input genes: {genes_json}. Input directions: {directions_json}.",
+        "Use multiplex {multiplex_id} with layer {layer_id} for an entire neighbor intersection. Gene inputs: {genes_json}. Direction inputs: {directions_json}.",
+        "Give every shared neighbor within {layer_id} in multiplex {multiplex_id}. Keep these gene roles: {genes_json}. Keep these directions: {directions_json}."
+      ],
+      "unknown_multiplex": [
+        "Find the complete shared-neighbor set in multiplex {multiplex_id}, layer {layer_id}. Supplied gene roles: {genes_json}. Their direction roles: {directions_json}.",
+        "Compute all common neighbors for layer {layer_id} under {multiplex_id}. Input genes: {genes_json}. Input directions: {directions_json}.",
+        "Use multiplex {multiplex_id} with layer {layer_id} for an entire neighbor intersection. Gene inputs: {genes_json}. Direction inputs: {directions_json}.",
+        "Give every shared neighbor within {layer_id} in multiplex {multiplex_id}. Keep these gene roles: {genes_json}. Keep these directions: {directions_json}."
+      ],
+      "missing_scope": [
+        "Find the complete shared-neighbor set in multiplex {multiplex_id}, layer {layer_id}. Supplied gene roles: {genes_json}. Their direction roles: {directions_json}.",
+        "Compute all common neighbors for layer {layer_id} under {multiplex_id}. Input genes: {genes_json}. Input directions: {directions_json}.",
+        "Use multiplex {multiplex_id} with layer {layer_id} for an entire neighbor intersection. Gene inputs: {genes_json}. Direction inputs: {directions_json}.",
+        "Give every shared neighbor within {layer_id} in multiplex {multiplex_id}. Keep these gene roles: {genes_json}. Keep these directions: {directions_json}."
+      ],
+      "missing_genes": [
+        "Find the complete shared-neighbor set in multiplex {multiplex_id}, layer {layer_id}. Supplied gene roles: {genes_json}. Their direction roles: {directions_json}.",
+        "Compute all common neighbors for layer {layer_id} under {multiplex_id}. Input genes: {genes_json}. Input directions: {directions_json}.",
+        "Use multiplex {multiplex_id} with layer {layer_id} for an entire neighbor intersection. Gene inputs: {genes_json}. Direction inputs: {directions_json}.",
+        "Give every shared neighbor within {layer_id} in multiplex {multiplex_id}. Keep these gene roles: {genes_json}. Keep these directions: {directions_json}."
+      ],
+      "invalid_pair": [
+        "Find the complete shared-neighbor set in multiplex {multiplex_id}, layer {layer_id}. Supplied gene roles: {genes_json}. Their direction roles: {directions_json}.",
+        "Compute all common neighbors for layer {layer_id} under {multiplex_id}. Input genes: {genes_json}. Input directions: {directions_json}.",
+        "Use multiplex {multiplex_id} with layer {layer_id} for an entire neighbor intersection. Gene inputs: {genes_json}. Direction inputs: {directions_json}.",
+        "Give every shared neighbor within {layer_id} in multiplex {multiplex_id}. Keep these gene roles: {genes_json}. Keep these directions: {directions_json}."
+      ],
+      "invalid_directions": [
+        "Find the complete shared-neighbor set in multiplex {multiplex_id}, layer {layer_id}. Supplied gene roles: {genes_json}. Their direction roles: {directions_json}.",
+        "Compute all common neighbors for layer {layer_id} under {multiplex_id}. Input genes: {genes_json}. Input directions: {directions_json}.",
+        "Use multiplex {multiplex_id} with layer {layer_id} for an entire neighbor intersection. Gene inputs: {genes_json}. Direction inputs: {directions_json}.",
+        "Give every shared neighbor within {layer_id} in multiplex {multiplex_id}. Keep these gene roles: {genes_json}. Keep these directions: {directions_json}."
+      ],
+      "ranking_required": [
+        "Choose the strongest shared neighbors. Find the complete shared-neighbor set in multiplex {multiplex_id}, layer {layer_id}. Supplied gene roles: {genes_json}. Their direction roles: {directions_json}.",
+        "Choose the strongest shared neighbors. Compute all common neighbors for layer {layer_id} under {multiplex_id}. Input genes: {genes_json}. Input directions: {directions_json}.",
+        "Choose the strongest shared neighbors. Use multiplex {multiplex_id} with layer {layer_id} for an entire neighbor intersection. Gene inputs: {genes_json}. Direction inputs: {directions_json}.",
+        "Choose the strongest shared neighbors. Give every shared neighbor within {layer_id} in multiplex {multiplex_id}. Keep these gene roles: {genes_json}. Keep these directions: {directions_json}."
+      ]
+    },
+    "validation": {
+      "unknown_layer": [
+        "Establish exhaustive overlap at {layer_id} under {multiplex_id}. The supplied genes are {genes_json}; the corresponding orientations are {directions_json}.",
+        "At {multiplex_id} with relation {layer_id}, determine the whole common set. Gene selection: {genes_json}. Orientation selection: {directions_json}.",
+        "Evaluate the full neighbor intersection using {multiplex_id} and {layer_id}. Pair input: {genes_json}. Orientation input: {directions_json}.",
+        "Enumerate all intersected IDs from {layer_id} of {multiplex_id}. These entries supply the genes: {genes_json}. Their orientations: {directions_json}."
+      ],
+      "unknown_multiplex": [
+        "Establish exhaustive overlap at {layer_id} under {multiplex_id}. The supplied genes are {genes_json}; the corresponding orientations are {directions_json}.",
+        "At {multiplex_id} with relation {layer_id}, determine the whole common set. Gene selection: {genes_json}. Orientation selection: {directions_json}.",
+        "Evaluate the full neighbor intersection using {multiplex_id} and {layer_id}. Pair input: {genes_json}. Orientation input: {directions_json}.",
+        "Enumerate all intersected IDs from {layer_id} of {multiplex_id}. These entries supply the genes: {genes_json}. Their orientations: {directions_json}."
+      ],
+      "missing_scope": [
+        "Establish exhaustive overlap at {layer_id} under {multiplex_id}. The supplied genes are {genes_json}; the corresponding orientations are {directions_json}.",
+        "At {multiplex_id} with relation {layer_id}, determine the whole common set. Gene selection: {genes_json}. Orientation selection: {directions_json}.",
+        "Evaluate the full neighbor intersection using {multiplex_id} and {layer_id}. Pair input: {genes_json}. Orientation input: {directions_json}.",
+        "Enumerate all intersected IDs from {layer_id} of {multiplex_id}. These entries supply the genes: {genes_json}. Their orientations: {directions_json}."
+      ],
+      "missing_genes": [
+        "Establish exhaustive overlap at {layer_id} under {multiplex_id}. The supplied genes are {genes_json}; the corresponding orientations are {directions_json}.",
+        "At {multiplex_id} with relation {layer_id}, determine the whole common set. Gene selection: {genes_json}. Orientation selection: {directions_json}.",
+        "Evaluate the full neighbor intersection using {multiplex_id} and {layer_id}. Pair input: {genes_json}. Orientation input: {directions_json}.",
+        "Enumerate all intersected IDs from {layer_id} of {multiplex_id}. These entries supply the genes: {genes_json}. Their orientations: {directions_json}."
+      ],
+      "invalid_pair": [
+        "Establish exhaustive overlap at {layer_id} under {multiplex_id}. The supplied genes are {genes_json}; the corresponding orientations are {directions_json}.",
+        "At {multiplex_id} with relation {layer_id}, determine the whole common set. Gene selection: {genes_json}. Orientation selection: {directions_json}.",
+        "Evaluate the full neighbor intersection using {multiplex_id} and {layer_id}. Pair input: {genes_json}. Orientation input: {directions_json}.",
+        "Enumerate all intersected IDs from {layer_id} of {multiplex_id}. These entries supply the genes: {genes_json}. Their orientations: {directions_json}."
+      ],
+      "invalid_directions": [
+        "Establish exhaustive overlap at {layer_id} under {multiplex_id}. The supplied genes are {genes_json}; the corresponding orientations are {directions_json}.",
+        "At {multiplex_id} with relation {layer_id}, determine the whole common set. Gene selection: {genes_json}. Orientation selection: {directions_json}.",
+        "Evaluate the full neighbor intersection using {multiplex_id} and {layer_id}. Pair input: {genes_json}. Orientation input: {directions_json}.",
+        "Enumerate all intersected IDs from {layer_id} of {multiplex_id}. These entries supply the genes: {genes_json}. Their orientations: {directions_json}."
+      ],
+      "ranking_required": [
+        "Order the common set by importance. Establish exhaustive overlap at {layer_id} under {multiplex_id}. The supplied genes are {genes_json}; the corresponding orientations are {directions_json}.",
+        "Order the common set by importance. At {multiplex_id} with relation {layer_id}, determine the whole common set. Gene selection: {genes_json}. Orientation selection: {directions_json}.",
+        "Order the common set by importance. Evaluate the full neighbor intersection using {multiplex_id} and {layer_id}. Pair input: {genes_json}. Orientation input: {directions_json}.",
+        "Order the common set by importance. Enumerate all intersected IDs from {layer_id} of {multiplex_id}. These entries supply the genes: {genes_json}. Their orientations: {directions_json}."
+      ]
+    },
+    "test": {
+      "unknown_layer": [
+        "Report the entire shared collection for {multiplex_id}/{layer_id}. The original gene value is {genes_json}. The original direction value is {directions_json}.",
+        "Tabulate every common ID at scope {layer_id} of {multiplex_id}. Use gene value {genes_json} with direction value {directions_json}.",
+        "State the complete intersection requested for {multiplex_id}/{layer_id}. Its gene argument is {genes_json}; its direction argument is {directions_json}.",
+        "Which IDs occur in both full collections for {layer_id}, {multiplex_id}? Read genes as {genes_json} and directions as {directions_json}."
+      ],
+      "unknown_multiplex": [
+        "Report the entire shared collection for {multiplex_id}/{layer_id}. The original gene value is {genes_json}. The original direction value is {directions_json}.",
+        "Tabulate every common ID at scope {layer_id} of {multiplex_id}. Use gene value {genes_json} with direction value {directions_json}.",
+        "State the complete intersection requested for {multiplex_id}/{layer_id}. Its gene argument is {genes_json}; its direction argument is {directions_json}.",
+        "Which IDs occur in both full collections for {layer_id}, {multiplex_id}? Read genes as {genes_json} and directions as {directions_json}."
+      ],
+      "missing_scope": [
+        "Report the entire shared collection for {multiplex_id}/{layer_id}. The original gene value is {genes_json}. The original direction value is {directions_json}.",
+        "Tabulate every common ID at scope {layer_id} of {multiplex_id}. Use gene value {genes_json} with direction value {directions_json}.",
+        "State the complete intersection requested for {multiplex_id}/{layer_id}. Its gene argument is {genes_json}; its direction argument is {directions_json}.",
+        "Which IDs occur in both full collections for {layer_id}, {multiplex_id}? Read genes as {genes_json} and directions as {directions_json}."
+      ],
+      "missing_genes": [
+        "Report the entire shared collection for {multiplex_id}/{layer_id}. The original gene value is {genes_json}. The original direction value is {directions_json}.",
+        "Tabulate every common ID at scope {layer_id} of {multiplex_id}. Use gene value {genes_json} with direction value {directions_json}.",
+        "State the complete intersection requested for {multiplex_id}/{layer_id}. Its gene argument is {genes_json}; its direction argument is {directions_json}.",
+        "Which IDs occur in both full collections for {layer_id}, {multiplex_id}? Read genes as {genes_json} and directions as {directions_json}."
+      ],
+      "invalid_pair": [
+        "Report the entire shared collection for {multiplex_id}/{layer_id}. The original gene value is {genes_json}. The original direction value is {directions_json}.",
+        "Tabulate every common ID at scope {layer_id} of {multiplex_id}. Use gene value {genes_json} with direction value {directions_json}.",
+        "State the complete intersection requested for {multiplex_id}/{layer_id}. Its gene argument is {genes_json}; its direction argument is {directions_json}.",
+        "Which IDs occur in both full collections for {layer_id}, {multiplex_id}? Read genes as {genes_json} and directions as {directions_json}."
+      ],
+      "invalid_directions": [
+        "Report the entire shared collection for {multiplex_id}/{layer_id}. The original gene value is {genes_json}. The original direction value is {directions_json}.",
+        "Tabulate every common ID at scope {layer_id} of {multiplex_id}. Use gene value {genes_json} with direction value {directions_json}.",
+        "State the complete intersection requested for {multiplex_id}/{layer_id}. Its gene argument is {genes_json}; its direction argument is {directions_json}.",
+        "Which IDs occur in both full collections for {layer_id}, {multiplex_id}? Read genes as {genes_json} and directions as {directions_json}."
+      ],
+      "ranking_required": [
+        "Give a ranked intersection. Report the entire shared collection for {multiplex_id}/{layer_id}. The original gene value is {genes_json}. The original direction value is {directions_json}.",
+        "Give a ranked intersection. Tabulate every common ID at scope {layer_id} of {multiplex_id}. Use gene value {genes_json} with direction value {directions_json}.",
+        "Give a ranked intersection. State the complete intersection requested for {multiplex_id}/{layer_id}. Its gene argument is {genes_json}; its direction argument is {directions_json}.",
+        "Give a ranked intersection. Which IDs occur in both full collections for {layer_id}, {multiplex_id}? Read genes as {genes_json} and directions as {directions_json}."
+      ]
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "schema_version": "mentor-rl-world-model-s2-edge-requests-v1",
+  "description": "Frozen S2.1 core requests, independently worded by split. Every template asks about one native edge and its unmodified recorded weight if present. Directed wording preserves source-to-target roles; undirected wording specifies unordered endpoints. Four fields are bound exactly once. The full-question audit combines these cores with every neutral framing wrapper and masks bound scope and identifier values before measuring cross-split wording overlap. No language model runs at build time; the wording is available for human review.",
+  "train": {
+    "directed": [
+      "In {multiplex_id}, does {layer_id} record the directed edge from {first} to {second}? Give its recorded weight if it exists.",
+      "Check {layer_id} of {multiplex_id} for an arc with source {first} and target {second}, and report the weight if that arc is recorded.",
+      "For {multiplex_id}/{layer_id}, determine whether {first} → {second} is a recorded edge and provide its source weight when available.",
+      "Using layer {layer_id} in multiplex {multiplex_id}, is there a stored edge directed from {first} toward {second}? Include the weight attached to that edge if found."
+    ],
+    "undirected": [
+      "In {multiplex_id}, does {layer_id} record an undirected edge between {first} and {second}? Give its recorded weight if it exists.",
+      "Check {layer_id} of {multiplex_id} for the unordered pair {first}, {second}, and report its edge weight if an edge is recorded.",
+      "For {multiplex_id}/{layer_id}, determine whether {first} and {second} share a direct undirected edge and provide its source weight when available.",
+      "Using layer {layer_id} in multiplex {multiplex_id}, is there a stored undirected link joining {first} with {second}? Include the weight attached to that link if found."
+    ]
+  },
+  "validation": {
+    "directed": [
+      "Within multiplex {multiplex_id}, inspect the {layer_id} relation {first} → {second}. State whether this ordered connection is present; if so, supply its original numeric weight.",
+      "Does the {layer_id} network belonging to {multiplex_id} contain an arrow leaving {first} and entering {second}? If yes, return the associated weight without changing it.",
+      "For source {first} and destination {second}, establish arc presence in layer {layer_id} under {multiplex_id}; any present arc should be accompanied by its weight.",
+      "Examine source {first} and target {second} in {multiplex_id}'s {layer_id} graph. Is that ordered orientation represented by an edge, and what weight does it carry?"
+    ],
+    "undirected": [
+      "Within multiplex {multiplex_id}, inspect the {layer_id} relation between {first} and {second}. State whether this unordered connection is present; if so, supply its original numeric weight.",
+      "Does the {layer_id} network belonging to {multiplex_id} contain a single-hop undirected link for {first} and {second}? If yes, return the associated weight without changing it.",
+      "For endpoints {first} and {second}, establish direct undirected adjacency in layer {layer_id} under {multiplex_id}; any present edge should be accompanied by its weight.",
+      "Examine the unordered endpoints {first} and {second} in {multiplex_id}'s {layer_id} graph. Are they joined by an edge, and what weight does it carry?"
+    ]
+  },
+  "test": {
+    "directed": [
+      "Is the connection {first} → {second} encoded in {layer_id} ({multiplex_id})? Answer the edge-existence question and, for a positive answer, copy the numerical edge weight.",
+      "Identify whether {multiplex_id} includes a {layer_id} arc originating at {first} and terminating at {second}. A recorded arc requires its unchanged weight in your answer.",
+      "Consider source {first} and target {second} in {layer_id}, selected from {multiplex_id}. Report ordered edge existence, plus the native weight for a recorded edge.",
+      "Assess the forward orientation {first} → {second} for {multiplex_id} and {layer_id}. Indicate whether an edge is stored there and return its weight if recorded."
+    ],
+    "undirected": [
+      "Is a direct connection between {first} and {second} encoded in {layer_id} ({multiplex_id})? Answer the undirected edge-existence question and, for a positive answer, copy the numerical edge weight.",
+      "Identify whether {multiplex_id} includes a {layer_id} edge joining endpoints {first} and {second} without orientation. A recorded edge requires its unchanged weight in your answer.",
+      "Consider the unordered endpoints ({first}, {second}) in {layer_id}, selected from {multiplex_id}. Report direct edge existence, plus the native weight for a recorded edge.",
+      "Assess undirected adjacency for {first} and {second} using {multiplex_id} and {layer_id}. Indicate whether an edge is stored there and return its weight if recorded."
+    ]
+  }
+}

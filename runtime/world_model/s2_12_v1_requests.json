@@ -1,0 +1,234 @@
+{
+  "schema_version": "mentor-rl-world-model-s2-12-requests-v1",
+  "description": "Frozen singleton membership, observed support, exact truth, and explicit prerequisite requests. No template supplies a membership outcome.",
+  "train": {
+    "membership_card": [
+      "Classify singleton {genes} within layer {layer_id} of multiplex {multiplex_id}; retain the complete membership partition and its scoped claim card. An outer prerequisite requires membership in {require_membership}; null imposes no prerequisite.",
+      "Determine membership for one supplied gene {genes}, using multiplex {multiplex_id} and layer {layer_id}; return the checked classification with its evidence permissions. An outer prerequisite requires membership in {require_membership}; null imposes no prerequisite.",
+      "Resolve the membership category of singleton {genes} in multiplex {multiplex_id}, layer {layer_id}; include the complete classification and graph-observation claim card. An outer prerequisite requires membership in {require_membership}; null imposes no prerequisite.",
+      "For multiplex {multiplex_id} and layer {layer_id}, classify singleton {genes}; report its complete membership result and the permitted observation claims. An outer prerequisite requires membership in {require_membership}; null imposes no prerequisite."
+    ],
+    "membership_support": [
+      "Classify singleton {genes} within layer {layer_id} of multiplex {multiplex_id}; retain the complete membership partition and its scoped claim card. An outer prerequisite requires membership in {require_membership}; null imposes no prerequisite. Assess support for canonical claim {claim} in the card.",
+      "Determine membership for one supplied gene {genes}, using multiplex {multiplex_id} and layer {layer_id}; return the checked classification with its evidence permissions. An outer prerequisite requires membership in {require_membership}; null imposes no prerequisite. Assess support for canonical claim {claim} in the card.",
+      "Resolve the membership category of singleton {genes} in multiplex {multiplex_id}, layer {layer_id}; include the complete classification and graph-observation claim card. An outer prerequisite requires membership in {require_membership}; null imposes no prerequisite. Assess support for canonical claim {claim} in the card.",
+      "For multiplex {multiplex_id} and layer {layer_id}, classify singleton {genes}; report its complete membership result and the permitted observation claims. An outer prerequisite requires membership in {require_membership}; null imposes no prerequisite. Assess support for canonical claim {claim} in the card."
+    ],
+    "membership_truth": [
+      "Classify singleton {genes} within layer {layer_id} of multiplex {multiplex_id}; retain the complete membership partition and its scoped claim card. An outer prerequisite requires membership in {require_membership}; null imposes no prerequisite. Judge this exact statement: {statement}. Its canonical claim category is {claim}, and its truth scope is {truth_scope}. Explicit truth layers: {truth_layer_ids}; truth family: {truth_family}.",
+      "Determine membership for one supplied gene {genes}, using multiplex {multiplex_id} and layer {layer_id}; return the checked classification with its evidence permissions. An outer prerequisite requires membership in {require_membership}; null imposes no prerequisite. Judge this exact statement: {statement}. Its canonical claim category is {claim}, and its truth scope is {truth_scope}. Explicit truth layers: {truth_layer_ids}; truth family: {truth_family}.",
+      "Resolve the membership category of singleton {genes} in multiplex {multiplex_id}, layer {layer_id}; include the complete classification and graph-observation claim card. An outer prerequisite requires membership in {require_membership}; null imposes no prerequisite. Judge this exact statement: {statement}. Its canonical claim category is {claim}, and its truth scope is {truth_scope}. Explicit truth layers: {truth_layer_ids}; truth family: {truth_family}.",
+      "For multiplex {multiplex_id} and layer {layer_id}, classify singleton {genes}; report its complete membership result and the permitted observation claims. An outer prerequisite requires membership in {require_membership}; null imposes no prerequisite. Judge this exact statement: {statement}. Its canonical claim category is {claim}, and its truth scope is {truth_scope}. Explicit truth layers: {truth_layer_ids}; truth family: {truth_family}."
+    ],
+    "claim_card": [
+      "For supplied graph evidence about singleton {genes}, produce its scoped claim card. Multiplex {multiplex_id}; layer {layer_id}.",
+      "List the claims supported and unsupported by supplied observations for singleton {genes} in {multiplex_id}, layer {layer_id}.",
+      "Assess supplied evidence for singleton {genes} using multiplex {multiplex_id}, layer {layer_id}. Return the graph-observation vocabulary partition.",
+      "State what the supplied observations establish about singleton {genes}. Use multiplex {multiplex_id}, layer {layer_id}, and the declared claim vocabulary."
+    ],
+    "claim_support": [
+      "For supplied graph evidence about singleton {genes}, produce its scoped claim card. Multiplex {multiplex_id}; layer {layer_id}. Assess support for canonical claim {claim} in the card.",
+      "List the claims supported and unsupported by supplied observations for singleton {genes} in {multiplex_id}, layer {layer_id}. Assess support for canonical claim {claim} in the card.",
+      "Assess supplied evidence for singleton {genes} using multiplex {multiplex_id}, layer {layer_id}. Return the graph-observation vocabulary partition. Assess support for canonical claim {claim} in the card.",
+      "State what the supplied observations establish about singleton {genes}. Use multiplex {multiplex_id}, layer {layer_id}, and the declared claim vocabulary. Assess support for canonical claim {claim} in the card."
+    ],
+    "truth": [
+      "For supplied graph evidence about singleton {genes}, produce its scoped claim card. Multiplex {multiplex_id}; layer {layer_id}. Judge this exact statement: {statement}. Its canonical claim category is {claim}, and its truth scope is {truth_scope}. Explicit truth layers: {truth_layer_ids}; truth family: {truth_family}.",
+      "List the claims supported and unsupported by supplied observations for singleton {genes} in {multiplex_id}, layer {layer_id}. Judge this exact statement: {statement}. Its canonical claim category is {claim}, and its truth scope is {truth_scope}. Explicit truth layers: {truth_layer_ids}; truth family: {truth_family}.",
+      "Assess supplied evidence for singleton {genes} using multiplex {multiplex_id}, layer {layer_id}. Return the graph-observation vocabulary partition. Judge this exact statement: {statement}. Its canonical claim category is {claim}, and its truth scope is {truth_scope}. Explicit truth layers: {truth_layer_ids}; truth family: {truth_family}.",
+      "State what the supplied observations establish about singleton {genes}. Use multiplex {multiplex_id}, layer {layer_id}, and the declared claim vocabulary. Judge this exact statement: {statement}. Its canonical claim category is {claim}, and its truth scope is {truth_scope}. Explicit truth layers: {truth_layer_ids}; truth family: {truth_family}."
+    ]
+  },
+  "validation": {
+    "membership_card": [
+      "Establish the node classification for terminal input {genes}. Graph reference {multiplex_id}; relation {layer_id}. Give the complete category record and assertion permissions. The outer task has prerequisite {require_membership}; null leaves this unrestricted.",
+      "At relation {layer_id} of graph reference {multiplex_id}, identify the membership class of terminal input {genes}; preserve the exhaustive record and assertion card. The outer task has prerequisite {require_membership}; null leaves this unrestricted.",
+      "Derive the membership classification concerning terminal input {genes}. Graph reference {multiplex_id}, relation {layer_id}. Supply the complete category record and justified assertions. The outer task has prerequisite {require_membership}; null leaves this unrestricted.",
+      "Report the node category concerning terminal input {genes} within relation {layer_id}. Use graph reference {multiplex_id}; include the exhaustive record and assertion permissions. The outer task has prerequisite {require_membership}; null leaves this unrestricted."
+    ],
+    "membership_support": [
+      "Establish the node classification for terminal input {genes}. Graph reference {multiplex_id}; relation {layer_id}. Give the complete category record and assertion permissions. The outer task has prerequisite {require_membership}; null leaves this unrestricted. Decide whether the acquired evidence permits assertion {claim}.",
+      "At relation {layer_id} of graph reference {multiplex_id}, identify the membership class of terminal input {genes}; preserve the exhaustive record and assertion card. The outer task has prerequisite {require_membership}; null leaves this unrestricted. Decide whether the acquired evidence permits assertion {claim}.",
+      "Derive the membership classification concerning terminal input {genes}. Graph reference {multiplex_id}, relation {layer_id}. Supply the complete category record and justified assertions. The outer task has prerequisite {require_membership}; null leaves this unrestricted. Decide whether the acquired evidence permits assertion {claim}.",
+      "Report the node category concerning terminal input {genes} within relation {layer_id}. Use graph reference {multiplex_id}; include the exhaustive record and assertion permissions. The outer task has prerequisite {require_membership}; null leaves this unrestricted. Decide whether the acquired evidence permits assertion {claim}."
+    ],
+    "membership_truth": [
+      "Establish the node classification for terminal input {genes}. Graph reference {multiplex_id}; relation {layer_id}. Give the complete category record and assertion permissions. The outer task has prerequisite {require_membership}; null leaves this unrestricted. Evaluate proposition {statement}, with declared quantification {truth_scope} and assertion category {claim}. Quantified relations: {truth_layer_ids}; quantified family: {truth_family}.",
+      "At relation {layer_id} of graph reference {multiplex_id}, identify the membership class of terminal input {genes}; preserve the exhaustive record and assertion card. The outer task has prerequisite {require_membership}; null leaves this unrestricted. Evaluate proposition {statement}, with declared quantification {truth_scope} and assertion category {claim}. Quantified relations: {truth_layer_ids}; quantified family: {truth_family}.",
+      "Derive the membership classification concerning terminal input {genes}. Graph reference {multiplex_id}, relation {layer_id}. Supply the complete category record and justified assertions. The outer task has prerequisite {require_membership}; null leaves this unrestricted. Evaluate proposition {statement}, with declared quantification {truth_scope} and assertion category {claim}. Quantified relations: {truth_layer_ids}; quantified family: {truth_family}.",
+      "Report the node category concerning terminal input {genes} within relation {layer_id}. Use graph reference {multiplex_id}; include the exhaustive record and assertion permissions. The outer task has prerequisite {require_membership}; null leaves this unrestricted. Evaluate proposition {statement}, with declared quantification {truth_scope} and assertion category {claim}. Quantified relations: {truth_layer_ids}; quantified family: {truth_family}."
+    ],
+    "claim_card": [
+      "Establish the permitted assertions from supplied evidence concerning terminal input {genes}. Graph reference {multiplex_id}; relation {layer_id}.",
+      "At relation {layer_id}, classify assertion permissions for terminal input {genes} from the available observations. Graph reference {multiplex_id}.",
+      "Derive an assertion card from the provided evidence concerning terminal input {genes}. Graph reference {multiplex_id}; relation {layer_id}.",
+      "Report the vocabulary partition justified by provided observations concerning terminal input {genes}. Use graph reference {multiplex_id}, relation {layer_id}."
+    ],
+    "claim_support": [
+      "Establish the permitted assertions from supplied evidence concerning terminal input {genes}. Graph reference {multiplex_id}; relation {layer_id}. Decide whether the acquired evidence permits assertion {claim}.",
+      "At relation {layer_id}, classify assertion permissions for terminal input {genes} from the available observations. Graph reference {multiplex_id}. Decide whether the acquired evidence permits assertion {claim}.",
+      "Derive an assertion card from the provided evidence concerning terminal input {genes}. Graph reference {multiplex_id}; relation {layer_id}. Decide whether the acquired evidence permits assertion {claim}.",
+      "Report the vocabulary partition justified by provided observations concerning terminal input {genes}. Use graph reference {multiplex_id}, relation {layer_id}. Decide whether the acquired evidence permits assertion {claim}."
+    ],
+    "truth": [
+      "Establish the permitted assertions from supplied evidence concerning terminal input {genes}. Graph reference {multiplex_id}; relation {layer_id}. Evaluate proposition {statement}, with declared quantification {truth_scope} and assertion category {claim}. Quantified relations: {truth_layer_ids}; quantified family: {truth_family}.",
+      "At relation {layer_id}, classify assertion permissions for terminal input {genes} from the available observations. Graph reference {multiplex_id}. Evaluate proposition {statement}, with declared quantification {truth_scope} and assertion category {claim}. Quantified relations: {truth_layer_ids}; quantified family: {truth_family}.",
+      "Derive an assertion card from the provided evidence concerning terminal input {genes}. Graph reference {multiplex_id}; relation {layer_id}. Evaluate proposition {statement}, with declared quantification {truth_scope} and assertion category {claim}. Quantified relations: {truth_layer_ids}; quantified family: {truth_family}.",
+      "Report the vocabulary partition justified by provided observations concerning terminal input {genes}. Use graph reference {multiplex_id}, relation {layer_id}. Evaluate proposition {statement}, with declared quantification {truth_scope} and assertion category {claim}. Quantified relations: {truth_layer_ids}; quantified family: {truth_family}."
+    ]
+  },
+  "test": {
+    "membership_card": [
+      "Compute the node classification concerning singleton selection {genes} along layer identifier {layer_id} of network identifier {multiplex_id}; include the full category output and permissible claims. Apply outer membership requirement {require_membership}; null adds no requirement.",
+      "For network identifier {multiplex_id}, classify singleton selection {genes}. Layer identifier {layer_id}; tabulate its full node category output and justified claim inventory. Apply outer membership requirement {require_membership}; null adds no requirement.",
+      "Evaluate node membership concerning singleton selection {genes} on network identifier {multiplex_id} along layer identifier {layer_id}; preserve its full classification and claim inventory. Apply outer membership requirement {require_membership}; null adds no requirement.",
+      "Produce the node category for singleton selection {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; give the full membership output and permissible claims. Apply outer membership requirement {require_membership}; null adds no requirement."
+    ],
+    "membership_support": [
+      "Compute the node classification concerning singleton selection {genes} along layer identifier {layer_id} of network identifier {multiplex_id}; include the full category output and permissible claims. Apply outer membership requirement {require_membership}; null adds no requirement. Check whether observation support holds for claim label {claim}.",
+      "For network identifier {multiplex_id}, classify singleton selection {genes}. Layer identifier {layer_id}; tabulate its full node category output and justified claim inventory. Apply outer membership requirement {require_membership}; null adds no requirement. Check whether observation support holds for claim label {claim}.",
+      "Evaluate node membership concerning singleton selection {genes} on network identifier {multiplex_id} along layer identifier {layer_id}; preserve its full classification and claim inventory. Apply outer membership requirement {require_membership}; null adds no requirement. Check whether observation support holds for claim label {claim}.",
+      "Produce the node category for singleton selection {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; give the full membership output and permissible claims. Apply outer membership requirement {require_membership}; null adds no requirement. Check whether observation support holds for claim label {claim}."
+    ],
+    "membership_truth": [
+      "Compute the node classification concerning singleton selection {genes} along layer identifier {layer_id} of network identifier {multiplex_id}; include the full category output and permissible claims. Apply outer membership requirement {require_membership}; null adds no requirement. Test literal statement {statement}, categorized as {claim} under scope label {truth_scope}. Enumerated layer identifiers: {truth_layer_ids}; family selector: {truth_family}.",
+      "For network identifier {multiplex_id}, classify singleton selection {genes}. Layer identifier {layer_id}; tabulate its full node category output and justified claim inventory. Apply outer membership requirement {require_membership}; null adds no requirement. Test literal statement {statement}, categorized as {claim} under scope label {truth_scope}. Enumerated layer identifiers: {truth_layer_ids}; family selector: {truth_family}.",
+      "Evaluate node membership concerning singleton selection {genes} on network identifier {multiplex_id} along layer identifier {layer_id}; preserve its full classification and claim inventory. Apply outer membership requirement {require_membership}; null adds no requirement. Test literal statement {statement}, categorized as {claim} under scope label {truth_scope}. Enumerated layer identifiers: {truth_layer_ids}; family selector: {truth_family}.",
+      "Produce the node category for singleton selection {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; give the full membership output and permissible claims. Apply outer membership requirement {require_membership}; null adds no requirement. Test literal statement {statement}, categorized as {claim} under scope label {truth_scope}. Enumerated layer identifiers: {truth_layer_ids}; family selector: {truth_family}."
+    ],
+    "claim_card": [
+      "Compute permissible claims concerning singleton selection {genes} from the supplied observations. Layer identifier {layer_id}; network identifier {multiplex_id}.",
+      "For network identifier {multiplex_id}, tabulate the claim inventory justified by supplied observations concerning singleton selection {genes}. Layer identifier {layer_id}.",
+      "Evaluate the provided observations concerning singleton selection {genes} on network identifier {multiplex_id} along layer identifier {layer_id}; give permissible and impermissible claims.",
+      "Produce the claim inventory for singleton selection {genes} from available observations. Network identifier {multiplex_id}; layer identifier {layer_id}."
+    ],
+    "claim_support": [
+      "Compute permissible claims concerning singleton selection {genes} from the supplied observations. Layer identifier {layer_id}; network identifier {multiplex_id}. Check whether observation support holds for claim label {claim}.",
+      "For network identifier {multiplex_id}, tabulate the claim inventory justified by supplied observations concerning singleton selection {genes}. Layer identifier {layer_id}. Check whether observation support holds for claim label {claim}.",
+      "Evaluate the provided observations concerning singleton selection {genes} on network identifier {multiplex_id} along layer identifier {layer_id}; give permissible and impermissible claims. Check whether observation support holds for claim label {claim}.",
+      "Produce the claim inventory for singleton selection {genes} from available observations. Network identifier {multiplex_id}; layer identifier {layer_id}. Check whether observation support holds for claim label {claim}."
+    ],
+    "truth": [
+      "Compute permissible claims concerning singleton selection {genes} from the supplied observations. Layer identifier {layer_id}; network identifier {multiplex_id}. Test literal statement {statement}, categorized as {claim} under scope label {truth_scope}. Enumerated layer identifiers: {truth_layer_ids}; family selector: {truth_family}.",
+      "For network identifier {multiplex_id}, tabulate the claim inventory justified by supplied observations concerning singleton selection {genes}. Layer identifier {layer_id}. Test literal statement {statement}, categorized as {claim} under scope label {truth_scope}. Enumerated layer identifiers: {truth_layer_ids}; family selector: {truth_family}.",
+      "Evaluate the provided observations concerning singleton selection {genes} on network identifier {multiplex_id} along layer identifier {layer_id}; give permissible and impermissible claims. Test literal statement {statement}, categorized as {claim} under scope label {truth_scope}. Enumerated layer identifiers: {truth_layer_ids}; family selector: {truth_family}.",
+      "Produce the claim inventory for singleton selection {genes} from available observations. Network identifier {multiplex_id}; layer identifier {layer_id}. Test literal statement {statement}, categorized as {claim} under scope label {truth_scope}. Enumerated layer identifiers: {truth_layer_ids}; family selector: {truth_family}."
+    ]
+  },
+  "diagnostic_requests": {
+    "train": {
+      "unknown_layer": [
+        "Classify singleton {genes} within layer {layer_id} of multiplex {multiplex_id}; retain the complete membership partition and its scoped claim card.",
+        "Determine membership for one supplied gene {genes}, using multiplex {multiplex_id} and layer {layer_id}; return the checked classification with its evidence permissions.",
+        "Resolve the membership category of singleton {genes} in multiplex {multiplex_id}, layer {layer_id}; include the complete classification and graph-observation claim card.",
+        "For multiplex {multiplex_id} and layer {layer_id}, classify singleton {genes}; report its complete membership result and the permitted observation claims."
+      ],
+      "unknown_multiplex": [
+        "Classify singleton {genes} within layer {layer_id} of multiplex {multiplex_id}; retain the complete membership partition and its scoped claim card.",
+        "Determine membership for one supplied gene {genes}, using multiplex {multiplex_id} and layer {layer_id}; return the checked classification with its evidence permissions.",
+        "Resolve the membership category of singleton {genes} in multiplex {multiplex_id}, layer {layer_id}; include the complete classification and graph-observation claim card.",
+        "For multiplex {multiplex_id} and layer {layer_id}, classify singleton {genes}; report its complete membership result and the permitted observation claims."
+      ],
+      "missing_genes": [
+        "Classify singleton {genes} within layer {layer_id} of multiplex {multiplex_id}; retain the complete membership partition and its scoped claim card.",
+        "Determine membership for one supplied gene {genes}, using multiplex {multiplex_id} and layer {layer_id}; return the checked classification with its evidence permissions.",
+        "Resolve the membership category of singleton {genes} in multiplex {multiplex_id}, layer {layer_id}; include the complete classification and graph-observation claim card.",
+        "For multiplex {multiplex_id} and layer {layer_id}, classify singleton {genes}; report its complete membership result and the permitted observation claims."
+      ],
+      "missing_scope": [
+        "Classify singleton {genes} within layer {layer_id} of multiplex {multiplex_id}; retain the complete membership partition and its scoped claim card.",
+        "Determine membership for one supplied gene {genes}, using multiplex {multiplex_id} and layer {layer_id}; return the checked classification with its evidence permissions.",
+        "Resolve the membership category of singleton {genes} in multiplex {multiplex_id}, layer {layer_id}; include the complete classification and graph-observation claim card.",
+        "For multiplex {multiplex_id} and layer {layer_id}, classify singleton {genes}; report its complete membership result and the permitted observation claims."
+      ],
+      "invalid_gene_list": [
+        "Classify singleton {genes} within layer {layer_id} of multiplex {multiplex_id}; retain the complete membership partition and its scoped claim card.",
+        "Determine membership for one supplied gene {genes}, using multiplex {multiplex_id} and layer {layer_id}; return the checked classification with its evidence permissions.",
+        "Resolve the membership category of singleton {genes} in multiplex {multiplex_id}, layer {layer_id}; include the complete classification and graph-observation claim card.",
+        "For multiplex {multiplex_id} and layer {layer_id}, classify singleton {genes}; report its complete membership result and the permitted observation claims."
+      ],
+      "unresolved_identity": [
+        "Classify singleton {genes} within layer {layer_id} of multiplex {multiplex_id}; retain the complete membership partition and its scoped claim card.",
+        "Determine membership for one supplied gene {genes}, using multiplex {multiplex_id} and layer {layer_id}; return the checked classification with its evidence permissions.",
+        "Resolve the membership category of singleton {genes} in multiplex {multiplex_id}, layer {layer_id}; include the complete classification and graph-observation claim card.",
+        "For multiplex {multiplex_id} and layer {layer_id}, classify singleton {genes}; report its complete membership result and the permitted observation claims."
+      ]
+    },
+    "validation": {
+      "unknown_layer": [
+        "Establish the node classification for terminal input {genes}. Graph reference {multiplex_id}; relation {layer_id}. Give the complete category record and assertion permissions.",
+        "At relation {layer_id} of graph reference {multiplex_id}, identify the membership class of terminal input {genes}; preserve the exhaustive record and assertion card.",
+        "Derive the membership classification concerning terminal input {genes}. Graph reference {multiplex_id}, relation {layer_id}. Supply the complete category record and justified assertions.",
+        "Report the node category concerning terminal input {genes} within relation {layer_id}. Use graph reference {multiplex_id}; include the exhaustive record and assertion permissions."
+      ],
+      "unknown_multiplex": [
+        "Establish the node classification for terminal input {genes}. Graph reference {multiplex_id}; relation {layer_id}. Give the complete category record and assertion permissions.",
+        "At relation {layer_id} of graph reference {multiplex_id}, identify the membership class of terminal input {genes}; preserve the exhaustive record and assertion card.",
+        "Derive the membership classification concerning terminal input {genes}. Graph reference {multiplex_id}, relation {layer_id}. Supply the complete category record and justified assertions.",
+        "Report the node category concerning terminal input {genes} within relation {layer_id}. Use graph reference {multiplex_id}; include the exhaustive record and assertion permissions."
+      ],
+      "missing_genes": [
+        "Establish the node classification for terminal input {genes}. Graph reference {multiplex_id}; relation {layer_id}. Give the complete category record and assertion permissions.",
+        "At relation {layer_id} of graph reference {multiplex_id}, identify the membership class of terminal input {genes}; preserve the exhaustive record and assertion card.",
+        "Derive the membership classification concerning terminal input {genes}. Graph reference {multiplex_id}, relation {layer_id}. Supply the complete category record and justified assertions.",
+        "Report the node category concerning terminal input {genes} within relation {layer_id}. Use graph reference {multiplex_id}; include the exhaustive record and assertion permissions."
+      ],
+      "missing_scope": [
+        "Establish the node classification for terminal input {genes}. Graph reference {multiplex_id}; relation {layer_id}. Give the complete category record and assertion permissions.",
+        "At relation {layer_id} of graph reference {multiplex_id}, identify the membership class of terminal input {genes}; preserve the exhaustive record and assertion card.",
+        "Derive the membership classification concerning terminal input {genes}. Graph reference {multiplex_id}, relation {layer_id}. Supply the complete category record and justified assertions.",
+        "Report the node category concerning terminal input {genes} within relation {layer_id}. Use graph reference {multiplex_id}; include the exhaustive record and assertion permissions."
+      ],
+      "invalid_gene_list": [
+        "Establish the node classification for terminal input {genes}. Graph reference {multiplex_id}; relation {layer_id}. Give the complete category record and assertion permissions.",
+        "At relation {layer_id} of graph reference {multiplex_id}, identify the membership class of terminal input {genes}; preserve the exhaustive record and assertion card.",
+        "Derive the membership classification concerning terminal input {genes}. Graph reference {multiplex_id}, relation {layer_id}. Supply the complete category record and justified assertions.",
+        "Report the node category concerning terminal input {genes} within relation {layer_id}. Use graph reference {multiplex_id}; include the exhaustive record and assertion permissions."
+      ],
+      "unresolved_identity": [
+        "Establish the node classification for terminal input {genes}. Graph reference {multiplex_id}; relation {layer_id}. Give the complete category record and assertion permissions.",
+        "At relation {layer_id} of graph reference {multiplex_id}, identify the membership class of terminal input {genes}; preserve the exhaustive record and assertion card.",
+        "Derive the membership classification concerning terminal input {genes}. Graph reference {multiplex_id}, relation {layer_id}. Supply the complete category record and justified assertions.",
+        "Report the node category concerning terminal input {genes} within relation {layer_id}. Use graph reference {multiplex_id}; include the exhaustive record and assertion permissions."
+      ]
+    },
+    "test": {
+      "unknown_layer": [
+        "Compute the node classification concerning singleton selection {genes} along layer identifier {layer_id} of network identifier {multiplex_id}; include the full category output and permissible claims.",
+        "For network identifier {multiplex_id}, classify singleton selection {genes}. Layer identifier {layer_id}; tabulate its full node category output and justified claim inventory.",
+        "Evaluate node membership concerning singleton selection {genes} on network identifier {multiplex_id} along layer identifier {layer_id}; preserve its full classification and claim inventory.",
+        "Produce the node category for singleton selection {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; give the full membership output and permissible claims."
+      ],
+      "unknown_multiplex": [
+        "Compute the node classification concerning singleton selection {genes} along layer identifier {layer_id} of network identifier {multiplex_id}; include the full category output and permissible claims.",
+        "For network identifier {multiplex_id}, classify singleton selection {genes}. Layer identifier {layer_id}; tabulate its full node category output and justified claim inventory.",
+        "Evaluate node membership concerning singleton selection {genes} on network identifier {multiplex_id} along layer identifier {layer_id}; preserve its full classification and claim inventory.",
+        "Produce the node category for singleton selection {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; give the full membership output and permissible claims."
+      ],
+      "missing_genes": [
+        "Compute the node classification concerning singleton selection {genes} along layer identifier {layer_id} of network identifier {multiplex_id}; include the full category output and permissible claims.",
+        "For network identifier {multiplex_id}, classify singleton selection {genes}. Layer identifier {layer_id}; tabulate its full node category output and justified claim inventory.",
+        "Evaluate node membership concerning singleton selection {genes} on network identifier {multiplex_id} along layer identifier {layer_id}; preserve its full classification and claim inventory.",
+        "Produce the node category for singleton selection {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; give the full membership output and permissible claims."
+      ],
+      "missing_scope": [
+        "Compute the node classification concerning singleton selection {genes} along layer identifier {layer_id} of network identifier {multiplex_id}; include the full category output and permissible claims.",
+        "For network identifier {multiplex_id}, classify singleton selection {genes}. Layer identifier {layer_id}; tabulate its full node category output and justified claim inventory.",
+        "Evaluate node membership concerning singleton selection {genes} on network identifier {multiplex_id} along layer identifier {layer_id}; preserve its full classification and claim inventory.",
+        "Produce the node category for singleton selection {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; give the full membership output and permissible claims."
+      ],
+      "invalid_gene_list": [
+        "Compute the node classification concerning singleton selection {genes} along layer identifier {layer_id} of network identifier {multiplex_id}; include the full category output and permissible claims.",
+        "For network identifier {multiplex_id}, classify singleton selection {genes}. Layer identifier {layer_id}; tabulate its full node category output and justified claim inventory.",
+        "Evaluate node membership concerning singleton selection {genes} on network identifier {multiplex_id} along layer identifier {layer_id}; preserve its full classification and claim inventory.",
+        "Produce the node category for singleton selection {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; give the full membership output and permissible claims."
+      ],
+      "unresolved_identity": [
+        "Compute the node classification concerning singleton selection {genes} along layer identifier {layer_id} of network identifier {multiplex_id}; include the full category output and permissible claims.",
+        "For network identifier {multiplex_id}, classify singleton selection {genes}. Layer identifier {layer_id}; tabulate its full node category output and justified claim inventory.",
+        "Evaluate node membership concerning singleton selection {genes} on network identifier {multiplex_id} along layer identifier {layer_id}; preserve its full classification and claim inventory.",
+        "Produce the node category for singleton selection {genes} on layer identifier {layer_id}. Network identifier {multiplex_id}; give the full membership output and permissible claims."
+      ]
+    }
+  }
+}

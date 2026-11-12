@@ -1,0 +1,162 @@
+{
+  "schema_version": "mentor-rl-world-model-s2-5-requests-v1",
+  "description": "Frozen S2.5 core requests for complete membership lists and first-K containing layers in manifest order. Each wording binds only the selected multiplex, scope, gene, and explicit bound. Diagnostics preserve invalid or missing request values without treating them as measured graph absence. Four variants per kind and split are frozen as data, independent of graph outcomes and generation budgets. No language model runs at build time; human wording review remains available.",
+  "train": {
+    "complete": [
+      "Identify every layer containing {gene} within {scope_text} of {multiplex_id}. Preserve manifest order and the selected-scope count.",
+      "List all layers that contain {gene} in {multiplex_id}, restricted to {scope_text}. Include the scoped count.",
+      "Enumerate the complete layer membership for {gene} across {scope_text} in {multiplex_id}. Keep manifest order.",
+      "Return the exhaustive containing-layer list for {gene} under {scope_text}, multiplex {multiplex_id}, with its scoped count."
+    ],
+    "top_k": [
+      "List the first {top_k} layers containing {gene} in manifest order within {scope_text} of {multiplex_id}; return fewer after exhaustion.",
+      "Return an initial prefix of {top_k} containing layers for {gene} over {scope_text} in {multiplex_id}, following manifest order. Permit a smaller exhausted list.",
+      "Select the earliest {top_k} layers that contain {gene} from {scope_text}, multiplex {multiplex_id}, by manifest order; use fewer if exhausted.",
+      "Retrieve {top_k} containing layers as a manifest-ordered prefix for {gene} in {multiplex_id}, restricted to {scope_text}. Exhaustion can shorten the list."
+    ]
+  },
+  "validation": {
+    "complete": [
+      "Establish which registered layers include {gene} for {scope_text} at {multiplex_id}; provide the entire set and its cardinality.",
+      "Using {multiplex_id}, assemble full membership details for {gene} over {scope_text}: containing layers in manifest sequence and scoped cardinality.",
+      "Resolve the exhaustive collection of layers holding {gene} within {multiplex_id} for {scope_text}, retaining manifest sequence and its cardinality.",
+      "Within {scope_text}, account for every registered layer that includes {gene} according to {multiplex_id}. State the scoped cardinality."
+    ],
+    "top_k": [
+      "Establish a prefix of {top_k} registered layers including {gene} for {scope_text} at {multiplex_id}, using manifest sequence; an exhausted collection may be shorter.",
+      "Using {multiplex_id}, assemble the earliest {top_k} memberships for {gene} over {scope_text} according to manifest sequence. Provide fewer when no further memberships remain.",
+      "Resolve a prefix with {top_k} layers holding {gene} within {multiplex_id} for {scope_text}; respect manifest sequence and allow fewer upon exhaustion.",
+      "Within {scope_text}, take the first {top_k} registered layers that include {gene} according to {multiplex_id}. Manifest sequence controls selection; exhaustion permits fewer."
+    ]
+  },
+  "test": {
+    "complete": [
+      "Report all containing layers associated with {gene} from {multiplex_id} across {scope_text}, together with the scoped total.",
+      "Determine the complete set of layer memberships belonging to {gene} under {scope_text} of {multiplex_id}. Order entries by manifest position.",
+      "Tabulate every layer where {gene} is a member for {scope_text} in {multiplex_id}; retain manifest positions and count the scoped entries.",
+      "State the entire inventory of layers containing {gene} from {scope_text}, as registered by {multiplex_id}, and its total."
+    ],
+    "top_k": [
+      "Report the first {top_k} containing layers associated with {gene} from {multiplex_id} across {scope_text}, in manifest position order; use fewer if none remain.",
+      "Determine a prefix of {top_k} layer memberships belonging to {gene} under {scope_text} of {multiplex_id}. Use manifest positions and return fewer when exhausted.",
+      "Tabulate {top_k} initial layers where {gene} is a member for {scope_text} in {multiplex_id}; follow manifest positions and permit a smaller exhausted set.",
+      "State the earliest {top_k} layers containing {gene} from {scope_text}, as registered by {multiplex_id}; retain manifest position order, with fewer allowed after exhaustion."
+    ]
+  },
+  "diagnostic_requests": {
+    "train": {
+      "unknown_layer": [
+        "Identify every layer containing {gene} within {scope_text} of {multiplex_id}. Preserve manifest order and the selected-scope count.",
+        "List all layers that contain {gene} in {multiplex_id}, restricted to {scope_text}. Include the scoped count.",
+        "Enumerate the complete layer membership for {gene} across {scope_text} in {multiplex_id}. Keep manifest order.",
+        "Return the exhaustive containing-layer list for {gene} under {scope_text}, multiplex {multiplex_id}, with its scoped count."
+      ],
+      "unknown_family": [
+        "Identify every layer containing {gene} within {scope_text} of {multiplex_id}. Preserve manifest order and the selected-scope count.",
+        "List all layers that contain {gene} in {multiplex_id}, restricted to {scope_text}. Include the scoped count.",
+        "Enumerate the complete layer membership for {gene} across {scope_text} in {multiplex_id}. Keep manifest order.",
+        "Return the exhaustive containing-layer list for {gene} under {scope_text}, multiplex {multiplex_id}, with its scoped count."
+      ],
+      "missing_scope": [
+        "Identify every layer containing {gene} in {multiplex_id}. The layer scope is {scope_text}.",
+        "List all containing layers for {gene} from {multiplex_id}; the requested layer selection is {scope_text}.",
+        "Enumerate complete layer memberships of {gene} for {multiplex_id}. Selection information is {scope_text}.",
+        "Return every containing layer for {gene}, multiplex {multiplex_id}, with the layer scope {scope_text}."
+      ],
+      "empty_scope": [
+        "Identify every layer containing {gene} within {scope_text} of {multiplex_id}. Preserve manifest order and the selected-scope count.",
+        "List all layers that contain {gene} in {multiplex_id}, restricted to {scope_text}. Include the scoped count.",
+        "Enumerate the complete layer membership for {gene} across {scope_text} in {multiplex_id}. Keep manifest order.",
+        "Return the exhaustive containing-layer list for {gene} under {scope_text}, multiplex {multiplex_id}, with its scoped count."
+      ],
+      "missing_limit": [
+        "List a bounded prefix of layers containing {gene} within {scope_text} of {multiplex_id}. No limit is supplied.",
+        "Return an initial set of containing layers for {gene} over {scope_text} in {multiplex_id}. The bound is unspecified.",
+        "Select a limited number of layers that contain {gene} from {scope_text}, multiplex {multiplex_id}; no K was provided.",
+        "Retrieve a manifest-ordered bounded layer list for {gene} in {multiplex_id}, restricted to {scope_text}. Its requested limit is absent."
+      ],
+      "invalid_limit": [
+        "List the first {top_k} layers containing {gene} in manifest order within {scope_text} of {multiplex_id}; return fewer after exhaustion.",
+        "Return an initial prefix of {top_k} containing layers for {gene} over {scope_text} in {multiplex_id}, following manifest order. Permit a smaller exhausted list.",
+        "Select the earliest {top_k} layers that contain {gene} from {scope_text}, multiplex {multiplex_id}, by manifest order; use fewer if exhausted.",
+        "Retrieve {top_k} containing layers as a manifest-ordered prefix for {gene} in {multiplex_id}, restricted to {scope_text}. Exhaustion can shorten the list."
+      ]
+    },
+    "validation": {
+      "unknown_layer": [
+        "Establish which registered layers include {gene} for {scope_text} at {multiplex_id}; provide the entire set and its cardinality.",
+        "Using {multiplex_id}, assemble full membership details for {gene} over {scope_text}: containing layers in manifest sequence and scoped cardinality.",
+        "Resolve the exhaustive collection of layers holding {gene} within {multiplex_id} for {scope_text}, retaining manifest sequence and its cardinality.",
+        "Within {scope_text}, account for every registered layer that includes {gene} according to {multiplex_id}. State the scoped cardinality."
+      ],
+      "unknown_family": [
+        "Establish which registered layers include {gene} for {scope_text} at {multiplex_id}; provide the entire set and its cardinality.",
+        "Using {multiplex_id}, assemble full membership details for {gene} over {scope_text}: containing layers in manifest sequence and scoped cardinality.",
+        "Resolve the exhaustive collection of layers holding {gene} within {multiplex_id} for {scope_text}, retaining manifest sequence and its cardinality.",
+        "Within {scope_text}, account for every registered layer that includes {gene} according to {multiplex_id}. State the scoped cardinality."
+      ],
+      "missing_scope": [
+        "Establish the full registered membership set for {gene} at {multiplex_id}. Scope information: {scope_text}.",
+        "Using {multiplex_id}, assemble exhaustive memberships for {gene}; the selection description is {scope_text}.",
+        "Resolve which registered layers hold {gene} within {multiplex_id}. The scope specification reads {scope_text}.",
+        "Account for every layer that includes {gene} according to {multiplex_id}, where the declared scope is {scope_text}."
+      ],
+      "empty_scope": [
+        "Establish which registered layers include {gene} for {scope_text} at {multiplex_id}; provide the entire set and its cardinality.",
+        "Using {multiplex_id}, assemble full membership details for {gene} over {scope_text}: containing layers in manifest sequence and scoped cardinality.",
+        "Resolve the exhaustive collection of layers holding {gene} within {multiplex_id} for {scope_text}, retaining manifest sequence and its cardinality.",
+        "Within {scope_text}, account for every registered layer that includes {gene} according to {multiplex_id}. State the scoped cardinality."
+      ],
+      "missing_limit": [
+        "Establish a bounded collection of registered layers including {gene} for {scope_text} at {multiplex_id}. The bound has not been stated.",
+        "Using {multiplex_id}, assemble a membership prefix for {gene} over {scope_text}. No requested cardinality accompanies this selection.",
+        "Resolve a limited collection of layers holding {gene} within {multiplex_id} for {scope_text}; the prefix length remains unstated.",
+        "Within {scope_text}, take a bounded set of registered layers that include {gene} according to {multiplex_id}. Its size was not specified."
+      ],
+      "invalid_limit": [
+        "Establish a prefix of {top_k} registered layers including {gene} for {scope_text} at {multiplex_id}, using manifest sequence; an exhausted collection may be shorter.",
+        "Using {multiplex_id}, assemble the earliest {top_k} memberships for {gene} over {scope_text} according to manifest sequence. Provide fewer when no further memberships remain.",
+        "Resolve a prefix with {top_k} layers holding {gene} within {multiplex_id} for {scope_text}; respect manifest sequence and allow fewer upon exhaustion.",
+        "Within {scope_text}, take the first {top_k} registered layers that include {gene} according to {multiplex_id}. Manifest sequence controls selection; exhaustion permits fewer."
+      ]
+    },
+    "test": {
+      "unknown_layer": [
+        "Report all containing layers associated with {gene} from {multiplex_id} across {scope_text}, together with the scoped total.",
+        "Determine the complete set of layer memberships belonging to {gene} under {scope_text} of {multiplex_id}. Order entries by manifest position.",
+        "Tabulate every layer where {gene} is a member for {scope_text} in {multiplex_id}; retain manifest positions and count the scoped entries.",
+        "State the entire inventory of layers containing {gene} from {scope_text}, as registered by {multiplex_id}, and its total."
+      ],
+      "unknown_family": [
+        "Report all containing layers associated with {gene} from {multiplex_id} across {scope_text}, together with the scoped total.",
+        "Determine the complete set of layer memberships belonging to {gene} under {scope_text} of {multiplex_id}. Order entries by manifest position.",
+        "Tabulate every layer where {gene} is a member for {scope_text} in {multiplex_id}; retain manifest positions and count the scoped entries.",
+        "State the entire inventory of layers containing {gene} from {scope_text}, as registered by {multiplex_id}, and its total."
+      ],
+      "missing_scope": [
+        "Report the entire layer inventory associated with {gene} from {multiplex_id}; its selection is {scope_text}.",
+        "Determine all memberships belonging to {gene} under {multiplex_id}. The supplied scope description is {scope_text}.",
+        "Tabulate every registered layer where {gene} is a member in {multiplex_id}, with selection {scope_text}.",
+        "State all containing layers for {gene} as registered by {multiplex_id}. Scope supplied: {scope_text}."
+      ],
+      "empty_scope": [
+        "Report all containing layers associated with {gene} from {multiplex_id} across {scope_text}, together with the scoped total.",
+        "Determine the complete set of layer memberships belonging to {gene} under {scope_text} of {multiplex_id}. Order entries by manifest position.",
+        "Tabulate every layer where {gene} is a member for {scope_text} in {multiplex_id}; retain manifest positions and count the scoped entries.",
+        "State the entire inventory of layers containing {gene} from {scope_text}, as registered by {multiplex_id}, and its total."
+      ],
+      "missing_limit": [
+        "Report a limited list of containing layers associated with {gene} from {multiplex_id} across {scope_text}. The requested limit is missing.",
+        "Determine a membership prefix belonging to {gene} under {scope_text} of {multiplex_id}. There is no supplied value for K.",
+        "Tabulate a bounded set of layers where {gene} is a member for {scope_text} in {multiplex_id}; the requested number was omitted.",
+        "State a limited set of layers containing {gene} from {scope_text}, as registered by {multiplex_id}. The limit value is unavailable."
+      ],
+      "invalid_limit": [
+        "Report the first {top_k} containing layers associated with {gene} from {multiplex_id} across {scope_text}, in manifest position order; use fewer if none remain.",
+        "Determine a prefix of {top_k} layer memberships belonging to {gene} under {scope_text} of {multiplex_id}. Use manifest positions and return fewer when exhausted.",
+        "Tabulate {top_k} initial layers where {gene} is a member for {scope_text} in {multiplex_id}; follow manifest positions and permit a smaller exhausted set.",
+        "State the earliest {top_k} layers containing {gene} from {scope_text}, as registered by {multiplex_id}; retain manifest position order, with fewer allowed after exhaustion."
+      ]
+    }
+  }
+}

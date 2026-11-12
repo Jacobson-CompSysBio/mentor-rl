@@ -1,0 +1,288 @@
+{
+  "schema_version": "mentor-rl-world-model-s2-13-requests-v1",
+  "description": "Frozen family capability, observed biological support, required edge acquisition, and explicit truth requests. Subject order is explicit; no wording supplies an edge or claim outcome.",
+  "train": {
+    "family_card": [
+      "Give the general evidence meaning of family {layer_family}, with its permitted and unsupported biological concepts.",
+      "Describe the fixed capability of family {layer_family}; list its biological evidence permissions and exclusions.",
+      "Explain the evidence convention for family {layer_family}, returning a complete biological concept card.",
+      "For family {layer_family}, state the generic biological evidence category and its closed concept partition."
+    ],
+    "family_support": [
+      "Give the general evidence meaning of family {layer_family}, with its permitted and unsupported biological concepts. Check support for biological concept {claim}.",
+      "Describe the fixed capability of family {layer_family}; list its biological evidence permissions and exclusions. Check support for biological concept {claim}.",
+      "Explain the evidence convention for family {layer_family}, returning a complete biological concept card. Check support for biological concept {claim}.",
+      "For family {layer_family}, state the generic biological evidence category and its closed concept partition. Check support for biological concept {claim}."
+    ],
+    "edge_card": [
+      "Obtain the native pair result for {genes}, multiplex {multiplex_id}, layer {layer_id}, using interpretation {direction}; include its biological evidence card. Card subjects in declared order: {subjects}; an empty list selects the primary pair.",
+      "Acquire one edge record for inputs {genes} in multiplex {multiplex_id}, layer {layer_id}, interpreted as {direction}; explain its biological claim permissions. Card subjects in declared order: {subjects}; an empty list selects the primary pair.",
+      "Query the actual edge for {genes} under view {multiplex_id} and layer {layer_id}, with direction {direction}; retain its ordinary result and biological concepts. Card subjects in declared order: {subjects}; an empty list selects the primary pair.",
+      "Fetch the pair observation for {genes}, taking multiplex {multiplex_id}, layer {layer_id}, and interpretation {direction}; add its scoped biological assessment. Card subjects in declared order: {subjects}; an empty list selects the primary pair."
+    ],
+    "edge_support": [
+      "Obtain the native pair result for {genes}, multiplex {multiplex_id}, layer {layer_id}, using interpretation {direction}; include its biological evidence card. Card subjects in declared order: {subjects}; an empty list selects the primary pair. Check support for biological concept {claim}.",
+      "Acquire one edge record for inputs {genes} in multiplex {multiplex_id}, layer {layer_id}, interpreted as {direction}; explain its biological claim permissions. Card subjects in declared order: {subjects}; an empty list selects the primary pair. Check support for biological concept {claim}.",
+      "Query the actual edge for {genes} under view {multiplex_id} and layer {layer_id}, with direction {direction}; retain its ordinary result and biological concepts. Card subjects in declared order: {subjects}; an empty list selects the primary pair. Check support for biological concept {claim}.",
+      "Fetch the pair observation for {genes}, taking multiplex {multiplex_id}, layer {layer_id}, and interpretation {direction}; add its scoped biological assessment. Card subjects in declared order: {subjects}; an empty list selects the primary pair. Check support for biological concept {claim}."
+    ],
+    "claim_card": [
+      "Assess only the available observations for {genes}, multiplex {multiplex_id}, layer {layer_id}, interpretation {direction}; return biological concept cards without a new graph query. Card subjects in declared order: {subjects}; an empty list selects the primary pair.",
+      "Use supplied records for inputs {genes} in multiplex {multiplex_id}, layer {layer_id}, interpreted as {direction}; judge their biological claim permissions without acquisition. Card subjects in declared order: {subjects}; an empty list selects the primary pair.",
+      "Evaluate existing evidence for {genes} under view {multiplex_id} and layer {layer_id}, with direction {direction}; produce only scoped biological cards. Card subjects in declared order: {subjects}; an empty list selects the primary pair.",
+      "From the supplied material, assess {genes}, taking multiplex {multiplex_id}, layer {layer_id}, and interpretation {direction}; do not fetch another graph observation. Card subjects in declared order: {subjects}; an empty list selects the primary pair."
+    ],
+    "claim_support": [
+      "Assess only the available observations for {genes}, multiplex {multiplex_id}, layer {layer_id}, interpretation {direction}; return biological concept cards without a new graph query. Card subjects in declared order: {subjects}; an empty list selects the primary pair. Check support for biological concept {claim}.",
+      "Use supplied records for inputs {genes} in multiplex {multiplex_id}, layer {layer_id}, interpreted as {direction}; judge their biological claim permissions without acquisition. Card subjects in declared order: {subjects}; an empty list selects the primary pair. Check support for biological concept {claim}.",
+      "Evaluate existing evidence for {genes} under view {multiplex_id} and layer {layer_id}, with direction {direction}; produce only scoped biological cards. Card subjects in declared order: {subjects}; an empty list selects the primary pair. Check support for biological concept {claim}.",
+      "From the supplied material, assess {genes}, taking multiplex {multiplex_id}, layer {layer_id}, and interpretation {direction}; do not fetch another graph observation. Card subjects in declared order: {subjects}; an empty list selects the primary pair. Check support for biological concept {claim}."
+    ],
+    "biological_truth": [
+      "Assess only the available observations for {genes}, multiplex {multiplex_id}, layer {layer_id}, interpretation {direction}; return biological concept cards without a new graph query. Card subjects in declared order: {subjects}; an empty list selects the primary pair. Decide the exact biological statement {statement}, categorized as {claim}, only from graph evidence.",
+      "Use supplied records for inputs {genes} in multiplex {multiplex_id}, layer {layer_id}, interpreted as {direction}; judge their biological claim permissions without acquisition. Card subjects in declared order: {subjects}; an empty list selects the primary pair. Decide the exact biological statement {statement}, categorized as {claim}, only from graph evidence.",
+      "Evaluate existing evidence for {genes} under view {multiplex_id} and layer {layer_id}, with direction {direction}; produce only scoped biological cards. Card subjects in declared order: {subjects}; an empty list selects the primary pair. Decide the exact biological statement {statement}, categorized as {claim}, only from graph evidence.",
+      "From the supplied material, assess {genes}, taking multiplex {multiplex_id}, layer {layer_id}, and interpretation {direction}; do not fetch another graph observation. Card subjects in declared order: {subjects}; an empty list selects the primary pair. Decide the exact biological statement {statement}, categorized as {claim}, only from graph evidence."
+    ],
+    "graph_truth": [
+      "Assess only the available observations for {genes}, multiplex {multiplex_id}, layer {layer_id}, interpretation {direction}; return biological concept cards without a new graph query. Card subjects in declared order: {subjects}; an empty list selects the primary pair. Assess biological concept {claim} beside graph claim {graph_claim}; graph truth scope {graph_truth_scope}; exact graph statement {statement}.",
+      "Use supplied records for inputs {genes} in multiplex {multiplex_id}, layer {layer_id}, interpreted as {direction}; judge their biological claim permissions without acquisition. Card subjects in declared order: {subjects}; an empty list selects the primary pair. Assess biological concept {claim} beside graph claim {graph_claim}; graph truth scope {graph_truth_scope}; exact graph statement {statement}.",
+      "Evaluate existing evidence for {genes} under view {multiplex_id} and layer {layer_id}, with direction {direction}; produce only scoped biological cards. Card subjects in declared order: {subjects}; an empty list selects the primary pair. Assess biological concept {claim} beside graph claim {graph_claim}; graph truth scope {graph_truth_scope}; exact graph statement {statement}.",
+      "From the supplied material, assess {genes}, taking multiplex {multiplex_id}, layer {layer_id}, and interpretation {direction}; do not fetch another graph observation. Card subjects in declared order: {subjects}; an empty list selects the primary pair. Assess biological concept {claim} beside graph claim {graph_claim}; graph truth scope {graph_truth_scope}; exact graph statement {statement}."
+    ]
+  },
+  "validation": {
+    "family_card": [
+      "Audit the taxonomy entry {layer_family}; distinguish its general evidence capacity from an actual observation.",
+      "Review conceptual category {layer_family} and identify its evidence type through the complete permission inventory.",
+      "Inspect the standard meaning assigned to {layer_family}, preserving every allowed and disallowed concept.",
+      "Identify what category {layer_family} can generally document, using a taxonomy card rather than a pair assertion."
+    ],
+    "family_support": [
+      "Audit the taxonomy entry {layer_family}; distinguish its general evidence capacity from an actual observation. Review the evidence permission for canonical concept {claim}.",
+      "Review conceptual category {layer_family} and identify its evidence type through the complete permission inventory. Review the evidence permission for canonical concept {claim}.",
+      "Inspect the standard meaning assigned to {layer_family}, preserving every allowed and disallowed concept. Review the evidence permission for canonical concept {claim}.",
+      "Identify what category {layer_family} can generally document, using a taxonomy card rather than a pair assertion. Review the evidence permission for canonical concept {claim}."
+    ],
+    "edge_card": [
+      "Audit endpoints {genes} by retrieving their record from namespace {multiplex_id}, registered source {layer_id}, native reading {direction}; report the edge and biological permission card. Requested card selectors: {subjects}; when none are listed, assess the main input.",
+      "Retrieve the requested relation for {genes} at graph {multiplex_id} within {layer_id}, orientation {direction}; review its biological evidence meaning. Requested card selectors: {subjects}; when none are listed, assess the main input.",
+      "Inspect the source relation for {genes} through an actual acquisition in {multiplex_id}, context {layer_id}, native orientation {direction}; preserve the edge output and assess concepts. Requested card selectors: {subjects}; when none are listed, assess the main input.",
+      "Resolve the requested edge datum for {genes} from representation {multiplex_id} at {layer_id}, reading {direction}; supply its result beside the biological evidence assessment. Requested card selectors: {subjects}; when none are listed, assess the main input."
+    ],
+    "edge_support": [
+      "Audit endpoints {genes} by retrieving their record from namespace {multiplex_id}, registered source {layer_id}, native reading {direction}; report the edge and biological permission card. Requested card selectors: {subjects}; when none are listed, assess the main input. Review the evidence permission for canonical concept {claim}.",
+      "Retrieve the requested relation for {genes} at graph {multiplex_id} within {layer_id}, orientation {direction}; review its biological evidence meaning. Requested card selectors: {subjects}; when none are listed, assess the main input. Review the evidence permission for canonical concept {claim}.",
+      "Inspect the source relation for {genes} through an actual acquisition in {multiplex_id}, context {layer_id}, native orientation {direction}; preserve the edge output and assess concepts. Requested card selectors: {subjects}; when none are listed, assess the main input. Review the evidence permission for canonical concept {claim}.",
+      "Resolve the requested edge datum for {genes} from representation {multiplex_id} at {layer_id}, reading {direction}; supply its result beside the biological evidence assessment. Requested card selectors: {subjects}; when none are listed, assess the main input. Review the evidence permission for canonical concept {claim}."
+    ],
+    "claim_card": [
+      "Audit the visible datum for endpoints {genes}, namespace {multiplex_id}, registered source {layer_id}, native reading {direction}; restrict the answer to biological permission cards. Requested card selectors: {subjects}; when none are listed, assess the main input.",
+      "Review existing observations concerning {genes} at graph {multiplex_id} within {layer_id}, orientation {direction}; inspect biological meaning without retrieving a new relation. Requested card selectors: {subjects}; when none are listed, assess the main input.",
+      "Inspect supplied support for {genes} in representation {multiplex_id}, context {layer_id}, native orientation {direction}; emit cards rather than an acquired edge result. Requested card selectors: {subjects}; when none are listed, assess the main input.",
+      "Judge the presented source material for {genes}, graph namespace {multiplex_id}, context {layer_id}, reading {direction}; retain the assessment boundary and avoid acquisition. Requested card selectors: {subjects}; when none are listed, assess the main input."
+    ],
+    "claim_support": [
+      "Audit the visible datum for endpoints {genes}, namespace {multiplex_id}, registered source {layer_id}, native reading {direction}; restrict the answer to biological permission cards. Requested card selectors: {subjects}; when none are listed, assess the main input. Review the evidence permission for canonical concept {claim}.",
+      "Review existing observations concerning {genes} at graph {multiplex_id} within {layer_id}, orientation {direction}; inspect biological meaning without retrieving a new relation. Requested card selectors: {subjects}; when none are listed, assess the main input. Review the evidence permission for canonical concept {claim}.",
+      "Inspect supplied support for {genes} in representation {multiplex_id}, context {layer_id}, native orientation {direction}; emit cards rather than an acquired edge result. Requested card selectors: {subjects}; when none are listed, assess the main input. Review the evidence permission for canonical concept {claim}.",
+      "Judge the presented source material for {genes}, graph namespace {multiplex_id}, context {layer_id}, reading {direction}; retain the assessment boundary and avoid acquisition. Requested card selectors: {subjects}; when none are listed, assess the main input. Review the evidence permission for canonical concept {claim}."
+    ],
+    "biological_truth": [
+      "Audit the visible datum for endpoints {genes}, namespace {multiplex_id}, registered source {layer_id}, native reading {direction}; restrict the answer to biological permission cards. Requested card selectors: {subjects}; when none are listed, assess the main input. Judge literal biological proposition {statement} under concept {claim}; limit the truth verdict to visible graph records.",
+      "Review existing observations concerning {genes} at graph {multiplex_id} within {layer_id}, orientation {direction}; inspect biological meaning without retrieving a new relation. Requested card selectors: {subjects}; when none are listed, assess the main input. Judge literal biological proposition {statement} under concept {claim}; limit the truth verdict to visible graph records.",
+      "Inspect supplied support for {genes} in representation {multiplex_id}, context {layer_id}, native orientation {direction}; emit cards rather than an acquired edge result. Requested card selectors: {subjects}; when none are listed, assess the main input. Judge literal biological proposition {statement} under concept {claim}; limit the truth verdict to visible graph records.",
+      "Judge the presented source material for {genes}, graph namespace {multiplex_id}, context {layer_id}, reading {direction}; retain the assessment boundary and avoid acquisition. Requested card selectors: {subjects}; when none are listed, assess the main input. Judge literal biological proposition {statement} under concept {claim}; limit the truth verdict to visible graph records."
+    ],
+    "graph_truth": [
+      "Audit the visible datum for endpoints {genes}, namespace {multiplex_id}, registered source {layer_id}, native reading {direction}; restrict the answer to biological permission cards. Requested card selectors: {subjects}; when none are listed, assess the main input. Review biological permission {claim} alongside graph category {graph_claim}. Apply graph scope {graph_truth_scope} to literal proposition {statement}.",
+      "Review existing observations concerning {genes} at graph {multiplex_id} within {layer_id}, orientation {direction}; inspect biological meaning without retrieving a new relation. Requested card selectors: {subjects}; when none are listed, assess the main input. Review biological permission {claim} alongside graph category {graph_claim}. Apply graph scope {graph_truth_scope} to literal proposition {statement}.",
+      "Inspect supplied support for {genes} in representation {multiplex_id}, context {layer_id}, native orientation {direction}; emit cards rather than an acquired edge result. Requested card selectors: {subjects}; when none are listed, assess the main input. Review biological permission {claim} alongside graph category {graph_claim}. Apply graph scope {graph_truth_scope} to literal proposition {statement}.",
+      "Judge the presented source material for {genes}, graph namespace {multiplex_id}, context {layer_id}, reading {direction}; retain the assessment boundary and avoid acquisition. Requested card selectors: {subjects}; when none are listed, assess the main input. Review biological permission {claim} alongside graph category {graph_claim}. Apply graph scope {graph_truth_scope} to literal proposition {statement}."
+    ]
+  },
+  "test": {
+    "family_card": [
+      "Present the evidence definition attached to {layer_family} together with the full set of concept verdicts.",
+      "State how {layer_family} is interpreted in the fixed taxonomy, including concepts beyond its evidence boundary.",
+      "Summarize the conceptual scope of {layer_family} through a family card and its specified evidence type.",
+      "Return the taxonomy meaning for {layer_family}, separating supported biological concepts from the remaining vocabulary."
+    ],
+    "family_support": [
+      "Present the evidence definition attached to {layer_family} together with the full set of concept verdicts. Include the support verdict attached to concept {claim}.",
+      "State how {layer_family} is interpreted in the fixed taxonomy, including concepts beyond its evidence boundary. Include the support verdict attached to concept {claim}.",
+      "Summarize the conceptual scope of {layer_family} through a family card and its specified evidence type. Include the support verdict attached to concept {claim}.",
+      "Return the taxonomy meaning for {layer_family}, separating supported biological concepts from the remaining vocabulary. Include the support verdict attached to concept {claim}."
+    ],
+    "edge_card": [
+      "Return the acquired link record for endpoints {genes} in collection {multiplex_id} at source {layer_id}, ordered interpretation {direction}; append biological concept cards. Ordered assessment targets: {subjects}; use the named pair if this list is empty.",
+      "Read the concrete relation for {genes} from graph collection {multiplex_id}, layer key {layer_id}, with native direction {direction}; give the edge result plus evidence limits. Ordered assessment targets: {subjects}; use the named pair if this list is empty.",
+      "Access the specified pair {genes} using collection {multiplex_id} and source key {layer_id}, interpreted {direction}; retain the native response and biological permissions. Ordered assessment targets: {subjects}; use the named pair if this list is empty.",
+      "Look up the actual relation between {genes} in collection {multiplex_id}, within source {layer_id}, respecting reading {direction}; provide the graph result and scoped concepts. Ordered assessment targets: {subjects}; use the named pair if this list is empty."
+    ],
+    "edge_support": [
+      "Return the acquired link record for endpoints {genes} in collection {multiplex_id} at source {layer_id}, ordered interpretation {direction}; append biological concept cards. Ordered assessment targets: {subjects}; use the named pair if this list is empty. Include the support verdict attached to concept {claim}.",
+      "Read the concrete relation for {genes} from graph collection {multiplex_id}, layer key {layer_id}, with native direction {direction}; give the edge result plus evidence limits. Ordered assessment targets: {subjects}; use the named pair if this list is empty. Include the support verdict attached to concept {claim}.",
+      "Access the specified pair {genes} using collection {multiplex_id} and source key {layer_id}, interpreted {direction}; retain the native response and biological permissions. Ordered assessment targets: {subjects}; use the named pair if this list is empty. Include the support verdict attached to concept {claim}.",
+      "Look up the actual relation between {genes} in collection {multiplex_id}, within source {layer_id}, respecting reading {direction}; provide the graph result and scoped concepts. Ordered assessment targets: {subjects}; use the named pair if this list is empty. Include the support verdict attached to concept {claim}."
+    ],
+    "claim_card": [
+      "Present biological permissions from the provided records for endpoints {genes}, collection {multiplex_id}, source {layer_id}, ordered interpretation {direction}; make no graph access. Ordered assessment targets: {subjects}; use the named pair if this list is empty.",
+      "State what current evidence supports for {genes}, graph collection {multiplex_id}, layer key {layer_id}, native direction {direction}; return concept cards alone. Ordered assessment targets: {subjects}; use the named pair if this list is empty.",
+      "Interpret the material already supplied about pair {genes}, collection {multiplex_id}, source key {layer_id}, reading {direction}; assess biological claims without a fresh lookup. Ordered assessment targets: {subjects}; use the named pair if this list is empty.",
+      "Return a concept assessment using the available record for {genes} in collection {multiplex_id}, source {layer_id}, interpretation {direction}; do not acquire the target relation. Ordered assessment targets: {subjects}; use the named pair if this list is empty."
+    ],
+    "claim_support": [
+      "Present biological permissions from the provided records for endpoints {genes}, collection {multiplex_id}, source {layer_id}, ordered interpretation {direction}; make no graph access. Ordered assessment targets: {subjects}; use the named pair if this list is empty. Include the support verdict attached to concept {claim}.",
+      "State what current evidence supports for {genes}, graph collection {multiplex_id}, layer key {layer_id}, native direction {direction}; return concept cards alone. Ordered assessment targets: {subjects}; use the named pair if this list is empty. Include the support verdict attached to concept {claim}.",
+      "Interpret the material already supplied about pair {genes}, collection {multiplex_id}, source key {layer_id}, reading {direction}; assess biological claims without a fresh lookup. Ordered assessment targets: {subjects}; use the named pair if this list is empty. Include the support verdict attached to concept {claim}.",
+      "Return a concept assessment using the available record for {genes} in collection {multiplex_id}, source {layer_id}, interpretation {direction}; do not acquire the target relation. Ordered assessment targets: {subjects}; use the named pair if this list is empty. Include the support verdict attached to concept {claim}."
+    ],
+    "biological_truth": [
+      "Present biological permissions from the provided records for endpoints {genes}, collection {multiplex_id}, source {layer_id}, ordered interpretation {direction}; make no graph access. Ordered assessment targets: {subjects}; use the named pair if this list is empty. Evaluate biological assertion {statement}, classified {claim}, solely through the supplied graph material.",
+      "State what current evidence supports for {genes}, graph collection {multiplex_id}, layer key {layer_id}, native direction {direction}; return concept cards alone. Ordered assessment targets: {subjects}; use the named pair if this list is empty. Evaluate biological assertion {statement}, classified {claim}, solely through the supplied graph material.",
+      "Interpret the material already supplied about pair {genes}, collection {multiplex_id}, source key {layer_id}, reading {direction}; assess biological claims without a fresh lookup. Ordered assessment targets: {subjects}; use the named pair if this list is empty. Evaluate biological assertion {statement}, classified {claim}, solely through the supplied graph material.",
+      "Return a concept assessment using the available record for {genes} in collection {multiplex_id}, source {layer_id}, interpretation {direction}; do not acquire the target relation. Ordered assessment targets: {subjects}; use the named pair if this list is empty. Evaluate biological assertion {statement}, classified {claim}, solely through the supplied graph material."
+    ],
+    "graph_truth": [
+      "Present biological permissions from the provided records for endpoints {genes}, collection {multiplex_id}, source {layer_id}, ordered interpretation {direction}; make no graph access. Ordered assessment targets: {subjects}; use the named pair if this list is empty. Interpret biological category {claim} separately from graph assertion {graph_claim}; bind scope {graph_truth_scope} to the precise statement {statement}.",
+      "State what current evidence supports for {genes}, graph collection {multiplex_id}, layer key {layer_id}, native direction {direction}; return concept cards alone. Ordered assessment targets: {subjects}; use the named pair if this list is empty. Interpret biological category {claim} separately from graph assertion {graph_claim}; bind scope {graph_truth_scope} to the precise statement {statement}.",
+      "Interpret the material already supplied about pair {genes}, collection {multiplex_id}, source key {layer_id}, reading {direction}; assess biological claims without a fresh lookup. Ordered assessment targets: {subjects}; use the named pair if this list is empty. Interpret biological category {claim} separately from graph assertion {graph_claim}; bind scope {graph_truth_scope} to the precise statement {statement}.",
+      "Return a concept assessment using the available record for {genes} in collection {multiplex_id}, source {layer_id}, interpretation {direction}; do not acquire the target relation. Ordered assessment targets: {subjects}; use the named pair if this list is empty. Interpret biological category {claim} separately from graph assertion {graph_claim}; bind scope {graph_truth_scope} to the precise statement {statement}."
+    ]
+  },
+  "diagnostic_requests": {
+    "train": {
+      "unknown_layer": [
+        "Check this raw pair request: genes {genes}, multiplex {multiplex_id}, layer {layer_id}, interpretation {direction}; preserve the inputs before any prerequisite resolution.",
+        "Review a pair task with literal inputs {genes}, view {multiplex_id}, source {layer_id}, direction {direction}; retain the exact request and any rejected arguments.",
+        "Handle the supplied pair fields genes {genes}, multiplex key {multiplex_id}, layer key {layer_id}, reading {direction}; check the prerequisites without assuming an edge.",
+        "Inspect raw endpoints {genes} with scope {multiplex_id}, layer {layer_id}, and direction selector {direction}; preserve their literal values while resolving prerequisites."
+      ],
+      "unknown_multiplex": [
+        "Check this raw pair request: genes {genes}, multiplex {multiplex_id}, layer {layer_id}, interpretation {direction}; preserve the inputs before any prerequisite resolution.",
+        "Review a pair task with literal inputs {genes}, view {multiplex_id}, source {layer_id}, direction {direction}; retain the exact request and any rejected arguments.",
+        "Handle the supplied pair fields genes {genes}, multiplex key {multiplex_id}, layer key {layer_id}, reading {direction}; check the prerequisites without assuming an edge.",
+        "Inspect raw endpoints {genes} with scope {multiplex_id}, layer {layer_id}, and direction selector {direction}; preserve their literal values while resolving prerequisites."
+      ],
+      "missing_genes": [
+        "Check this raw pair request: genes {genes}, multiplex {multiplex_id}, layer {layer_id}, interpretation {direction}; preserve the inputs before any prerequisite resolution.",
+        "Review a pair task with literal inputs {genes}, view {multiplex_id}, source {layer_id}, direction {direction}; retain the exact request and any rejected arguments.",
+        "Handle the supplied pair fields genes {genes}, multiplex key {multiplex_id}, layer key {layer_id}, reading {direction}; check the prerequisites without assuming an edge.",
+        "Inspect raw endpoints {genes} with scope {multiplex_id}, layer {layer_id}, and direction selector {direction}; preserve their literal values while resolving prerequisites."
+      ],
+      "missing_scope": [
+        "Check this raw pair request: genes {genes}, multiplex {multiplex_id}, layer {layer_id}, interpretation {direction}; preserve the inputs before any prerequisite resolution.",
+        "Review a pair task with literal inputs {genes}, view {multiplex_id}, source {layer_id}, direction {direction}; retain the exact request and any rejected arguments.",
+        "Handle the supplied pair fields genes {genes}, multiplex key {multiplex_id}, layer key {layer_id}, reading {direction}; check the prerequisites without assuming an edge.",
+        "Inspect raw endpoints {genes} with scope {multiplex_id}, layer {layer_id}, and direction selector {direction}; preserve their literal values while resolving prerequisites."
+      ],
+      "invalid_pair": [
+        "Check this raw pair request: genes {genes}, multiplex {multiplex_id}, layer {layer_id}, interpretation {direction}; preserve the inputs before any prerequisite resolution.",
+        "Review a pair task with literal inputs {genes}, view {multiplex_id}, source {layer_id}, direction {direction}; retain the exact request and any rejected arguments.",
+        "Handle the supplied pair fields genes {genes}, multiplex key {multiplex_id}, layer key {layer_id}, reading {direction}; check the prerequisites without assuming an edge.",
+        "Inspect raw endpoints {genes} with scope {multiplex_id}, layer {layer_id}, and direction selector {direction}; preserve their literal values while resolving prerequisites."
+      ],
+      "incompatible_direction": [
+        "Check this raw pair request: genes {genes}, multiplex {multiplex_id}, layer {layer_id}, interpretation {direction}; preserve the inputs before any prerequisite resolution.",
+        "Review a pair task with literal inputs {genes}, view {multiplex_id}, source {layer_id}, direction {direction}; retain the exact request and any rejected arguments.",
+        "Handle the supplied pair fields genes {genes}, multiplex key {multiplex_id}, layer key {layer_id}, reading {direction}; check the prerequisites without assuming an edge.",
+        "Inspect raw endpoints {genes} with scope {multiplex_id}, layer {layer_id}, and direction selector {direction}; preserve their literal values while resolving prerequisites."
+      ],
+      "unresolved_identity": [
+        "Check this raw pair request: genes {genes}, multiplex {multiplex_id}, layer {layer_id}, interpretation {direction}; preserve the inputs before any prerequisite resolution.",
+        "Review a pair task with literal inputs {genes}, view {multiplex_id}, source {layer_id}, direction {direction}; retain the exact request and any rejected arguments.",
+        "Handle the supplied pair fields genes {genes}, multiplex key {multiplex_id}, layer key {layer_id}, reading {direction}; check the prerequisites without assuming an edge.",
+        "Inspect raw endpoints {genes} with scope {multiplex_id}, layer {layer_id}, and direction selector {direction}; preserve their literal values while resolving prerequisites."
+      ]
+    },
+    "validation": {
+      "unknown_layer": [
+        "Audit prerequisite fields endpoints {genes}, namespace {multiplex_id}, context {layer_id}, native reading {direction}; identify the unresolved input before a biological assessment.",
+        "Examine the requested relation under raw values {genes}, graph {multiplex_id}, context key {layer_id}, orientation {direction}; keep unresolved prerequisites distinct from a negative observation.",
+        "Review the pending source task for literal pair {genes}, representation {multiplex_id}, registered identifier {layer_id}, reading {direction}; retain the failed prerequisite.",
+        "Assess whether the explicit source request is usable: endpoints {genes}, graph namespace {multiplex_id}, context {layer_id}, orientation selector {direction}; preserve the given values."
+      ],
+      "unknown_multiplex": [
+        "Audit prerequisite fields endpoints {genes}, namespace {multiplex_id}, context {layer_id}, native reading {direction}; identify the unresolved input before a biological assessment.",
+        "Examine the requested relation under raw values {genes}, graph {multiplex_id}, context key {layer_id}, orientation {direction}; keep unresolved prerequisites distinct from a negative observation.",
+        "Review the pending source task for literal pair {genes}, representation {multiplex_id}, registered identifier {layer_id}, reading {direction}; retain the failed prerequisite.",
+        "Assess whether the explicit source request is usable: endpoints {genes}, graph namespace {multiplex_id}, context {layer_id}, orientation selector {direction}; preserve the given values."
+      ],
+      "missing_genes": [
+        "Audit prerequisite fields endpoints {genes}, namespace {multiplex_id}, context {layer_id}, native reading {direction}; identify the unresolved input before a biological assessment.",
+        "Examine the requested relation under raw values {genes}, graph {multiplex_id}, context key {layer_id}, orientation {direction}; keep unresolved prerequisites distinct from a negative observation.",
+        "Review the pending source task for literal pair {genes}, representation {multiplex_id}, registered identifier {layer_id}, reading {direction}; retain the failed prerequisite.",
+        "Assess whether the explicit source request is usable: endpoints {genes}, graph namespace {multiplex_id}, context {layer_id}, orientation selector {direction}; preserve the given values."
+      ],
+      "missing_scope": [
+        "Audit prerequisite fields endpoints {genes}, namespace {multiplex_id}, context {layer_id}, native reading {direction}; identify the unresolved input before a biological assessment.",
+        "Examine the requested relation under raw values {genes}, graph {multiplex_id}, context key {layer_id}, orientation {direction}; keep unresolved prerequisites distinct from a negative observation.",
+        "Review the pending source task for literal pair {genes}, representation {multiplex_id}, registered identifier {layer_id}, reading {direction}; retain the failed prerequisite.",
+        "Assess whether the explicit source request is usable: endpoints {genes}, graph namespace {multiplex_id}, context {layer_id}, orientation selector {direction}; preserve the given values."
+      ],
+      "invalid_pair": [
+        "Audit prerequisite fields endpoints {genes}, namespace {multiplex_id}, context {layer_id}, native reading {direction}; identify the unresolved input before a biological assessment.",
+        "Examine the requested relation under raw values {genes}, graph {multiplex_id}, context key {layer_id}, orientation {direction}; keep unresolved prerequisites distinct from a negative observation.",
+        "Review the pending source task for literal pair {genes}, representation {multiplex_id}, registered identifier {layer_id}, reading {direction}; retain the failed prerequisite.",
+        "Assess whether the explicit source request is usable: endpoints {genes}, graph namespace {multiplex_id}, context {layer_id}, orientation selector {direction}; preserve the given values."
+      ],
+      "incompatible_direction": [
+        "Audit prerequisite fields endpoints {genes}, namespace {multiplex_id}, context {layer_id}, native reading {direction}; identify the unresolved input before a biological assessment.",
+        "Examine the requested relation under raw values {genes}, graph {multiplex_id}, context key {layer_id}, orientation {direction}; keep unresolved prerequisites distinct from a negative observation.",
+        "Review the pending source task for literal pair {genes}, representation {multiplex_id}, registered identifier {layer_id}, reading {direction}; retain the failed prerequisite.",
+        "Assess whether the explicit source request is usable: endpoints {genes}, graph namespace {multiplex_id}, context {layer_id}, orientation selector {direction}; preserve the given values."
+      ],
+      "unresolved_identity": [
+        "Audit prerequisite fields endpoints {genes}, namespace {multiplex_id}, context {layer_id}, native reading {direction}; identify the unresolved input before a biological assessment.",
+        "Examine the requested relation under raw values {genes}, graph {multiplex_id}, context key {layer_id}, orientation {direction}; keep unresolved prerequisites distinct from a negative observation.",
+        "Review the pending source task for literal pair {genes}, representation {multiplex_id}, registered identifier {layer_id}, reading {direction}; retain the failed prerequisite.",
+        "Assess whether the explicit source request is usable: endpoints {genes}, graph namespace {multiplex_id}, context {layer_id}, orientation selector {direction}; preserve the given values."
+      ]
+    },
+    "test": {
+      "unknown_layer": [
+        "Present the prerequisite result for literal endpoints {genes}, collection {multiplex_id}, source key {layer_id}, ordered reading {direction}; avoid an invented relation verdict.",
+        "Return the appropriate prerequisite response to supplied pair {genes}, graph collection {multiplex_id}, source {layer_id}, native interpretation {direction}; keep the original values.",
+        "Resolve the input boundary for pair {genes} at collection key {multiplex_id}, source key {layer_id}, direction {direction}; preserve unresolved details before graph interpretation.",
+        "State the prerequisite problem for these exact values: pair {genes}, collection {multiplex_id}, source {layer_id}, interpretation {direction}; distinguish missing inputs from observed absence."
+      ],
+      "unknown_multiplex": [
+        "Present the prerequisite result for literal endpoints {genes}, collection {multiplex_id}, source key {layer_id}, ordered reading {direction}; avoid an invented relation verdict.",
+        "Return the appropriate prerequisite response to supplied pair {genes}, graph collection {multiplex_id}, source {layer_id}, native interpretation {direction}; keep the original values.",
+        "Resolve the input boundary for pair {genes} at collection key {multiplex_id}, source key {layer_id}, direction {direction}; preserve unresolved details before graph interpretation.",
+        "State the prerequisite problem for these exact values: pair {genes}, collection {multiplex_id}, source {layer_id}, interpretation {direction}; distinguish missing inputs from observed absence."
+      ],
+      "missing_genes": [
+        "Present the prerequisite result for literal endpoints {genes}, collection {multiplex_id}, source key {layer_id}, ordered reading {direction}; avoid an invented relation verdict.",
+        "Return the appropriate prerequisite response to supplied pair {genes}, graph collection {multiplex_id}, source {layer_id}, native interpretation {direction}; keep the original values.",
+        "Resolve the input boundary for pair {genes} at collection key {multiplex_id}, source key {layer_id}, direction {direction}; preserve unresolved details before graph interpretation.",
+        "State the prerequisite problem for these exact values: pair {genes}, collection {multiplex_id}, source {layer_id}, interpretation {direction}; distinguish missing inputs from observed absence."
+      ],
+      "missing_scope": [
+        "Present the prerequisite result for literal endpoints {genes}, collection {multiplex_id}, source key {layer_id}, ordered reading {direction}; avoid an invented relation verdict.",
+        "Return the appropriate prerequisite response to supplied pair {genes}, graph collection {multiplex_id}, source {layer_id}, native interpretation {direction}; keep the original values.",
+        "Resolve the input boundary for pair {genes} at collection key {multiplex_id}, source key {layer_id}, direction {direction}; preserve unresolved details before graph interpretation.",
+        "State the prerequisite problem for these exact values: pair {genes}, collection {multiplex_id}, source {layer_id}, interpretation {direction}; distinguish missing inputs from observed absence."
+      ],
+      "invalid_pair": [
+        "Present the prerequisite result for literal endpoints {genes}, collection {multiplex_id}, source key {layer_id}, ordered reading {direction}; avoid an invented relation verdict.",
+        "Return the appropriate prerequisite response to supplied pair {genes}, graph collection {multiplex_id}, source {layer_id}, native interpretation {direction}; keep the original values.",
+        "Resolve the input boundary for pair {genes} at collection key {multiplex_id}, source key {layer_id}, direction {direction}; preserve unresolved details before graph interpretation.",
+        "State the prerequisite problem for these exact values: pair {genes}, collection {multiplex_id}, source {layer_id}, interpretation {direction}; distinguish missing inputs from observed absence."
+      ],
+      "incompatible_direction": [
+        "Present the prerequisite result for literal endpoints {genes}, collection {multiplex_id}, source key {layer_id}, ordered reading {direction}; avoid an invented relation verdict.",
+        "Return the appropriate prerequisite response to supplied pair {genes}, graph collection {multiplex_id}, source {layer_id}, native interpretation {direction}; keep the original values.",
+        "Resolve the input boundary for pair {genes} at collection key {multiplex_id}, source key {layer_id}, direction {direction}; preserve unresolved details before graph interpretation.",
+        "State the prerequisite problem for these exact values: pair {genes}, collection {multiplex_id}, source {layer_id}, interpretation {direction}; distinguish missing inputs from observed absence."
+      ],
+      "unresolved_identity": [
+        "Present the prerequisite result for literal endpoints {genes}, collection {multiplex_id}, source key {layer_id}, ordered reading {direction}; avoid an invented relation verdict.",
+        "Return the appropriate prerequisite response to supplied pair {genes}, graph collection {multiplex_id}, source {layer_id}, native interpretation {direction}; keep the original values.",
+        "Resolve the input boundary for pair {genes} at collection key {multiplex_id}, source key {layer_id}, direction {direction}; preserve unresolved details before graph interpretation.",
+        "State the prerequisite problem for these exact values: pair {genes}, collection {multiplex_id}, source {layer_id}, interpretation {direction}; distinguish missing inputs from observed absence."
+      ]
+    }
+  }
+}

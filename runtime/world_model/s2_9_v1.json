@@ -1,0 +1,199 @@
+{
+  "row_schema_version": "mentor-rl-world-model-s2-corpus-v1",
+  "source_manifest": {
+    "path": "runtime/world_model/s2_v1_sources.json",
+    "sha256": "a9f27a7ae5200a4c9490fdd2ce95ad22a486a6b1fe2bcee70f4d9b74cf59ec04"
+  },
+  "prompt_bank": {
+    "path": "runtime/world_model/s2_v1_prompt_banks.json",
+    "sha256": "0494d021f795b418c8b99b0d51c119d7c9e7f239a6ced98a6057090c891d897c"
+  },
+  "registry_index": {
+    "path": "data/world_model_v3/source_indexes/world_model_source_index_08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e.json.gz",
+    "sha256": "7c92e3e0ec47281cc502984fcb985787f8ed7423fdf4b09ddc034c3005ede88b",
+    "logical_sha256": "08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e"
+  },
+  "scoring": {
+    "exact_fields": [
+      "status",
+      "provenance",
+      "result",
+      "continuation_decision"
+    ],
+    "tool_calls": "exact ordered calls and arguments",
+    "blocked_reason": "presence, not exact prose",
+    "summary": "supported anchors and values, not exact prose"
+  },
+  "s21_request_bank": {
+    "path": "runtime/world_model/s2_v1_edge_requests.json",
+    "sha256": "e14566344fac96ef287ac42f868d5f5cb97b3747a17f21637572a58935986827"
+  },
+  "s22_request_bank": {
+    "path": "runtime/world_model/s2_2_v1_requests.json",
+    "sha256": "2c1a2cb6abcfc72abee3689ecf23616a2d0c034f8c890ae7266c59ff7ae39455"
+  },
+  "s23_request_bank": {
+    "path": "runtime/world_model/s2_3_v1_requests.json",
+    "sha256": "4b6051674dc7cdc1d1d5a6bb26fc30e9f4b2ebf9e3552b36cc2dc73c6429ed1e"
+  },
+  "s24_request_bank": {
+    "path": "runtime/world_model/s2_4_v1_requests.json",
+    "sha256": "2f6d5017bbccd724d32874704658e338df7aa0e48c2be69d212f8cd0640a319b"
+  },
+  "s25_request_bank": {
+    "path": "runtime/world_model/s2_5_v1_requests.json",
+    "sha256": "a2331cdacfe69c3b4f2bfeab2ae9af384fd36740e0ef9068d0b012048dd3e66f"
+  },
+  "tokenizer": {
+    "path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
+    "artifacts": {
+      "chat_template.jinja": "9ad8adf1324b8eb902d6e70087f3184b1b9b345c453bbd3d38949c2f13205c1d",
+      "special_tokens_map.json": "8464cabd6eda239fe46ebf8ae63b46c417721784a961a022f6b59174a2cda0e2",
+      "tokenizer.json": "0614fe83cadab421296e664e1f48f4261fa8fef6e03e63bb75c20f38e37d07d3",
+      "tokenizer_config.json": "9279e942392b742d633c7adbb89ebe002c98399db8926a7af5125c726f404070"
+    }
+  },
+  "context_recipe": {
+    "path": "config/world_model_s1_120b_training_v10_32n.json",
+    "sha256": "125fefe6c5be0260979adffc7054c79734fe51ea283f7a676556981f7b1eb677",
+    "max_length": 4096,
+    "purpose": "existing context-length reference only; does not authorize a training run"
+  },
+  "s26_request_bank": {
+    "path": "runtime/world_model/s2_6_v1_requests.json",
+    "sha256": "4872b6d8dd4552f0f265ab2c8d3106ac986fba935f4bef2bd69ca9e139a5a2b5"
+  },
+  "s27_request_bank": {
+    "path": "runtime/world_model/s2_7_v1_requests.json",
+    "sha256": "ad86a374ab79d0f350472fb71af15ea233cf7dab5d6b9e3c64205806224f3ce9"
+  },
+  "contract_version": "mentor-rl-world-model-s2-induced-subgraph-v1",
+  "implemented_families": [
+    "S2.9"
+  ],
+  "training_ready": false,
+  "request_bank": {
+    "path": "runtime/world_model/s2_9_v1_requests.json",
+    "sha256": "e922d21d77d55c08422c2ff3e05a916b8d66de84ad552fe0c68d1d8fa2f4a28e"
+  },
+  "system_prompt": "Induce one native graph within one registered layer of the active versioned multiplex. Resolve identities from authoritative supplied unique registry context. Canonical IDs need no redundant lookup. Keep original spellings, order, duplicates, and identity observations. Deduplicate canonical gene IDs in first-mention order before a graph call. Do not guess unresolved candidates or treat unresolved identity as graph absence.\n\nDefault projection classifies every unique requested ID. layer_gene_ids are selected layer members. not_in_layer_gene_ids are multiplex members absent from that layer. missing_gene_ids are absent from the multiplex and are excluded from the layer-absence category. Sort each category by ID. These categories partition the full canonical request. Registry membership cannot replace graph membership. Retain graph-only IDs and target-only directed members.\n\nUse induce_subgraph with exactly multiplex_id,layer_id,gene_ids,mode,top_k,cursor. Ordinary subgraph requests use mode:complete,top_k:null,cursor:null. An explicit canonical edge preview uses mode:top_k and a positive integer K. It selects the first K native endpoint tuples, not the strongest weights. A weight-ranked request without a defined ranking rule needs clarification. A new selection starts at null. A continued edge page keeps the complete first-mention-ordered input list, scope, mode, and K unchanged, and uses the exact returned cursor. Never partition the input list to paginate edges.\n\nPreserve native directed metadata. Sort endpoints only for an undirected edge. For a directed layer retain source then target, including arcs whose source ID sorts after its target. Keep reciprocal arcs as separate rows and retain each self-loop once. Sort edge rows lexicographically by endpoint tuple. Each row is exactly {gene_ids:[ID,ID],weight:number}. Copy weights without averaging, rounding, rescaling, or borrowing another layer's values. Deduplicate identical observations; conflicting native weights, memberships, totals, direction, or reused evidence IDs are harness faults.\n\nReturn exactly status,provenance,result,continuation_decision,blocked_reason,summary. The ordinary result is {multiplex_id,layer_id,directed,layer_gene_ids,layer_gene_count,not_in_layer_gene_ids,missing_gene_ids,edges,edge_count,coverage,collection}. layer_gene_count is the full projected member count, including selected-set isolates. edge_count and collection.returned_count equal the displayed or assembled unique edge count. collection.total_count is the full induced native edge count, not a node count or the full layer edge count. Keep an unknown total null until a complete traversal establishes it.\n\nCoverage is {operation:layer_membership,requested_gene_ids,checked_gene_ids,unchecked_gene_ids}. Keep those lists in canonical first-mention order. Every successful subgraph response classifies all unique requested IDs and checks all membership inputs, even if its edge collection is incomplete. Membership coverage and edge completeness are separate. Collection is {mode,returned_count,total_count,complete,next_cursor}. A completed full graph has complete:true,next_cursor:null and equal edge counts. A bounded preview can remain incomplete. Its omitted edges do not establish negatives or selected-set isolation.\n\nReuse only compatible canonical IDs, multiplex, version, layer, and native representation. Preserve original acquisition arguments, records, and evidence IDs in first-use order. A complete same-input graph answers directly. A complete superset graph can be restricted to the requested inputs and both edge endpoints, with recomputed categories, counts, and coverage. A proper-subset graph cannot establish new nodes or cross-edges. Unioning disjoint batch subgraphs is insufficient without all cross-batch pair and loop proofs.\n\nA complete graph needs the full membership partition and every relevant candidate pair, including self-loops. For directed u-to-v, a complete outgoing list of u or incoming list of v settles that pair. For an undirected pair, a complete list of either endpoint settles it. Keep visible positive edges and their weights from partial records; an omission from a partial list is unknown. Positive endpoints establish layer membership. A resolved native list with both absence lists empty establishes query layer membership even when its list is empty. An absence list instead establishes its stated scoped or global exclusion. The get_edge interface requires distinct endpoints; never invent a self-pair call.\n\nA positive self-loop for an established singleton member settles its sole candidate pair even when the original list is incomplete. An unqueried member's loop still needs evidence. Complete native outgoing lists for all projected nodes, complete incoming lists for all projected targets, or complete undirected lists can prove the induced graph. A complete membership partition with no layer members gives an empty edge domain without edge lookup. Preserve selected-set isolates; lack of a displayed edge is not generally enough to establish isolation.\n\nAn explicit empty gene list is valid after scope and directedness are established. Return empty categories, edges, coverage, counts zero, complete collection, and empty provenance without a call. Missing or null genes are not the explicit empty set. A singleton may contain a self-loop and still needs evidence. Mixed exclusions and all-excluded inputs resolve under ordinary projection. They do not create isolated graph nodes or available negative edge checks.\n\nOnly a visible require_all_in_layer:true requirement adds a membership gate. If any input is excluded, retain the actual complete classification as partial evidence and return not_found/MEMBERSHIP_PRECONDITION_UNSATISFIED with defer. Do not silently impose this prerequisite on projection questions. When the gate passes, continue the requested graph proof normally. A completed direct request stops; a completed workflow step continues, including empty graphs and bounded previews.\n\nAccumulate compatible complete-mode edge pages from the initial null cursor through exhaustion. Keep the same three-way classification on every page. Merge identical native rows, retain exact evidence, copy compatible non-null totals, and check them against the accumulated union. A last page alone can supply positives and membership but not a complete traversal. If all totals were unknown, count the full union only after exhaustion. Top-K exhaustion finishes the requested prefix; it does not by itself make the full graph complete. A matching bounded prefix can answer the same or a shorter preview, but not generally a complete graph, larger prefix, or changed node selection.\n\nA required unrecovered backend failure returns {failed_tool,error_code,arguments,partial_results,coverage}. Keep successful registry, membership, native neighbor, and edge-page observations as exact attributed partials. Checked membership can coexist with incomplete edges. Before valid scope and a canonical input domain exist, coverage is null. Failed calls add no evidence and cannot become an ordinary graph with empty placeholders. Retry only when the visible message supplies a positive integer retries_remaining. Repeat the identical tool and all six subgraph arguments, including cursor. Stop after recovery; terminal or exhausted failure uses error/defer with a nonempty blocked_reason.\n\nAn unresolved prerequisite returns {issue_code,request,rejected_arguments,partial_results,coverage}. request is exactly {genes,multiplex_id,layer_id,mode,top_k,cursor,require_all_in_layer}, with literal supplied JSON values and null fields. A local rejection makes no graph call and has rejected_arguments:null. A tool rejection has empty graph provenance and preserves its exact six arguments. Missing scope uses invalid_input/MISSING_SCOPE. Missing genes use invalid_input/MISSING_GENES. Invalid list shape uses invalid_input/INVALID_GENE_LIST. Invalid mode/K or cursor uses invalid_input/INVALID_SELECTION or invalid_input/INVALID_CURSOR. Unknown scope uses not_found/UNKNOWN_LAYER or not_found/UNKNOWN_MULTIPLEX. Unresolved identity retains its S1 status and original observations under UNRESOLVED_IDENTITY. An undefined ranking rule uses ambiguous/SUBGRAPH_RANKING_REQUIRED. Preserve actual partial membership and defer for an unmet explicit gate.\n\nOrdinary results omit claim cards. An empty complete graph supports no recorded edge within the projected selected-member set in this layer and version. It does not establish no longer path, biological noninteraction, lack of expression, or absence elsewhere. Native TF arcs establish recorded direction, not activation, repression, causality, or physical binding. Treat summary and blocked_reason as free prose: score structured results, provenance, exact ordered calls, continuation, and blocker presence.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "induce_subgraph",
+        "description": "Classify all requested IDs in one layer and return one canonical native edge page for their induced member subset.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^ENSG[0-9]{11}$"
+              }
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "complete",
+                "top_k"
+              ]
+            },
+            "top_k": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_ids",
+            "mode",
+            "top_k",
+            "cursor"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_nodes_by_layer",
+        "description": "Classify every supplied canonical ID against one layer and the global multiplex inventory as one atomic complete batch.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^ENSG[0-9]{11}$"
+              }
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_ids"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "lookup_human_gene_symbol",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "gene_symbol": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "gene_symbol"
+          ],
+          "additionalProperties": false
+        },
+        "description": "Resolve one human gene symbol against the pinned authoritative registry without guessing among unresolved candidates."
+      }
+    }
+  ],
+  "remaining_coverage": [
+    "Select a production allocation across attainable input sizes, membership counts, edge counts, previews, and graph structures.",
+    "Complete trainer compatibility and exact evaluation before any training export.",
+    "Select a production context representation for large complete graphs and retained evidence without hidden truncation.",
+    "Add cold identity paths, ambiguity, unknown IDs, and further pinned graph layers and versions.",
+    "Expand candidate-pair, conflict, cursor, and backend scenarios before a production corpus claim.",
+    "Add explicit claim calibration and outer compound tasks under shared vocabularies."
+  ],
+  "s28_request_bank": {
+    "path": "runtime/world_model/s2_8_v1_requests.json",
+    "sha256": "4960e4f2e234ee4c7ae641c9de517f5f3a8b766627b297c5c2bf4e3e6c7d2ae8"
+  }
+}

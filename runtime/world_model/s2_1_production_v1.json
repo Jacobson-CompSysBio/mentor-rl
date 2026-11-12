@@ -1,0 +1,107 @@
+{
+  "contract_version": "mentor-rl-world-model-s2-1-complete-generators-v1",
+  "row_schema_version": "mentor-rl-world-model-s2-corpus-v1",
+  "implemented_families": [
+    "S2.1"
+  ],
+  "training_ready": false,
+  "system_prompt": "You answer local graph questions using the active versioned multiplex and its native layer representations. This contract implements S2.1 single-edge queries on canonical human gene IDs. Use get_edge for an unavailable required observation. An explicit source-to-target request on a directed layer preserves that order; undirected result pairs are sorted. The graph tool checks both endpoint memberships. A multiplex member outside the selected layer yields a checked negative edge. An endpoint outside the multiplex leaves edge existence and weight unavailable, so return not_found and defer. A valid ID spelling alone does not prove graph membership.\n\nReturn exactly status, provenance, result, continuation_decision, blocked_reason, and summary in that order. Provenance has registry and graph lists; keep every supporting record unchanged. The ordinary result contains gene_ids, multiplex_id, layer_id, directed, edge_exists, weight, missing_gene_ids, and not_in_layer_gene_ids. Copy exact weights and membership lists. False is a checked negative; null is unavailable. Missing and outside-layer lists are sorted and disjoint.\n\nReuse a supplied authoritative observation only when its subjects, multiplex, graph version, layer, and native direction match and it supplies every required field. Keep the tools available even when no call is needed. Failed calls add no evidence. Retry only after an explicit positive retries_remaining allowance, with identical tool and arguments; stop after recovery or exhaustion. Unrecovered failure uses result={failed_tool,error_code,arguments,partial_results,coverage}; retain supported intermediate observations and use coverage:null for this single-edge operation. Never fabricate ordinary graph outputs after a failure.\n\nStop after a completed standalone request; continue when this completed step supplies the user's stated later workflow; defer when required evidence or a prerequisite remains unavailable. A backend outage requires backend recovery, not replacement gene names. Use a nonempty blocked_reason exactly when deferring. Explain the actual subjects, scope, observed values, evidence sufficiency, and task decision in reasoning. Do not infer causality, non-expression, biological disproof, or facts in another scope. Summary is concise reader-facing prose; use <GENE:ID> anchors for gene mentions and <LAYER:ID>/<MULTIPLEX:ID> for scope mentions. Do not invent symbols. Summary and blocker sentences are not exact-match targets.\n\nFor pair-wide directionality, preserve the user reference order. On directed layers check both ordered get_edge predicates for a complete classification; keep their weights separately. The result is query_kind,gene_ids,multiplex_id,layer_id,directed,directionality,any_edge_exists,both_directions_exist,edge_results,coverage. Coverage is edge_checks with requested_pairs,checked_pairs,unchecked_pairs in reference order. A checked predicate has a boolean edge_exists. Missing multiplex endpoints leave predicates unevaluated and unchecked. Any-direction existence can finish on one positive; both-direction existence can finish on one negative. Unknown fields remain null. A complete two-direction classification is forward_only,reverse_only,both,neither. A recorded undirected link is undirected with both_directions_exist:null. A direction request against an undirected representation defers under invalid_input/DIRECTION_UNAVAILABLE; preserve request:{genes,multiplex_id,layer_id,direction} and partial_results without acquiring a graph result. Reuse matching native lists for visible positives. A complete omission establishes absence only with both endpoint memberships; bounded omission is inconclusive. Preserve original list collection metadata and membership provenance. Successful registry observations remain useful partials if a later graph lookup fails. Only explicit positive retry allowance permits an identical retry. No failed call creates evidence.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "lookup_human_gene_symbol",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "gene_symbol": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "gene_symbol"
+          ],
+          "additionalProperties": false
+        },
+        "description": "Resolve one human gene symbol against the pinned authoritative registry without guessing among unresolved candidates."
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_edge",
+        "description": "Check both endpoint memberships and one native ordered or undirected edge in a registered layer.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_id": {
+              "type": "string"
+            },
+            "gene_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^ENSG[0-9]{11}$"
+              },
+              "minItems": 2,
+              "maxItems": 2,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_id",
+            "gene_ids"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "source_manifest": {
+    "path": "runtime/world_model/s2_v1_sources.json",
+    "sha256": "a9f27a7ae5200a4c9490fdd2ce95ad22a486a6b1fe2bcee70f4d9b74cf59ec04"
+  },
+  "prompt_bank": {
+    "path": "runtime/world_model/s2_v1_prompt_banks.json",
+    "sha256": "0494d021f795b418c8b99b0d51c119d7c9e7f239a6ced98a6057090c891d897c"
+  },
+  "registry_index": {
+    "path": "data/world_model_v3/source_indexes/world_model_source_index_08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e.json.gz",
+    "sha256": "7c92e3e0ec47281cc502984fcb985787f8ed7423fdf4b09ddc034c3005ede88b",
+    "logical_sha256": "08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e"
+  },
+  "scoring": {
+    "exact_fields": [
+      "status",
+      "provenance",
+      "result",
+      "continuation_decision"
+    ],
+    "tool_calls": "exact ordered calls and arguments",
+    "blocked_reason": "presence, not exact prose",
+    "summary": "supported anchors and values, not exact prose"
+  },
+  "remaining_coverage": [
+    "Per-case production quotas, aggregate wording review and decorrelation, final training/evaluation adapters and export."
+  ],
+  "request_bank": {
+    "path": "runtime/world_model/s2_1_production_v1_requests.json",
+    "sha256": "45cfca6df1ed90cb68afd78d4d61f5d7087628b68caf7cd3ee71c4f662b6f2af"
+  },
+  "production_export_allowed": false,
+  "seed": 20261028,
+  "tokenizer": {
+    "path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
+    "artifacts": {
+      "chat_template.jinja": "9ad8adf1324b8eb902d6e70087f3184b1b9b345c453bbd3d38949c2f13205c1d",
+      "special_tokens_map.json": "8464cabd6eda239fe46ebf8ae63b46c417721784a961a022f6b59174a2cda0e2",
+      "tokenizer.json": "0614fe83cadab421296e664e1f48f4261fa8fef6e03e63bb75c20f38e37d07d3",
+      "tokenizer_config.json": "9279e942392b742d633c7adbb89ebe002c98399db8926a7af5125c726f404070"
+    }
+  }
+}

@@ -1,0 +1,180 @@
+{
+  "schema_version": "mentor-rl-world-model-s2-8-requests-v1",
+  "description": "Frozen degree requests preserve every literal identity, scope, direction, requested statistic, and hub policy. Wrapper wording supplies only task continuation.",
+  "train": {
+    "degree_only": [
+      "Give the distinct-neighbor degree for {gene} within {multiplex_id}. Select {layer_scope}; direction: {direction}; requested statistic: {request_kind}; hub policy: {hub_policy}.",
+      "Use {multiplex_id} to measure the degree of {gene}. Apply scope {layer_scope}, direction {direction}, request type {request_kind}, and hub rule {hub_policy}.",
+      "Determine a distinct neighbor count for {gene} using {multiplex_id}. Set scope to {layer_scope}, direction to {direction}, statistic to {request_kind}, and policy to {hub_policy}.",
+      "For {gene}, compute the scoped degree in {multiplex_id}. Scope={layer_scope}; direction={direction}; request={request_kind}; hub policy={hub_policy}."
+    ],
+    "degree_and_hub": [
+      "Give the distinct-neighbor degree for {gene} within {multiplex_id}. Select {layer_scope}; direction: {direction}; requested statistic: {request_kind}; hub policy: {hub_policy}.",
+      "Use {multiplex_id} to measure the degree of {gene}. Apply scope {layer_scope}, direction {direction}, request type {request_kind}, and hub rule {hub_policy}.",
+      "Determine a distinct neighbor count for {gene} using {multiplex_id}. Set scope to {layer_scope}, direction to {direction}, statistic to {request_kind}, and policy to {hub_policy}.",
+      "For {gene}, compute the scoped degree in {multiplex_id}. Scope={layer_scope}; direction={direction}; request={request_kind}; hub policy={hub_policy}."
+    ]
+  },
+  "validation": {
+    "degree_only": [
+      "At graph {multiplex_id}, establish how many distinct partners connect to {gene}. Degree selection is {layer_scope}; orientation is {direction}; evaluation is {request_kind}; comparison rule is {hub_policy}.",
+      "Assess the degree associated with {gene} under {multiplex_id}. Restrict relations with {layer_scope}, choose orientation {direction}, evaluate {request_kind}, and follow criterion {hub_policy}.",
+      "Within {multiplex_id}, resolve the adjacency count of {gene}. The selected relations are {layer_scope}, orientation {direction}, task {request_kind}, and criterion {hub_policy}.",
+      "Establish the degree belonging to {gene} at {multiplex_id}. Relation selection: {layer_scope}. Orientation: {direction}. Evaluation: {request_kind}. Criterion: {hub_policy}."
+    ],
+    "degree_and_hub": [
+      "At graph {multiplex_id}, establish how many distinct partners connect to {gene}. Degree selection is {layer_scope}; orientation is {direction}; evaluation is {request_kind}; comparison rule is {hub_policy}.",
+      "Assess the degree associated with {gene} under {multiplex_id}. Restrict relations with {layer_scope}, choose orientation {direction}, evaluate {request_kind}, and follow criterion {hub_policy}.",
+      "Within {multiplex_id}, resolve the adjacency count of {gene}. The selected relations are {layer_scope}, orientation {direction}, task {request_kind}, and criterion {hub_policy}.",
+      "Establish the degree belonging to {gene} at {multiplex_id}. Relation selection: {layer_scope}. Orientation: {direction}. Evaluation: {request_kind}. Criterion: {hub_policy}."
+    ]
+  },
+  "test": {
+    "degree_only": [
+      "For graph {multiplex_id}, obtain the degree value concerning {gene}. Retain selector {layer_scope}, edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy}.",
+      "Resolve a degree value concerning {gene} across {multiplex_id}. Relevant selector: {layer_scope}; edge sense: {direction}; answer class: {request_kind}; cutoff specification: {hub_policy}.",
+      "How large is the degree concerning {gene} across {multiplex_id}? Take selector {layer_scope}, edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy}.",
+      "Supply an adjacency count concerning {gene} across graph {multiplex_id}. Selector {layer_scope} defines the relations; edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy} define this question."
+    ],
+    "degree_and_hub": [
+      "For graph {multiplex_id}, obtain the degree value concerning {gene}. Retain selector {layer_scope}, edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy}.",
+      "Resolve a degree value concerning {gene} across {multiplex_id}. Relevant selector: {layer_scope}; edge sense: {direction}; answer class: {request_kind}; cutoff specification: {hub_policy}.",
+      "How large is the degree concerning {gene} across {multiplex_id}? Take selector {layer_scope}, edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy}.",
+      "Supply an adjacency count concerning {gene} across graph {multiplex_id}. Selector {layer_scope} defines the relations; edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy} define this question."
+    ]
+  },
+  "diagnostic_requests": {
+    "train": {
+      "unknown_layer": [
+        "Give the distinct-neighbor degree for {gene} within {multiplex_id}. Select {layer_scope}; direction: {direction}; requested statistic: {request_kind}; hub policy: {hub_policy}.",
+        "Use {multiplex_id} to measure the degree of {gene}. Apply scope {layer_scope}, direction {direction}, request type {request_kind}, and hub rule {hub_policy}.",
+        "Determine a distinct neighbor count for {gene} using {multiplex_id}. Set scope to {layer_scope}, direction to {direction}, statistic to {request_kind}, and policy to {hub_policy}.",
+        "For {gene}, compute the scoped degree in {multiplex_id}. Scope={layer_scope}; direction={direction}; request={request_kind}; hub policy={hub_policy}."
+      ],
+      "unknown_multiplex": [
+        "Give the distinct-neighbor degree for {gene} within {multiplex_id}. Select {layer_scope}; direction: {direction}; requested statistic: {request_kind}; hub policy: {hub_policy}.",
+        "Use {multiplex_id} to measure the degree of {gene}. Apply scope {layer_scope}, direction {direction}, request type {request_kind}, and hub rule {hub_policy}.",
+        "Determine a distinct neighbor count for {gene} using {multiplex_id}. Set scope to {layer_scope}, direction to {direction}, statistic to {request_kind}, and policy to {hub_policy}.",
+        "For {gene}, compute the scoped degree in {multiplex_id}. Scope={layer_scope}; direction={direction}; request={request_kind}; hub policy={hub_policy}."
+      ],
+      "missing_gene": [
+        "Give the distinct-neighbor degree for {gene} within {multiplex_id}. Select {layer_scope}; direction: {direction}; requested statistic: {request_kind}; hub policy: {hub_policy}.",
+        "Use {multiplex_id} to measure the degree of {gene}. Apply scope {layer_scope}, direction {direction}, request type {request_kind}, and hub rule {hub_policy}.",
+        "Determine a distinct neighbor count for {gene} using {multiplex_id}. Set scope to {layer_scope}, direction to {direction}, statistic to {request_kind}, and policy to {hub_policy}.",
+        "For {gene}, compute the scoped degree in {multiplex_id}. Scope={layer_scope}; direction={direction}; request={request_kind}; hub policy={hub_policy}."
+      ],
+      "missing_scope": [
+        "Give the distinct-neighbor degree for {gene} within {multiplex_id}. Select {layer_scope}; direction: {direction}; requested statistic: {request_kind}; hub policy: {hub_policy}.",
+        "Use {multiplex_id} to measure the degree of {gene}. Apply scope {layer_scope}, direction {direction}, request type {request_kind}, and hub rule {hub_policy}.",
+        "Determine a distinct neighbor count for {gene} using {multiplex_id}. Set scope to {layer_scope}, direction to {direction}, statistic to {request_kind}, and policy to {hub_policy}.",
+        "For {gene}, compute the scoped degree in {multiplex_id}. Scope={layer_scope}; direction={direction}; request={request_kind}; hub policy={hub_policy}."
+      ],
+      "invalid_scope": [
+        "Give the distinct-neighbor degree for {gene} within {multiplex_id}. Select {layer_scope}; direction: {direction}; requested statistic: {request_kind}; hub policy: {hub_policy}.",
+        "Use {multiplex_id} to measure the degree of {gene}. Apply scope {layer_scope}, direction {direction}, request type {request_kind}, and hub rule {hub_policy}.",
+        "Determine a distinct neighbor count for {gene} using {multiplex_id}. Set scope to {layer_scope}, direction to {direction}, statistic to {request_kind}, and policy to {hub_policy}.",
+        "For {gene}, compute the scoped degree in {multiplex_id}. Scope={layer_scope}; direction={direction}; request={request_kind}; hub policy={hub_policy}."
+      ],
+      "invalid_direction": [
+        "Give the distinct-neighbor degree for {gene} within {multiplex_id}. Select {layer_scope}; direction: {direction}; requested statistic: {request_kind}; hub policy: {hub_policy}.",
+        "Use {multiplex_id} to measure the degree of {gene}. Apply scope {layer_scope}, direction {direction}, request type {request_kind}, and hub rule {hub_policy}.",
+        "Determine a distinct neighbor count for {gene} using {multiplex_id}. Set scope to {layer_scope}, direction to {direction}, statistic to {request_kind}, and policy to {hub_policy}.",
+        "For {gene}, compute the scoped degree in {multiplex_id}. Scope={layer_scope}; direction={direction}; request={request_kind}; hub policy={hub_policy}."
+      ],
+      "invalid_policy": [
+        "Give the distinct-neighbor degree for {gene} within {multiplex_id}. Select {layer_scope}; direction: {direction}; requested statistic: {request_kind}; hub policy: {hub_policy}.",
+        "Use {multiplex_id} to measure the degree of {gene}. Apply scope {layer_scope}, direction {direction}, request type {request_kind}, and hub rule {hub_policy}.",
+        "Determine a distinct neighbor count for {gene} using {multiplex_id}. Set scope to {layer_scope}, direction to {direction}, statistic to {request_kind}, and policy to {hub_policy}.",
+        "For {gene}, compute the scoped degree in {multiplex_id}. Scope={layer_scope}; direction={direction}; request={request_kind}; hub policy={hub_policy}."
+      ]
+    },
+    "validation": {
+      "unknown_layer": [
+        "At graph {multiplex_id}, establish how many distinct partners connect to {gene}. Degree selection is {layer_scope}; orientation is {direction}; evaluation is {request_kind}; comparison rule is {hub_policy}.",
+        "Assess the degree associated with {gene} under {multiplex_id}. Restrict relations with {layer_scope}, choose orientation {direction}, evaluate {request_kind}, and follow criterion {hub_policy}.",
+        "Within {multiplex_id}, resolve the adjacency count of {gene}. The selected relations are {layer_scope}, orientation {direction}, task {request_kind}, and criterion {hub_policy}.",
+        "Establish the degree belonging to {gene} at {multiplex_id}. Relation selection: {layer_scope}. Orientation: {direction}. Evaluation: {request_kind}. Criterion: {hub_policy}."
+      ],
+      "unknown_multiplex": [
+        "At graph {multiplex_id}, establish how many distinct partners connect to {gene}. Degree selection is {layer_scope}; orientation is {direction}; evaluation is {request_kind}; comparison rule is {hub_policy}.",
+        "Assess the degree associated with {gene} under {multiplex_id}. Restrict relations with {layer_scope}, choose orientation {direction}, evaluate {request_kind}, and follow criterion {hub_policy}.",
+        "Within {multiplex_id}, resolve the adjacency count of {gene}. The selected relations are {layer_scope}, orientation {direction}, task {request_kind}, and criterion {hub_policy}.",
+        "Establish the degree belonging to {gene} at {multiplex_id}. Relation selection: {layer_scope}. Orientation: {direction}. Evaluation: {request_kind}. Criterion: {hub_policy}."
+      ],
+      "missing_gene": [
+        "At graph {multiplex_id}, establish how many distinct partners connect to {gene}. Degree selection is {layer_scope}; orientation is {direction}; evaluation is {request_kind}; comparison rule is {hub_policy}.",
+        "Assess the degree associated with {gene} under {multiplex_id}. Restrict relations with {layer_scope}, choose orientation {direction}, evaluate {request_kind}, and follow criterion {hub_policy}.",
+        "Within {multiplex_id}, resolve the adjacency count of {gene}. The selected relations are {layer_scope}, orientation {direction}, task {request_kind}, and criterion {hub_policy}.",
+        "Establish the degree belonging to {gene} at {multiplex_id}. Relation selection: {layer_scope}. Orientation: {direction}. Evaluation: {request_kind}. Criterion: {hub_policy}."
+      ],
+      "missing_scope": [
+        "At graph {multiplex_id}, establish how many distinct partners connect to {gene}. Degree selection is {layer_scope}; orientation is {direction}; evaluation is {request_kind}; comparison rule is {hub_policy}.",
+        "Assess the degree associated with {gene} under {multiplex_id}. Restrict relations with {layer_scope}, choose orientation {direction}, evaluate {request_kind}, and follow criterion {hub_policy}.",
+        "Within {multiplex_id}, resolve the adjacency count of {gene}. The selected relations are {layer_scope}, orientation {direction}, task {request_kind}, and criterion {hub_policy}.",
+        "Establish the degree belonging to {gene} at {multiplex_id}. Relation selection: {layer_scope}. Orientation: {direction}. Evaluation: {request_kind}. Criterion: {hub_policy}."
+      ],
+      "invalid_scope": [
+        "At graph {multiplex_id}, establish how many distinct partners connect to {gene}. Degree selection is {layer_scope}; orientation is {direction}; evaluation is {request_kind}; comparison rule is {hub_policy}.",
+        "Assess the degree associated with {gene} under {multiplex_id}. Restrict relations with {layer_scope}, choose orientation {direction}, evaluate {request_kind}, and follow criterion {hub_policy}.",
+        "Within {multiplex_id}, resolve the adjacency count of {gene}. The selected relations are {layer_scope}, orientation {direction}, task {request_kind}, and criterion {hub_policy}.",
+        "Establish the degree belonging to {gene} at {multiplex_id}. Relation selection: {layer_scope}. Orientation: {direction}. Evaluation: {request_kind}. Criterion: {hub_policy}."
+      ],
+      "invalid_direction": [
+        "At graph {multiplex_id}, establish how many distinct partners connect to {gene}. Degree selection is {layer_scope}; orientation is {direction}; evaluation is {request_kind}; comparison rule is {hub_policy}.",
+        "Assess the degree associated with {gene} under {multiplex_id}. Restrict relations with {layer_scope}, choose orientation {direction}, evaluate {request_kind}, and follow criterion {hub_policy}.",
+        "Within {multiplex_id}, resolve the adjacency count of {gene}. The selected relations are {layer_scope}, orientation {direction}, task {request_kind}, and criterion {hub_policy}.",
+        "Establish the degree belonging to {gene} at {multiplex_id}. Relation selection: {layer_scope}. Orientation: {direction}. Evaluation: {request_kind}. Criterion: {hub_policy}."
+      ],
+      "invalid_policy": [
+        "At graph {multiplex_id}, establish how many distinct partners connect to {gene}. Degree selection is {layer_scope}; orientation is {direction}; evaluation is {request_kind}; comparison rule is {hub_policy}.",
+        "Assess the degree associated with {gene} under {multiplex_id}. Restrict relations with {layer_scope}, choose orientation {direction}, evaluate {request_kind}, and follow criterion {hub_policy}.",
+        "Within {multiplex_id}, resolve the adjacency count of {gene}. The selected relations are {layer_scope}, orientation {direction}, task {request_kind}, and criterion {hub_policy}.",
+        "Establish the degree belonging to {gene} at {multiplex_id}. Relation selection: {layer_scope}. Orientation: {direction}. Evaluation: {request_kind}. Criterion: {hub_policy}."
+      ]
+    },
+    "test": {
+      "unknown_layer": [
+        "For graph {multiplex_id}, obtain the degree value concerning {gene}. Retain selector {layer_scope}, edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy}.",
+        "Resolve a degree value concerning {gene} across {multiplex_id}. Relevant selector: {layer_scope}; edge sense: {direction}; answer class: {request_kind}; cutoff specification: {hub_policy}.",
+        "How large is the degree concerning {gene} across {multiplex_id}? Take selector {layer_scope}, edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy}.",
+        "Supply an adjacency count concerning {gene} across graph {multiplex_id}. Selector {layer_scope} defines the relations; edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy} define this question."
+      ],
+      "unknown_multiplex": [
+        "For graph {multiplex_id}, obtain the degree value concerning {gene}. Retain selector {layer_scope}, edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy}.",
+        "Resolve a degree value concerning {gene} across {multiplex_id}. Relevant selector: {layer_scope}; edge sense: {direction}; answer class: {request_kind}; cutoff specification: {hub_policy}.",
+        "How large is the degree concerning {gene} across {multiplex_id}? Take selector {layer_scope}, edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy}.",
+        "Supply an adjacency count concerning {gene} across graph {multiplex_id}. Selector {layer_scope} defines the relations; edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy} define this question."
+      ],
+      "missing_gene": [
+        "For graph {multiplex_id}, obtain the degree value concerning {gene}. Retain selector {layer_scope}, edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy}.",
+        "Resolve a degree value concerning {gene} across {multiplex_id}. Relevant selector: {layer_scope}; edge sense: {direction}; answer class: {request_kind}; cutoff specification: {hub_policy}.",
+        "How large is the degree concerning {gene} across {multiplex_id}? Take selector {layer_scope}, edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy}.",
+        "Supply an adjacency count concerning {gene} across graph {multiplex_id}. Selector {layer_scope} defines the relations; edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy} define this question."
+      ],
+      "missing_scope": [
+        "For graph {multiplex_id}, obtain the degree value concerning {gene}. Retain selector {layer_scope}, edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy}.",
+        "Resolve a degree value concerning {gene} across {multiplex_id}. Relevant selector: {layer_scope}; edge sense: {direction}; answer class: {request_kind}; cutoff specification: {hub_policy}.",
+        "How large is the degree concerning {gene} across {multiplex_id}? Take selector {layer_scope}, edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy}.",
+        "Supply an adjacency count concerning {gene} across graph {multiplex_id}. Selector {layer_scope} defines the relations; edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy} define this question."
+      ],
+      "invalid_scope": [
+        "For graph {multiplex_id}, obtain the degree value concerning {gene}. Retain selector {layer_scope}, edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy}.",
+        "Resolve a degree value concerning {gene} across {multiplex_id}. Relevant selector: {layer_scope}; edge sense: {direction}; answer class: {request_kind}; cutoff specification: {hub_policy}.",
+        "How large is the degree concerning {gene} across {multiplex_id}? Take selector {layer_scope}, edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy}.",
+        "Supply an adjacency count concerning {gene} across graph {multiplex_id}. Selector {layer_scope} defines the relations; edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy} define this question."
+      ],
+      "invalid_direction": [
+        "For graph {multiplex_id}, obtain the degree value concerning {gene}. Retain selector {layer_scope}, edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy}.",
+        "Resolve a degree value concerning {gene} across {multiplex_id}. Relevant selector: {layer_scope}; edge sense: {direction}; answer class: {request_kind}; cutoff specification: {hub_policy}.",
+        "How large is the degree concerning {gene} across {multiplex_id}? Take selector {layer_scope}, edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy}.",
+        "Supply an adjacency count concerning {gene} across graph {multiplex_id}. Selector {layer_scope} defines the relations; edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy} define this question."
+      ],
+      "invalid_policy": [
+        "For graph {multiplex_id}, obtain the degree value concerning {gene}. Retain selector {layer_scope}, edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy}.",
+        "Resolve a degree value concerning {gene} across {multiplex_id}. Relevant selector: {layer_scope}; edge sense: {direction}; answer class: {request_kind}; cutoff specification: {hub_policy}.",
+        "How large is the degree concerning {gene} across {multiplex_id}? Take selector {layer_scope}, edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy}.",
+        "Supply an adjacency count concerning {gene} across graph {multiplex_id}. Selector {layer_scope} defines the relations; edge sense {direction}, answer class {request_kind}, and cutoff specification {hub_policy} define this question."
+      ]
+    }
+  }
+}

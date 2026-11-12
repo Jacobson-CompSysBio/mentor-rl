@@ -1,0 +1,202 @@
+{
+  "row_schema_version": "mentor-rl-world-model-s2-corpus-v1",
+  "source_manifest": {
+    "path": "runtime/world_model/s2_v1_sources.json",
+    "sha256": "a9f27a7ae5200a4c9490fdd2ce95ad22a486a6b1fe2bcee70f4d9b74cf59ec04"
+  },
+  "prompt_bank": {
+    "path": "runtime/world_model/s2_v1_prompt_banks.json",
+    "sha256": "0494d021f795b418c8b99b0d51c119d7c9e7f239a6ced98a6057090c891d897c"
+  },
+  "registry_index": {
+    "path": "data/world_model_v3/source_indexes/world_model_source_index_08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e.json.gz",
+    "sha256": "7c92e3e0ec47281cc502984fcb985787f8ed7423fdf4b09ddc034c3005ede88b",
+    "logical_sha256": "08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e"
+  },
+  "scoring": {
+    "exact_fields": [
+      "status",
+      "provenance",
+      "result",
+      "continuation_decision"
+    ],
+    "tool_calls": "exact ordered calls and arguments",
+    "blocked_reason": "presence, not exact prose",
+    "summary": "supported anchors and values, not exact prose"
+  },
+  "s21_request_bank": {
+    "path": "runtime/world_model/s2_v1_edge_requests.json",
+    "sha256": "e14566344fac96ef287ac42f868d5f5cb97b3747a17f21637572a58935986827"
+  },
+  "s22_request_bank": {
+    "path": "runtime/world_model/s2_2_v1_requests.json",
+    "sha256": "2c1a2cb6abcfc72abee3689ecf23616a2d0c034f8c890ae7266c59ff7ae39455"
+  },
+  "s23_request_bank": {
+    "path": "runtime/world_model/s2_3_v1_requests.json",
+    "sha256": "4b6051674dc7cdc1d1d5a6bb26fc30e9f4b2ebf9e3552b36cc2dc73c6429ed1e"
+  },
+  "s24_request_bank": {
+    "path": "runtime/world_model/s2_4_v1_requests.json",
+    "sha256": "2f6d5017bbccd724d32874704658e338df7aa0e48c2be69d212f8cd0640a319b"
+  },
+  "s25_request_bank": {
+    "path": "runtime/world_model/s2_5_v1_requests.json",
+    "sha256": "a2331cdacfe69c3b4f2bfeab2ae9af384fd36740e0ef9068d0b012048dd3e66f"
+  },
+  "tokenizer": {
+    "path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
+    "artifacts": {
+      "chat_template.jinja": "9ad8adf1324b8eb902d6e70087f3184b1b9b345c453bbd3d38949c2f13205c1d",
+      "special_tokens_map.json": "8464cabd6eda239fe46ebf8ae63b46c417721784a961a022f6b59174a2cda0e2",
+      "tokenizer.json": "0614fe83cadab421296e664e1f48f4261fa8fef6e03e63bb75c20f38e37d07d3",
+      "tokenizer_config.json": "9279e942392b742d633c7adbb89ebe002c98399db8926a7af5125c726f404070"
+    }
+  },
+  "context_recipe": {
+    "path": "config/world_model_s1_120b_training_v10_32n.json",
+    "sha256": "125fefe6c5be0260979adffc7054c79734fe51ea283f7a676556981f7b1eb677",
+    "max_length": 4096,
+    "purpose": "existing context-length reference only; does not authorize a training run"
+  },
+  "s26_request_bank": {
+    "path": "runtime/world_model/s2_6_v1_requests.json",
+    "sha256": "4872b6d8dd4552f0f265ab2c8d3106ac986fba935f4bef2bd69ca9e139a5a2b5"
+  },
+  "s27_request_bank": {
+    "path": "runtime/world_model/s2_7_v1_requests.json",
+    "sha256": "ad86a374ab79d0f350472fb71af15ea233cf7dab5d6b9e3c64205806224f3ce9"
+  },
+  "contract_version": "mentor-rl-world-model-s2-degree-hubness-v1",
+  "implemented_families": [
+    "S2.8"
+  ],
+  "training_ready": false,
+  "request_bank": {
+    "path": "runtime/world_model/s2_8_v1_requests.json",
+    "sha256": "4960e4f2e234ee4c7ae641c9de517f5f3a8b766627b297c5c2bf4e3e6c7d2ae8"
+  },
+  "degree_policy_id": "distinct_neighbor_union_v1",
+  "population_policy_id": "selected_layer_node_union_v1",
+  "default_hub_policy": {
+    "policy_id": "degree_midrank_v1",
+    "threshold_percentile": 95
+  },
+  "percentile_display": {
+    "decimal_places": 6,
+    "rounding": "ROUND_HALF_UP"
+  },
+  "system_prompt": "Answer one distinct-neighbor degree request for the active versioned multiplex. Resolve symbols only through authoritative identity observations. Canonical IDs need no redundant lookup. Preserve literal request values and attributed registry evidence. An unresolved identity is a prerequisite blocker, not a measured graph negative.\n\nUse get_degree with exactly multiplex_id,layer_scope,gene_id,direction,request_kind,hub_policy. LayerScope is {kind:layers,layer_ids:[unique registered IDs in manifest order],layer_family:null} or {kind:all,layer_ids:[],layer_family:string|null}. Expand all and family selectors exhaustively. An empty registered family is valid; an empty explicit list is invalid. Unqualified degree uses incident. In directed layers, in selects recorded neighbor-to-query edges and out selects query-to-neighbor edges. Incident unites both native directions and undirected adjacency. Undirected requires only undirected representations; in/out require directed representations throughout the selection. Equivalent selectors resolving to the same layers have the same population. Incident and undirected are equivalent throughout an undirected selection.\n\nThe degree policy is distinct_neighbor_union_v1. Count unique neighbor IDs across every selected layer and native orientation. Retain self-loops once and graph IDs absent from the registry. Ignore weights for this count. Separate layer counts or incoming/outgoing counts cannot generally determine their union. Global membership is required. A global member outside the selected layers has degree zero. Global absence gives unavailable degree, not measured zero.\n\nThe population policy is selected_layer_node_union_v1. Rank against every authoritative node in the union of selected-layer inventories. Include directional zeros and graph-only IDs. Never rank among only training targets, returned neighbors, positive-degree nodes, or registry entries. For degree d, exact rank support supplies lower_degree_count=L,equal_degree_count=E,population_count=N. For N>1, percentile=100*(2*L+E-1)/(2*(N-1)). For N=1, the defined percentile is 50. Display six decimal places with Decimal ROUND_HALF_UP; insignificant trailing zeros may be omitted. Compare exact integers: 100*(2*L+E-1)>=threshold_percentile*2*(N-1). For a singleton, compare 50 to the threshold. Equality qualifies. A rounded display alone never settles a threshold comparison. The default degree_midrank_v1 threshold is integer 95. A visible override must be an integer from 0 through 100; booleans, strings, fractions, and other policies are invalid.\n\nDegree_only requires hub_policy:null and does not require population ranks. Degree_and_hub requires the declared policy. Return exactly status,provenance,result,continuation_decision,blocked_reason,summary. An ordinary result contains exactly gene_id,multiplex_id,layer_scope,resolved_layer_ids,direction,request_kind,degree_policy_id,membership,degree,degree_percentile,rank_support,hub_policy,hub_like,caveats. Membership is {present_in_multiplex,present_in_scope}. Present_in_scope may be null when a degree-only count does not establish narrower membership. Rank support is {population_policy_id,lower_degree_count,equal_degree_count,population_count}. For degree-only, percentile,rank_support,hub_policy,hub_like are null and caveats is empty. For a computed true label, caveats contains only high_degree_inflates_apparent_proximity. This token warns of potential bias; it is not a measured proximity effect or a claim of biological importance or causality. False and unevaluated labels use an empty caveat list.\n\nReuse compatible visible measurements, exact ranks, lists, maps, authoritative full totals, and complete histograms. Match identity, multiplex/version, resolved layers, direction, degree policy, and any required population policy. Preserve original selectors, values, and evidence IDs. Deduplicate identical acquisitions in first-use order. Conflicting counts, weights, membership, rank support, or reused evidence IDs are harness faults. Old-version or incompatible-policy context cannot fill a current gap. A complete native list supplies its distinct count. A bounded or paged list with an authoritative full total supplies the count despite omitted IDs. Unknown totals and partial lists supply only lower bounds. Complete native collections or a complete multiplex map can supply a deduplicated union. Separate native totals cannot generally establish that union. A complete compatible degree histogram, query degree, and reference-population membership supply exact rank support. Global membership alone cannot place a query in a narrower population. A new threshold can reuse exact ranks without a new call. Obtain a count directly with get_degree when that avoids unnecessary list pages. A full traversal must start from its initial page and retain every exact continuation cursor; its final page alone is insufficient.\n\nA required terminal backend failure returns {failed_tool,error_code,arguments,partial_results,coverage:null}. Retain every supported earlier observation, including known degree when required rank acquisition fails. Failed calls add no evidence. Retry only after a visible positive integer retries_remaining allowance. Repeat the identical tool and all six arguments. Stop after recovery or exhaustion. Unrecovered failures use error/defer and a nonempty blocked_reason.\n\nAn unresolved prerequisite returns {issue_code,request,rejected_arguments,partial_results,coverage:null}. Request is exactly {gene,multiplex_id,layer_scope,direction,request_kind,hub_policy}, with original JSON values and null fields. A local rejection has rejected_arguments:null and no graph call. A tool input rejection has empty graph provenance; preserve its exact six arguments. Missing gene or scope uses invalid_input/MISSING_GENE or MISSING_SCOPE. Invalid selection uses invalid_input/INVALID_SCOPE. Unavailable direction uses invalid_input/DIRECTION_UNAVAILABLE. Invalid policy or threshold uses invalid_input/INVALID_HUB_POLICY. Unknown scope uses not_found/UNKNOWN_LAYER or UNKNOWN_MULTIPLEX. Identity failures retain their S1 status and UNRESOLVED_IDENTITY.\n\nConfirmed global absence uses not_found/NO_MULTIPLEX_MEMBERSHIP and retains its explicit unavailable-degree observation. A required hub evaluation outside a nonempty reference population uses not_found/OUTSIDE_REFERENCE_POPULATION. An empty population uses not_found/EMPTY_REFERENCE_POPULATION. Preserve known degree zero and membership as partial data, without an invented negative hub label. Degree-only resolves zero for these latter two cases. These scoped outcomes do not establish expression or biological noninteraction. Complete direct questions stop; complete requested steps continue, including zero counts and nonhub answers. A real missing prerequisite defers. Blocked_reason is nonempty exactly when deferring. Summary and blocker wording remain free prose; score structured results and exact ordered calls.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_degree",
+        "description": "Return a distinct-neighbor union count and optional exact population rank under the declared degree policy.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "layer_scope": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "layers",
+                    "all"
+                  ]
+                },
+                "layer_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "layer_family": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "kind",
+                "layer_ids",
+                "layer_family"
+              ],
+              "additionalProperties": false
+            },
+            "gene_id": {
+              "type": "string",
+              "pattern": "^ENSG[0-9]{11}$"
+            },
+            "direction": {
+              "type": "string",
+              "enum": [
+                "incident",
+                "in",
+                "out",
+                "undirected"
+              ]
+            },
+            "request_kind": {
+              "type": "string",
+              "enum": [
+                "degree_only",
+                "degree_and_hub"
+              ]
+            },
+            "hub_policy": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "policy_id": {
+                      "type": "string",
+                      "enum": [
+                        "degree_midrank_v1"
+                      ]
+                    },
+                    "threshold_percentile": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100
+                    }
+                  },
+                  "required": [
+                    "policy_id",
+                    "threshold_percentile"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "layer_scope",
+            "gene_id",
+            "direction",
+            "request_kind",
+            "hub_policy"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "remaining_coverage": [
+    "Select a production context representation for complete statistics and supplied neighbor evidence.",
+    "Complete trainer compatibility and exact evaluation before any training export.",
+    "Allocate production examples over full attainable degree, population, tie, scope, direction, and threshold domains.",
+    "Add cold identity paths, ambiguity, unknown IDs, and further pinned graph layers and versions.",
+    "Add explicit claim calibration and outer compound-task blockers under shared vocabularies.",
+    "Expand conflict, histogram, cursor, and backend scenarios before a production corpus claim."
+  ]
+}

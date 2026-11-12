@@ -1,4 +1,4 @@
-"""Load and check the frozen S1 training prompt banks.
+"""Load and check the frozen S1 and S2 prompt banks.
 
 The v1/v2 S1 builders train on four (S1.8, S1.9: eight) direct and step
 wrappers per split, so each wrapper repeats hundreds of times and held-out
@@ -10,6 +10,8 @@ rows, and the S1 test panel built from them, stay byte-identical.
 The banks were drafted with an LLM and are checked in as data.  No LLM runs at
 build time; the builders read the pinned file, and this module rejects any
 entry that could change a row's meaning or leak a held-out paraphrase.
+S2 has separate frozen training, validation, and test framing pairs. Its helpers
+reuse the same wording checks without changing S1 loaders or their defaults.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from dataclasses import dataclass
 import importlib
 import json
 import re
+from string import Formatter
 from typing import Any
 
 from .contract import REPOSITORY_ROOT
@@ -440,6 +443,7 @@ def validate_wrapper_bank(
     held_out: Iterable[str],
     phrases: Sequence[str] = (),
     name: str = "wrapper",
+    minimum_wrappers: int = MINIMUM_WRAPPERS,
 ) -> dict[str, Any]:
     """Validate one training wrapper bank and return its audit record."""
 
@@ -448,9 +452,9 @@ def validate_wrapper_bank(
     counts = {framing: len(bank[framing]) for framing in FRAMINGS}
     if counts["direct"] != counts["step"]:
         raise PromptBankError(f"the {name} bank framings differ in size")
-    if counts["direct"] < MINIMUM_WRAPPERS:
+    if counts["direct"] < minimum_wrappers:
         raise PromptBankError(
-            f"the {name} bank needs at least {MINIMUM_WRAPPERS} wrappers "
+            f"the {name} bank needs at least {minimum_wrappers} wrappers "
             "per framing"
         )
 
@@ -935,4 +939,276 @@ def prompt_bank_manifest(pin: Mapping[str, Any]) -> dict[str, Any]:
         "sha256": str(pin["sha256"]),
         "schema_version": PROMPT_BANK_SCHEMA_VERSION,
         "audit": _validated_banks(payload),
+    }
+
+
+S2_PROMPT_BANK_SCHEMA_VERSION = "mentor-rl-world-model-s2-prompt-banks-v1"
+S2_PROMPT_SPLITS = ("train", "validation", "test")
+S2_WRAPPER_SPEC = WrapperBank(
+    sections=tuple(f"S2.{index}" for index in range(1, 14)),
+    style="newline",
+    revealing=_revealing(
+        r"genes?|symbols?|ids?|identifiers?|ensembl|ensg\w*|multiplex\w*|"
+        r"graphs?|subgraphs?|layers?|edges?|nodes?|neighbors?|neighbours?|paths?|"
+        r"components?|degrees?|hubs?|percentiles?|ranks?|weights?|"
+        r"directed|undirected|directions?|native|incoming|outgoing|reciprocal|loops?|"
+        r"membership|intersections?|unions?|distances?|selections?|"
+        r"regulat\w*|coexpression|ppi|tf_target|bulk_pen|scpen|"
+        r"claims?|supported|unsupported|famil\w*|contexts?|"
+        r"complete\w*|truncat\w*|pag\w*|cursors?|retri\w*|bounded|"
+        r"positive|negative|empty|nonempty|isolat\w*|connect\w*"
+    ),
+    sample_requests=(
+        "Check the ordered edge from ENSG00000001167 to ENSG00000109787 in TFs:brain.",
+        "Give the complete subgraph on the supplied genes in HumanNetV3:string_ppi.",
+    ),
+)
+
+
+def validate_s2_prompt_banks(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Audit neutral S2 framing pairs and separation from frozen held-out wording.
+
+    Training has at least 32 pairs; each new held-out split has at least eight.
+    The existing S1 overlap rules are also checked between all S2 splits and
+    against the actual frozen S1 validation/test wrappers. This checks wording,
+    not separation of graph queries, which remains the corpus builder's job.
+    """
+
+    if (
+        not isinstance(payload, Mapping)
+        or list(payload) != ["schema_version", "description", *S2_PROMPT_SPLITS]
+        or payload["schema_version"] != S2_PROMPT_BANK_SCHEMA_VERSION
+        or not isinstance(payload["description"], str)
+        or not payload["description"].strip()
+    ):
+        raise PromptBankError("the S2 prompt-bank schema changed")
+    for split in S2_PROMPT_SPLITS:
+        bank = payload[split]
+        if (
+            not isinstance(bank, Mapping) or list(bank) != list(FRAMINGS)
+            or any(not isinstance(bank[framing], list) for framing in FRAMINGS)
+        ):
+            raise PromptBankError(f"S2 {split} must list direct and step wrappers")
+    s1_held_out = held_out_wordings()
+    phrases = claim_phrases()
+    audit: dict[str, Any] = {}
+    for split in S2_PROMPT_SPLITS:
+        other_splits = tuple(
+            text
+            for other in S2_PROMPT_SPLITS if other != split
+            for framing in FRAMINGS
+            for text in payload[other][framing]
+        )
+        audit[split] = validate_wrapper_bank(
+            payload[split], spec=S2_WRAPPER_SPEC,
+            held_out=(*s1_held_out, *other_splits), phrases=phrases,
+            name=f"S2 {split}", minimum_wrappers=32 if split == "train" else 8,
+        )
+        for direct, step in zip(payload[split]["direct"], payload[split]["step"]):
+            prefix = direct.partition("\n")[0].removesuffix(".")
+            if not step.startswith(prefix + "; "):
+                raise PromptBankError(
+                    f"S2 {split} direct/step pairs must differ only by a later-use clause"
+                )
+    return {
+        "splits": audit,
+        "s1_held_out_wrappers_checked": len(s1_held_out),
+        "selection_policy": "variant_index_modulo_bank_size_after_content_selection",
+    }
+
+
+def load_s2_prompt_banks(pin: Mapping[str, Any]) -> dict[str, Any]:
+    """Load frozen S2 wording only after checking its pin and complete audit."""
+
+    if not isinstance(pin, Mapping) or list(pin) != ["path", "sha256"]:
+        raise PromptBankError("an S2 prompt-bank pin must list path, then sha256")
+    path = (REPOSITORY_ROOT / str(pin["path"])).resolve()
+    if not path.is_file() or file_sha256(path) != pin["sha256"]:
+        raise PromptBankError("the S2 prompt bank does not match its pin")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    validate_s2_prompt_banks(payload)
+    return payload
+
+
+def render_s2_prompt(
+    payload: Mapping[str, Any], *, split: str, framing: str,
+    variant_index: int, request: str,
+) -> tuple[str, int]:
+    """Render a preselected request using one deterministic framing variant.
+
+    Callers choose query facts and split membership before this function. A
+    larger wording bank then changes only the selected wrapper, not those facts.
+    The payload must have passed ``load_s2_prompt_banks`` or its validator.
+    """
+
+    if split not in S2_PROMPT_SPLITS or framing not in FRAMINGS:
+        raise PromptBankError("unknown S2 prompt split or framing")
+    if type(variant_index) is not int or variant_index < 0:
+        raise PromptBankError("the S2 prompt variant index must be nonnegative")
+    if not isinstance(request, str) or not request or request != request.strip():
+        raise PromptBankError("the S2 request must be nonempty and trimmed")
+    wrappers = payload[split][framing]
+    index = variant_index % len(wrappers)
+    return wrappers[index].format(request=request), index
+
+
+S2_EDGE_REQUEST_SCHEMA_VERSION = "mentor-rl-world-model-s2-edge-requests-v1"
+S2_EDGE_REQUEST_FIELDS = ("multiplex_id", "layer_id", "first", "second")
+S2_EDGE_REPRESENTATIONS = ("directed", "undirected")
+S2_ORDERED_EDGE_BINDING = re.compile(
+    r"\{first\}\s*→\s*\{second\}|"
+    r"\bsource\s+\{first\}\s+and\s+(?:target|destination)\s+\{second\}|"
+    r"\bfrom\s+\{first\}\s+(?:to|toward)\s+\{second\}|"
+    r"\bleaving\s+\{first\}\s+and\s+entering\s+\{second\}|"
+    r"\boriginating\s+at\s+\{first\}\s+and\s+terminating\s+at\s+\{second\}",
+    re.IGNORECASE,
+)
+
+
+def validate_s2_edge_requests(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Check frozen edge-question slots before their values can be substituted."""
+
+    if (
+        not isinstance(payload, Mapping)
+        or list(payload) != ["schema_version", "description", *S2_PROMPT_SPLITS]
+        or payload["schema_version"] != S2_EDGE_REQUEST_SCHEMA_VERSION
+        or not isinstance(payload["description"], str)
+        or not payload["description"].strip()
+    ):
+        raise PromptBankError("the S2 edge-request schema changed")
+    counts = {}
+    for split in S2_PROMPT_SPLITS:
+        bank = payload[split]
+        if not isinstance(bank, Mapping) or list(bank) != list(S2_EDGE_REPRESENTATIONS):
+            raise PromptBankError(f"S2 {split} must list directed and undirected requests")
+        counts[split] = {}
+        for representation in S2_EDGE_REPRESENTATIONS:
+            templates = bank[representation]
+            if not isinstance(templates, list) or len(templates) < 4:
+                raise PromptBankError("S2 needs at least four edge requests per representation")
+            seen = set()
+            for template in templates:
+                if (
+                    not isinstance(template, str) or not template
+                    or template != template.strip() or "\n" in template
+                ):
+                    raise PromptBankError("S2 edge requests must be nonempty trimmed lines")
+                try:
+                    parsed = list(Formatter().parse(template))
+                except ValueError as exc:
+                    raise PromptBankError("invalid S2 edge-request formatting") from exc
+                slots = [field for _, field, _, _ in parsed if field is not None]
+                if sorted(slots) != sorted(S2_EDGE_REQUEST_FIELDS) or any(
+                    format_spec or conversion for _, _, format_spec, conversion in parsed
+                ):
+                    raise PromptBankError("S2 edge requests must bind each of the four fields once")
+                if template in seen:
+                    raise PromptBankError("S2 edge requests must be distinct within each bank")
+                seen.add(template)
+                if "weight" not in template.casefold():
+                    raise PromptBankError("S2 edge requests must ask for the recorded weight")
+                # Each directed wording binds the source first and the target
+                # second. Undirected wording explicitly identifies unordered
+                # endpoints or undirected adjacency instead of regulatory roles.
+                if template.index("{first}") > template.index("{second}"):
+                    raise PromptBankError("S2 edge requests must preserve first/second role order")
+                if representation == "directed" and not S2_ORDERED_EDGE_BINDING.search(template):
+                    raise PromptBankError("directed requests must name the ordered orientation")
+                if representation == "undirected" and (
+                    "→" in template
+                    or not re.search(r"\b(?:undirected|unordered)\b|without orientation", template, re.I)
+                    or re.search(
+                        r"\b(?:source|target|destination|regulator)\s+\{(?:first|second)\}",
+                        template, re.I,
+                    )
+                ):
+                    raise PromptBankError("undirected requests must identify unordered endpoints")
+            counts[split][representation] = len(templates)
+    return {"template_counts": counts}
+
+
+def load_s2_edge_requests(pin: Mapping[str, Any]) -> dict[str, Any]:
+    """Load the independently pinned S2 edge-question wording."""
+
+    if not isinstance(pin, Mapping) or list(pin) != ["path", "sha256"]:
+        raise PromptBankError("an S2 edge-request pin must list path, then sha256")
+    path = (REPOSITORY_ROOT / str(pin["path"])).resolve()
+    if not path.is_file() or file_sha256(path) != pin["sha256"]:
+        raise PromptBankError("the S2 edge requests do not match their pin")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    validate_s2_edge_requests(payload)
+    return payload
+
+
+def render_s2_edge_request(
+    payload: Mapping[str, Any], split: str, directed: bool, variant_index: int,
+    **fields: str,
+) -> str:
+    """Bind a chosen ordered or unordered edge query without changing its facts."""
+
+    if split not in S2_PROMPT_SPLITS or type(directed) is not bool:
+        raise PromptBankError("unknown S2 edge split or native representation")
+    if type(variant_index) is not int or variant_index < 0:
+        raise PromptBankError("the S2 edge variant index must be nonnegative")
+    if set(fields) != set(S2_EDGE_REQUEST_FIELDS) or any(
+        not isinstance(value, str) or not value or value != value.strip()
+        for value in fields.values()
+    ):
+        raise PromptBankError("S2 edge requests require exactly four nonempty field bindings")
+    representation = "directed" if directed else "undirected"
+    templates = payload[split][representation]
+    return templates[variant_index % len(templates)].format(**fields)
+
+
+def validate_s2_rendered_prompts(
+    wrappers: Mapping[str, Any], requests: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Audit full S2 questions across splits after masking bound query values.
+
+    Checking only the neutral prefix misses shared phrases in the actual task.
+    This check crosses every framing, core wording, and native representation.
+    Bound identifiers/scopes are removed consistently; their split independence
+    is checked separately by the source-query partitioner.
+    """
+
+    validate_s2_prompt_banks(wrappers)
+    validate_s2_edge_requests(requests)
+    variants = {}
+    for split in S2_PROMPT_SPLITS:
+        variants[split] = []
+        for framing in FRAMINGS:
+            for wrapper_index, wrapper in enumerate(wrappers[split][framing]):
+                for representation in S2_EDGE_REPRESENTATIONS:
+                    for request_index, template in enumerate(requests[split][representation]):
+                        # Empty bindings remove task-specific names without
+                        # introducing shared placeholder tokens into the audit.
+                        masked_request = template.format(**{
+                            field: "" for field in S2_EDGE_REQUEST_FIELDS
+                        })
+                        text = wrapper.format(request=masked_request)
+                        tokens = _tokens(text)
+                        variants[split].append((
+                            f"{split}/{framing}/{wrapper_index}/{representation}/{request_index}",
+                            set(tokens), _ngrams(tokens, HELD_OUT_SHARED_NGRAM),
+                        ))
+    closest = 0.0
+    compared = 0
+    for index, split in enumerate(S2_PROMPT_SPLITS):
+        for other in S2_PROMPT_SPLITS[index + 1:]:
+            for label, tokens, ngrams in variants[split]:
+                for other_label, other_tokens, other_ngrams in variants[other]:
+                    compared += 1
+                    overlap = len(tokens & other_tokens) / len(tokens | other_tokens)
+                    closest = max(closest, overlap)
+                    if ngrams & other_ngrams or overlap >= HELD_OUT_JACCARD_LIMIT:
+                        raise PromptBankError(
+                            f"rendered S2 questions overlap: {label} and {other_label}; "
+                            f"Jaccard={overlap:.4f}, shared_5gram={bool(ngrams & other_ngrams)}"
+                        )
+    return {
+        "rendered_questions": {split: len(values) for split, values in variants.items()},
+        "cross_split_pairs_checked": compared,
+        "maximum_cross_split_jaccard": round(closest, 4),
+        "shared_cross_split_5grams": 0,
+        "masking": "remove_all_four_bound_identifier_and_scope_values",
     }

@@ -1,0 +1,31 @@
+{
+  "schema_version": "mentor-rl-s2-production-8-request-additions-v1",
+  "s2_8": {
+    "train": [
+      "Compute the requested degree measure for {gene} within {multiplex_id}. Layer scope {layer_scope}; native direction {direction}; statistic form {request_kind}; hub rule {hub_policy}.",
+      "Give the distinct-neighbor degree of {gene} under scope {layer_scope} in multiplex {multiplex_id}. Direction setting {direction}, requested statistic {request_kind}, declared hub policy {hub_policy}.",
+      "Determine the degree statistic for input {gene}, using multiplex {multiplex_id} and typed scope {layer_scope}. Follow direction {direction}, statistic choice {request_kind}, and hub criterion {hub_policy}.",
+      "Find the native degree for {gene}: multiplex {multiplex_id}, layer selection {layer_scope}, direction {direction}, requested statistic {request_kind}, hub policy {hub_policy}.",
+      "Report the exact degree requested for gene {gene} in {multiplex_id}. Select scope {layer_scope} and direction {direction}; retain statistic kind {request_kind} and hub policy {hub_policy}.",
+      "For {multiplex_id}, calculate the degree of gene {gene} over layer scope {layer_scope}. Native direction {direction}; requested output kind {request_kind}; hub-evaluation rule {hub_policy}.",
+      "Supply a degree measurement for {gene} within the typed layer scope {layer_scope} of {multiplex_id}. Use direction {direction}, output statistic {request_kind}, and hub policy {hub_policy}.",
+      "Evaluate the requested degree of input {gene} against multiplex {multiplex_id}. Its scope is {layer_scope}, its direction is {direction}, its statistic kind is {request_kind}, and its hub policy is {hub_policy}.",
+      "Obtain the exact distinct-neighbor degree for {gene} under {multiplex_id}. Apply layer scope {layer_scope}, direction option {direction}, statistic selector {request_kind}, and hub rule {hub_policy}.",
+      "Measure degree for {gene} using scope {layer_scope} inside multiplex {multiplex_id}. Adopt direction {direction}, return statistic kind {request_kind}, and use declared hub criterion {hub_policy}.",
+      "Resolve this degree request: gene {gene}; multiplex {multiplex_id}; layer scope {layer_scope}; native direction {direction}; statistic kind {request_kind}; hub policy {hub_policy}.",
+      "Derive the requested degree statistic for gene {gene} from {multiplex_id}, selecting scope {layer_scope}. Preserve direction {direction}, request form {request_kind}, and hub-evaluation policy {hub_policy}."
+    ],
+    "validation": [
+      "Please establish the degree associated with entry {gene} at context handle {multiplex_id}. Selection descriptor {layer_scope}; orientation setting {direction}; measurement request {request_kind}; hub-decision prescription {hub_policy}.",
+      "We need an exact degree for entry {gene}, referring to context {multiplex_id} through selection descriptor {layer_scope}. Orientation option {direction}, measurement form {request_kind}, hub interpretation {hub_policy}.",
+      "Recover the degree value concerning entry {gene}. Context tag {multiplex_id}; relation-selection descriptor {layer_scope}; orientation choice {direction}; measurement type {request_kind}; hub prescription {hub_policy}.",
+      "Establish a distinct-neighbor degree for entry {gene} using context {multiplex_id}. Relation scope descriptor {layer_scope}, orientation flag {direction}, measurement option {request_kind}, and hub interpretation rule {hub_policy}."
+    ],
+    "test": [
+      "What degree should be reported for vertex entry {gene} in resource {multiplex_id}? Selection reference {layer_scope}; orientation choice {direction}; statistic requirement {request_kind}; hub-classification prescription {hub_policy}.",
+      "Describe the native degree of vertex entry {gene} against resource {multiplex_id}, scoped by {layer_scope}. Orientation reference {direction}; statistic requirement {request_kind}; requested hub interpretation {hub_policy}.",
+      "Deliver the degree corresponding to vertex entry {gene} from resource {multiplex_id}. Use scope reference {layer_scope}, orientation interpretation {direction}, statistic requirement {request_kind}, and hub-classification rule {hub_policy}.",
+      "Which degree follows for vertex entry {gene}, resource {multiplex_id}, and relation-selection reference {layer_scope}? Apply orientation {direction}, requested measurement {request_kind}, and hub-classification prescription {hub_policy}."
+    ]
+  }
+}

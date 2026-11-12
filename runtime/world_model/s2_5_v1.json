@@ -1,0 +1,157 @@
+{
+  "row_schema_version": "mentor-rl-world-model-s2-corpus-v1",
+  "source_manifest": {
+    "path": "runtime/world_model/s2_v1_sources.json",
+    "sha256": "a9f27a7ae5200a4c9490fdd2ce95ad22a486a6b1fe2bcee70f4d9b74cf59ec04"
+  },
+  "prompt_bank": {
+    "path": "runtime/world_model/s2_v1_prompt_banks.json",
+    "sha256": "0494d021f795b418c8b99b0d51c119d7c9e7f239a6ced98a6057090c891d897c"
+  },
+  "registry_index": {
+    "path": "data/world_model_v3/source_indexes/world_model_source_index_08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e.json.gz",
+    "sha256": "7c92e3e0ec47281cc502984fcb985787f8ed7423fdf4b09ddc034c3005ede88b",
+    "logical_sha256": "08d093d802562c0e0620e00b96ff94b4779a9d2118c48b4d741e9feabc7b0a9e"
+  },
+  "scoring": {
+    "exact_fields": [
+      "status",
+      "provenance",
+      "result",
+      "continuation_decision"
+    ],
+    "tool_calls": "exact ordered calls and arguments",
+    "blocked_reason": "presence, not exact prose",
+    "summary": "supported anchors and values, not exact prose"
+  },
+  "s21_request_bank": {
+    "path": "runtime/world_model/s2_v1_edge_requests.json",
+    "sha256": "e14566344fac96ef287ac42f868d5f5cb97b3747a17f21637572a58935986827"
+  },
+  "s22_request_bank": {
+    "path": "runtime/world_model/s2_2_v1_requests.json",
+    "sha256": "2c1a2cb6abcfc72abee3689ecf23616a2d0c034f8c890ae7266c59ff7ae39455"
+  },
+  "tokenizer": {
+    "path": "data/world_model_v2/sft/s0_human_identifier_tokenizers_v4/plain_base_tokenizer/tokenizer",
+    "artifacts": {
+      "chat_template.jinja": "9ad8adf1324b8eb902d6e70087f3184b1b9b345c453bbd3d38949c2f13205c1d",
+      "special_tokens_map.json": "8464cabd6eda239fe46ebf8ae63b46c417721784a961a022f6b59174a2cda0e2",
+      "tokenizer.json": "0614fe83cadab421296e664e1f48f4261fa8fef6e03e63bb75c20f38e37d07d3",
+      "tokenizer_config.json": "9279e942392b742d633c7adbb89ebe002c98399db8926a7af5125c726f404070"
+    }
+  },
+  "context_recipe": {
+    "path": "config/world_model_s1_120b_training_v10_32n.json",
+    "sha256": "125fefe6c5be0260979adffc7054c79734fe51ea283f7a676556981f7b1eb677",
+    "max_length": 4096,
+    "purpose": "existing context-length reference only; does not authorize a training run"
+  },
+  "contract_version": "mentor-rl-world-model-s2-gene-layers-v1",
+  "implemented_families": [
+    "S2.5"
+  ],
+  "training_ready": false,
+  "s23_request_bank": {
+    "path": "runtime/world_model/s2_3_v1_requests.json",
+    "sha256": "4b6051674dc7cdc1d1d5a6bb26fc30e9f4b2ebf9e3552b36cc2dc73c6429ed1e"
+  },
+  "request_bank": {
+    "path": "runtime/world_model/s2_5_v1_requests.json",
+    "sha256": "a2331cdacfe69c3b4f2bfeab2ae9af384fd36740e0ef9068d0b012048dd3e66f"
+  },
+  "system_prompt": "Answer which selected layers contain the queried gene in the active versioned multiplex. get_gene_layers has six explicit arguments: multiplex_id,gene_id,layer_scope,mode,top_k,cursor. Canonical IDs need no redundant registry lookup. Supplied authoritative unique registry context can resolve a symbol; graph calls use the canonical ID and retain registry evidence. Identity is separate from graph membership.\n\nScope is {kind:layers,layer_ids:[...],layer_family:null} or {kind:all,layer_ids:[],layer_family:string|null}. Remove duplicate explicit layers and order them by the manifest. All-layer and all-family scopes expand exhaustively. Valid families are ppi,coexpression,tf_target,bulk_pen,scpen,other. A valid family can select no registered layers; report an empty selection without inventing gene absence from actual layers. Unknown identifiers and an empty explicit selection are diagnostics. Membership comes from authoritative node inventories, never degree, a neighbor list's length, or an induced-subgraph omission. Every layer node belongs to the multiplex, but future inventories may include multiplex-only members.\n\ncomplete requires top_k:null and all containing layers. top_k requires a positive explicit K and the first min(K,total) containing layers in manifest order, never degree or weight order. Membership has no direction argument. Return exactly status,provenance,result,continuation_decision,blocked_reason,summary. The ordinary result is {gene_id,multiplex_id,layer_scope,present,layer_ids,layer_count,coverage,collection}. present means global multiplex membership, independently of the selected scope. layer_ids contains unique returned positives in manifest order. layer_count and collection.total_count give the full positive count in the selected scope, agree, and may both be null. Collection is {mode,returned_count,total_count,complete,next_cursor}. A complete collection has an exact count equal to its length. Coverage is {operation:layer_membership,requested_layer_ids,checked_layer_ids,unchecked_layer_ids}. A resolved page or bounded response can check all selected layers without returning every positive identity. Coverage alone never makes an omitted layer negative.\n\nA checked global negative answers the membership question successfully: resolved,present:false,layer_ids:[],layer_count:0, complete:true; all selected layers are checked negative by containment. A globally present gene absent from every selected layer also resolves empty, with present:true. An empty registered-family selection resolves empty with empty coverage; present still needs independent global evidence. Do not confuse any of these cases with an unresolved identity, unregistered scope, or failed backend call.\n\nReuse compatible authoritative observations for the same gene, multiplex, and graph version. A complete saved scope can supply any covered subset or family; filter its positives and recalculate scoped counts. Combine completed scopes by unique positive IDs, never by adding overlapping counts. Keep original acquisition provenance unchanged and query only still-unchecked layers. A bounded saved list can supply the same or shorter prefix in the same scope; it cannot generally supply another scope or all memberships. A known total does not reveal omitted identities. Explicit membership fields in get_neighbors can prove layer presence even when its outgoing list is empty. Confirmed global absence from check_multiplex_membership or another compatible authoritative record proves all layer negatives. Positive layer membership proves global membership; a negative filtered list alone cannot prove global absence. Deduplicate equal observations and reject conflicting global membership, layer membership, evidence IDs, or totals.\n\nStart each traversal at cursor:null. Copy returned opaque cursors unchanged with all other arguments and the graph version fixed. Accumulate initial-to-exhausted pages for a complete request, retaining every supporting page. Identical overlap deduplicates; contradictory IDs, order, totals or cursor chains are contract faults. A terminal page can have complete:false by itself. Exhaustion in complete mode can establish an exact count from visible unique IDs when no total was supplied. Exhausted known-total prefixes that contain the entire disclosed total are complete; unknown totals stay null unless full exhaustion is proved. A null cursor in bounded mode ends that prefix only. Changed scope, mode or K starts a new traversal at null.\n\nFailed calls add no evidence. Retry only after an explicit retries_remaining allowance, with the identical tool and all six arguments, including cursor. Stop retries after recovery or exhaustion. An unrecovered required failure returns {failed_tool,error_code,arguments,partial_results,coverage}, preserves independent observations, and defers for backend recovery. Coverage describes the outer requested scope. Completed scopes stay checked; failed unevaluated scopes stay unchecked. Earlier successful pages may check every selected layer while later positive IDs remain unavailable. Preserve page metadata and explain the missing acquisition; never invent a complete list after failure. Coverage is null when no graph scope is established.\n\nLocal prerequisite errors require no graph call. Use {issue_code,request:{gene,multiplex_id,layer_scope,mode,top_k,cursor},rejected_arguments,partial_results}, preserving literal inputs and valid earlier observations. Missing scope gives invalid_input/MISSING_SCOPE; unregistered multiplex or layer gives not_found/UNKNOWN_MULTIPLEX or UNKNOWN_LAYER; unsupported family gives invalid_input/INVALID_LAYER_FAMILY. Empty explicit selection or invalid mode/K gives INVALID_SELECTION, missing bounded K gives MISSING_LIMIT, and invalid/stale cursor gives INVALID_CURSOR. A local rejection has rejected_arguments:null. A tool rejection has empty provenance and {issue_code,arguments}; copy its six arguments without inventing evidence.\n\nExplain the actual query, scope, global present value, visible layer membership, selection coverage, count sufficiency, evidence preservation, and task decision in current-turn reasoning. Stop when classification completes a standalone request; continue when it supplies the user's stated later workflow. A membership negative alone does not block classification. If the outer task also requires a graph operation whose membership prerequisite is absent, preserve the completed classification and defer that outer task. Defer for real missing prerequisites or required unavailable acquisitions; blocked_reason is nonempty exactly when deferring. Ordinary answers omit claim cards. Explicit calibration must use approved supported_claims/unsupported_claims and the same evidence scope. Membership alone does not prove regulator/target roles, arbitrary interactions, expression, non-expression, or causality. Score structured fields, evidence, and calls; summary and blocker sentences are free text. Use <GENE:ID>,<LAYER:ID>,<MULTIPLEX:ID> anchors when naming canonical entities in summary prose.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_gene_layers",
+        "description": "Classify global multiplex membership and return one manifest-ordered page of containing layers in the selected scope.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "multiplex_id": {
+              "type": "string"
+            },
+            "gene_id": {
+              "type": "string",
+              "pattern": "^ENSG[0-9]{11}$"
+            },
+            "layer_scope": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "layers",
+                    "all"
+                  ]
+                },
+                "layer_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "layer_family": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "kind",
+                "layer_ids",
+                "layer_family"
+              ],
+              "additionalProperties": false
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "complete",
+                "top_k"
+              ]
+            },
+            "top_k": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "multiplex_id",
+            "gene_id",
+            "layer_scope",
+            "mode",
+            "top_k",
+            "cursor"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "remaining_coverage": [
+    "Production generation budget, contrast allocation, and wrapper reuse targets",
+    "Fresh composed identity lookups, normalization, candidate selection, and broader invalid or stale cursor diagnostic corpus branches",
+    "Explicit supported_claims/unsupported_claims calibration and outer-task prerequisite combinations",
+    "Six-file PEN source view, all-family real memberships/absences, and authoritative full-layer or multiplex-only isolate inventories",
+    "Combined S2 split design: query-gene holdout does not make graph facts disjoint across splits or earlier families",
+    "Versioned S2 trainer/evaluator adapter, production supervision preflight, and model evaluation",
+    "S2.6-S2.13 builders"
+  ],
+  "s24_request_bank": {
+    "path": "runtime/world_model/s2_4_v1_requests.json",
+    "sha256": "2f6d5017bbccd724d32874704658e338df7aa0e48c2be69d212f8cd0640a319b"
+  }
+}

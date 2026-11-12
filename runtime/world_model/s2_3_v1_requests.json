@@ -1,0 +1,166 @@
+{
+  "schema_version": "mentor-rl-world-model-s2-3-requests-v1",
+  "description": "Frozen S2.3 core requests for complete or strongest-K layer-specific neighbor collections. Incoming and outgoing roles remain explicit; compound requests keep both lists separate and apply a bounded K independently to each direction. Each template binds only multiplex, layer, query gene, and the requested bound when applicable. Four variants per kind and split are frozen as data, independent of graph outcomes and generation budgets. The shared system instructions supply descending numeric weight order and ascending canonical-ID tie breaks. No language model runs at build time; wording remains available for human review.",
+  "train": {
+    "complete": {
+      "undirected": [
+        "In {multiplex_id}, list all undirected neighbors joined to {gene} in layer {layer_id}. Include the original edge weight beside each neighbor.",
+        "Give a complete listing of neighbors sharing unordered edges with {gene} for {layer_id} under {multiplex_id}, preserving each recorded weight.",
+        "Enumerate all neighbors linked without orientation to {gene} recorded by layer {layer_id} in {multiplex_id}; retain the unmodified weights.",
+        "Using {multiplex_id} and {layer_id}, return the full collection of neighbors joined through undirected adjacency to {gene} together with source weights."
+      ],
+      "in": [
+        "In {multiplex_id}, list all incoming neighbors whose edges end at target {gene} in layer {layer_id}. Include the original edge weight beside each neighbor.",
+        "Give a complete listing of incoming neighbors connected into {gene} as the target for {layer_id} under {multiplex_id}, preserving each recorded weight.",
+        "Enumerate all incoming neighbors sending edges toward {gene} recorded by layer {layer_id} in {multiplex_id}; retain the unmodified weights.",
+        "Using {multiplex_id} and {layer_id}, return the full collection of incoming neighbors whose arcs terminate at {gene} together with source weights."
+      ],
+      "out": [
+        "In {multiplex_id}, list all outgoing neighbors whose edges start at source {gene} in layer {layer_id}. Include the original edge weight beside each neighbor.",
+        "Give a complete listing of outgoing neighbors reached from {gene} as the source for {layer_id} under {multiplex_id}, preserving each recorded weight.",
+        "Enumerate all outgoing neighbors receiving edges from {gene} recorded by layer {layer_id} in {multiplex_id}; retain the unmodified weights.",
+        "Using {multiplex_id} and {layer_id}, return the full collection of outgoing neighbors reached by arcs originating at {gene} together with source weights."
+      ],
+      "both": [
+        "In {multiplex_id}, list all incident neighbors of {gene} (Q), separating incoming N → Q edges from outgoing Q → N edges in layer {layer_id}. Include the original edge weight beside each neighbor.",
+        "Give a complete listing of neighbors touching {gene}, keeping incoming connections toward the query and outgoing connections from it in separate lists for {layer_id} under {multiplex_id}, preserving each recorded weight.",
+        "Enumerate all neighbors incident on {gene}, split into incoming sources that point to the query and outgoing targets reached from it recorded by layer {layer_id} in {multiplex_id}; retain the unmodified weights.",
+        "Using {multiplex_id} and {layer_id}, return the full collection of neighbors around {gene}, with incoming arrows entering the query and outgoing arrows leaving it reported separately together with source weights."
+      ]
+    },
+    "top_k": {
+      "undirected": [
+        "In {multiplex_id}, list the strongest {top_k} undirected neighbors joined to {gene} in layer {layer_id}, or the entire available set if smaller. Include the original edge weight beside each neighbor.",
+        "Give the highest-weight {top_k} neighbors sharing unordered edges with {gene} for {layer_id} under {multiplex_id}, returning fewer only if exhausted; preserve each recorded weight.",
+        "Select the top {top_k} neighbors linked without orientation to {gene} by descending weight from layer {layer_id} in {multiplex_id}, retaining all available when their number is smaller.",
+        "Using {multiplex_id} and {layer_id}, return the strongest-weight prefix of {top_k} neighbors joined through undirected adjacency to {gene} with source weights; finish early only upon exhaustion."
+      ],
+      "in": [
+        "In {multiplex_id}, list the strongest {top_k} incoming neighbors whose edges end at target {gene} in layer {layer_id}, or the entire available set if smaller. Include the original edge weight beside each neighbor.",
+        "Give the highest-weight {top_k} incoming neighbors connected into {gene} as the target for {layer_id} under {multiplex_id}, returning fewer only if exhausted; preserve each recorded weight.",
+        "Select the top {top_k} incoming neighbors sending edges toward {gene} by descending weight from layer {layer_id} in {multiplex_id}, retaining all available when their number is smaller.",
+        "Using {multiplex_id} and {layer_id}, return the strongest-weight prefix of {top_k} incoming neighbors whose arcs terminate at {gene} with source weights; finish early only upon exhaustion."
+      ],
+      "out": [
+        "In {multiplex_id}, list the strongest {top_k} outgoing neighbors whose edges start at source {gene} in layer {layer_id}, or the entire available set if smaller. Include the original edge weight beside each neighbor.",
+        "Give the highest-weight {top_k} outgoing neighbors reached from {gene} as the source for {layer_id} under {multiplex_id}, returning fewer only if exhausted; preserve each recorded weight.",
+        "Select the top {top_k} outgoing neighbors receiving edges from {gene} by descending weight from layer {layer_id} in {multiplex_id}, retaining all available when their number is smaller.",
+        "Using {multiplex_id} and {layer_id}, return the strongest-weight prefix of {top_k} outgoing neighbors reached by arcs originating at {gene} with source weights; finish early only upon exhaustion."
+      ],
+      "both": [
+        "In {multiplex_id}, list the strongest {top_k} incident neighbors of {gene} (Q), separating incoming N → Q edges from outgoing Q → N edges in layer {layer_id}, or the entire available set if smaller. Include the original edge weight beside each neighbor. Apply that bound independently to the incoming and outgoing lists.",
+        "Give the highest-weight {top_k} neighbors touching {gene}, keeping incoming connections toward the query and outgoing connections from it in separate lists for {layer_id} under {multiplex_id}, returning fewer only if exhausted; preserve each recorded weight. Apply that bound independently to the incoming and outgoing lists.",
+        "Select the top {top_k} neighbors incident on {gene}, split into incoming sources that point to the query and outgoing targets reached from it by descending weight from layer {layer_id} in {multiplex_id}, retaining all available when their number is smaller. Apply that bound independently to the incoming and outgoing lists.",
+        "Using {multiplex_id} and {layer_id}, return the strongest-weight prefix of {top_k} neighbors around {gene}, with incoming arrows entering the query and outgoing arrows leaving it reported separately with source weights; finish early only upon exhaustion. Apply that bound independently to the incoming and outgoing lists."
+      ]
+    }
+  },
+  "validation": {
+    "complete": {
+      "undirected": [
+        "From multiplex {multiplex_id}, extract all neighbors connected to {gene} through unordered links represented in {layer_id}, carrying their native edge weights.",
+        "Retrieve an exhaustive inventory of unoriented adjacency partners for {gene} for the {layer_id} relation inside {multiplex_id}. Attach the stored weight to each entry.",
+        "Which neighbors attached by undirected links to {gene} occur in {layer_id}, a layer belonging to {multiplex_id}? Supply them all alongside unchanged numerical weights.",
+        "Within layer {layer_id} of multiplex {multiplex_id}, identify the entire set of neighbors alongside {gene} in the nonoriented representation. Each item should retain its own edge weight."
+      ],
+      "in": [
+        "From multiplex {multiplex_id}, extract all incoming predecessors with arcs terminating at {gene} represented in {layer_id}, carrying their native edge weights.",
+        "Retrieve an exhaustive inventory of incoming sources having destination {gene} for the {layer_id} relation inside {multiplex_id}. Attach the stored weight to each entry.",
+        "Which incoming neighbors whose arrows enter {gene} occur in {layer_id}, a layer belonging to {multiplex_id}? Supply them all alongside unchanged numerical weights.",
+        "Within layer {layer_id} of multiplex {multiplex_id}, identify the entire set of incoming neighbors with connections aimed at {gene}. Each item should retain its own edge weight."
+      ],
+      "out": [
+        "From multiplex {multiplex_id}, extract all outgoing successors with arcs originating at {gene} represented in {layer_id}, carrying their native edge weights.",
+        "Retrieve an exhaustive inventory of outgoing targets having source {gene} for the {layer_id} relation inside {multiplex_id}. Attach the stored weight to each entry.",
+        "Which outgoing neighbors whose arrows originate at {gene} occur in {layer_id}, a layer belonging to {multiplex_id}? Supply them all alongside unchanged numerical weights.",
+        "Within layer {layer_id} of multiplex {multiplex_id}, identify the entire set of outgoing neighbors on connections departing from {gene}. Each item should retain its own edge weight."
+      ],
+      "both": [
+        "From multiplex {multiplex_id}, extract all neighbors adjacent to {gene}, partitioned into incoming arrows that terminate at the query while outgoing arrows that originate there represented in {layer_id}, carrying their native edge weights.",
+        "Retrieve an exhaustive inventory of incident counterparts of {gene}, separating incoming source → query records and outgoing query → target records for the {layer_id} relation inside {multiplex_id}. Attach the stored weight to each entry.",
+        "Which neighbors attached to {gene} on either side, with distinct incoming predecessors targeting the query and outgoing successors sourced from it occur in {layer_id}, a layer belonging to {multiplex_id}? Supply them all alongside unchanged numerical weights.",
+        "Within layer {layer_id} of multiplex {multiplex_id}, identify the entire set of neighbors for {gene}, reporting incoming N → Q and outgoing Q → N in independent collections, where Q denotes the query. Each item should retain its own edge weight."
+      ]
+    },
+    "top_k": {
+      "undirected": [
+        "From multiplex {multiplex_id}, extract the {top_k} highest-weighted neighbors connected to {gene} through unordered links represented in {layer_id}, carrying their native edge weights; a shorter inventory requires exhausted adjacency.",
+        "Retrieve the strongest {top_k} unoriented adjacency partners for {gene} for the {layer_id} relation inside {multiplex_id}. Attach the stored weight to each entry, stopping below that limit only when no further neighbors remain available.",
+        "Which {top_k} highest-weight neighbors attached by undirected links to {gene} occur in {layer_id}, a layer belonging to {multiplex_id}? Supply a shorter selection when exhausted, alongside unchanged numerical weights.",
+        "Within layer {layer_id} of multiplex {multiplex_id}, identify the strongest {top_k} available neighbors alongside {gene} in the nonoriented representation. Each item should retain its own edge weight; insufficient adjacency permits a smaller selection."
+      ],
+      "in": [
+        "From multiplex {multiplex_id}, extract the {top_k} highest-weighted incoming predecessors with arcs terminating at {gene} represented in {layer_id}, carrying their native edge weights; a shorter inventory requires exhausted adjacency.",
+        "Retrieve the strongest {top_k} incoming sources having destination {gene} for the {layer_id} relation inside {multiplex_id}. Attach the stored weight to each entry, stopping below that limit only when no further neighbors remain available.",
+        "Which {top_k} highest-weight incoming neighbors whose arrows enter {gene} occur in {layer_id}, a layer belonging to {multiplex_id}? Supply a shorter selection when exhausted, alongside unchanged numerical weights.",
+        "Within layer {layer_id} of multiplex {multiplex_id}, identify the strongest {top_k} available incoming neighbors with connections aimed at {gene}. Each item should retain its own edge weight; insufficient adjacency permits a smaller selection."
+      ],
+      "out": [
+        "From multiplex {multiplex_id}, extract the {top_k} highest-weighted outgoing successors with arcs originating at {gene} represented in {layer_id}, carrying their native edge weights; a shorter inventory requires exhausted adjacency.",
+        "Retrieve the strongest {top_k} outgoing targets having source {gene} for the {layer_id} relation inside {multiplex_id}. Attach the stored weight to each entry, stopping below that limit only when no further neighbors remain available.",
+        "Which {top_k} highest-weight outgoing neighbors whose arrows originate at {gene} occur in {layer_id}, a layer belonging to {multiplex_id}? Supply a shorter selection when exhausted, alongside unchanged numerical weights.",
+        "Within layer {layer_id} of multiplex {multiplex_id}, identify the strongest {top_k} available outgoing neighbors on connections departing from {gene}. Each item should retain its own edge weight; insufficient adjacency permits a smaller selection."
+      ],
+      "both": [
+        "From multiplex {multiplex_id}, extract the {top_k} highest-weighted neighbors adjacent to {gene}, partitioned into incoming arrows that terminate at the query while outgoing arrows that originate there represented in {layer_id}, carrying their native edge weights; a shorter inventory requires exhausted adjacency. Enforce the limit separately for each directional collection.",
+        "Retrieve the strongest {top_k} incident counterparts of {gene}, separating incoming source → query records and outgoing query → target records for the {layer_id} relation inside {multiplex_id}. Attach the stored weight to each entry, stopping below that limit only when no further neighbors remain available. Enforce the limit separately for each directional collection.",
+        "Which {top_k} highest-weight neighbors attached to {gene} on either side, with distinct incoming predecessors targeting the query and outgoing successors sourced from it occur in {layer_id}, a layer belonging to {multiplex_id}? Supply a shorter selection when exhausted, alongside unchanged numerical weights. Enforce the limit separately for each directional collection.",
+        "Within layer {layer_id} of multiplex {multiplex_id}, identify the strongest {top_k} available neighbors for {gene}, reporting incoming N → Q and outgoing Q → N in independent collections, where Q denotes the query. Each item should retain its own edge weight; insufficient adjacency permits a smaller selection. Enforce the limit separately for each directional collection."
+      ]
+    }
+  },
+  "test": {
+    "complete": {
+      "undirected": [
+        "Compile all neighbors meeting {gene} along undirected edges for {multiplex_id}'s {layer_id} graph, pairing entries with recorded edge weights.",
+        "Produce the exhaustive roster of neighbors bordering {gene} without orientation in {layer_id} ({multiplex_id}); copy weight values exactly.",
+        "Under {multiplex_id}, report all genes directly adjacent to {gene} through unordered edges for relation {layer_id} and accompany each identifier with its native weight.",
+        "Describe the full adjacency collection comprising neighbors of {gene} joined by nonoriented connections at {multiplex_id}/{layer_id}, retaining weights at source precision."
+      ],
+      "in": [
+        "Compile all incoming neighbors on edges pointing into {gene} for {multiplex_id}'s {layer_id} graph, pairing entries with recorded edge weights.",
+        "Produce the exhaustive roster of incoming neighbors for which {gene} is the target in {layer_id} ({multiplex_id}); copy weight values exactly.",
+        "Under {multiplex_id}, report all incoming counterparts whose connections lead to {gene} for relation {layer_id} and accompany each identifier with its native weight.",
+        "Describe the full adjacency collection comprising incoming neighbors on arrows arriving at {gene} at {multiplex_id}/{layer_id}, retaining weights at source precision."
+      ],
+      "out": [
+        "Compile all outgoing neighbors on edges directed from {gene} for {multiplex_id}'s {layer_id} graph, pairing entries with recorded edge weights.",
+        "Produce the exhaustive roster of outgoing neighbors for which {gene} is the source in {layer_id} ({multiplex_id}); copy weight values exactly.",
+        "Under {multiplex_id}, report all outgoing counterparts whose connections depart from {gene} for relation {layer_id} and accompany each identifier with its native weight.",
+        "Describe the full adjacency collection comprising outgoing neighbors on arrows leaving {gene} at {multiplex_id}/{layer_id}, retaining weights at source precision."
+      ],
+      "both": [
+        "Compile all incident neighbors connected with {gene}, with incoming edges pointing into the query and outgoing edges pointing away tabulated separately for {multiplex_id}'s {layer_id} graph, pairing entries with recorded edge weights.",
+        "Produce the exhaustive roster of adjacent genes of {gene}, distinguishing incoming neighbor → query arcs from outgoing query → neighbor arcs in {layer_id} ({multiplex_id}); copy weight values exactly.",
+        "Under {multiplex_id}, report all neighbors meeting {gene}, arranged in separate incoming lists toward the query alongside outgoing lists departing from it for relation {layer_id} and accompany each identifier with its native weight.",
+        "Describe the full adjacency collection comprising neighbors bordering {gene}, with incoming sources linking to the query separated from outgoing targets receiving its edges at {multiplex_id}/{layer_id}, retaining weights at source precision."
+      ]
+    },
+    "top_k": {
+      "undirected": [
+        "Compile the {top_k} heaviest neighbors meeting {gene} along undirected edges for {multiplex_id}'s {layer_id} graph, pairing entries with recorded edge weights; use a smaller roster when adjacency runs out.",
+        "Produce a roster of the {top_k} heaviest neighbors bordering {gene} without orientation in {layer_id} ({multiplex_id}); copy weight values exactly, and allow a shorter roster solely upon exhaustion.",
+        "Under {multiplex_id}, report the {top_k} highest-weight genes directly adjacent to {gene} through unordered edges for relation {layer_id} and accompany each identifier with its native weight. Fewer entries are appropriate if no additional neighbors exist.",
+        "Describe a strongest-weight adjacency prefix comprising {top_k} neighbors of {gene} joined by nonoriented connections at {multiplex_id}/{layer_id}, retaining weights at source precision; if fewer exist, include the available neighbors."
+      ],
+      "in": [
+        "Compile the {top_k} heaviest incoming neighbors on edges pointing into {gene} for {multiplex_id}'s {layer_id} graph, pairing entries with recorded edge weights; use a smaller roster when adjacency runs out.",
+        "Produce a roster of the {top_k} heaviest incoming neighbors for which {gene} is the target in {layer_id} ({multiplex_id}); copy weight values exactly, and allow a shorter roster solely upon exhaustion.",
+        "Under {multiplex_id}, report the {top_k} highest-weight incoming counterparts whose connections lead to {gene} for relation {layer_id} and accompany each identifier with its native weight. Fewer entries are appropriate if no additional neighbors exist.",
+        "Describe a strongest-weight adjacency prefix comprising {top_k} incoming neighbors on arrows arriving at {gene} at {multiplex_id}/{layer_id}, retaining weights at source precision; if fewer exist, include the available neighbors."
+      ],
+      "out": [
+        "Compile the {top_k} heaviest outgoing neighbors on edges directed from {gene} for {multiplex_id}'s {layer_id} graph, pairing entries with recorded edge weights; use a smaller roster when adjacency runs out.",
+        "Produce a roster of the {top_k} heaviest outgoing neighbors for which {gene} is the source in {layer_id} ({multiplex_id}); copy weight values exactly, and allow a shorter roster solely upon exhaustion.",
+        "Under {multiplex_id}, report the {top_k} highest-weight outgoing counterparts whose connections depart from {gene} for relation {layer_id} and accompany each identifier with its native weight. Fewer entries are appropriate if no additional neighbors exist.",
+        "Describe a strongest-weight adjacency prefix comprising {top_k} outgoing neighbors on arrows leaving {gene} at {multiplex_id}/{layer_id}, retaining weights at source precision; if fewer exist, include the available neighbors."
+      ],
+      "both": [
+        "Compile the {top_k} heaviest incident neighbors connected with {gene}, with incoming edges pointing into the query and outgoing edges pointing away tabulated separately for {multiplex_id}'s {layer_id} graph, pairing entries with recorded edge weights; use a smaller roster when adjacency runs out. Use this many entries per direction, ranking each side independently.",
+        "Produce a roster of the {top_k} heaviest adjacent genes of {gene}, distinguishing incoming neighbor → query arcs from outgoing query → neighbor arcs in {layer_id} ({multiplex_id}); copy weight values exactly, and allow a shorter roster solely upon exhaustion. Use this many entries per direction, ranking each side independently.",
+        "Under {multiplex_id}, report the {top_k} highest-weight neighbors meeting {gene}, arranged in separate incoming lists toward the query alongside outgoing lists departing from it for relation {layer_id} and accompany each identifier with its native weight. Fewer entries are appropriate if no additional neighbors exist. Use this many entries per direction, ranking each side independently.",
+        "Describe a strongest-weight adjacency prefix comprising {top_k} neighbors bordering {gene}, with incoming sources linking to the query separated from outgoing targets receiving its edges at {multiplex_id}/{layer_id}, retaining weights at source precision; if fewer exist, include the available neighbors. Use this many entries per direction, ranking each side independently."
+      ]
+    }
+  }
+}
