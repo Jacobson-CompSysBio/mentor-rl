@@ -12,6 +12,8 @@ def test_thresholds_read_targets_and_minimums():
     assert thresholds(structured) == {"structured_answer_accuracy": 0.95}
     assert thresholds(s0) == {"status_exact": 0.995}
     assert thresholds({"minimum_target_rate": 0.9}) == {}
+    # A report-only gate records a null target: it sets no pass mark to draw.
+    assert thresholds({"profile": "report_only_v1", "details": {"structured_accuracy": {"target": None}}}) == {}
 
 
 def test_splits_count_types_from_component_manifests(tmp_path):

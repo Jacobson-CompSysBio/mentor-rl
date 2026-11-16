@@ -78,8 +78,53 @@ function typeOrder(x, y) {
   return x.localeCompare(y, "en", { numeric: true });
 }
 
+const BIN_WIDTHS = [["0.01", "1%"], ["0.02", "2%"], ["0.05", "5%"], ["0.1", "10%"]];
+const types = (n) => `${number(n)} type${n === 1 ? "" : "s"}`;
+
+function distributionView(v, compareTo, valueOf, metric, threshold, width) {
+  // A histogram of one version's per-type rates from 0 to 100%, with another
+  // version's as a step line, a summary line per version, and a table view.
+  const scored = (x) => Object.keys(x.gate.groups.rows).sort(typeOrder)
+    .map((name) => ({ name, value: valueOf(x, name) })).filter((item) => item.value !== null);
+  const items = scored(v), others = compareTo ? scored(compareTo) : null;
+  const mine = binRates(items, width), theirs = others && binRates(others, width);
+  const pct = (x) => `${Math.round(x * 100)}%`;
+  const range = (b, i) => (i === mine.length - 1 ? `${pct(b.lo)} to 100%` : `${pct(b.lo)} to under ${pct(b.hi)}`);
+  const bins = mine.map((b, i) => {
+    const compare = theirs ? theirs[i].items.length : null;
+    const listed = b.items.slice(0, 8).map((item) => `${item.name} ${rate(item.value)}`);
+    const tip = `${range(b, i)}\n${v.version}: ${types(b.items.length)}` +
+      (theirs ? `\n${compareTo.version}: ${types(compare)}` : "") +
+      (listed.length ? `\n\n${listed.join("\n")}${b.items.length > 8 ? `\n… and ${b.items.length - 8} more` : ""}` : "");
+    return { lo: b.lo, hi: b.hi, count: b.items.length, compare, tip };
+  });
+  const spread = (x, list) => {
+    const values = list.map((item) => item.value).sort((a, b) => a - b);
+    if (!values.length) return `<b>${esc(x.version)}</b>: no type has this rate`;
+    const half = Math.floor(values.length / 2);
+    const median = values.length % 2 ? values[half] : (values[half - 1] + values[half]) / 2;
+    const unscored = Object.keys(x.gate.groups.rows).length - values.length;
+    return `<b>${esc(x.version)}</b>: ${types(values.length)} · median ${rate(median)} · lowest ${rate(values[0])} · ` +
+      `${number(values.filter((value) => value === 1).length)} at 100%` +
+      (threshold ? ` · ${number(values.filter((value) => value < threshold.value).length)} below ${rate(threshold.value)}` : "") +
+      (unscored ? ` · ${types(unscored)} without this rate` : "");
+  };
+  return '<h3 class="sub">Spread across question types</h3>' +
+    `<p class="controls"><label>Bin width ${select("bins", BIN_WIDTHS, String(width))}</label></p>` +
+    `<p class="spread">${spread(v, items)}</p>` + (compareTo ? `<p class="spread">${spread(compareTo, others)}</p>` : "") +
+    histogram({ bins, threshold, label: `How ${METRICS[metric]} spreads across question types`,
+      series: { value: v.version, compare: compareTo && compareTo.version, unit: "question types per bin" } }) +
+    '<details class="table-view"><summary>Show as table</summary><div class="table-wrap"><table>' +
+    `<thead><tr><th>${esc(METRICS[metric])}</th><th class="num">${esc(v.version)} types</th>` +
+    (compareTo ? `<th class="num">${esc(compareTo.version)} types</th>` : "") + "</tr></thead><tbody>" +
+    bins.map((b, i) => `<tr><td>${range(b, i)}</td><td class="num">${number(b.count)}</td>` +
+      (compareTo ? `<td class="num">${number(b.compare)}</td>` : "") + "</tr>").join("") +
+    "</tbody></table></div></details>";
+}
+
 function typesView(data, state) {
   // Accuracy by question type for one version, with another as dots, then every type described.
+  // Per-type rates also get a histogram of how they spread.
   const gated = data.versions.filter((v) => v.gate && Object.keys(v.gate.groups.rows).length);
   let html = "";
   if (gated.length) {
@@ -115,6 +160,9 @@ function typesView(data, state) {
       `<label>Version ${select("version", gated.map((x) => [x.version, x.version]), v.version)}</label> ` +
       `<label>Compare with ${select("compare", [["none", "none"], ...gated.filter((x) => x !== v).map((x) => [x.version, x.version])], compareTo ? compareTo.version : "none")}</label> ` +
       (metrics.length > 1 ? `<label>Rate ${select("metric", metrics.map((m) => [m, METRICS[m]]), metric)}</label>` : "") + "</p>" +
+      (byType ? distributionView(v, compareTo, valueOf, metric, threshold,
+        BIN_WIDTHS.some(([w]) => w === state.bins) ? Number(state.bins) : 0.05) +
+        '<h3 class="sub">Each question type</h3>' : "") +
       barRows({ groups, threshold, series: { value: v.version, compare: compareTo && compareTo.version },
         label: `${METRICS[metric]} by ${v.gate.groups.by}` }) +
       (threshold ? `<p class="muted small">The gate applies its pass mark to the overall rate; per-${byType ? "type" : "family"} rates are diagnostics.</p>` : "") +
@@ -402,7 +450,8 @@ function start() {
 
 if (typeof module !== "undefined") {
   module.exports = {
-    accuracyBasis, anchor, barRows, blocks, caseBody, catalogView, changelogView, columnChart, diffOps, failedCases,
+    accuracyBasis, anchor, barRows, binRates, blocks, caseBody, catalogView, changelogView, columnChart, diffOps,
+    distributionView, failedCases, histogram,
     failuresView, fullRow, pairView, pretty, rowsJson, sharedView, slug, sortByAccuracy, sourcesView, splitsView,
     toolText, toolsView, tracesMarkdown, turnRows, typesView, versionView, versionsView, wordDiff,
   };

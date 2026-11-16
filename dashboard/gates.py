@@ -88,14 +88,15 @@ def thresholds(gate: dict) -> dict[str, float]:
     """The gate's pass mark for each headline rate it sets one for.
 
     structured_95_v1 states its target per metric under details; the S0 gate
-    states minimum_<metric>. Tiered S1 gates set no single structured target.
+    states minimum_<metric>. Tiered S1 gates set no single structured target,
+    and a report-only gate (S2 v1) records its target as null.
     """
     found = {}
     for name in HEADLINE:
         detail = gate.get("details", {}).get(name, {})
-        if "target" in detail:
+        if detail.get("target") is not None:
             found[name] = detail["target"]
-        elif f"minimum_{name}" in gate:
+        elif gate.get(f"minimum_{name}") is not None:
             found[name] = gate[f"minimum_{name}"]
     return found
 

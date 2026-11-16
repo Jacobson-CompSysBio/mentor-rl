@@ -173,6 +173,25 @@ table.splits tr.changed td { background: var(--warn-bg); }
 .key.bar { width: 16px; height: 10px; background: var(--series-1); border-radius: 0 3px 3px 0; }
 .key.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--series-2); }
 .key.thr { width: 0; height: 12px; border-left: 1.5px dashed var(--ink-2); }
+/* Histogram: how many question types fall in each rate bin, on the bars' 0-100% axis */
+h3.sub { margin: 28px 0 6px; }
+.chart.hist .axis-title { margin: 8px 0 10px 44px; font-size: 11px; color: var(--muted); }
+.chart.hist .plot { position: relative; height: 180px; margin: 0 16px 0 44px; border-bottom: 1px solid var(--axis); }
+.hist-bins { position: absolute; inset: 0; }
+.hist-bin { position: absolute; top: 0; bottom: 0; }
+.hist-bin:hover, .hist-bin:focus { background: var(--chip); }
+.hist-bar { position: absolute; bottom: 0; left: 1px; right: 1px; background: var(--series-1); border-radius: 4px 4px 0 0; }
+.hist-bin:hover .hist-bar, .hist-bin:focus .hist-bar { filter: brightness(1.15); }
+.hist-step { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 1; }
+.hist-step polyline { fill: none; stroke: var(--series-2); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.vthreshold { position: absolute; top: 0; bottom: 0; border-left: 1.5px dashed var(--ink-2); z-index: 2; pointer-events: none; }
+.vthreshold span { position: absolute; right: 4px; top: -18px; font-size: 11px; color: var(--ink-2); background: var(--bg);
+  padding: 0 3px; white-space: nowrap; }
+.hist-x { position: relative; height: 18px; margin: 4px 16px 0 44px; }
+.hist-x span { position: absolute; transform: translateX(-50%); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.key.hist { width: 10px; height: 12px; background: var(--series-1); border-radius: 3px 3px 0 0; }
+.key.step { width: 16px; height: 0; border-top: 2px solid var(--series-2); }
+.spread { margin: 4px 0 0; font-size: 13px; color: var(--ink-2); }
 .tooltip { position: fixed; z-index: 50; max-width: 340px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px;
   background: var(--surface); color: var(--text); font-size: 12px; white-space: pre-line; pointer-events: none;
   box-shadow: 0 4px 16px rgba(0, 0, 0, .14); }
@@ -192,6 +211,8 @@ table.sources code { overflow-wrap: anywhere; }
   .chart.bars .bar-row { grid-template-columns: minmax(0, 1fr) 52px; row-gap: 2px; }
   .chart.bars .bar-label { grid-column: 1 / -1; }
   .chart.columns .plot, .col-labels { margin-left: 38px; margin-right: 0; }
+  .chart.hist .plot, .hist-x { margin-left: 38px; margin-right: 12px; }
+  .chart.hist .axis-title { margin-left: 38px; }
   .col-label, .col-value { font-size: 10px; }
 }
 </style>

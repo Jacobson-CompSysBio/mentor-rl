@@ -85,6 +85,40 @@ const bars = c.barRows({ label: "x", threshold: null, series: { value: "v2", com
   groups: [{ title: "S1.1", rows: [{ label: "S1.1.1", sublabel: "direct", value: 0.5, compare: 0.25, tip: "t" }] }] });
 assert.ok(bars.includes("width:50%") && bars.includes('class="dot" style="left:25%"') && bars.includes('class="key dot"'));
 
+// Histogram bins hold their lower edge; the last also holds 100%.
+const binned = c.binRates([{ name: "a", value: 0 }, { name: "b", value: 0.95 }, { name: "c", value: 1 },
+  { name: "d", value: 0.9499 }, { name: "e", value: 61 / 64 }], 0.05);
+assert.strictEqual(binned.length, 20);
+same(binned[0].items.map((i) => i.name), ["a"]);
+same(binned[18].items.map((i) => i.name), ["d"]);
+same(binned[19].items.map((i) => i.name), ["b", "c", "e"]);
+assert.strictEqual(c.binRates([], 0.01).length, 100);
+const hist = c.histogram({ label: "x", threshold: { value: 0.95, label: "gate 95%" },
+  series: { value: "v2", compare: "v1", unit: "types" },
+  bins: [{ lo: 0, hi: 0.5, count: 0, compare: 2, tip: "low" }, { lo: 0.5, hi: 1, count: 4, compare: 1, tip: "high" }] });
+assert.ok(hist.includes('class="vthreshold" style="left:95%"') && hist.includes('class="key step"'));
+assert.ok(hist.includes('class="hist-bar" style="height:100%"') && hist.includes("0,100 0,50 50,50 50,75 100,75 100,100"));
+// An empty bin draws no bar; one with only a compare count can still take focus.
+assert.strictEqual((hist.match(/class="hist-bar"/g) || []).length, 1);
+assert.strictEqual((hist.match(/tabindex="0"/g) || []).length, 2);
+
+// The Question types tab shows the spread across types, with a compare version and the gate's mark.
+const gateOf = (rows) => ({ thresholds: { structured_answer_accuracy: 0.95 }, profile: "structured_95_v1",
+  groups: { by: "question type", rows: Object.fromEntries(Object.entries(rows).map(([name, value]) =>
+    [name, { rates: { structured_answer_accuracy: value }, total: 10 }])) } });
+const typesData = { stage: "S1", current: "v2", families: {}, type_text: {}, versions: [
+  { version: "v1", names: {}, gold: [], gate: gateOf({ "S1.1.1": 0.5, "S1.1.2": 1 }) },
+  { version: "v2", names: {}, gold: [], gate: gateOf({ "S1.1.1": 0.9, "S1.1.2": 1, "S1.1.3": 1 }) }] };
+const tab = c.typesView(typesData, { bins: "0.1" });
+assert.ok(tab.includes("Spread across question types") && tab.includes('<option value="0.1" selected>'));
+assert.ok(tab.includes("<b>v2</b>: 3 types · median 100.00% · lowest 90.00% · 2 at 100% · 1 below 95.00%"));
+assert.ok(tab.includes("<b>v1</b>: 2 types · median 75.00%") && tab.includes("90% to 100%"));
+assert.ok(tab.indexOf("Spread across question types") < tab.indexOf("Each question type"));
+// Rates by question family (S0) have no histogram.
+const families = c.typesView({ ...typesData, versions: [{ ...typesData.versions[1],
+  gate: { ...typesData.versions[1].gate, groups: { ...typesData.versions[1].gate.groups, by: "question family" } } }] }, {});
+assert.ok(!families.includes("Spread across"));
+
 const table = c.changelogView({ stage: "S0", current: "v4", versions: [
   { version: "v3", summary: "Baseline.", gold: [], gate: { passed: false, run: "r3", metrics: { status_exact: 0.9518 } }, vs_previous: null },
   { version: "v4", summary: null, description: "More rows.", gold: [{}], gate: { passed: true, run: "r4", metrics: { status_exact: 0.9999 } },

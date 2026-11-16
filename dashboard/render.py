@@ -8,7 +8,8 @@ of versions, and its tabs show:
 - Compare: the chosen pair side by side, older on the left, then questions
   and splits (or the one version on disk);
 - Versions: a gate-rate chart and every version's change and gate results;
-- Question types: accuracy by question type, and what each type asks;
+- Question types: accuracy by question type, a histogram of how those
+  accuracies spread, and what each type asks;
 - Failures, when failures.py has collected them: where the held-out answers
   of the current version go wrong, by field, category, and case;
 - Tools and Raw data sources: the tool reference and every file the stage
