@@ -1,6 +1,5 @@
 .env
 .deepspeed_env
-**/shared_memory
 **/slurm/
 **/data
 **/logs/
@@ -22,7 +21,6 @@ external/rwr_hpc/**/*.o
 external/rwr_hpc/**/*.e
 external/cli11/.git/
 external/cli11/build*/
-AGENTS.md
 tea_debug.log
 /core
 /site/
